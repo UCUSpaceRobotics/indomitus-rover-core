@@ -1,0 +1,60 @@
+#pragma once
+#include <array>
+#include <string>
+#include <vector>
+
+#include "rclcpp/rclcpp.hpp"
+#include "can_msgs/msg/frame.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "indomitus_msgs/msg/wheel_targets.hpp"
+#include "damiao_driver/damiao_protocol.hpp"
+
+namespace damiao_driver {
+
+class DamiaoDriverNode : public rclcpp::Node {
+public:
+    explicit DamiaoDriverNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions{});
+
+private:
+    void onWheelTargets(const indomitus_msgs::msg::WheelTargets::SharedPtr msg);
+    void onCanFrame(const can_msgs::msg::Frame::SharedPtr msg);
+    void publishJointStates();
+    void publishDiagnostics();
+    void sendEnableFrames();
+
+    // Subscriptions
+    rclcpp::Subscription<indomitus_msgs::msg::WheelTargets>::SharedPtr wheel_targets_sub_;
+    rclcpp::Subscription<can_msgs::msg::Frame>::SharedPtr from_can_sub_;
+
+    // Publishers
+    rclcpp::Publisher<can_msgs::msg::Frame>::SharedPtr to_can_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_states_pub_;
+    rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
+
+    // Timers
+    rclcpp::TimerBase::SharedPtr enable_timer_;
+    rclcpp::TimerBase::SharedPtr diagnostics_timer_;
+
+    // Motor IDs [FL, FR, RL, RR]
+    std::array<uint8_t, 4> steer_ids_;
+    std::array<uint8_t, 4> drive_ids_;
+
+    // Motor config
+    float steer_gear_ratio_;
+    float drive_gear_ratio_;
+    float steer_pmax_, steer_vmax_, steer_tmax_;
+    float drive_pmax_, drive_vmax_, drive_tmax_;
+    float steer_velocity_cap_;
+    uint32_t mst_id_;
+
+    // Joint names
+    std::vector<std::string> steer_joint_names_;
+    std::vector<std::string> drive_joint_names_;
+
+    // Motor feedback state [FL, FR, RL, RR]
+    std::array<damiao_protocol::MotorState, 4> steer_state_;
+    std::array<damiao_protocol::MotorState, 4> drive_state_;
+};
+
+} // namespace damiao_driver
