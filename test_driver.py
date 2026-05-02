@@ -3,6 +3,7 @@
 Test script for damiao_driver.
 Publishes WheelTargets and prints CAN frames + diagnostics to stdout.
 """
+import math
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
@@ -101,11 +102,15 @@ def main():
     # Publish a WheelTargets and capture the resulting CAN frames
     node.can_frames.clear()
     wt = WheelTargets()
-    wt.steer_angles = [0.1, 0.1, -0.1, -0.1]       # rad
-    wt.drive_velocities = [5.0, -5.0, 5.0, -5.0]   # rad/s
+    wt.fl_angle = 0.1;  wt.fr_angle =  0.1
+    wt.rl_angle = -0.1; wt.rr_angle = -0.1
+    wt.fl_speed = 5.0;  wt.fr_speed = -5.0
+    wt.rl_speed = 5.0;  wt.rr_speed = -5.0
     print("\n--- Publishing WheelTargets ---")
-    print(f"  steer_angles     = {list(wt.steer_angles)}")
-    print(f"  drive_velocities = {list(wt.drive_velocities)}")
+    print(f"  angles  FL={math.degrees(wt.fl_angle):+.1f}° FR={math.degrees(wt.fr_angle):+.1f}° "
+          f"RL={math.degrees(wt.rl_angle):+.1f}° RR={math.degrees(wt.rr_angle):+.1f}°")
+    print(f"  speeds  FL={wt.fl_speed:+.1f} FR={wt.fr_speed:+.1f} "
+          f"RL={wt.rl_speed:+.1f} RR={wt.rr_speed:+.1f} rad/s")
     node.wt_pub.publish(wt)
 
     time.sleep(0.5)

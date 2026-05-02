@@ -89,14 +89,16 @@ void DamiaoDriverNode::sendEnableFrames() {
 }
 
 void DamiaoDriverNode::onWheelTargets(const indomitus_msgs::msg::WheelTargets::SharedPtr msg) {
-    for (int i = 0; i < 4; i++) {
-        float steer_pos = msg->steer_angles[i] * steer_gear_ratio_;
-        float drive_vel = msg->drive_velocities[i] * drive_gear_ratio_;
+    const float angles[4] = {msg->fl_angle, msg->fr_angle, msg->rl_angle, msg->rr_angle};
+    const float speeds[4] = {msg->fl_speed, msg->fr_speed, msg->rl_speed, msg->rr_speed};
 
+    for (int i = 0; i < 4; i++) {
         to_can_pub_->publish(
-            damiao_protocol::buildPositionVelocityFrame(steer_ids_[i], steer_pos, steer_velocity_cap_));
+            damiao_protocol::buildPositionVelocityFrame(
+                steer_ids_[i], angles[i] * steer_gear_ratio_, steer_velocity_cap_));
         to_can_pub_->publish(
-            damiao_protocol::buildVelocityFrame(drive_ids_[i], drive_vel));
+            damiao_protocol::buildVelocityFrame(
+                drive_ids_[i], speeds[i] * drive_gear_ratio_));
     }
 }
 
