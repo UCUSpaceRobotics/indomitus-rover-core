@@ -17,28 +17,25 @@ Wheel layout (top view):
    RL -------- RR
         rear
 
-Published message (Float32MultiArray), 8 values in order:
-  [FL_angle, FR_angle, RL_angle, RR_angle,
-   FL_speed, FR_speed, RL_speed, RR_speed]
-
-  angles in radians, speeds in rad/s
+Published message (indomitus_msgs/WheelTargets):
+  fl_angle, fr_angle, rl_angle, rr_angle  — radians
+  fl_speed, fr_speed, rl_speed, rr_speed  — rad/s
 """
 
 import math
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Float32MultiArray
+from indomitus_msgs.msg import WheelTargets
 
 
 # ── Rover geometry ──────────────────────────────────────────────────────────
-WHEELBASE   = 1.20   # meters, distance between front and rear axle
-TRACK_WIDTH = 0.80   # meters, distance between left and right wheels
+WHEELBASE    = 1.20  # meters, distance between front and rear axle
+TRACK_WIDTH  = 0.80  # meters, distance between left and right wheels
 WHEEL_RADIUS = 0.10  # meters — adjust to your actual wheel radius
 
 MAX_STEER_ANGLE = math.radians(45.0)  # ±45°
 
-# Half-dimensions (used often)
 L2 = WHEELBASE   / 2.0
 W2 = TRACK_WIDTH / 2.0
 
@@ -50,14 +47,14 @@ class RoverController(Node):
 
         self.sub = self.create_subscription(
             Twist,
-            '/cmd_vel',
+            'cmd_vel',
             self.cmd_vel_callback,
             10
         )
 
         self.pub = self.create_publisher(
-            Float32MultiArray,
-            '/wheel_targets',
+            WheelTargets,
+            'wheel_targets',
             10
         )
 
@@ -66,14 +63,22 @@ class RoverController(Node):
     # ── Main callback ────────────────────────────────────────────────────────
 
     def cmd_vel_callback(self, msg: Twist):
-        vx  = msg.linear.x   # forward speed  (m/s)
-        vy  = msg.linear.y   # lateral speed  (m/s)  — for future crab mode
-        wz  = msg.angular.z  # yaw rate       (rad/s)
+        vx = msg.linear.x
+        vy = msg.linear.y
+        wz = msg.angular.z
 
         angles, speeds = self.compute_wheel_commands(vx, vy, wz)
 
-        out = Float32MultiArray()
-        out.data = [float(v) for v in angles + speeds]
+        out = WheelTargets()
+        out.fl_angle = float(angles[0])
+        out.fr_angle = float(angles[1])
+        out.rl_angle = float(angles[2])
+        out.rr_angle = float(angles[3])
+        out.fl_speed = float(speeds[0])
+        out.fr_speed = float(speeds[1])
+        out.rl_speed = float(speeds[2])
+        out.rr_speed = float(speeds[3])
+
         self.pub.publish(out)
 
         self.get_logger().debug(
@@ -97,48 +102,27 @@ class RoverController(Node):
             if abs(wz) < 1e-4:
                 return [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]
 
-            # Wheels point tangentially around rover center
-            #   FL, RR → +45°   (one diagonal)
-            #   FR, RL → -45°   (other diagonal)
             spin_angle = math.radians(45.0)
-
             fl_angle =  spin_angle
             fr_angle = -spin_angle
-            rl_angle = -spin_angle   # mirrored from FL
-            rr_angle =  spin_angle   # mirrored from FR
+            rl_angle = -spin_angle
+            rr_angle =  spin_angle
 
-            # Each wheel center is at distance r from rover center
             r = math.hypot(L2, W2)
-            wheel_v = abs(wz) * r          # linear speed at wheel center (m/s)
-            wheel_speed = wheel_v / WHEEL_RADIUS
-
-            # Sign: positive wz = counter-clockwise (ROS convention)
+            wheel_speed = abs(wz) * r / WHEEL_RADIUS
             sign = math.copysign(1.0, wz)
-            speeds = [sign * wheel_speed] * 4
 
-            angles = [fl_angle, fr_angle, rl_angle, rr_angle]
-            return angles, speeds
+            return [fl_angle, fr_angle, rl_angle, rr_angle], [sign * wheel_speed] * 4
 
-        # ── Case 2: Ackermann / general motion ──────────────────────────────
-        #
-        # Instantaneous Centre of Curvature (ICC) from Twist:
-        #   For pure Ackermann:  R = vx / wz
-        #   General ICR location relative to rover centre:
-        #     icr_x = -vy / wz   (longitudinal, if lateral speed present)
-        #     icr_y =  vx / wz   (lateral)
-        #
-        # We use the full formula so that future crab-like commands work too.
-
+        # ── Case 2: straight line ────────────────────────────────────────────
         if abs(wz) < 1e-4:
-            # Straight line — all wheels point forward, same speed
             wheel_speed = vx / WHEEL_RADIUS
             return [0.0, 0.0, 0.0, 0.0], [wheel_speed] * 4
 
-        # ICR in rover frame (rover centre = origin, x forward, y left)
-        icr_x =  vy / wz   # how far ahead/behind the ICR is
-        icr_y =  vx / wz   # how far to the left the ICR is (+ = left turn)
+        # ── Case 3: Ackermann / general motion ───────────────────────────────
+        icr_x = vy / wz
+        icr_y = vx / wz
 
-        # Wheel positions relative to rover centre [x, y]
         wheel_pos = {
             'FL': ( L2,  W2),
             'FR': ( L2, -W2),
@@ -149,36 +133,25 @@ class RoverController(Node):
         angles = []
         speeds = []
 
-        for name, (wx, wy) in wheel_pos.items():
+        for _, (wx, wy) in wheel_pos.items():
             dx = wx - icr_x
             dy = wy - icr_y
 
-            # Angle the wheel must point (tangent to its circle around ICR)
-            angle = math.atan2(dx, -dy)   # atan2(forward_component, right_component)
-
-            # Distance from this wheel to ICR
+            angle = math.atan2(dx, -dy)
             r_wheel = math.hypot(dx, dy)
-
-            # Linear speed of this wheel centre = |wz| * r_wheel
-            # Sign preserved from wz direction
-            wheel_v = wz * r_wheel        # signed
-            wheel_speed = wheel_v / WHEEL_RADIUS
+            wheel_speed = wz * r_wheel / WHEEL_RADIUS
 
             angles.append(angle)
             speeds.append(wheel_speed)
 
         fl_a, fr_a, rl_a, rr_a = angles
 
-        # ── Enforce mirrored steering: rear mirrors front ────────────────────
-        # Front angles are "ground truth"; rear gets negated
+        # Rear mirrors front
         rl_a = -fl_a
         rr_a = -fr_a
 
         angles = [fl_a, fr_a, rl_a, rr_a]
-
-        # ── Clamp to mechanical limit ────────────────────────────────────────
-        angles = [self._clamp(a, -MAX_STEER_ANGLE, MAX_STEER_ANGLE)
-                  for a in angles]
+        angles = [self._clamp(a, -MAX_STEER_ANGLE, MAX_STEER_ANGLE) for a in angles]
 
         return angles, speeds
 
@@ -201,7 +174,3 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
-
-
-# if __name__ == '__main__':
-#     main()
