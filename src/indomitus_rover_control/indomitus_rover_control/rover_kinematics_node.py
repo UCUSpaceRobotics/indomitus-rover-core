@@ -50,14 +50,14 @@ class RoverController(Node):
 
         self.sub = self.create_subscription(
             Twist,
-            'cmd_vel',
+            '/cmd_vel',
             self.cmd_vel_callback,
             10
         )
 
         self.pub = self.create_publisher(
             Float32MultiArray,
-            'wheel_commands',
+            '/wheel_targets',
             10
         )
 
