@@ -13,7 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-xacro \
     ros-${ROS_DISTRO}-robot-state-publisher \
     ros-${ROS_DISTRO}-joint-state-publisher \
-    ros-${ROS_DISTRO}-can-msgs \
+    ros-${ROS_DISTRO}-ros2-socketcan \
+    can-utils \
+    iproute2 \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     usbutils \
     iproute2 \

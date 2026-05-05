@@ -29,12 +29,12 @@ from geometry_msgs.msg import Twist
 from indomitus_msgs.msg import WheelTargets
 
 
-# ── Rover geometry ──────────────────────────────────────────────────────────
+# Rover geometry
 WHEELBASE    = 1.20  # meters, distance between front and rear axle
 TRACK_WIDTH  = 0.80  # meters, distance between left and right wheels
-WHEEL_RADIUS = 0.10  # meters — adjust to your actual wheel radius
+WHEEL_RADIUS = 0.15
 
-MAX_STEER_ANGLE = math.radians(45.0)  # ±45°
+MAX_STEER_ANGLE = math.radians(45.0)
 
 L2 = WHEELBASE   / 2.0
 W2 = TRACK_WIDTH / 2.0
@@ -60,8 +60,7 @@ class RoverController(Node):
 
         self.get_logger().info('RoverController started — listening on /cmd_vel')
 
-    # ── Main callback ────────────────────────────────────────────────────────
-
+  
     def cmd_vel_callback(self, msg: Twist):
         vx = msg.linear.x
         vy = msg.linear.y
@@ -88,7 +87,6 @@ class RoverController(Node):
             f'RL={speeds[2]:+.2f} RR={speeds[3]:+.2f} rad/s'
         )
 
-    # ── Geometry ─────────────────────────────────────────────────────────────
 
     def compute_wheel_commands(self, vx: float, vy: float, wz: float):
         """
@@ -97,7 +95,7 @@ class RoverController(Node):
             speeds : [FL, FR, RL, RR]  in rad/s
         """
 
-        # ── Case 1: pure spin on the spot (vx≈0, vy≈0, wz≠0) ───────────────
+        # Case 1: pure spin on the spot (vx≈0, vy≈0, wz≠0)
         if abs(vx) < 1e-3 and abs(vy) < 1e-3:
             if abs(wz) < 1e-4:
                 return [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]
@@ -114,12 +112,12 @@ class RoverController(Node):
 
             return [fl_angle, fr_angle, rl_angle, rr_angle], [sign * wheel_speed] * 4
 
-        # ── Case 2: straight line ────────────────────────────────────────────
+        # Case 2: straight line
         if abs(wz) < 1e-4:
             wheel_speed = vx / WHEEL_RADIUS
             return [0.0, 0.0, 0.0, 0.0], [wheel_speed] * 4
 
-        # ── Case 3: Ackermann / general motion ───────────────────────────────
+        # Case 3: Ackermann / general motion
         icr_x = vy / wz
         icr_y = vx / wz
 
@@ -155,14 +153,14 @@ class RoverController(Node):
 
         return angles, speeds
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # Helpers
 
     @staticmethod
     def _clamp(value, lo, hi):
         return max(lo, min(hi, value))
 
 
-# ── Entry point ──────────────────────────────────────────────────────────────
+# Entry point
 
 def main(args=None):
     rclpy.init(args=args)
