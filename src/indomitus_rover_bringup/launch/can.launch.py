@@ -32,17 +32,17 @@ def generate_launch_description():
 
     # ── Damiao driver ─────────────────────────────────────────────────────────
 
-    # damiao_driver_node = Node(
-    #     package='damiao_driver',
-    #     executable='damiao_driver_node',
-    #     name='damiao_driver',
-    #     output='screen',
-    #     remappings=[
-    #         ('wheel_targets', '/wheel_targets'),
-    #         ('from_can_bus',  '/from_can_bus'),
-    #         ('to_can_bus',    '/to_can_bus'),
-    #     ],
-    # )
+    damiao_driver_node = Node(
+        package='damiao_driver',
+        executable='damiao_driver_node',
+        name='damiao_driver',
+        output='screen',
+        remappings=[
+            ('wheel_targets', '/wheel_targets'),
+            ('from_can_bus',  '/from_can_bus'),
+            ('to_can_bus',    '/to_can_bus'),
+        ],
+    )
 
     # ── ros2_socketcan bridge (sender + receiver в одному launch) ─────────────
 

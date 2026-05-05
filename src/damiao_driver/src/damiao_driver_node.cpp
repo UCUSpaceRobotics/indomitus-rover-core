@@ -14,8 +14,8 @@ DamiaoDriverNode::DamiaoDriverNode(const rclcpp::NodeOptions& options)
     // --- Parameters ---
     declare_parameter("steer_ids",         std::vector<int64_t>{1, 2, 3, 4});
     declare_parameter("drive_ids",         std::vector<int64_t>{5, 6, 7, 8});
-    declare_parameter("steer_gear_ratio",  40.0);
-    declare_parameter("drive_gear_ratio",  10.0);
+    declare_parameter("steer_gear_ratio",  1.0);
+    declare_parameter("drive_gear_ratio",  1.0);
     declare_parameter("steer_pmax",        12.5);
     declare_parameter("steer_vmax",        50.0);
     declare_parameter("steer_tmax",        10.0);
@@ -81,11 +81,17 @@ DamiaoDriverNode::DamiaoDriverNode(const rclcpp::NodeOptions& options)
 }
 
 void DamiaoDriverNode::sendEnableFrames() {
+    // Set modes first (register 10): steer=PositionVelocity(2), drive=Velocity(3)
+    for (int i = 0; i < 4; i++) {
+        to_can_pub_->publish(damiao_protocol::buildSetModeFrame(steer_ids_[i], 2));
+        to_can_pub_->publish(damiao_protocol::buildSetModeFrame(drive_ids_[i], 3));
+    }
+    // Then enable all motors
     for (int i = 0; i < 4; i++) {
         to_can_pub_->publish(damiao_protocol::buildEnableFrame(steer_ids_[i]));
         to_can_pub_->publish(damiao_protocol::buildEnableFrame(drive_ids_[i]));
     }
-    RCLCPP_INFO(get_logger(), "Enable frames sent to all 8 motors");
+    RCLCPP_INFO(get_logger(), "Mode set and enable frames sent to all 8 motors");
 }
 
 void DamiaoDriverNode::onWheelTargets(const indomitus_msgs::msg::WheelTargets::SharedPtr msg) {

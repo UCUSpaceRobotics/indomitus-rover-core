@@ -46,6 +46,21 @@ inline can_msgs::msg::Frame buildPositionVelocityFrame(uint8_t esc_id, float p_r
     return f;
 }
 
+// CAN ID = 0x7FF, register 10 write — sets motor control mode
+// mode: 1=MIT, 2=PositionVelocity, 3=Velocity
+inline can_msgs::msg::Frame buildSetModeFrame(uint8_t esc_id, uint8_t mode) {
+    can_msgs::msg::Frame f;
+    f.id  = 0x7FFu;
+    f.dlc = 8;
+    f.data.fill(0x00);
+    f.data[0] = esc_id & 0xFFu;
+    f.data[1] = (esc_id >> 8) & 0xFFu;
+    f.data[2] = 0x55;   // write command
+    f.data[3] = 10;     // register 10 = CTRL_MODE
+    f.data[4] = mode;
+    return f;
+}
+
 // CAN ID = esc_id, payload FF FF FF FF FF FF FF FC
 inline can_msgs::msg::Frame buildEnableFrame(uint8_t esc_id) {
     can_msgs::msg::Frame f;
@@ -53,6 +68,7 @@ inline can_msgs::msg::Frame buildEnableFrame(uint8_t esc_id) {
     f.dlc = 8;
     f.data.fill(0xFF);
     f.data[7] = 0xFC;
+    
     return f;
 }
 
