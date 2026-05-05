@@ -1,5 +1,21 @@
 # can_bridge
 
+## Docker requirements
+
+The docker compose file must include:
+
+- `network_mode: host` so the container can reach the host CAN interface.
+- `cap_add: NET_ADMIN` so the CAN link can be configured and brought up/down.
+- `cap_add: NET_RAW` so the nodes can use raw CAN sockets.
+
+Snippet for the `docker-compose.yml` 
+```
+network_mode: host
+cap_add:
+  - NET_ADMIN
+  - NET_RAW 
+```
+
 ## What this node setup does
 
 This package launches two lifecycle nodes from `ros2_socketcan`:
