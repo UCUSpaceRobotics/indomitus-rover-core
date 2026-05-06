@@ -40,7 +40,7 @@ class RoverController(Node):
         self.declare_parameter('wheelbase', 1.20)
         self.declare_parameter('track_width', 0.80)
         self.declare_parameter('wheel_radius', 0.15)
-        self.declare_parameter('max_steer_deg', 90.0)
+        self.declare_parameter('max_steer_deg', 10.0)
 
         self._read_params()
 
@@ -56,6 +56,13 @@ class RoverController(Node):
             '/wheel_targets',
             10
         )
+
+        self.wheel_pos = {
+            'FL': (self.L2, self.W2),
+            'FR': (self.L2, -self.W2),
+            'RL': (-self.L2, self.W2),
+            'RR': (-self.L2, -self.W2),
+        }
 
         self.get_logger().info('RoverController started — listening on /cmd_vel')
 
@@ -107,14 +114,16 @@ class RoverController(Node):
             if abs(wz) < 1e-4:
                 return [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]
 
-            spin_angle = math.radians(45.0)
+            angle = math.atan2(self.L2, self.W2)
 
             r = math.hypot(self.L2, self.W2)
             wheel_speed = abs(wz) * r / self.wheel_radius
             sign = math.copysign(1.0, wz)
 
-            return [-spin_angle, spin_angle, spin_angle, -spin_angle], \
+            return [-angle, angle, angle, -angle], \
                    [-wheel_speed*sign, wheel_speed*sign, -wheel_speed*sign, wheel_speed*sign]
+        
+        
 
         # Case 2: straight line
         if abs(wz) < 1e-4:
@@ -127,22 +136,16 @@ class RoverController(Node):
 
         print(f'ICR: x={icr_x:.2f} m, y={icr_y:.2f} m')
 
-        wheel_pos = {
-            'FL': (self.L2, self.W2),
-            'FR': (self.L2, -self.W2),
-            'RL': (-self.L2, self.W2),
-            'RR': (-self.L2, -self.W2),
-        }
-
         angles = []
         speeds = []
 
-        for _, (wx, wy) in wheel_pos.items():
+        for _, (wx, wy) in self.wheel_pos.items():
             vx_w = vx - wz * wy
             vy_w = vy + wz * wx
 
             angle = math.atan2(vy_w, vx_w)
             speed = math.hypot(vx_w, vy_w) / self.wheel_radius
+            angle, speed = self._normalize_wheel_angle(angle, speed)
 
             angles.append(angle)
             # speeds.append(0.0)
@@ -156,6 +159,16 @@ class RoverController(Node):
         return angles, speeds
 
     # Helpers
+
+    def _normalize_wheel_angle(self, angle: float, speed: float):
+        """Keep angle in (-π/2, π/2), flip speed if needed."""
+        if angle > math.pi / 2:
+            angle -= math.pi
+            speed = -speed
+        elif angle < -math.pi / 2:
+            angle += math.pi
+            speed = -speed
+        return angle, speed
 
     @staticmethod
     def _clamp(value, lo, hi):
