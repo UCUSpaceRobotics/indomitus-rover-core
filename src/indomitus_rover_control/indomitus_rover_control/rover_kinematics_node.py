@@ -40,20 +40,20 @@ class RoverController(Node):
         self.declare_parameter('wheelbase', 1.20)
         self.declare_parameter('track_width', 0.80)
         self.declare_parameter('wheel_radius', 0.15)
-        self.declare_parameter('max_steer_deg', 45.0)
+        self.declare_parameter('max_steer_deg', 90.0)
 
         self._read_params()
 
         self.sub = self.create_subscription(
             Twist,
-            'cmd_vel',
+            '/cmd_vel',
             self.cmd_vel_callback,
             10
         )
 
         self.pub = self.create_publisher(
             WheelTargets,
-            'wheel_targets',
+            '/wheel_targets',
             10
         )
 
@@ -145,6 +145,7 @@ class RoverController(Node):
             speed = math.hypot(vx_w, vy_w) / self.wheel_radius
 
             angles.append(angle)
+            # speeds.append(0.0)
             speeds.append(speed)
 
         fl_a, fr_a, rl_a, rr_a = angles

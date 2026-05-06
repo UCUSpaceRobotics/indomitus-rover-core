@@ -6,6 +6,10 @@ import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
+try:
+    from launch_ros.actions import ParameterFile          # Jazzy+
+except ImportError:
+    from launch_ros.parameter_descriptions import ParameterFile  # Humble
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, OpaqueFunction
@@ -130,7 +134,10 @@ def generate_launch_description() -> LaunchDescription:
             executable='rover_kinematics_node',
             output='screen',
             parameters=[
-                os.path.join(get_package_share_directory('indomitus_rover_control'), 'config', 'rover_geometry.yaml')
+                ParameterFile(
+                    os.path.join(get_package_share_directory('indomitus_rover_description'), 'config', 'rover_geometry.yaml'),
+                    allow_substs=True
+                )
             ],
         ),
         OpaqueFunction(function=generate_bridge_config),
