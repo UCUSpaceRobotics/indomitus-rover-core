@@ -1,11 +1,11 @@
-#include "indomitus_rover_sim/icr_controller_node.hpp"
+#include "indomitus_rover_sim/sim_chassis_driver_node.hpp"
 
-ICRController::ICRController()
-: Node("icr_controller")
+SimChassisDriver::SimChassisDriver()
+: Node("sim_chassis_driver")
 {
     wheel_targets_sub_ = create_subscription<indomitus_msgs::msg::WheelTargets>(
         "/wheel_targets", 10,
-        std::bind(&ICRController::wheelTargetsCallback, this, std::placeholders::_1));
+        std::bind(&SimChassisDriver::wheelTargetsCallback, this, std::placeholders::_1));
 
     steer_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(
         "/steering_controller/commands", 10);
@@ -14,7 +14,7 @@ ICRController::ICRController()
         "/drive_controller/commands", 10);
 }
 
-void ICRController::wheelTargetsCallback(const indomitus_msgs::msg::WheelTargets::SharedPtr msg)
+void SimChassisDriver::wheelTargetsCallback(const indomitus_msgs::msg::WheelTargets::SharedPtr msg)
 {
     std_msgs::msg::Float64MultiArray steer_msg, drive_msg;
     steer_msg.data.resize(4);
@@ -37,7 +37,7 @@ void ICRController::wheelTargetsCallback(const indomitus_msgs::msg::WheelTargets
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<ICRController>());
+    rclcpp::spin(std::make_shared<SimChassisDriver>());
     rclcpp::shutdown();
     return 0;
 }

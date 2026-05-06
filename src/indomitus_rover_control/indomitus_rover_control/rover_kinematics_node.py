@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Rover Controller Node
+Rover Controller Node.
+
 Converts cmd_vel (Twist) → wheel angles + speeds for 4-wheel steering rover.
 
 Steering geometry:
@@ -23,10 +24,12 @@ Published message (indomitus_msgs/WheelTargets):
 """
 
 import math
-import rclpy
-from rclpy.node import Node
+
 from geometry_msgs.msg import Twist
 from indomitus_msgs.msg import WheelTargets
+
+import rclpy
+from rclpy.node import Node
 
 
 class RoverController(Node):
@@ -34,9 +37,9 @@ class RoverController(Node):
     def __init__(self):
         super().__init__('rover_controller')
 
-        self.declare_parameter('wheelbase',      1.20)
-        self.declare_parameter('track_width',    0.80)
-        self.declare_parameter('wheel_radius',   0.15)
+        self.declare_parameter('wheelbase', 1.20)
+        self.declare_parameter('track_width', 0.80)
+        self.declare_parameter('wheel_radius', 0.15)
         self.declare_parameter('max_steer_deg', 45.0)
 
         self._read_params()
@@ -56,17 +59,15 @@ class RoverController(Node):
 
         self.get_logger().info('RoverController started — listening on /cmd_vel')
 
-
     def _read_params(self):
-        self.wheelbase   = self.get_parameter('wheelbase').value
+        self.wheelbase = self.get_parameter('wheelbase').value
         self.track_width = self.get_parameter('track_width').value
         self.wheel_radius = self.get_parameter('wheel_radius').value
-        self.max_steer   = math.radians(self.get_parameter('max_steer_deg').value)
- 
-        self.L2 = self.wheelbase   / 2.0
+        self.max_steer = math.radians(self.get_parameter('max_steer_deg').value)
+
+        self.L2 = self.wheelbase / 2.0
         self.W2 = self.track_width / 2.0
 
-  
     def cmd_vel_callback(self, msg: Twist):
         vx = msg.linear.x
         vy = msg.linear.y
@@ -93,14 +94,14 @@ class RoverController(Node):
             f'RL={speeds[2]:+.2f} RR={speeds[3]:+.2f} rad/s'
         )
 
-
     def compute_wheel_commands(self, vx: float, vy: float, wz: float):
         """
+        Compute wheel angles and speeds from every wheel.
+
         Returns:
             angles : [FL, FR, RL, RR]  in radians
             speeds : [FL, FR, RL, RR]  in rad/s
         """
-
         # Case 1: pure spin on the spot (vx≈0, vy≈0, wz≠0)
         if abs(vx) < 1e-3 and abs(vy) < 1e-3:
             if abs(wz) < 1e-4:
@@ -112,8 +113,8 @@ class RoverController(Node):
             wheel_speed = abs(wz) * r / self.wheel_radius
             sign = math.copysign(1.0, wz)
 
-            return [       -spin_angle,          spin_angle,          spin_angle,        -spin_angle], \
-                   [-wheel_speed * sign, wheel_speed * sign, -wheel_speed * sign, wheel_speed * sign] * 4
+            return [-spin_angle, spin_angle, spin_angle, -spin_angle], \
+                   [-wheel_speed*sign, wheel_speed*sign, -wheel_speed*sign, wheel_speed*sign]
 
         # Case 2: straight line
         if abs(wz) < 1e-4:
@@ -127,9 +128,9 @@ class RoverController(Node):
         print(f'ICR: x={icr_x:.2f} m, y={icr_y:.2f} m')
 
         wheel_pos = {
-            'FL': ( self.L2,  self.W2),
-            'FR': ( self.L2, -self.W2),
-            'RL': (-self.L2,  self.W2),
+            'FL': (self.L2, self.W2),
+            'FR': (self.L2, -self.W2),
+            'RL': (-self.L2, self.W2),
             'RR': (-self.L2, -self.W2),
         }
 
@@ -144,8 +145,7 @@ class RoverController(Node):
             speed = math.hypot(vx_w, vy_w) / self.wheel_radius
 
             angles.append(angle)
-            speeds.append(0.0)
-            # speeds.append(speed)
+            speeds.append(speed)
 
         fl_a, fr_a, rl_a, rr_a = angles
 
@@ -160,8 +160,6 @@ class RoverController(Node):
     def _clamp(value, lo, hi):
         return max(lo, min(hi, value))
 
-
-# Entry point
 
 def main(args=None):
     rclpy.init(args=args)

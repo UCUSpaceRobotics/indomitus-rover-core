@@ -136,6 +136,6 @@ def generate_launch_description() -> LaunchDescription:
         OpaqueFunction(function=generate_bridge_config),
         make_spawn_node(cfg),
         *[controller_spawner(c) for c in cfg.controllers],
-        Node(package='indomitus_rover_sim', executable='icr_controller_node', output='screen'),
-        Node(package='indomitus_rover_sim', executable='rocker_soft_mimic',   output='screen'),
+        Node(package='indomitus_rover_sim', executable='sim_chassis_driver_node', output='screen'),
+        Node(package='indomitus_rover_sim', executable='sim_diff_bar_node',   output='screen'),
     ])

@@ -1,16 +1,16 @@
-#include "indomitus_rover_sim/rocker_soft_mimic.hpp"
+#include "indomitus_rover_sim/sim_diff_bar_node.hpp"
 #include "rclcpp/rclcpp.hpp"
 
-RockerSoftMimic::RockerSoftMimic() : Node("rocker_soft_mimic") {
+SimDiffBar::SimDiffBar() : Node("sim_diff_bar") {
     joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
         "/joint_states", 10,
-        std::bind(&RockerSoftMimic::jointStateCallback, this, std::placeholders::_1));
+        std::bind(&SimDiffBar::jointStateCallback, this, std::placeholders::_1));
 
     r_rocker_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
         "/r_rocker_position_controller/commands", 10);
 }
 
-void RockerSoftMimic::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
+void SimDiffBar::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
     double l_rocker_pos = 0.0;
     bool found = false;
 
@@ -31,7 +31,7 @@ void RockerSoftMimic::jointStateCallback(const sensor_msgs::msg::JointState::Sha
 
 int main(int argc, char * argv[]) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<RockerSoftMimic>());
+    rclcpp::spin(std::make_shared<SimDiffBar>());
     rclcpp::shutdown();
     return 0;
 }

@@ -3,10 +3,10 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <indomitus_msgs/msg/wheel_targets.hpp>
 
-class ICRController : public rclcpp::Node {
+class SimChassisDriver : public rclcpp::Node {
 public:
-    ICRController();
-    ~ICRController() = default;
+    SimChassisDriver();
+    ~SimChassisDriver() = default;
 
 private:
     void wheelTargetsCallback(const indomitus_msgs::msg::WheelTargets::SharedPtr msg);

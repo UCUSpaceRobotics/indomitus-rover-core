@@ -4,9 +4,10 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 
-class RockerSoftMimic : public rclcpp::Node {
+class SimDiffBar : public rclcpp::Node {
 public:
-    RockerSoftMimic();
+    SimDiffBar();
+    ~SimDiffBar() = default;
 
 private:
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);

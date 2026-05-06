@@ -1,67 +1,94 @@
-#!/usr/bin/env python3
-
-import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.launch_description_sources import AnyLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
+from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
+from launch.substitutions import LaunchConfiguration
+from launch.events import matches_action
+from launch_ros.actions import LifecycleNode
+from launch_ros.events.lifecycle import ChangeState
+from launch_ros.event_handlers import OnStateTransition
+from lifecycle_msgs.msg import Transition
 
+def generate_launch_description() -> LaunchDescription:
 
-def generate_launch_description():
-
-    # ── Arguments ─────────────────────────────────────────────────────────────
-
-    can_interface_arg = DeclareLaunchArgument(
-        'can_interface',
+    interface_arg = DeclareLaunchArgument(
+        'interface',
         default_value='can0',
-        description='CAN network interface name (e.g. can0, can1)'
+        description='SocketCAN network interface name',
     )
 
-    # ── Kinematics node ───────────────────────────────────────────────────────
-
-    kinematics_node = Node(
-        package='indomitus_rover_control',
-        executable='rover_kinematics_node',
+    sender_node = LifecycleNode(
+        package='ros2_socketcan',
+        executable='socket_can_sender_node_exe',
+        name='socket_can_sender',
+        namespace='',
+        parameters=[{
+            'interface': LaunchConfiguration('interface'),
+            'timeout_sec': 0.01,
+        }],
         output='screen',
-        parameters=[
-            os.path.join(FindPackageShare('indomitus_rover_control'), 'config', 'rover_geometry.yaml')
-        ],
     )
 
-    # ── Damiao driver ─────────────────────────────────────────────────────────
+    receiver_node = LifecycleNode(
+        package='ros2_socketcan',
+        executable='socket_can_receiver_node_exe',
+        name='socket_can_receiver',
+        namespace='',
+        parameters=[{
+            'interface': LaunchConfiguration('interface'),
+            'interval_sec': 0.01,
+        }],
+        output='screen',
+    )
 
-    # damiao_driver_node = Node(
-    #     package='damiao_driver',
-    #     executable='damiao_driver_node',
-    #     name='damiao_driver',
-    #     output='screen',
-    #     remappings=[
-    #         ('wheel_targets', '/wheel_targets'),
-    #         ('from_can_bus',  '/from_can_bus'),
-    #         ('to_can_bus',    '/to_can_bus'),
-    #     ],
-    # )
+    configure_sender = EmitEvent(
+        event=ChangeState(
+            lifecycle_node_matcher=matches_action(sender_node),
+            transition_id=Transition.TRANSITION_CONFIGURE,
+        )
+    )
+    
+    configure_receiver = EmitEvent(
+        event=ChangeState(
+            lifecycle_node_matcher=matches_action(receiver_node),
+            transition_id=Transition.TRANSITION_CONFIGURE,
+        )
+    )
 
-    # ── ros2_socketcan bridge (sender + receiver в одному launch) ─────────────
+    activate_sender = RegisterEventHandler(
+        OnStateTransition(
+            target_lifecycle_node=sender_node,
+            goal_state='inactive',
+            entities=[
+                EmitEvent(
+                    event=ChangeState(
+                        lifecycle_node_matcher=matches_action(sender_node),
+                        transition_id=Transition.TRANSITION_ACTIVATE,
+                    )
+                )
+            ]
+        )
+    )
 
-    # socketcan_bridge = IncludeLaunchDescription(
-    #     AnyLaunchDescriptionSource([
-    #         PathJoinSubstitution([
-    #             FindPackageShare('ros2_socketcan'),
-    #             'launch',
-    #             'socket_can_bridge.launch.xml',
-    #         ])
-    #     ]),
-    #     launch_arguments={
-    #         'interface': LaunchConfiguration('can_interface'),
-    #     }.items(),
-    # )
+    activate_receiver = RegisterEventHandler(
+        OnStateTransition(
+            target_lifecycle_node=receiver_node,
+            goal_state='inactive',
+            entities=[
+                EmitEvent(
+                    event=ChangeState(
+                        lifecycle_node_matcher=matches_action(receiver_node),
+                        transition_id=Transition.TRANSITION_ACTIVATE,
+                    )
+                )
+            ]
+        )
+    )
 
     return LaunchDescription([
-        can_interface_arg,
-        kinematics_node,
-        # damiao_driver_node,
-        # socketcan_bridge,
+        interface_arg,
+        sender_node,
+        receiver_node,
+        configure_sender,
+        configure_receiver,
+        activate_sender,
+        activate_receiver,
     ])
