@@ -29,21 +29,17 @@ from geometry_msgs.msg import Twist
 from indomitus_msgs.msg import WheelTargets
 
 
-# Rover geometry
-WHEELBASE    = 1.20  # meters, distance between front and rear axle
-TRACK_WIDTH  = 0.80  # meters, distance between left and right wheels
-WHEEL_RADIUS = 0.15
-
-MAX_STEER_ANGLE = math.radians(45.0)
-
-L2 = WHEELBASE   / 2.0
-W2 = TRACK_WIDTH / 2.0
-
-
 class RoverController(Node):
 
     def __init__(self):
         super().__init__('rover_controller')
+
+        self.declare_parameter('wheelbase',      1.20)
+        self.declare_parameter('track_width',    0.80)
+        self.declare_parameter('wheel_radius',   0.15)
+        self.declare_parameter('max_steer_deg', 45.0)
+
+        self._read_params()
 
         self.sub = self.create_subscription(
             Twist,
@@ -60,6 +56,16 @@ class RoverController(Node):
 
         self.get_logger().info('RoverController started — listening on /cmd_vel')
 
+
+    def _read_params(self):
+        self.wheelbase   = self.get_parameter('wheelbase').value
+        self.track_width = self.get_parameter('track_width').value
+        self.wheel_radius = self.get_parameter('wheel_radius').value
+        self.max_steer   = math.radians(self.get_parameter('max_steer_deg').value)
+ 
+        self.L2 = self.wheelbase   / 2.0
+        self.W2 = self.track_width / 2.0
+
   
     def cmd_vel_callback(self, msg: Twist):
         vx = msg.linear.x
@@ -69,14 +75,14 @@ class RoverController(Node):
         angles, speeds = self.compute_wheel_commands(vx, vy, wz)
 
         out = WheelTargets()
-        out.fl_angle = float(angles[0])
-        out.fr_angle = float(angles[1])
-        out.rl_angle = float(angles[2])
-        out.rr_angle = float(angles[3])
-        out.fl_speed = float(speeds[0])
-        out.fr_speed = float(speeds[1])
-        out.rl_speed = float(speeds[2])
-        out.rr_speed = float(speeds[3])
+        out.fl_angle = angles[0]
+        out.fr_angle = angles[1]
+        out.rl_angle = angles[2]
+        out.rr_angle = angles[3]
+        out.fl_speed = speeds[0]
+        out.fr_speed = speeds[1]
+        out.rl_speed = speeds[2]
+        out.rr_speed = speeds[3]
 
         self.pub.publish(out)
 
@@ -101,55 +107,50 @@ class RoverController(Node):
                 return [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]
 
             spin_angle = math.radians(45.0)
-            fl_angle =  spin_angle
-            fr_angle = -spin_angle
-            rl_angle = -spin_angle
-            rr_angle =  spin_angle
 
-            r = math.hypot(L2, W2)
-            wheel_speed = abs(wz) * r / WHEEL_RADIUS
+            r = math.hypot(self.L2, self.W2)
+            wheel_speed = abs(wz) * r / self.wheel_radius
             sign = math.copysign(1.0, wz)
 
-            return [fl_angle, fr_angle, rl_angle, rr_angle], [sign * wheel_speed] * 4
+            return [       -spin_angle,          spin_angle,          spin_angle,        -spin_angle], \
+                   [-wheel_speed * sign, wheel_speed * sign, -wheel_speed * sign, wheel_speed * sign] * 4
 
         # Case 2: straight line
         if abs(wz) < 1e-4:
-            wheel_speed = vx / WHEEL_RADIUS
+            wheel_speed = vx / self.wheel_radius
             return [0.0, 0.0, 0.0, 0.0], [wheel_speed] * 4
 
         # Case 3: Ackermann / general motion
-        icr_x = vy / wz
-        icr_y = vx / wz
+        icr_x = abs(vy) / wz
+        icr_y = abs(vx) / wz
+
+        print(f'ICR: x={icr_x:.2f} m, y={icr_y:.2f} m')
 
         wheel_pos = {
-            'FL': ( L2,  W2),
-            'FR': ( L2, -W2),
-            'RL': (-L2,  W2),
-            'RR': (-L2, -W2),
+            'FL': ( self.L2,  self.W2),
+            'FR': ( self.L2, -self.W2),
+            'RL': (-self.L2,  self.W2),
+            'RR': (-self.L2, -self.W2),
         }
 
         angles = []
         speeds = []
 
         for _, (wx, wy) in wheel_pos.items():
-            dx = wx - icr_x
-            dy = wy - icr_y
+            vx_w = vx - wz * wy
+            vy_w = vy + wz * wx
 
-            angle = math.atan2(dx, -dy)
-            r_wheel = math.hypot(dx, dy)
-            wheel_speed = wz * r_wheel / WHEEL_RADIUS
+            angle = math.atan2(vy_w, vx_w)
+            speed = math.hypot(vx_w, vy_w) / self.wheel_radius
 
             angles.append(angle)
-            speeds.append(wheel_speed)
+            speeds.append(0.0)
+            # speeds.append(speed)
 
         fl_a, fr_a, rl_a, rr_a = angles
 
-        # Rear mirrors front
-        rl_a = -fl_a
-        rr_a = -fr_a
-
         angles = [fl_a, fr_a, rl_a, rr_a]
-        angles = [self._clamp(a, -MAX_STEER_ANGLE, MAX_STEER_ANGLE) for a in angles]
+        angles = [self._clamp(a, -self.max_steer, self.max_steer) for a in angles]
 
         return angles, speeds
 

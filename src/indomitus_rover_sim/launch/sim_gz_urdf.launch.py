@@ -125,6 +125,14 @@ def generate_launch_description() -> LaunchDescription:
             output='screen',
             parameters=[{'robot_description': robot_description, 'use_sim_time': True}],
         ),
+        Node(
+            package='indomitus_rover_control',
+            executable='rover_kinematics_node',
+            output='screen',
+            parameters=[
+                os.path.join(get_package_share_directory('indomitus_rover_control'), 'config', 'rover_geometry.yaml')
+            ],
+        ),
         OpaqueFunction(function=generate_bridge_config),
         make_spawn_node(cfg),
         *[controller_spawner(c) for c in cfg.controllers],

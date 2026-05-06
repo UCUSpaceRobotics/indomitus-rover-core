@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+
+import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import AnyLaunchDescriptionSource
@@ -21,28 +24,25 @@ def generate_launch_description():
     kinematics_node = Node(
         package='indomitus_rover_control',
         executable='rover_kinematics_node',
-        name='rover_kinematics_node',
         output='screen',
-        parameters=[{
-            'wheelbase':    1.20,
-            'track_width':  0.80,
-            'wheel_radius': 0.10,
-        }],
+        parameters=[
+            os.path.join(FindPackageShare('indomitus_rover_control'), 'config', 'rover_geometry.yaml')
+        ],
     )
 
     # ── Damiao driver ─────────────────────────────────────────────────────────
 
-    damiao_driver_node = Node(
-        package='damiao_driver',
-        executable='damiao_driver_node',
-        name='damiao_driver',
-        output='screen',
-        remappings=[
-            ('wheel_targets', '/wheel_targets'),
-            ('from_can_bus',  '/from_can_bus'),
-            ('to_can_bus',    '/to_can_bus'),
-        ],
-    )
+    # damiao_driver_node = Node(
+    #     package='damiao_driver',
+    #     executable='damiao_driver_node',
+    #     name='damiao_driver',
+    #     output='screen',
+    #     remappings=[
+    #         ('wheel_targets', '/wheel_targets'),
+    #         ('from_can_bus',  '/from_can_bus'),
+    #         ('to_can_bus',    '/to_can_bus'),
+    #     ],
+    # )
 
     # ── ros2_socketcan bridge (sender + receiver в одному launch) ─────────────
 

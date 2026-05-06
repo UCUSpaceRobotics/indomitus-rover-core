@@ -19,7 +19,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     usbutils \
     iproute2 \
-    can-utils \
     pkg-config \
     g++ make cmake \
     && rm -rf /var/lib/apt/lists/*
