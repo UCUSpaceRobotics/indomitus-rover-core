@@ -14,7 +14,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 @dataclass
 class RoverConfig:
-    world_name: str = 'indomitus_world_demo'
+    world_name: str = 'world_demo'
     model_name: str = 'indomitus_rover'
     spawn_x: float = 0.0
     spawn_y: float = 0.0
@@ -78,8 +78,8 @@ def make_robot_description(rover_sim_share: str) -> str:
     return xacro.process_file(path).toxml()
 
 
-def make_gazebo_launch(rover_sim_share: str) -> IncludeLaunchDescription:
-    world_file = os.path.join(rover_sim_share, 'worlds', 'rover_world.sdf')
+def make_gazebo_launch(rover_sim_share: str, cfg: RoverConfig) -> IncludeLaunchDescription:
+    world_file = os.path.join(rover_sim_share, 'worlds', f'{cfg.world_name}.sdf')
     source = PythonLaunchDescriptionSource(
         os.path.join(get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')
     )
@@ -118,7 +118,7 @@ def generate_launch_description() -> LaunchDescription:
             name='GZ_SIM_RESOURCE_PATH',
             value=[os.environ.get('GZ_SIM_RESOURCE_PATH', ''), ':', os.path.dirname(rover_description_share)]
         ),
-        make_gazebo_launch(rover_sim_share),
+        make_gazebo_launch(rover_sim_share, cfg),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',

@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <sdf version="1.8">
-  <world name="indomitus_world_demo">
+  <world name="world_demo">
 
     <!-- Physics -->
     <physics name="1ms" type="ignored">
@@ -83,8 +83,8 @@
           <play_pause>true</play_pause>
           <step>true</step>
           <start_paused>false</start_paused>
-          <service>/world/indomitus_world_demo/control</service>
-          <stats_topic>/world/indomitus_world_demo/stats</stats_topic>
+          <service>/world/world_demo/control</service>
+          <stats_topic>/world/world_demo/stats</stats_topic>
       </plugin>
 
 
@@ -110,7 +110,7 @@
           <real_time>true</real_time>
           <real_time_factor>true</real_time_factor>
           <iterations>true</iterations>
-          <topic>/world/indomitus_world_demo/stats</topic>
+          <topic>/world/world_demo/stats</topic>
 
       </plugin>
 

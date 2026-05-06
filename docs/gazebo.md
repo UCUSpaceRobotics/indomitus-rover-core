@@ -129,13 +129,13 @@ ros2 launch indomitus_rover_sim sim_gz_urdf.launch.py
 #### Additional Parameters to Launch File
 ```bash
 ros2 launch indomitus_rover_sim sim_gz_urdf.launch.py \
-    world_name:=indomitus_world_demo \
+    world_name:=world_demo \
     model_name:=indomitus_rover
 ```
 
 | Parameter | Description | Default |
 |---|---|---|
-| `world_name` | Name of a world located in `indomitus_rover_sim/world/` | `indomitus_world_demo` |
+| `world_name` | Name of a world located in `indomitus_rover_sim/world/` | `world_demo` |
 | `model_name` | Name of a model | `indomitus_rover` |
 
 ## Camera on marsrover
