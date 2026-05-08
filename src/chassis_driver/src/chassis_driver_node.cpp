@@ -76,9 +76,11 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     // 1 Hz: poll all motors for status feedback
     status_poll_timer_ = create_wall_timer(1s, [this]() {
         if (!motors_enabled_) return;
-        // Steadywin steer: explicit 0xAE status query → motor replies with voltage/temp/mode/fault
+        // Steadywin steer: 0xAE status (voltage/temp/fault) + 0xA3 position (multi-turn counts)
         for (int i = 0; i < 4; i++)
             to_can_pub_->publish(steadywin_protocol::buildStatusQueryFrame(steer_ids_[i]));
+        for (int i = 0; i < 4; i++)
+            to_can_pub_->publish(steadywin_protocol::buildAbsAngleQueryFrame(steer_ids_[i]));
         // Damiao drive: read register 0x02 (velocity) — triggers full MIT feedback response
         // at mst_id (0x000) with position/velocity/torque/temps, without interrupting motion
         for (int i = 0; i < 4; i++)

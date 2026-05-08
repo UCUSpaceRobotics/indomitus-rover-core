@@ -54,11 +54,27 @@ inline can_msgs::msg::Frame buildClearFaultFrame(uint8_t esc_id) {
     return f;
 }
 
-// Status query (0xAE) — motor responds with 8-byte status frame at its own address
+// Status query (0xAE) — motor responds with voltage/current/temp/mode/fault at esc_id
 inline can_msgs::msg::Frame buildStatusQueryFrame(uint8_t esc_id) {
     can_msgs::msg::Frame f;
     f.id = esc_id; f.dlc = 1; f.data.fill(0);
     f.data[0] = 0xAE;
+    return f;
+}
+
+// Absolute angle query (0xA3) — motor responds at 0x100|esc_id with single+multi-turn counts
+inline can_msgs::msg::Frame buildAbsAngleQueryFrame(uint8_t esc_id) {
+    can_msgs::msg::Frame f;
+    f.id = 0x100u | esc_id; f.dlc = 1; f.data.fill(0);
+    f.data[0] = 0xA3;
+    return f;
+}
+
+// MIT real-time query (0xF1) — motor responds at 0x100|esc_id with mechanical position in bytes [1-2]
+inline can_msgs::msg::Frame buildRealtimeQueryFrame(uint8_t esc_id) {
+    can_msgs::msg::Frame f;
+    f.id = 0x100u | esc_id; f.dlc = 1; f.data.fill(0);
+    f.data[0] = 0xF1;
     return f;
 }
 
@@ -79,8 +95,8 @@ inline bool parseStatusResponse(
     return true;
 }
 
-// Parse position response (0xA3 query response or 0xC2/0xC3 command echo, DLC>=7)
-// data[1-2]: single-turn uint16, data[3-6]: multi-turn int32, unit: counts (16384/rev)
+// Parse 0xA3 position response (DLC>=7)
+// data[1-2]: single-turn uint16 counts, data[3-6]: multi-turn int32 counts (16384/rev)
 inline bool parsePositionResponse(
     const std::array<uint8_t, 8>& data, uint8_t dlc, MotorState& out)
 {
@@ -93,12 +109,25 @@ inline bool parsePositionResponse(
     return true;
 }
 
+// Parse 0xF1 MIT real-time response (DLC>=3)
+// data[1-2]: mechanical position uint16 counts (single-turn, 0-16384)
+inline bool parseRealtimeResponse(
+    const std::array<uint8_t, 8>& data, uint8_t dlc, MotorState& out)
+{
+    if (dlc < 3 || data[0] != 0xF1) return false;
+    uint16_t counts = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
+    out.pos_rad   = static_cast<float>(counts) * TWO_PI / COUNTS_PER_REV;
+    out.pos_valid = true;
+    return true;
+}
+
 // Dispatch any frame from a steer motor's address
 inline void parseResponse(
     const std::array<uint8_t, 8>& data, uint8_t dlc, MotorState& out)
 {
     parseStatusResponse(data, dlc, out);
     parsePositionResponse(data, dlc, out);
+    parseRealtimeResponse(data, dlc, out);
 }
 
 } // namespace steadywin_protocol

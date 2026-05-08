@@ -51,7 +51,10 @@ def generate_launch_description():
         executable='socket_can_receiver_node_exe',
         name='socket_can_receiver',
         namespace='',
-        parameters=[{'interface': LaunchConfiguration('interface'), 'interval_sec': 0.01}],
+        parameters=[{
+            'interface': LaunchConfiguration('interface'),
+            'interval_sec': 0.01,
+        }],
         output='screen',
     )
 
