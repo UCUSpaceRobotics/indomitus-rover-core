@@ -15,7 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-joint-state-publisher \
     ros-${ROS_DISTRO}-ros2-socketcan \
     can-utils \
-    iproute2 \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     usbutils \
     iproute2 \
