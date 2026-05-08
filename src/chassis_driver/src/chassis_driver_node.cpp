@@ -29,6 +29,19 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
 
     auto steer_ids_param = get_parameter("steer_ids").as_integer_array();
     auto drive_ids_param = get_parameter("drive_ids").as_integer_array();
+
+    // Validate parameter array sizes (prevent OOB crash from misconfigured YAML)
+    if (steer_ids_param.size() < 4) {
+        throw std::invalid_argument(
+            "Parameter 'steer_ids' must have at least 4 entries (FL, FR, BL, BR), got " +
+            std::to_string(steer_ids_param.size()));
+    }
+    if (drive_ids_param.size() < 4) {
+        throw std::invalid_argument(
+            "Parameter 'drive_ids' must have at least 4 entries (FL, FR, BL, BR), got " +
+            std::to_string(drive_ids_param.size()));
+    }
+
     for (int i = 0; i < 4; i++) {
         steer_ids_[i] = static_cast<uint8_t>(steer_ids_param[i]);
         drive_ids_[i] = static_cast<uint8_t>(drive_ids_param[i]);
@@ -40,6 +53,15 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     mst_id_           = static_cast<uint32_t>(get_parameter("mst_id").as_int());
     steer_joint_names_ = get_parameter("steer_joint_names").as_string_array();
     drive_joint_names_ = get_parameter("drive_joint_names").as_string_array();
+
+    // Validate Damiao feedback decoding parameters (prevent divide-by-zero in fixed-point conversion)
+    if (drive_pmax_ <= 0.0f || drive_vmax_ <= 0.0f || drive_tmax_ <= 0.0f) {
+        throw std::invalid_argument(
+            "Damiao feedback parameters must be positive: "
+            "drive_pmax=" + std::to_string(drive_pmax_) + ", "
+            "drive_vmax=" + std::to_string(drive_vmax_) + ", "
+            "drive_tmax=" + std::to_string(drive_tmax_));
+    }
 
     // --- Publishers ---
     to_can_pub_          = create_publisher<can_msgs::msg::Frame>("/to_can_bus", 10);
@@ -161,8 +183,10 @@ void ChassisDriverNode::onWheelTargets(const indomitus_msgs::msg::WheelTargets::
 // ── Feedback handling ─────────────────────────────────────────────────────────
 
 void ChassisDriverNode::onCanFrame(const can_msgs::msg::Frame::SharedPtr msg) {
-    // Damiao drive: feedback arrives at mst_id (default 0) OR at the motor's own ESC_ID
-    // depending on how each motor's MST_ID register is configured.
+    // Damiao drive: feedback uses CAN Message ID (frame header) as the primary motor identifier.
+    // Each motor sends feedback with CAN ID = its ESC_ID or MST_ID (Register 7, default 0).
+    // Route by CAN ID: check if frame came from mst_id or any drive motor's ESC_ID.
+    // This works for any motor ID (0-255); the 4-bit payload ID field is just a sanity check.
     bool is_damiao = (msg->id == mst_id_);
     for (int i = 0; !is_damiao && i < 4; i++)
         is_damiao = (msg->id == drive_ids_[i]);
