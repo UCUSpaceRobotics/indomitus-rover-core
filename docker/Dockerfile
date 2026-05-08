@@ -18,10 +18,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     usbutils \
     iproute2 \
+    sudo \
     pkg-config \
     g++ make cmake \
     && rm -rf /var/lib/apt/lists/*
 
+    RUN echo "ALL ALL=(ALL) NOPASSWD: /usr/sbin/ip" >> /etc/sudoers
 
     # ros-${ROS_DISTRO}-joint-state-publisher-gui \
     # ros-${ROS_DISTRO}-rviz2 \
@@ -35,9 +37,7 @@ RUN locale-gen en_US.UTF-8
 
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-
 RUN rosdep init || true && rosdep update
-
 
 ENV WS=/opt/ws
 RUN mkdir -p ${WS}/src
