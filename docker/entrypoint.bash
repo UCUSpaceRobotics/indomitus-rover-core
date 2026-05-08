@@ -10,7 +10,7 @@ if [ -d /opt/ws/src ] && [ "$(ls -A  /opt/ws/src 2> /dev/null)" ]; then
 
         rosdep install --from-paths src  --ignore-src -r -y || true
 
-        colcon build --symlink-install
+        colcon build --symlink-install --packages-skip indomitus_rover_sim
     fi
 fi
 

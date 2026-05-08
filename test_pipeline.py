@@ -71,7 +71,9 @@ def sw_status_query(esc_id: int) -> Frame:
 
 # Damiao
 def dm_set_mode(esc_id: int, mode: int) -> Frame:
-    return _frame(0x7FF, bytes([esc_id & 0xFF, (esc_id >> 8) & 0xFF, 0x55, 0x0A, mode, 0, 0, 0]))
+    f = _frame(0x7FF, bytes([esc_id & 0xFF, (esc_id >> 8) & 0xFF, 0x55, 0x0A, mode, 0, 0, 0]))
+    f.is_extended = True  # ros2_socketcan Humble rejects 0x7FF without this flag
+    return f
 
 def dm_enable(esc_id: int) -> Frame:
     return _frame(esc_id, bytes([0xFF] * 7 + [0xFC]))
