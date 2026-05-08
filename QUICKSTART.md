@@ -67,6 +67,43 @@ What starts:
 
 Leave this terminal open. Open a second terminal for testing.
 
+### Reloading a single node without restarting everything
+
+Useful when you changed `chassis_driver` or `rover_kinematics_node` and don't want to drop the CAN bridge.
+
+Open a second terminal inside the container:
+
+```bash
+docker exec -it indomitus_rover_dev bash
+```
+
+Kill only the node you want to restart (by name):
+
+```bash
+ros2 node kill /chassis_driver
+# or
+ros2 node kill /rover_controller
+```
+
+```bash
+colcon build --symlink-install --packages-select chassis_driver
+source install/setup.bash
+```
+
+Then start it manually:
+
+```bash
+# chassis_driver
+ros2 run chassis_driver chassis_driver_node \
+  --ros-args --params-file /opt/ws/install/chassis_driver/share/chassis_driver/config/chassis_driver.yaml
+
+# rover_kinematics_node
+ros2 run indomitus_rover_control rover_kinematics_node \
+  --ros-args --params-file /opt/ws/install/indomitus_rover_description/share/indomitus_rover_description/config/rover_geometry.yaml
+```
+
+> `socket_can_sender` and `socket_can_receiver` keep running — motors stay powered and CAN stays up.
+
 ---
 
 ## 4. Run test_pipeline

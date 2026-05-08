@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include "can_msgs/msg/frame.hpp"
@@ -6,13 +7,21 @@
 namespace damiao_protocol {
 
 struct MotorState {
-    float pos    = 0.0f;   // rad, motor shaft
-    float vel    = 0.0f;   // rad/s, motor shaft
+    // MIT feedback (position/velocity/torque — 16/12/12-bit fixed-point)
+    float pos    = 0.0f;   // rad, motor shaft (fixed-point, ±pmax)
+    float vel    = 0.0f;   // rad/s, motor shaft (fixed-point, ±vmax)
     float tor    = 0.0f;   // Nm
     uint8_t t_mos    = 0;  // °C, MOSFET temperature
     uint8_t t_rotor  = 0;  // °C, rotor temperature
-    uint8_t err      = 0;  // error nibble (0x1 = Enabled/normal)
+    uint8_t err      = 0;  // ERR nibble: 0=disabled 1=enabled 8=overvolt 9=undervolt
+                           //   A=overcurrent B=MOS_overtemp C=coil_overtemp
+                           //   D=comm_loss E=overload
     bool valid   = false;
+
+    // Register read response (float, higher precision)
+    float pos_exact = 0.0f;  // rad, from register 80 (p_m) — motor shaft
+    float pos_out   = 0.0f;  // rad, from register 81 (xout) — output shaft
+    bool reg_valid  = false;
 };
 
 inline uint16_t floatToUint(float x, float xmin, float xmax, int bits) {
@@ -46,11 +55,15 @@ inline can_msgs::msg::Frame buildPositionVelocityFrame(uint8_t esc_id, float p_r
     return f;
 }
 
-// CAN ID = 0x7FF, read register — motor responds with full MIT feedback at mst_id (0x000)
-// Registers: 0x02 = velocity, 0x03 = position  (response always contains pos+vel+tor+temps)
-// Use this to poll Damiao status without sending a motion command.
+// CAN ID = 0x7FF, read register — motor responds at mst_id with:
+//   1. MIT feedback frame (pos/vel/torque/temps/err) — always
+//   2. Register read response (D[2]=0x33, D[3]=reg, D[4-7]=float value)
+// Useful registers for polling:
+//   80 (0x50) = p_m    : real-time motor position (rad, float)
+//   81 (0x51) = xout   : real-time output shaft position (rad, float)
+//   10 (0x0A) = CTRL_MODE : current control mode (uint32)
 // is_extended=true: same ros2_socketcan 0x7FF workaround as buildSetModeFrame.
-inline can_msgs::msg::Frame buildReadRegisterFrame(uint8_t esc_id, uint8_t reg = 0x02) {
+inline can_msgs::msg::Frame buildReadRegisterFrame(uint8_t esc_id, uint8_t reg = 80) {
     can_msgs::msg::Frame f;
     f.id          = 0x7FFu;
     f.is_extended = true;
@@ -103,8 +116,9 @@ inline can_msgs::msg::Frame buildDisableFrame(uint8_t esc_id) {
     return f;
 }
 
-// Decode 8-byte Damiao feedback frame into MotorState.
-// Returns false if dlc < 8 or motor ID in D[0] doesn't match esc_id.
+// Decode MIT feedback frame (pos/vel/torque/temps/err) at mst_id.
+// Returns false if: dlc<8, looks like a register response (D[2]==0x33/0x55/0xAA),
+// or motor ID nibble doesn't match esc_id.
 inline bool parseFeedback(
     const std::array<uint8_t, 8>& data, uint8_t dlc,
     uint8_t esc_id,
@@ -112,7 +126,9 @@ inline bool parseFeedback(
     MotorState& out)
 {
     if (dlc < 8) return false;
-    if ((data[0] & 0x0F) != esc_id) return false;
+    // Register response frames have a fixed command byte in D[2] — skip them
+    if (data[2] == 0x33u || data[2] == 0x55u || data[2] == 0xAAu) return false;
+    if ((data[0] & 0x0Fu) != (esc_id & 0x0Fu)) return false;
 
     uint16_t p_int = (static_cast<uint16_t>(data[1]) << 8) | data[2];
     uint16_t v_int = (static_cast<uint16_t>(data[3]) << 4) | (data[4] >> 4);
@@ -125,6 +141,28 @@ inline bool parseFeedback(
     out.t_mos   = data[6];
     out.t_rotor = data[7];
     out.valid   = true;
+    return true;
+}
+
+// Decode register read response (D[2]=0x33) at mst_id.
+// Fills pos_exact (reg 80) or pos_out (reg 81) if the register ID matches.
+// Returns false if not a register response for this motor.
+inline bool parseRegisterResponse(
+    const std::array<uint8_t, 8>& data, uint8_t dlc,
+    uint8_t esc_id,
+    MotorState& out)
+{
+    if (dlc < 8) return false;
+    if (data[2] != 0x33u) return false;
+    // D[0]=CANID_L, D[1]=CANID_H must match esc_id
+    if (data[0] != esc_id) return false;
+
+    float val = 0.0f;
+    std::memcpy(&val, data.data() + 4, 4);
+
+    uint8_t reg = data[3];
+    if (reg == 80) { out.pos_exact = val; out.reg_valid = true; }
+    if (reg == 81) { out.pos_out   = val; out.reg_valid = true; }
     return true;
 }
 

@@ -49,8 +49,7 @@ private:
     std::array<uint8_t, 4> steer_ids_;  // Steadywin rotation motors
     std::array<uint8_t, 4> drive_ids_;  // Damiao drive motors
 
-    // Damiao drive feedback config
-    float drive_gear_ratio_;
+    // Damiao MIT feedback decoding ranges (fixed-point → float)
     float drive_pmax_, drive_vmax_, drive_tmax_;
     uint32_t mst_id_;
 

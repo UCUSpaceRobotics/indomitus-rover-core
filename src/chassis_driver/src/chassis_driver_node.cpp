@@ -16,17 +16,10 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     // steer_ids → Steadywin rotation motors, drive_ids → Damiao drive motors
     declare_parameter("steer_ids",          std::vector<int64_t>{11, 13, 15, 17});
     declare_parameter("drive_ids",          std::vector<int64_t>{10, 12, 14, 16});
-    declare_parameter("drive_gear_ratio",   1.0);
     declare_parameter("drive_pmax",         12.5);
     declare_parameter("drive_vmax",         50.0);
     declare_parameter("drive_tmax",         20.0);
     declare_parameter("mst_id",             0);
-    // YAML compat — not used by Steadywin (firmware handles reduction internally)
-    declare_parameter("steer_gear_ratio",   1.0);
-    declare_parameter("steer_pmax",         12.5);
-    declare_parameter("steer_vmax",         50.0);
-    declare_parameter("steer_tmax",         10.0);
-    declare_parameter("steer_velocity_cap", 10.0);
     declare_parameter("steer_joint_names",  std::vector<std::string>{
         "fl_wheel_mount_joint", "fr_wheel_mount_joint",
         "bl_wheel_mount_joint", "br_wheel_mount_joint"});
@@ -41,7 +34,6 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
         drive_ids_[i] = static_cast<uint8_t>(drive_ids_param[i]);
     }
 
-    drive_gear_ratio_ = static_cast<float>(get_parameter("drive_gear_ratio").as_double());
     drive_pmax_       = static_cast<float>(get_parameter("drive_pmax").as_double());
     drive_vmax_       = static_cast<float>(get_parameter("drive_vmax").as_double());
     drive_tmax_       = static_cast<float>(get_parameter("drive_tmax").as_double());
@@ -81,10 +73,10 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
             to_can_pub_->publish(steadywin_protocol::buildStatusQueryFrame(steer_ids_[i]));
         for (int i = 0; i < 4; i++)
             to_can_pub_->publish(steadywin_protocol::buildAbsAngleQueryFrame(steer_ids_[i]));
-        // Damiao drive: read register 0x02 (velocity) — triggers full MIT feedback response
-        // at mst_id (0x000) with position/velocity/torque/temps, without interrupting motion
+
+        // Damiao drive: read register 80 (p_m, motor position float) — also triggers MIT feedback
         for (int i = 0; i < 4; i++)
-            to_can_pub_->publish(damiao_protocol::buildReadRegisterFrame(drive_ids_[i], 0x02));
+            to_can_pub_->publish(damiao_protocol::buildReadRegisterFrame(drive_ids_[i], 80));
     });
 
     // 10 Hz: publish /chassis/motor_states
@@ -107,7 +99,7 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
 void ChassisDriverNode::sendEnableFrames() {
     RCLCPP_INFO(get_logger(), "Motor init: enabling all chassis motors");
 
-    // Steadywin steer: clear fault → position=0 to activate (motor starts executing on first 0xC2)
+    // Steadywin steer: clear fault → position=0 to activate
     for (int i = 0; i < 4; i++)
         to_can_pub_->publish(steadywin_protocol::buildClearFaultFrame(steer_ids_[i]));
     for (int i = 0; i < 4; i++)
@@ -160,21 +152,28 @@ void ChassisDriverNode::onWheelTargets(const indomitus_msgs::msg::WheelTargets::
         to_can_pub_->publish(
             steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], angles[i]));
 
-        // Damiao drive: float velocity (rad/s)
+        // Damiao drive: float velocity (rad/s) — firmware handles gear reduction internally
         to_can_pub_->publish(
-            damiao_protocol::buildVelocityFrame(drive_ids_[i], speeds[i] * drive_gear_ratio_));
+            damiao_protocol::buildVelocityFrame(drive_ids_[i], speeds[i]));
     }
 }
 
 // ── Feedback handling ─────────────────────────────────────────────────────────
 
 void ChassisDriverNode::onCanFrame(const can_msgs::msg::Frame::SharedPtr msg) {
-    // Damiao drive: MIT kinematic feedback at mst_id (0x000)
-    if (msg->id == mst_id_) {
+    // Damiao drive: feedback arrives at mst_id (default 0) OR at the motor's own ESC_ID
+    // depending on how each motor's MST_ID register is configured.
+    bool is_damiao = (msg->id == mst_id_);
+    for (int i = 0; !is_damiao && i < 4; i++)
+        is_damiao = (msg->id == drive_ids_[i]);
+
+    if (is_damiao) {
         for (int i = 0; i < 4; i++) {
             if (damiao_protocol::parseFeedback(msg->data, msg->dlc, drive_ids_[i],
                     drive_pmax_, drive_vmax_, drive_tmax_, drive_state_[i])) break;
         }
+        for (int i = 0; i < 4; i++)
+            damiao_protocol::parseRegisterResponse(msg->data, msg->dlc, drive_ids_[i], drive_state_[i]);
         publishJointStates();
         return;
     }
@@ -204,8 +203,8 @@ void ChassisDriverNode::publishJointStates() {
 
     for (int i = 0; i < 4; i++) {
         js.name.push_back(drive_joint_names_[i]);
-        js.position.push_back(drive_state_[i].valid ? drive_state_[i].pos / drive_gear_ratio_ : 0.0);
-        js.velocity.push_back(drive_state_[i].valid ? drive_state_[i].vel / drive_gear_ratio_ : 0.0);
+        js.position.push_back(drive_state_[i].valid ? drive_state_[i].pos : 0.0);
+        js.velocity.push_back(drive_state_[i].valid ? drive_state_[i].vel : 0.0);
         js.effort.push_back(drive_state_[i].valid ? drive_state_[i].tor : 0.0);
     }
 
@@ -253,8 +252,8 @@ void ChassisDriverNode::publishChassisStatus() {
         m.motor_type = "damiao";
         m.joint_name = drive_joint_names_[i];
 
-        m.position         = s.valid ? s.pos / drive_gear_ratio_ : 0.0f;
-        m.velocity         = s.valid ? s.vel / drive_gear_ratio_ : 0.0f;
+        m.position         = s.valid ? s.pos : 0.0f;
+        m.velocity         = s.valid ? s.vel : 0.0f;
         m.torque           = s.valid ? s.tor : 0.0f;
         m.kinematic_valid  = s.valid;
 

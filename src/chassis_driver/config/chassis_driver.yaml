@@ -1,24 +1,14 @@
 chassis_driver:
   ros__parameters:
-    # Steadywin steer motor ESC IDs [FL, FR, RL, RR] — V3.06b0 custom CAN protocol
+    # Steadywin steer motor ESC IDs [FL, FR, RL, RR]
     steer_ids: [11, 13, 15, 17]
-    # Damiao drive motor ESC IDs [FL, FR, RL, RR] — MIT CAN protocol
+    # Damiao drive motor ESC IDs [FL, FR, RL, RR]
     drive_ids: [10, 12, 14, 16]
 
-    # Gear ratios — set to 1.0, firmware handles reduction internally
-    steer_gear_ratio: 1.0
-    drive_gear_ratio: 1.0
-
-    # Damiao drive feedback encoding ranges (must match motor registers 21/22/23)
-    drive_pmax: 12.5    # rad
-    drive_vmax: 50.0    # rad/s
-    drive_tmax: 20.0    # Nm
-
-    # Steadywin compat params (not used by protocol, kept for YAML completeness)
-    steer_pmax: 12.5
-    steer_vmax: 50.0
-    steer_tmax: 10.0
-    steer_velocity_cap: 10.0
+    # Damiao MIT feedback fixed-point decoding ranges (must match motor registers 21/22/23)
+    drive_pmax: 12.5    # rad  — register 21 (PMAX)
+    drive_vmax: 50.0    # rad/s — register 22 (VMAX)
+    drive_tmax: 20.0    # Nm   — register 23 (TMAX)
 
     # Damiao MIT feedback CAN ID (MST_ID register 7, default 0x000)
     mst_id: 0
