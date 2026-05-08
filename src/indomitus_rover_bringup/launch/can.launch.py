@@ -46,32 +46,35 @@ def _validate_can_interface(context, *args, **kwargs) -> List[Action]:
         )
         
         interface_data = json.loads(result.stdout)
-        
         flags = interface_data[0].get("flags", [])
         
         if "UP" not in flags:
             logger.error(f"[CAN] ERROR: interface '{interface_name}' exists but is not UP.")
-            return [EmitEvent(event=Shutdown(reason=f"Interface {interface_name} is down"))]
+            # FIX: Return Shutdown action directly
+            return [Shutdown(reason=f"Interface {interface_name} is down")]
 
         logger.info(f"[CAN] Interface '{interface_name}' is UP — OK")
         return [] 
 
     except subprocess.CalledProcessError:
         logger.error(f"[CAN] ERROR: interface '{interface_name}' does not exist.")
-        return [EmitEvent(event=Shutdown(reason=f"Interface {interface_name} missing"))]
+        # FIX: Return Shutdown action directly
+        return [Shutdown(reason=f"Interface {interface_name} missing")]
         
     except (json.JSONDecodeError, IndexError, KeyError):
         logger.error(f"[CAN] ERROR: Failed to parse state for '{interface_name}'.")
-        return [EmitEvent(event=Shutdown(reason=f"Interface {interface_name} parse error"))]
+        # FIX: Return Shutdown action directly
+        return [Shutdown(reason=f"Interface {interface_name} parse error")]
 
 
-def _auto_configure(node: LifecycleNode) -> RegisterEventHandler:
+def _auto_configure(node: LifecycleNode, label: str) -> RegisterEventHandler:
     """Trigger CONFIGURE transition once the node OS process has started."""
     return RegisterEventHandler(
         OnProcessStart(
             target_action=node,
             on_start=[
-                LogInfo(msg=["[", node.node_name, "] process started — sending configure..."]),
+                LogInfo(msg=f"[{label}] process started — sending configure..."),
+                # ChangeState IS an event, so EmitEvent is correct here
                 EmitEvent(event=ChangeState(
                     lifecycle_node_matcher=matches_action(node),
                     transition_id=Transition.TRANSITION_CONFIGURE,
@@ -80,14 +83,15 @@ def _auto_configure(node: LifecycleNode) -> RegisterEventHandler:
         )
     )
 
-def _auto_activate(node: LifecycleNode) -> RegisterEventHandler:
+def _auto_activate(node: LifecycleNode, label: str) -> RegisterEventHandler:
     """Trigger ACTIVATE transition once the node reaches the inactive state."""
     return RegisterEventHandler(
         OnStateTransition(
             target_lifecycle_node=node,
             goal_state="inactive",
             entities=[
-                LogInfo(msg=["[", node.node_name, "] inactive — sending activate..."]),
+                LogInfo(msg=f"[{label}] inactive — sending activate..."),
+                # ChangeState IS an event, so EmitEvent is correct here
                 EmitEvent(event=ChangeState(
                     lifecycle_node_matcher=matches_action(node),
                     transition_id=Transition.TRANSITION_ACTIVATE,
@@ -96,15 +100,16 @@ def _auto_activate(node: LifecycleNode) -> RegisterEventHandler:
         )
     )
 
-def _fail_fast(node: LifecycleNode) -> RegisterEventHandler:
+def _fail_fast(node: LifecycleNode, label: str) -> RegisterEventHandler:
     """Shut down the entire launch if a lifecycle node enters error state."""
     return RegisterEventHandler(
         OnStateTransition(
             target_lifecycle_node=node,
             goal_state="errorprocessing",
             entities=[
-                LogInfo(msg=["[", node.node_name, "] entered error state — shutting down launch."]),
-                EmitEvent(event=Shutdown(reason=["[", node.node_name, "] lifecycle error"])),
+                LogInfo(msg=f"[{label}] entered error state — shutting down launch."),
+                # FIX: Shutdown is an Action, pass it directly into the entities list
+                Shutdown(reason=f"[{label}] lifecycle error"),
             ],
         )
     )
@@ -165,12 +170,12 @@ def generate_launch_description() -> LaunchDescription:
         receiver_node,
 
         # Handle lifecycle
-        _auto_configure(sender_node),
-        _auto_configure(receiver_node),
-        _auto_activate(sender_node),
-        _auto_activate(receiver_node),
+        _auto_configure(sender_node, "socket_can_sender"),
+        _auto_configure(receiver_node, "socket_can_receiver"),
+        _auto_activate(sender_node, "socket_can_sender"),
+        _auto_activate(receiver_node, "socket_can_receiver"),
 
         # Fail fast if either node errors out
-        _fail_fast(sender_node),
-        _fail_fast(receiver_node),
+        _fail_fast(sender_node, "socket_can_sender"),
+        _fail_fast(receiver_node, "socket_can_receiver"),
     ])
