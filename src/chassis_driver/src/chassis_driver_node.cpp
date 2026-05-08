@@ -204,6 +204,7 @@ void ChassisDriverNode::onCanFrame(const can_msgs::msg::Frame::SharedPtr msg) {
 
     // Steadywin steer: 0xAE status and 0xA3/0xC2 position responses at motor's own address
     for (int i = 0; i < 4; i++) {
+        static_assert(/* steer_ids < 0x100 */);
         if (msg->id == steer_ids_[i] || msg->id == (0x100u | steer_ids_[i])) {
             steadywin_protocol::parseResponse(msg->data, msg->dlc, steer_state_[i]);
             publishJointStates();
@@ -236,7 +237,7 @@ void ChassisDriverNode::publishJointStates() {
 }
 
 void ChassisDriverNode::publishChassisStatus() {
-    static const char* wheel_names[4] = {"FL", "FR", "RL", "RR"};
+    // static const char* wheel_names[4] = {"FL", "FR", "RL", "RR"};
 
     indomitus_msgs::msg::ChassisStatus msg;
     msg.header.stamp = now();
@@ -248,8 +249,8 @@ void ChassisDriverNode::publishChassisStatus() {
         m.esc_id     = steer_ids_[i];
         m.motor_type = "steadywin";
         m.joint_name = steer_joint_names_[i];
-        std::string label = std::string(wheel_names[i]) + "_steer";
-        (void)label;
+        // std::string label = std::string(wheel_names[i]) + "_steer";
+        // (void)label;
 
         m.position         = s.pos_valid ? s.pos_rad : 0.0f;
         m.velocity         = 0.0f;
