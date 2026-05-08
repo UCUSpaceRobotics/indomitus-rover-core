@@ -28,12 +28,34 @@ inline uint16_t floatToUint(float x, float xmin, float xmax, int bits) {
     if (x < xmin) x = xmin;
     if (x > xmax) x = xmax;
     float span = xmax - xmin;
+    if (span == 0.0f) return 0;  // Defensive: xmin == xmax (should be caught at startup)
     return static_cast<uint16_t>((x - xmin) * static_cast<float>((1 << bits) - 1) / span);
 }
 
 inline float uintToFloat(uint16_t x, float xmin, float xmax, int bits) {
     float span = xmax - xmin;
+    if (span == 0.0f) return xmin;  // Defensive: xmin == xmax (should be caught at startup)
     return static_cast<float>(x) * span / static_cast<float>((1 << bits) - 1) + xmin;
+}
+
+// IEEE 754 float32 serialization to/from little-endian byte arrays (protocol-defined, portable)
+inline void serializeFloat32LE(float value, uint8_t* out) {
+    uint32_t bits;
+    std::memcpy(&bits, &value, 4);
+    out[0] = static_cast<uint8_t>((bits >>  0) & 0xFFu);
+    out[1] = static_cast<uint8_t>((bits >>  8) & 0xFFu);
+    out[2] = static_cast<uint8_t>((bits >> 16) & 0xFFu);
+    out[3] = static_cast<uint8_t>((bits >> 24) & 0xFFu);
+}
+
+inline float deserializeFloat32LE(const uint8_t* data) {
+    uint32_t bits = (static_cast<uint32_t>(data[0]) <<  0) |
+                    (static_cast<uint32_t>(data[1]) <<  8) |
+                    (static_cast<uint32_t>(data[2]) << 16) |
+                    (static_cast<uint32_t>(data[3]) << 24);
+    float value;
+    std::memcpy(&value, &bits, 4);
+    return value;
 }
 
 // CAN ID = 0x200 + esc_id, 4-byte IEEE 754 float (motor shaft rad/s)
@@ -41,7 +63,7 @@ inline can_msgs::msg::Frame buildVelocityFrame(uint8_t esc_id, float v_rad_s) {
     can_msgs::msg::Frame f;
     f.id  = 0x200u + esc_id;
     f.dlc = 4;
-    std::memcpy(f.data.data(), &v_rad_s, 4);
+    serializeFloat32LE(v_rad_s, f.data.data());
     return f;
 }
 
@@ -50,8 +72,8 @@ inline can_msgs::msg::Frame buildPositionVelocityFrame(uint8_t esc_id, float p_r
     can_msgs::msg::Frame f;
     f.id  = 0x100u + esc_id;
     f.dlc = 8;
-    std::memcpy(f.data.data() + 0, &p_rad, 4);
-    std::memcpy(f.data.data() + 4, &v_max, 4);
+    serializeFloat32LE(p_rad, f.data.data() + 0);
+    serializeFloat32LE(v_max, f.data.data() + 4);
     return f;
 }
 
@@ -116,9 +138,18 @@ inline can_msgs::msg::Frame buildDisableFrame(uint8_t esc_id) {
     return f;
 }
 
-// Decode MIT feedback frame (pos/vel/torque/temps/err) at mst_id.
+// Decode MIT feedback frame (pos/vel/torque/temps/err) at mst_id or ESC_ID.
 // Returns false if: dlc<8, looks like a register response (D[2]==0x33/0x55/0xAA),
 // or motor ID nibble doesn't match esc_id.
+//
+// IMPORTANT: Motor identification is primarily by CAN Message ID (frame header), not payload ID.
+// Motor sends feedback with CAN ID = its ESC_ID or MST_ID (Register 7).
+// The D[0] low nibble is a 4-bit secondary field (max 15) — useful for debug but not the primary ID.
+// This means motors with IDs >15 (e.g., 16, 20, 30) are fully supported:
+//   Motor 16 (0x10) → CAN ID=16 (primary), D[0]&0x0F=0 (secondary, masked overflow)
+//   Motor 30 (0x1E) → CAN ID=30 (primary), D[0]&0x0F=14 (secondary, masked overflow)
+// onCanFrame() routes by CAN ID first (lines 175-177), then calls parseFeedback() for matching motor.
+// The nibble check is a sanity filter, not the identifier.
 inline bool parseFeedback(
     const std::array<uint8_t, 8>& data, uint8_t dlc,
     uint8_t esc_id,
@@ -128,6 +159,7 @@ inline bool parseFeedback(
     if (dlc < 8) return false;
     // Register response frames have a fixed command byte in D[2] — skip them
     if (data[2] == 0x33u || data[2] == 0x55u || data[2] == 0xAAu) return false;
+    // Sanity check: 4-bit ID field should match (after masking potential overflow from ESC_ID>15)
     if ((data[0] & 0x0Fu) != (esc_id & 0x0Fu)) return false;
 
     uint16_t p_int = (static_cast<uint16_t>(data[1]) << 8) | data[2];
@@ -157,8 +189,7 @@ inline bool parseRegisterResponse(
     // D[0]=CANID_L, D[1]=CANID_H must match esc_id
     if (data[0] != esc_id) return false;
 
-    float val = 0.0f;
-    std::memcpy(&val, data.data() + 4, 4);
+    float val = deserializeFloat32LE(data.data() + 4);
 
     uint8_t reg = data[3];
     if (reg == 80) { out.pos_exact = val; out.reg_valid = true; }
