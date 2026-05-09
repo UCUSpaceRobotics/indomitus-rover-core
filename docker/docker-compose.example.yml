@@ -7,23 +7,24 @@ services:
         ROS_DISTRO: humble
     image: indomitus-rover:humble
     container_name: indomitus_rover_dev
-    networks:
-      - ros_network
+    # networks:
+    #   - ros_network
+    network_mode: host
     stdin_open: true      # -i
     tty: true             # -t
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=42
-      - ROS_LOCALHOST_ONLY=1
+      - ROS_LOCALHOST_ONLY=0
     volumes:
       - ./:/work:rw
       - ./src:/opt/ws/src:rw
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
 
-networks:
-  ros_network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.25.0.0/16
+# networks:
+#   ros_network:
+#     driver: bridge
+#     ipam:
+#       config:
+#         - subnet: 172.25.0.0/16
