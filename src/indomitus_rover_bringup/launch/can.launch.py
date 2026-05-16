@@ -9,7 +9,8 @@ Launch arguments:
     receiver_interval_sec (default: 0.01)  — receiver polling interval
 
 Prerequisites (host-side, before launching):
-    ./scripts/setup_can.sh [interface] [bitrate]
+    The can interface need to be activated and the bitrate need to be set.
+    (Now it is done in the docker entrypoint)
 """
 
 import json
@@ -50,20 +51,17 @@ def _validate_can_interface(context, *args, **kwargs) -> List[Action]:
         
         if "UP" not in flags:
             logger.error(f"[CAN] ERROR: interface '{interface_name}' exists but is not UP.")
-            # FIX: Return Shutdown action directly
             return [Shutdown(reason=f"Interface {interface_name} is down")]
 
         logger.info(f"[CAN] Interface '{interface_name}' is UP — OK")
-        return [] 
+        return []
 
     except subprocess.CalledProcessError:
         logger.error(f"[CAN] ERROR: interface '{interface_name}' does not exist.")
-        # FIX: Return Shutdown action directly
         return [Shutdown(reason=f"Interface {interface_name} missing")]
         
     except (json.JSONDecodeError, IndexError, KeyError):
         logger.error(f"[CAN] ERROR: Failed to parse state for '{interface_name}'.")
-        # FIX: Return Shutdown action directly
         return [Shutdown(reason=f"Interface {interface_name} parse error")]
 
 
@@ -74,7 +72,6 @@ def _auto_configure(node: LifecycleNode, label: str) -> RegisterEventHandler:
             target_action=node,
             on_start=[
                 LogInfo(msg=f"[{label}] process started — sending configure..."),
-                # ChangeState IS an event, so EmitEvent is correct here
                 EmitEvent(event=ChangeState(
                     lifecycle_node_matcher=matches_action(node),
                     transition_id=Transition.TRANSITION_CONFIGURE,
@@ -91,7 +88,6 @@ def _auto_activate(node: LifecycleNode, label: str) -> RegisterEventHandler:
             goal_state="inactive",
             entities=[
                 LogInfo(msg=f"[{label}] inactive — sending activate..."),
-                # ChangeState IS an event, so EmitEvent is correct here
                 EmitEvent(event=ChangeState(
                     lifecycle_node_matcher=matches_action(node),
                     transition_id=Transition.TRANSITION_ACTIVATE,
@@ -108,7 +104,6 @@ def _fail_fast(node: LifecycleNode, label: str) -> RegisterEventHandler:
             goal_state="errorprocessing",
             entities=[
                 LogInfo(msg=f"[{label}] entered error state — shutting down launch."),
-                # FIX: Shutdown is an Action, pass it directly into the entities list
                 Shutdown(reason=f"[{label}] lifecycle error"),
             ],
         )
@@ -156,6 +151,13 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
+    sender_configure_handler = _auto_configure(sender_node, "socket_can_sender")
+    receiver_configure_handler = _auto_configure(receiver_node, "socket_can_receiver")
+    sender_activate_handler = _auto_activate(sender_node, "socket_can_sender")
+    receiver_activate_handler = _auto_activate(receiver_node, "socket_can_receiver")
+    sender_fail_fast_handler = _fail_fast(sender_node, "socket_can_sender")
+    receiver_fail_fast_handler = _fail_fast(receiver_node, "socket_can_receiver")
+
     return LaunchDescription([
         # Arguments
         interface_arg,
@@ -165,17 +167,15 @@ def generate_launch_description() -> LaunchDescription:
         # Validate CAN interface presence
         OpaqueFunction(function=_validate_can_interface),
 
+        # Event handlers
+        sender_configure_handler,
+        receiver_configure_handler,
+        sender_activate_handler,
+        receiver_activate_handler,
+        sender_fail_fast_handler,
+        receiver_fail_fast_handler,
+
         # Nodes
         sender_node,
         receiver_node,
-
-        # Handle lifecycle
-        _auto_configure(sender_node, "socket_can_sender"),
-        _auto_configure(receiver_node, "socket_can_receiver"),
-        _auto_activate(sender_node, "socket_can_sender"),
-        _auto_activate(receiver_node, "socket_can_receiver"),
-
-        # Fail fast if either node errors out
-        _fail_fast(sender_node, "socket_can_sender"),
-        _fail_fast(receiver_node, "socket_can_receiver"),
     ])
