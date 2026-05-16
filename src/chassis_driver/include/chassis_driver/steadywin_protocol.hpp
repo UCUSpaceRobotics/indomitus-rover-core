@@ -27,6 +27,21 @@ inline int32_t radToCounts(float angle_rad) {
     return static_cast<int32_t>(angle_rad * COUNTS_PER_REV / TWO_PI);
 }
 
+// Int32 serialization to/from little-endian byte arrays (protocol-defined, portable)
+inline void serializeInt32LE(int32_t value, uint8_t* out) {
+    out[0] = static_cast<uint8_t>((value >>  0) & 0xFFu);
+    out[1] = static_cast<uint8_t>((value >>  8) & 0xFFu);
+    out[2] = static_cast<uint8_t>((value >> 16) & 0xFFu);
+    out[3] = static_cast<uint8_t>((value >> 24) & 0xFFu);
+}
+
+inline int32_t deserializeInt32LE(const uint8_t* data) {
+    return (static_cast<int32_t>(data[0]) <<  0) |
+           (static_cast<int32_t>(data[1]) <<  8) |
+           (static_cast<int32_t>(data[2]) << 16) |
+           (static_cast<int32_t>(data[3]) << 24);
+}
+
 // Absolute position command (0xC2): int32 counts, little-endian
 // Motor activates on receiving this (no separate enable needed)
 inline can_msgs::msg::Frame buildAbsPositionFrame(uint8_t esc_id, float angle_rad) {
@@ -34,7 +49,7 @@ inline can_msgs::msg::Frame buildAbsPositionFrame(uint8_t esc_id, float angle_ra
     f.id = esc_id; f.dlc = 5; f.data.fill(0);
     f.data[0] = 0xC2;
     int32_t counts = radToCounts(angle_rad);
-    std::memcpy(f.data.data() + 1, &counts, 4);
+    serializeInt32LE(counts, f.data.data() + 1);
     return f;
 }
 
@@ -102,8 +117,7 @@ inline bool parsePositionResponse(
 {
     if (dlc < 7) return false;
     if (data[0] != 0xA3 && data[0] != 0xC2 && data[0] != 0xC3) return false;
-    int32_t multi_counts;
-    std::memcpy(&multi_counts, data.data() + 3, 4);
+    int32_t multi_counts = deserializeInt32LE(data.data() + 3);
     out.pos_rad   = static_cast<float>(multi_counts) * TWO_PI / COUNTS_PER_REV;
     out.pos_valid = true;
     return true;

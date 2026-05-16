@@ -1,0 +1,14 @@
+sim_chassis_driver:
+  ros__parameters:
+
+    # WheelTargets angles are always in radians (rad).
+    # Set steer_scale to convert to the unit your controller expects:
+    #   1.0        — radians (default, Gazebo ros2_control)
+    #   57.2957795 — degrees (180/pi), if controller expects degrees
+    steer_scale: 1.0
+
+    # WheelTargets speeds are always in rad/s.
+    # Set drive_scale to convert to the unit your controller expects:
+    #   1.0        — rad/s (default, Gazebo ros2_control)
+    #   9.5492966  — RPM (60/2pi), if controller expects RPM
+    drive_scale: 1.0

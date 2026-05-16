@@ -3,7 +3,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler, TimerAction
+from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
 from launch.events import matches_action
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
@@ -58,29 +58,38 @@ def generate_launch_description():
         output='screen',
     )
 
-    # Kinematics + driver стартують після того як CAN lifecycle ноди активувались
-    deferred_nodes = TimerAction(period=1.5, actions=[
-        Node(
-            package='indomitus_rover_control',
-            executable='rover_kinematics_node',
-            output='screen',
-            parameters=[
-                os.path.join(
-                    get_package_share_directory('indomitus_rover_description'),
-                    'config', 'rover_geometry.yaml',
-                ),
+    kinematics_node = Node(
+        package='indomitus_rover_control',
+        executable='rover_kinematics_node',
+        output='screen',
+        parameters=[
+            os.path.join(
+                get_package_share_directory('indomitus_rover_description'),
+                'config', 'rover_geometry.yaml',
+            ),
+        ],
+    )
+    
+    chassis_driver_node =Node(
+        package='chassis_driver',
+        executable='chassis_driver_node',
+        output='screen',
+        parameters=[os.path.join(
+            get_package_share_directory('chassis_driver'),
+            'config', 'chassis_driver.yaml',
+        )],
+    )
+
+    start_after_can_nodes = RegisterEventHandler(
+        OnStateTransition(
+            target_lifecycle_node=receiver_node,
+            goal_state='active',
+            entities=[
+                kinematics_node,
+                chassis_driver_node
             ],
-        ),
-        Node(
-            package='chassis_driver',
-            executable='chassis_driver_node',
-            output='screen',
-            parameters=[os.path.join(
-                get_package_share_directory('chassis_driver'),
-                'config', 'chassis_driver.yaml',
-            )],
-        ),
-    ])
+        )
+    )
 
     return LaunchDescription([
         interface_arg,
@@ -88,5 +97,5 @@ def generate_launch_description():
         receiver_node,
         *lifecycle_sequence(sender_node),
         *lifecycle_sequence(receiver_node),
-        deferred_nodes,
+        start_after_can_nodes,
     ])

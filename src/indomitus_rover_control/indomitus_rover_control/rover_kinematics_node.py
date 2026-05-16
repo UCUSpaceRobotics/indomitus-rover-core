@@ -46,14 +46,14 @@ class RoverController(Node):
 
         self.sub = self.create_subscription(
             Twist,
-            '/cmd_vel',
+            'cmd_vel',
             self.cmd_vel_callback,
             10
         )
 
         self.pub = self.create_publisher(
             WheelTargets,
-            '/wheel_targets',
+            'wheel_targets',
             10
         )
 
@@ -64,7 +64,7 @@ class RoverController(Node):
             'RR': (-self.L2, -self.W2),
         }
 
-        self.get_logger().info('RoverController started — listening on /cmd_vel')
+        self.get_logger().info('RoverController started — listening on cmd_vel')
 
     def _read_params(self):
         self.wheelbase = self.get_parameter('wheelbase').value
@@ -133,8 +133,6 @@ class RoverController(Node):
         # Case 3: Ackermann / general motion
         icr_x = abs(vy) / wz
         icr_y = abs(vx) / wz
-
-        print(f'ICR: x={icr_x:.2f} m, y={icr_y:.2f} m')
 
         angles = []
         speeds = []
