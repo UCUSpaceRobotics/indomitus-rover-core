@@ -18,6 +18,8 @@ network_mode: host
       - CAN_BITRATE=1000000
 ```
 
+> **NOTE:** This configuration is Linux-only and will not work natively on macOS or Windows.
+
 ### Environment Variables
 
 These variables configure the physical hardware during the container's boot sequence before ROS 2 starts:
