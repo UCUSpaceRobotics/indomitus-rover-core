@@ -18,7 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     usbutils \
     iproute2 \
-    sudo \
     pkg-config \
     g++ make cmake \
     && rm -rf /var/lib/apt/lists/*
@@ -29,8 +28,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ros-${ROS_DISTRO}-ros-gz ros-${ROS_DISTRO}-ros-gz-sim \
     # ros-${ROS_DISTRO}-ros-gz-bridge ros-${ROS_DISTRO}-gazebo-ros-pkgs \
     # libgl1 libglib2.0-0 \
-
-RUN echo "ALL ALL=(ALL) NOPASSWD: /usr/sbin/ip" >> /etc/sudoers
 
 RUN locale-gen en_US.UTF-8
 

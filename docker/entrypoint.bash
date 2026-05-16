@@ -14,10 +14,10 @@ if ip link show "${TARGET_IFACE}" > /dev/null 2>&1; then
     echo "[CAN] INFO: Hardware found. Configuring ${TARGET_IFACE} at ${TARGET_BITRATE} bps..."
 
     if ip link show "${TARGET_IFACE}" | grep -q "UP"; then
-        sudo ip link set "${TARGET_IFACE}" down || true
+        ip link set "${TARGET_IFACE}" down || true
     fi
 
-    sudo ip link set "${TARGET_IFACE}" up type can bitrate "${TARGET_BITRATE}"
+    ip link set "${TARGET_IFACE}" up type can bitrate "${TARGET_BITRATE}"
 
     echo "[CAN] SUCCESS: Interface '${TARGET_IFACE}' configured at ${TARGET_BITRATE} bps."
 else
