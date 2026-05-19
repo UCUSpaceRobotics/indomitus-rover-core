@@ -31,7 +31,7 @@ These variables configure the physical hardware during the container's boot sequ
 
 Start the sender and receiver lifecycle nodes using the provided launch script:
 
-`bash ros2 launch indomitus_rover_bringup can_bridge.launch.py interface:=can0 `
+`bash ros2 launch indomitus_rover_bringup can.launch.py interface:=can0 `
 
 #### Launch Arguments
 
