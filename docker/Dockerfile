@@ -15,13 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-ros2-socketcan \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     && rm -rf /var/lib/apt/lists/*
-
-    # ros-${ROS_DISTRO}-joint-state-publisher-gui \
-    # ros-${ROS_DISTRO}-rviz2 \
-    # ros-${ROS_DISTRO}-rosbag2 \
-    # ros-${ROS_DISTRO}-ros-gz ros-${ROS_DISTRO}-ros-gz-sim \
-    # ros-${ROS_DISTRO}-ros-gz-bridge ros-${ROS_DISTRO}-gazebo-ros-pkgs \
-    # libgl1 libglib2.0-0 \
     
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
@@ -43,6 +36,21 @@ ENTRYPOINT ["/entrypoint.bash"]
 
 
 FROM base AS dev
+
+ARG INSTALL_SIM_TOOLS=false
+
+RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+        ros-${ROS_DISTRO}-joint-state-publisher-gui \
+        ros-${ROS_DISTRO}-rviz2 \
+        ros-${ROS_DISTRO}-rosbag2 \
+        ros-${ROS_DISTRO}-ros-gz \
+        ros-${ROS_DISTRO}-ros-gz-sim \
+        ros-${ROS_DISTRO}-ros-gz-bridge \
+        ros-${ROS_DISTRO}-gazebo-ros-pkgs \
+        libgl1 libglib2.0-0 \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 CMD ["bash"]
 

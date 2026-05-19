@@ -8,6 +8,7 @@ services:
       target: dev
       args:
         ROS_DISTRO: humble
+        INSTALL_SIM_TOOLS: "false"
     image: indomitus-rover:humble-dev
     container_name: indomitus_rover_dev
     network_mode: host
