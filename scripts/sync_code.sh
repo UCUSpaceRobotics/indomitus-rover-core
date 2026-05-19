@@ -16,15 +16,15 @@ It performs safety checks to ensure both local and remote directories are the
 exact same Git repository before applying any changes or deletions via rsync.
 
 Options:
-  -l LOCAL_DIR    Path to the local Git repository on your machine. 
-                  (Default: ./)
-  -i IP           The IP address of the Jetson Nano hotspot/network. 
-                  (Default: 10.42.0.1)
-  -u USER         The SSH username for the Jetson Nano. 
-                  (Default: jetson_username)
-  -d REMOTE_DIR   The absolute destination path to the repository on the Jetson Nano. 
-                  (Default: /home/jetson_username/repository)
-  -h, --help      Display this help message and exit.
+  -l, --local-dir   Path to the local Git repository on your machine. 
+                    (Default: ./)
+  -i, --ip          The IP address of the Jetson Nano hotspot/network. 
+                    (Default: 10.42.0.1)
+  -u, --user        The SSH username for the Jetson Nano. 
+                    (Default: jetson_username)
+  -d, --remote-dir  The absolute destination path to the repository on the Jetson Nano. 
+                    (Default: /home/jetson_username/repository)
+  -h, --help        Display this help message and exit.
 EOF
 }
 
@@ -36,12 +36,12 @@ for arg in "$@"; do
 done
 
 # --- PARSE TERMINAL ARGUMENTS ---
-while getopts u:i:d:l: flag; do
-    case "${flag}" in
-        u) JETSON_USER=${OPTARG};;
-        i) JETSON_IP=${OPTARG};;
-        d) REMOTE_DIR=${OPTARG};;
-        l) LOCAL_DIR=${OPTARG};;
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -u|--user) JETSON_USER="$2"; shift 2;;
+        -i|--ip) JETSON_IP="$2"; shift 2;;
+        -d|--remote-dir) REMOTE_DIR="$2"; shift 2;;
+        -l|--local-dir) LOCAL_DIR="$2"; shift 2;;
         *) show_help; exit 1;;
     esac
 done
