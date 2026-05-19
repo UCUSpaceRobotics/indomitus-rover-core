@@ -107,8 +107,9 @@ check status with
 ```bash
 nmcli device status
 ```
-```ba
-WARNING: terminal is not fully functionalsh
+
+Real example output:
+```bash
 DEVICE           TYPE      STATE      CONNECTION
 wlan0            wifi      connected  yagodanr 4
 eth0             ethernet  connected  jetson-direct-eth
