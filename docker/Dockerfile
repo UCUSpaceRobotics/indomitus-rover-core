@@ -21,23 +21,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     g++ make cmake \
     && rm -rf /var/lib/apt/lists/*
-
-
+    
     # ros-${ROS_DISTRO}-joint-state-publisher-gui \
     # ros-${ROS_DISTRO}-rviz2 \
     # ros-${ROS_DISTRO}-rosbag2 \
     # ros-${ROS_DISTRO}-ros-gz ros-${ROS_DISTRO}-ros-gz-sim \
     # ros-${ROS_DISTRO}-ros-gz-bridge ros-${ROS_DISTRO}-gazebo-ros-pkgs \
-    # ros-${ROS_DISTRO}-depthai-ros \
     # libgl1 libglib2.0-0 \
 
 RUN locale-gen en_US.UTF-8
 
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-
 RUN rosdep init || true && rosdep update
-
 
 ENV WS=/opt/ws
 RUN mkdir -p ${WS}/src
