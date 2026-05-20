@@ -74,6 +74,8 @@ class ContainerCanNode(Node):
         )
 
         # --- lid response ---
+        self._lid_active = False
+        self._lid_active_lock = threading.Lock()
         self._lid_lock   = threading.Lock()
         self._lid_event  = threading.Event()
         self._lid_status : int | None = None  # last received status
@@ -144,14 +146,26 @@ class ContainerCanNode(Node):
     # =======================================================================
 
     def _lid_goal_cb(self, goal_handle):
+        with self._lid_active_lock:
+            if self._lid_active:
+                self.get_logger().warn("Lid action is already in progress, rejecting new goal")
+                return GoalResponse.REJECT
+            self._lid_active = True
         self.get_logger().info("Action goal received")
         return GoalResponse.ACCEPT
 
     def _lid_cancel_cb(self, goal_handle):
         self.get_logger().info("Action cancel requested")
         return CancelResponse.ACCEPT
-
+    
     def _lid_execute_cb(self, goal_handle):
+        try:
+            return self._lid_execute_impl(goal_handle)
+        finally:
+            with self._lid_active_lock:
+                self._lid_active = False
+
+    def _lid_execute_impl(self, goal_handle):
         open_lid = goal_handle.request.open
         cmd      = self._cmd_open if open_lid else self._cmd_close
         label    = "opening" if open_lid else "closing"

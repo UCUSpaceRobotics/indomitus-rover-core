@@ -5,6 +5,14 @@ Container should have two main functions:
 - Close/open container (realized via actions, since it takes time to accomplish this mission)
 - Take weight measurements from sensor and send to Jetson (via service, responce time shouldn't be that long)
 
+## Launch file & prerequisites
+
+> ⚠️ Warning: This launch files assumes that ros2_socketcan is already running!
+
+```bash
+ros2 launch indomitus_rover_bringup container.launch.py
+```
+
 ## Interface details
 
 Action:  /container/lid  (indomitus_interfaces/action/ContainerLid)
