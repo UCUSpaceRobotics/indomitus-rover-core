@@ -1,9 +1,6 @@
-# Goal — що робити
-bool open         # true = open, false = close
+bool open       # true = open, false = close
 ---
-# Result — фінальний результат
 bool success
-string message    # "OPEN OK" | "CLOSE OK" | "FAIL ..."
+string message # "OPEN OK" | "CLOSE OK" | "FAIL ..."
 ---
-# Feedback — проміжний статус
 string status     # "opening" | "closing" | "done" | "error"
