@@ -1,0 +1,6 @@
+# Request — порожній, просто запит
+---
+# Response
+float32 weight    # показник з датчика (в грамах або кг — на твій розсуд)
+bool success
+string message    # "OK" | "FAIL ..."

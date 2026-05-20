@@ -2,7 +2,7 @@
 source /opt/ros/humble/setup.bash
 # source old workspace packages (can_bridge, sim, description)
 [ -f /opt/ws/install/setup.bash ] && source /opt/ws/install/setup.bash
-# source our new packages (damiao_driver, indomitus_msgs, rover_control)
+# source our new packages (damiao_driver, indomitus_interfaces, rover_control)
 source /work/install/local_setup.bash
 
 ros2 run indomitus_rover_control rover_kinematics_node > /tmp/kin.txt 2>&1 &

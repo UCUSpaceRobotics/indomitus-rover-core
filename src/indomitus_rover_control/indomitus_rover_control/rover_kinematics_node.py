@@ -18,7 +18,7 @@ Wheel layout (top view):
    RL -------- RR
         rear
 
-Published message (indomitus_msgs/WheelTargets):
+Published message (indomitus_interfaces/WheelTargets):
   fl_angle, fr_angle, rl_angle, rr_angle  — radians
   fl_speed, fr_speed, rl_speed, rr_speed  — rad/s
 """
@@ -26,7 +26,7 @@ Published message (indomitus_msgs/WheelTargets):
 import math
 
 from geometry_msgs.msg import Twist
-from indomitus_msgs.msg import WheelTargets
+from indomitus_interfaces.msg import WheelTargets
 
 import rclpy
 from rclpy.node import Node

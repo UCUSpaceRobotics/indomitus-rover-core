@@ -7,8 +7,8 @@
 #include "can_msgs/msg/frame.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
-#include "indomitus_msgs/msg/wheel_targets.hpp"
-#include "indomitus_msgs/msg/chassis_status.hpp"
+#include "indomitus_interfaces/msg/wheel_targets.hpp"
+#include "indomitus_interfaces/msg/chassis_status.hpp"
 #include "chassis_driver/damiao_protocol.hpp"
 #include "chassis_driver/steadywin_protocol.hpp"
 
@@ -22,7 +22,7 @@ public:
     void sendDisableFrames();
 
 private:
-    void onWheelTargets(const indomitus_msgs::msg::WheelTargets::SharedPtr msg);
+    void onWheelTargets(const indomitus_interfaces::msg::WheelTargets::SharedPtr msg);
     void onCanFrame(const can_msgs::msg::Frame::SharedPtr msg);
     void publishJointStates();
     void publishChassisStatus();
@@ -30,13 +30,13 @@ private:
     void sendEnableFrames();
 
     // Subscriptions
-    rclcpp::Subscription<indomitus_msgs::msg::WheelTargets>::SharedPtr wheel_targets_sub_;
+    rclcpp::Subscription<indomitus_interfaces::msg::WheelTargets>::SharedPtr wheel_targets_sub_;
     rclcpp::Subscription<can_msgs::msg::Frame>::SharedPtr from_can_sub_;
 
     // Publishers
     rclcpp::Publisher<can_msgs::msg::Frame>::SharedPtr to_can_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_states_pub_;
-    rclcpp::Publisher<indomitus_msgs::msg::ChassisStatus>::SharedPtr chassis_status_pub_;
+    rclcpp::Publisher<indomitus_interfaces::msg::ChassisStatus>::SharedPtr chassis_status_pub_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
 
     // Timers

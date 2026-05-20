@@ -13,7 +13,7 @@
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
-  <depend>indomitus_msgs</depend>
+  <depend>indomitus_interfaces</depend>
 
   <test_depend>ament_flake8</test_depend>
   <test_depend>python3-pytest</test_depend>
