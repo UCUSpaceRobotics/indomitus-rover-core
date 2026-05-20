@@ -7,6 +7,7 @@
 * your laptop is connected to that same network (`JetsonRosIndomitus` password `jetson1234`)
 * (probably optional) Jetson is setup to have static ipv4 on its network
 
+ > **Important:** If at any stage you are asked for the password for the user on the jetson, the current password is `1`
 
 ## Connect over ssh
 
@@ -23,6 +24,7 @@
    ```bash
    ssh ros@10.42.0.1
    ```
+
 
 
 ## Setup passwordless connection
