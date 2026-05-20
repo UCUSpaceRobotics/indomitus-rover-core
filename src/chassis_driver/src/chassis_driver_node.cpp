@@ -204,7 +204,6 @@ void ChassisDriverNode::onCanFrame(const can_msgs::msg::Frame::SharedPtr msg) {
 
     // Steadywin steer: 0xAE status and 0xA3/0xC2 position responses at motor's own address
     for (int i = 0; i < 4; i++) {
-        static_assert(/* steer_ids < 0x100 */);
         if (msg->id == steer_ids_[i] || msg->id == (0x100u | steer_ids_[i])) {
             steadywin_protocol::parseResponse(msg->data, msg->dlc, steer_state_[i]);
             publishJointStates();

@@ -61,6 +61,8 @@ COPY ./src ${WS}/src
 # Temporary commented
 # RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS_DISTRO} && rm -rf /var/lib/apt/lists/*
 
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build --symlink-install"
+RUN touch ${WS}/src/indomitus_rover_sim/COLCON_IGNORE
+
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build"
 
 CMD ["bash"]
