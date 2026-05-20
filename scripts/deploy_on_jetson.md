@@ -10,9 +10,11 @@ Before running the script for the first time, you must grant it execution permis
 chmod +x scripts/deploy_to_jetson.sh
 ```
 
-## Running Script
+## Running the Script
 
-Ensure your laptop is disconnected from the internet and connected to the Jetson Nano's Wi-Fi hotspot. Run the script from the root of your repository.
+Thanks to automatic path resolution, you can run this script from **any folder on your computer**. The script will automatically locate the repository root.
+
+Ensure your laptop is connected to a Wi-Fi network with internet access to build the image. Once the image is built, the script will automatically attempt to connect to the Jetson hotspot for the transfer.
 
 To run the script using the default configuration:
 
@@ -22,12 +24,17 @@ To run the script using the default configuration:
 
 ## Configuration Flags
 
-The script is pre-configured with default values matching the standard repository layout. You can override any of these defaults using the following flags:
+The script is pre-configured with default values matching the standard repository layout. You can override any of these defaults using the following flags.
 
-* `-i IP` : The Jetson Nano IP address over the hotspot. (Default: 10.42.0.1)
-* `-u USER` : The Jetson Nano SSH username. (Default: jetson_username)
-* `-d DIR` : The remote deployment directory created on the Jetson. (Default: rover_deploy)
-* `-n NAME` : The base Docker image name. (Default: indomitus-rover)
-* `-t TAG` : The Docker image tag for the production build. (Default: humble-prod)
-* `-f FILE` : The relative path to the Dockerfile. (Default: docker/Dockerfile)
-* `-c FILE` : The relative path to the Production Compose file. (Default: docker/docker_compose.prod.yaml)
+**Important:** Because the script can be run from anywhere, all local file paths provided via flags **MUST** be relative to the root of the repository.
+
+* `-i, --ip IP` : The Jetson Nano IP address over the hotspot. (Default: 10.42.0.1)
+* `-u, --user USER` : The Jetson Nano SSH username. (Default: ros)
+* `-d, --dir DIR` : Remote deployment directory on the Jetson. Can be an absolute path (e.g., `/opt/rover`) or relative to the user's home folder. (Default: `/home/ros/Indomitus/indomitus-rover-core/`)
+* `-n, --name NAME` : The base Docker image name. (Default: indomitus-rover)
+* `-t, --tag TAG` : The Docker image tag for the production build. (Default: humble-prod)
+* `-f, --file FILE` : The path to the Dockerfile, relative to the repository root. (Default: docker/Dockerfile)
+* `-c, --compose FILE` : The path to the Production Compose file, relative to the repository root. (Default: docker/docker-compose.prod.yaml)
+* `-w, --ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Optional, Default: JetsonRosIndomitus)
+* `-p, --pass PASS` : Wi-Fi password for the Jetson hotspot. (Optional, Default: jetson1234)
+* `-h, --help` : Display the help message and exit.

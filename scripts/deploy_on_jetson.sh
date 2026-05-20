@@ -172,7 +172,6 @@ success "Connection established."
 
 # 6. TRANSFER TO JETSON NANO
 step "Transferring Payload to ${TARGET}:${REMOTE_DIR}..."
-# Using -- prevents crash if REMOTE_DIR starts with a dash.
 ssh -q "${TARGET}" "mkdir -p -- \"${REMOTE_DIR}\""
 scp "${ARCHIVE_NAME}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/"
 
