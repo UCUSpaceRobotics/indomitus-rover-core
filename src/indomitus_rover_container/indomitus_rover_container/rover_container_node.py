@@ -36,12 +36,6 @@ from can_msgs.msg import Frame
 from indomitus_interfaces.action import ContainerLid
 from indomitus_interfaces.srv import GetWeight
 
-# Статуси від ESP32 (byte 1 у lid response)
-_STATUS_ACK         = 0x00
-_STATUS_IN_PROGRESS = 0x01
-_STATUS_DONE        = 0x02
-_STATUS_ERROR       = 0x03
-
 
 class ContainerCanNode(Node):
     def __init__(self):
@@ -79,12 +73,12 @@ class ContainerCanNode(Node):
             callback_group=self._weight_cbg,
         )
 
-        # --- lid responses ---
+        # --- lid response ---
         self._lid_lock   = threading.Lock()
         self._lid_event  = threading.Event()
-        self._lid_status : int | None = None  # last status received from ESP32 for lid command
+        self._lid_status : int | None = None  # last received status
 
-        # --- weight responses ---
+        # --- weight response ---
         self._wgt_lock    = threading.Lock()
         self._wgt_pending = False
         self._wgt_event   = threading.Event()
@@ -99,14 +93,14 @@ class ContainerCanNode(Node):
             f"weight=0x{self._cmd_get_weight:02X}\n"
             f"  CAN RX lid=0x{self._lid_resp_id:03X}  "
             f"weight=0x{self._weight_resp_id:03X}\n"
-            f"  /container/lid     (Action)  — goal.open: true=open, false=close\n"
-            f"  /container/weight  (Service) — get weight sensor reading"
+            f"  /container/lid    (Action)  - goal.open: true=open, false=close\n"
+            f"  /container/weight (Service) - get weight sensor reading"
         )
 
     # =======================================================================
     # Parameters
     # =======================================================================
-
+ 
     def _declare_parameters(self):
         # CAN IDs
         self.declare_parameter("can.cmd_id",          0x200)
@@ -117,12 +111,17 @@ class ContainerCanNode(Node):
         self.declare_parameter("can.cmd_close",       0x02)
         self.declare_parameter("can.cmd_poll_status", 0x04)
         self.declare_parameter("can.cmd_get_weight",  0x10)
+        # Status codes (ESP32 → PC, byte 1)
+        self.declare_parameter("can.status_ack",         0x00)
+        self.declare_parameter("can.status_in_progress", 0x01)
+        self.declare_parameter("can.status_done",        0x02)
+        self.declare_parameter("can.status_error",       0x03)
         # Timeouts / intervals
-        self.declare_parameter("timeouts.lid_ack_s",         2.0)
-        self.declare_parameter("timeouts.lid_done_s",        15.0)
+        self.declare_parameter("timeouts.lid_ack_s",           2.0)
+        self.declare_parameter("timeouts.lid_done_s",          15.0)
         self.declare_parameter("timeouts.lid_poll_interval_s", 0.5)
-        self.declare_parameter("timeouts.weight_s",          3.0)
-
+        self.declare_parameter("timeouts.weight_s",            3.0)
+ 
     def _load_parameters(self):
         self._cmd_id          = self.get_parameter("can.cmd_id").value
         self._lid_resp_id     = self.get_parameter("can.lid_resp_id").value
@@ -131,10 +130,14 @@ class ContainerCanNode(Node):
         self._cmd_close       = self.get_parameter("can.cmd_close").value
         self._cmd_poll_status = self.get_parameter("can.cmd_poll_status").value
         self._cmd_get_weight  = self.get_parameter("can.cmd_get_weight").value
-        self._lid_ack_timeout  = self.get_parameter("timeouts.lid_ack_s").value
-        self._lid_done_timeout = self.get_parameter("timeouts.lid_done_s").value
-        self._lid_poll_interval = self.get_parameter("timeouts.lid_poll_interval_s").value
-        self._weight_timeout   = self.get_parameter("timeouts.weight_s").value
+        self._status_ack         = self.get_parameter("can.status_ack").value
+        self._status_in_progress = self.get_parameter("can.status_in_progress").value
+        self._status_done        = self.get_parameter("can.status_done").value
+        self._status_error       = self.get_parameter("can.status_error").value
+        self._lid_ack_timeout    = self.get_parameter("timeouts.lid_ack_s").value
+        self._lid_done_timeout   = self.get_parameter("timeouts.lid_done_s").value
+        self._lid_poll_interval  = self.get_parameter("timeouts.lid_poll_interval_s").value
+        self._weight_timeout     = self.get_parameter("timeouts.weight_s").value
 
     # =======================================================================
     # Action: lid
@@ -158,7 +161,7 @@ class ContainerCanNode(Node):
         feedback = ContainerLid.Feedback()
         result   = ContainerLid.Result()
 
-        # 1: send cmd and wait for ACK
+        # --- step 1: send command and wait for ACK ---
         feedback.status = label
         goal_handle.publish_feedback(feedback)
 
@@ -173,7 +176,7 @@ class ContainerCanNode(Node):
         with self._lid_lock:
             ack_status = self._lid_status
 
-        if not got_ack or ack_status not in (_STATUS_ACK, _STATUS_IN_PROGRESS):
+        if not got_ack or ack_status not in (self._status_ack, self._status_in_progress):
             self.get_logger().warn(f"No ACK from ESP32 (cmd=0x{cmd:02X})")
             feedback.status = "error"
             goal_handle.publish_feedback(feedback)
@@ -184,7 +187,7 @@ class ContainerCanNode(Node):
 
         self.get_logger().info(f"ACK received, polling every {self._lid_poll_interval}s")
 
-        # 2: polling until DONE or ERROR
+        # --- step 2: polling until DONE or ERROR ---
         deadline = time.monotonic() + self._lid_done_timeout
 
         while time.monotonic() < deadline:
@@ -211,7 +214,7 @@ class ContainerCanNode(Node):
                 self.get_logger().warn("Poll timeout — no response from ESP32")
                 continue
 
-            if current_status == _STATUS_DONE:
+            if current_status == self._status_done:
                 feedback.status = "done"
                 goal_handle.publish_feedback(feedback)
                 goal_handle.succeed()
@@ -219,7 +222,7 @@ class ContainerCanNode(Node):
                 result.message = f"{label.upper()} OK"
                 return result
 
-            if current_status == _STATUS_ERROR:
+            if current_status == self._status_error:
                 feedback.status = "error"
                 goal_handle.publish_feedback(feedback)
                 goal_handle.abort()
@@ -230,7 +233,7 @@ class ContainerCanNode(Node):
             # STATUS_IN_PROGRESS — wait more
             self.get_logger().info(f"Still {label}...")
 
-        # deadline exceeded
+        # exceeded deadline
         self.get_logger().warn(f"Deadline exceeded waiting for {label.upper()} DONE")
         feedback.status = "error"
         goal_handle.publish_feedback(feedback)
