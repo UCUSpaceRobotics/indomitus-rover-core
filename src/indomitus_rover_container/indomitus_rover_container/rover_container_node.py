@@ -25,6 +25,7 @@ CAN RX (ESP32 -> PC):
 import struct
 import threading
 import time
+import math
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -79,6 +80,7 @@ class ContainerCanNode(Node):
         self._lid_lock   = threading.Lock()
         self._lid_event  = threading.Event()
         self._lid_status : int | None = None  # last received status
+        self._lid_expected_cmd: int | None = None
 
         # --- weight response ---
         self._wgt_lock    = threading.Lock()
@@ -111,6 +113,7 @@ class ContainerCanNode(Node):
         # Commands
         self.declare_parameter("can.cmd_open",        0x01)
         self.declare_parameter("can.cmd_close",       0x02)
+        self.declare_parameter("can.cmd_stop",        0x08)
         self.declare_parameter("can.cmd_poll_status", 0x04)
         self.declare_parameter("can.cmd_get_weight",  0x10)
         # Status codes (ESP32 → PC, byte 1)
@@ -130,6 +133,7 @@ class ContainerCanNode(Node):
         self._weight_resp_id  = self.get_parameter("can.weight_resp_id").value
         self._cmd_open        = self.get_parameter("can.cmd_open").value
         self._cmd_close       = self.get_parameter("can.cmd_close").value
+        self._cmd_stop        = self.get_parameter("can.cmd_stop").value
         self._cmd_poll_status = self.get_parameter("can.cmd_poll_status").value
         self._cmd_get_weight  = self.get_parameter("can.cmd_get_weight").value
         self._status_ack         = self.get_parameter("can.status_ack").value
@@ -181,6 +185,7 @@ class ContainerCanNode(Node):
 
         with self._lid_lock:
             self._lid_status = None
+            self._lid_expected_cmd = cmd
             self._lid_event.clear()
 
         self._send_cmd(self._cmd_id, [cmd])
@@ -206,6 +211,7 @@ class ContainerCanNode(Node):
 
         while time.monotonic() < deadline:
             if goal_handle.is_cancel_requested:
+                self._send_cmd(self._cmd_id, [self._cmd_stop])
                 goal_handle.canceled()
                 result.success = False
                 result.message = f"{label.upper()} CANCELED"
@@ -215,6 +221,7 @@ class ContainerCanNode(Node):
 
             with self._lid_lock:
                 self._lid_status = None
+                self._lid_expected_cmd = cmd
                 self._lid_event.clear()
 
             self._send_cmd(self._cmd_id, [self._cmd_poll_status])
@@ -322,12 +329,22 @@ class ContainerCanNode(Node):
         )
 
         with self._lid_lock:
+            if cmd != self._lid_expected_cmd:
+                self.get_logger().warn(
+                    f"Unexpected lid response cmd=0x{cmd:02X}, "
+                    f"expected=0x{self._lid_expected_cmd:02X}, ignoring"
+                )
+                return
             self._lid_status = status
             self._lid_event.set()
 
     def _handle_weight_response(self, msg: Frame):
         raw   = bytes(msg.data[:4])
         value = struct.unpack("<f", raw)[0]
+
+        if not math.isfinite(value):
+            self.get_logger().warn(f"Invalid weight value received: {value}, ignoring")
+            return
 
         self.get_logger().info(
             f"RX CAN 0x{self._weight_resp_id:03X}  weight={value:.3f}"
