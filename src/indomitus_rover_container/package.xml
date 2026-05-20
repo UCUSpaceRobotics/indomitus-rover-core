@@ -3,9 +3,13 @@
 <package format="3">
   <name>indomitus_rover_container</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>
+    Package contains nodes that control container and receives measurements from it.
+    Nodes handle communaction with esp32s3 via CAN bus. And after that esp32s3
+    controls motors and receives measurements from weight sensor.
+  </description>
   <maintainer email="fito.pn@ucu.edu.ua">yurifi</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
