@@ -71,11 +71,11 @@ def generate_launch_description():
     )
     
     chassis_driver_node =Node(
-        package='chassis_driver',
+        package='indomitus_rover_chassis_driver',
         executable='chassis_driver_node',
         output='screen',
         parameters=[os.path.join(
-            get_package_share_directory('chassis_driver'),
+            get_package_share_directory('indomitus_rover_chassis_driver'),
             'config', 'chassis_driver.yaml',
         )],
     )

@@ -1,4 +1,4 @@
-# chassis_driver
+# indomitus_rover_chassis_driver
 
 ROS2 driver for all rover chassis motors:
 - **Steadywin** — steer/rotation motors (V3.06b0 custom CAN protocol)

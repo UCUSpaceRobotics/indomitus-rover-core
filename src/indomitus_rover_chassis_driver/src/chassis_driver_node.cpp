@@ -1,4 +1,4 @@
-#include "chassis_driver/chassis_driver_node.hpp"
+#include "indomitus_rover_chassis_driver/chassis_driver_node.hpp"
 
 #include <chrono>
 #include <thread>
