@@ -20,7 +20,7 @@ services:
       - ROS_LOCALHOST_ONLY=0
       - CAN_INTERFACE=can0
     devices:
-      - /dev/input:/dev/input\
+      - /dev/input:/dev/input
     volumes:
       - ./:/work:rw
       - ./src:/opt/ws/src:rw
