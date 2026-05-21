@@ -148,6 +148,7 @@ def generate_launch_description() -> LaunchDescription:
             "interface": LaunchConfiguration("interface"),
             "interval_sec": LaunchConfiguration("receiver_interval_sec"),
         }],
+        arguments=["--ros-args", "--log-level", "socket_can_receiver:=WARN"],
         output="screen",
     )
 
