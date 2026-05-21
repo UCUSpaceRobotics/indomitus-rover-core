@@ -86,7 +86,9 @@ class ContainerCanNode(Node):
         self._wgt_lock    = threading.Lock()
         self._wgt_pending = False
         self._wgt_event   = threading.Event()
-        self._wgt_value   : float | None = None
+        self._wgt_value_1: float | None = None
+        self._wgt_value_2: float | None = None
+        self._wgt_value_3: float | None = None
 
         self.get_logger().info(
             f"ContainerCanNode ready\n"
@@ -96,7 +98,8 @@ class ContainerCanNode(Node):
             f"poll=0x{self._cmd_poll_status:02X}  "
             f"weight=0x{self._cmd_get_weight:02X}\n"
             f"  CAN RX lid=0x{self._lid_resp_id:03X}  "
-            f"weight=0x{self._weight_resp_id:03X}\n"
+            f"weight12=0x{self._weight_resp_id_12:03X}  "
+            f"weight3=0x{self._weight_resp_id_3:03X}\n"
             f"  /container/lid    (Action)  - goal.open: true=open, false=close\n"
             f"  /container/weight (Service) - get weight sensor reading"
         )
@@ -109,7 +112,8 @@ class ContainerCanNode(Node):
         # CAN IDs
         self.declare_parameter("can.cmd_id",          0x200)
         self.declare_parameter("can.lid_resp_id",     0x201)
-        self.declare_parameter("can.weight_resp_id",  0x202)
+        self.declare_parameter("can.weight_resp_id_12",0x202)
+        self.declare_parameter("can.weight_resp_id_3", 0x203)
         # Commands
         self.declare_parameter("can.cmd_open",        0x01)
         self.declare_parameter("can.cmd_close",       0x02)
@@ -130,7 +134,8 @@ class ContainerCanNode(Node):
     def _load_parameters(self):
         self._cmd_id          = self.get_parameter("can.cmd_id").value
         self._lid_resp_id     = self.get_parameter("can.lid_resp_id").value
-        self._weight_resp_id  = self.get_parameter("can.weight_resp_id").value
+        self._weight_resp_id_12= self.get_parameter("can.weight_resp_id_12").value
+        self._weight_resp_id_3 = self.get_parameter("can.weight_resp_id_3").value
         self._cmd_open        = self.get_parameter("can.cmd_open").value
         self._cmd_close       = self.get_parameter("can.cmd_close").value
         self._cmd_stop        = self.get_parameter("can.cmd_stop").value
@@ -273,7 +278,9 @@ class ContainerCanNode(Node):
         with self._wgt_lock:
             self._wgt_pending = True
             self._wgt_event.clear()
-            self._wgt_value = None
+            self._wgt_value_1 = None
+            self._wgt_value_2 = None
+            self._wgt_value_3 = None
 
         self._send_cmd(self._cmd_id, [self._cmd_get_weight])
 
@@ -281,18 +288,23 @@ class ContainerCanNode(Node):
 
         with self._wgt_lock:
             self._wgt_pending = False
-            value = self._wgt_value
+            w1 = self._wgt_value_1
+            w2 = self._wgt_value_2
+            w3 = self._wgt_value_3
 
-        if not got_reply or value is None:
-            self.get_logger().warn("Timeout waiting for weight response")
+        if not got_reply or w1 is None or w2 is None or w3 is None:
             response.success = False
             response.message = "FAIL (timeout)"
-            response.weight  = 0.0
+            response.weight1 = 0.0
+            response.weight2 = 0.0
+            response.weight3 = 0.0
         else:
             response.success = True
             response.message = "OK"
-            response.weight  = value
-            self.get_logger().info(f"Weight: {value:.3f}")
+            response.weight1 = w1
+            response.weight2 = w2
+            response.weight3 = w3
+            self.get_logger().info(f"Weight: {w1:.3f} {w2:.3f} {w3:.3f}")
 
         return response
 
@@ -316,8 +328,10 @@ class ContainerCanNode(Node):
     def _on_can_msg(self, msg: Frame):
         if msg.id == self._lid_resp_id and msg.dlc >= 2:
             self._handle_lid_response(msg)
-        elif msg.id == self._weight_resp_id and msg.dlc >= 4:
-            self._handle_weight_response(msg)
+        elif msg.id == self._weight_resp_id_12 and msg.dlc >= 8:
+            self._handle_weight_response_12(msg)
+        elif msg.id == self._weight_resp_id_3 and msg.dlc >= 4:
+            self._handle_weight_response_3(msg)
 
     def _handle_lid_response(self, msg: Frame):
         cmd    = msg.data[0]
@@ -338,23 +352,44 @@ class ContainerCanNode(Node):
             self._lid_status = status
             self._lid_event.set()
 
-    def _handle_weight_response(self, msg: Frame):
-        raw   = bytes(msg.data[:4])
-        value = struct.unpack("<f", raw)[0]
+    def _handle_weight_response_12(self, msg: Frame):
+        w1 = struct.unpack_from("<f", bytes(msg.data), 0)[0]
+        w2 = struct.unpack_from("<f", bytes(msg.data), 4)[0]
 
-        if not math.isfinite(value):
-            self.get_logger().warn(f"Invalid weight value received: {value}, ignoring")
+        if not math.isfinite(w1) or not math.isfinite(w2):
+            self.get_logger().warn(f"Invalid weight value received: {w1}, {w2}, ignoring")
             return
 
         self.get_logger().info(
-            f"RX CAN 0x{self._weight_resp_id:03X}  weight={value:.3f}"
+            f"RX CAN 0x{self._weight_resp_id_12:03X}  weight={w1:.3f}, {w2:.3f}"
         )
 
         with self._wgt_lock:
             if self._wgt_pending:
-                self._wgt_value = value
-                self._wgt_event.set()
+                self._wgt_value_1 = w1
+                self._wgt_value_2 = w2
+                self._try_complete_weight()
 
+    def _handle_weight_response_3(self, msg: Frame):
+        w3 = struct.unpack_from("<f", bytes(msg.data), 0)[0]
+
+        if not math.isfinite(w3):
+            self.get_logger().warn("Invalid weight value in frame 2, ignoring")
+            return
+
+        self.get_logger().info(f"RX weight w3={w3:.3f}")
+
+        with self._wgt_lock:
+            if self._wgt_pending:
+                self._wgt_value_3 = w3
+                self._try_complete_weight()
+
+
+    def _try_complete_weight(self):
+        if self._wgt_value_1 is not None and \
+            self._wgt_value_2 is not None and \
+            self._wgt_value_3 is not None:
+            self._wgt_event.set()
 
 # ===========================================================================
 # main

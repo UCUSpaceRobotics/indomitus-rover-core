@@ -1,4 +1,6 @@
 ---
-float32 weight # kilograms
+float32 weight1 # kilograms
+float32 weight2
+float32 weight3
 bool success
 string message 
