@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  indomitus_rover_prod:
+    image: indomitus-rover:humble-prod
+    container_name: indomitus_rover_prod
+    network_mode: host
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    stdin_open: true
+    tty: true
+    environment:
+      - ROS_DOMAIN_ID=42
+      - ROS_LOCALHOST_ONLY=0
+      - CAN_INTERFACE=can0
+      - CAN_BITRATE=1000000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
