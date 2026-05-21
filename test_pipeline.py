@@ -33,7 +33,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 from geometry_msgs.msg import Twist
 from can_msgs.msg import Frame
-from indomitus_msgs.msg import WheelTargets, ChassisStatus
+from indomitus_interfaces.msg import WheelTargets, ChassisStatus
 
 # ── Config ────────────────────────────────────────────────────────────────────
 

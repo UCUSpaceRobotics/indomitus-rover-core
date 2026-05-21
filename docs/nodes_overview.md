@@ -16,7 +16,7 @@ This package implements the communication with motors. It communicates with two 
 
 ---
 
-## 2. `indomitus_msgs` (Custom Messages)
+## 2. `indomitus_interfaces` (Custom Messages)
 
 **Messages:**
 
@@ -47,7 +47,7 @@ This package implements the communication with motors. It communicates with two 
 - `rover_controller`
     - Implements kinematics calculations for 4-wheel steering rover
     - Subscribes to `/cmd_vel` (geometry_msgs/Twist) - linear and angular velocity commands
-    - Publishes `/wheel_targets` (indomitus_msgs/WheelTargets) - motor commands
+    - Publishes `/wheel_targets` (indomitus_interfaces/WheelTargets) - motor commands
 
 
 **Launch files:**

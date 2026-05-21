@@ -14,7 +14,7 @@ find_package(robot_state_publisher REQUIRED)
 find_package(xacro REQUIRED)
 find_package(ros_gz_sim REQUIRED)
 find_package(ros_gz_bridge REQUIRED)
-find_package(indomitus_msgs REQUIRED)
+find_package(indomitus_interfaces REQUIRED)
 
 include_directories(include)
 
@@ -32,7 +32,7 @@ install(
 )
 
 add_executable(sim_chassis_driver_node src/sim_chassis_driver_node.cpp)
-ament_target_dependencies(sim_chassis_driver_node rclcpp geometry_msgs std_msgs indomitus_msgs)
+ament_target_dependencies(sim_chassis_driver_node rclcpp geometry_msgs std_msgs indomitus_interfaces)
 install(TARGETS sim_chassis_driver_node DESTINATION lib/${PROJECT_NAME})
 
 add_executable(sim_diff_bar_node src/sim_diff_bar_node.cpp)
