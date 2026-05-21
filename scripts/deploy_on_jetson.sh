@@ -190,6 +190,6 @@ success "Image loaded and remote temporary files cleaned."
 
 # 8. COMPLETION
 echo -e "\n\e[32m[DONE]\e[0m Deployment staged successfully!"
-echo -e "To start the rover, run the following command:"
+echo -e "To start the container on the Jetson, run the following command:"
 REMOTE_COMPOSE_FILE=$(basename "${COMPOSE_FILE}")
 echo -e "\e[36mssh ${TARGET} 'cd \"${REMOTE_DIR}\" && docker compose -f ${REMOTE_COMPOSE_FILE} up -d'\e[0m\n"
