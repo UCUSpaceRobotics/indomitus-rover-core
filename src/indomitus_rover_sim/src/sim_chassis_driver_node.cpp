@@ -6,7 +6,7 @@ SimChassisDriver::SimChassisDriver()
     declare_parameter("steer_scale", 1.0);
     declare_parameter("drive_scale", 1.0);
 
-    wheel_targets_sub_ = create_subscription<indomitus_msgs::msg::WheelTargets>(
+    wheel_targets_sub_ = create_subscription<indomitus_interfaces::msg::WheelTargets>(
         "wheel_targets", 10,
         std::bind(&SimChassisDriver::wheelTargetsCallback, this, std::placeholders::_1));
 
@@ -17,7 +17,7 @@ SimChassisDriver::SimChassisDriver()
         "/drive_controller/commands", 10);
 }
 
-void SimChassisDriver::wheelTargetsCallback(const indomitus_msgs::msg::WheelTargets::SharedPtr msg)
+void SimChassisDriver::wheelTargetsCallback(const indomitus_interfaces::msg::WheelTargets::SharedPtr msg)
 {
     const double steer_scale = get_parameter("steer_scale").as_double();
     const double drive_scale = get_parameter("drive_scale").as_double();

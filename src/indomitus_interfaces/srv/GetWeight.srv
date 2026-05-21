@@ -1,0 +1,4 @@
+---
+float32 weight # kilograms
+bool success
+string message 

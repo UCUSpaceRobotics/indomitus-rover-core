@@ -12,7 +12,7 @@ import threading
 import time
 
 from can_msgs.msg import Frame
-from indomitus_msgs.msg import WheelTargets
+from indomitus_interfaces.msg import WheelTargets
 from sensor_msgs.msg import JointState
 from diagnostic_msgs.msg import DiagnosticArray
 
