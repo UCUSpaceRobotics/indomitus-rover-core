@@ -28,6 +28,11 @@ install(DIRECTORY launch config
     DESTINATION share/${PROJECT_NAME}
 )
 
+# Install package resource marker for ament index visibility
+install(DIRECTORY resource
+    DESTINATION share/${PROJECT_NAME}
+)
+
 # Install rviz config directory if it exists
 install(DIRECTORY rviz
     DESTINATION share/${PROJECT_NAME}
