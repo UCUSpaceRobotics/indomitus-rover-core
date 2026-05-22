@@ -9,8 +9,8 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "indomitus_interfaces/msg/wheel_targets.hpp"
 #include "indomitus_interfaces/msg/chassis_status.hpp"
-#include "chassis_driver/damiao_protocol.hpp"
-#include "chassis_driver/steadywin_protocol.hpp"
+#include "indomitus_rover_chassis_driver/damiao_protocol.hpp"
+#include "indomitus_rover_chassis_driver/steadywin_protocol.hpp"
 
 namespace chassis_driver {
 

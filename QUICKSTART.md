@@ -86,16 +86,16 @@ ros2 node kill /rover_controller
 ```
 
 ```bash
-colcon build --symlink-install --packages-select chassis_driver
+colcon build --symlink-install --packages-select indomitus_rover_chassis_driver
 source install/setup.bash
 ```
 
 Then start it manually:
 
 ```bash
-# chassis_driver
-ros2 run chassis_driver chassis_driver_node \
-  --ros-args --params-file /opt/ws/install/chassis_driver/share/chassis_driver/config/chassis_driver.yaml
+# indomitus_rover_chassis_driver
+ros2 run indomitus_rover_chassis_driver chassis_driver_node \
+  --ros-args --params-file /opt/ws/install/indomitus_rover_chassis_driver/share/indomitus_rover_chassis_driver/config/chassis_driver.yaml
 
 # rover_kinematics_node
 ros2 run indomitus_rover_control rover_kinematics_node \

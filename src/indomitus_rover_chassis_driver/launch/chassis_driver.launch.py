@@ -6,13 +6,13 @@ import os
 
 def generate_launch_description():
     config = os.path.join(
-        get_package_share_directory('chassis_driver'),
+        get_package_share_directory('indomitus_rover_chassis_driver'),
         'config', 'chassis_driver.yaml'
     )
 
     return LaunchDescription([
         Node(
-            package='chassis_driver',
+            package='indomitus_rover_chassis_driver',
             executable='chassis_driver_node',
             name='chassis_driver',
             output='screen',
