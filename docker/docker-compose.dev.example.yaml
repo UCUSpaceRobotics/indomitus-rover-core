@@ -1,18 +1,22 @@
+version: '3.8'
+
 services:
   indomitus_rover_dev:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      target: dev
       args:
         ROS_DISTRO: humble
-    image: indomitus-rover:humble
+        INSTALL_SIM_TOOLS: "false"
+    image: indomitus-rover:humble-dev
     container_name: indomitus_rover_dev
     network_mode: host
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    stdin_open: true      # -i
-    tty: true             # -t
+    stdin_open: true
+    tty: true
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1

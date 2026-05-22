@@ -1,4 +1,4 @@
-# chassis_driver
+# indomitus_rover_chassis_driver
 
 ROS2 driver for all rover chassis motors:
 - **Steadywin** — steer/rotation motors (V3.06b0 custom CAN protocol)
@@ -20,11 +20,11 @@ ROS2 driver for all rover chassis motors:
 
 | Topic | Type | Direction | Description |
 |---|---|---|---|
-| `/wheel_targets` | `indomitus_msgs/WheelTargets` | in | Per-wheel steer angles + drive speeds |
+| `/wheel_targets` | `indomitus_interfaces/WheelTargets` | in | Per-wheel steer angles + drive speeds |
 | `/to_can_bus` | `can_msgs/Frame` | out | CAN frames to hardware |
 | `/from_can_bus` | `can_msgs/Frame` | in | CAN frames from hardware |
 | `/joint_states` | `sensor_msgs/JointState` | out | Motor positions and velocities |
-| `/chassis/motor_states` | `indomitus_msgs/ChassisStatus` | out | Full motor status (10 Hz) |
+| `/chassis/motor_states` | `indomitus_interfaces/ChassisStatus` | out | Full motor status (10 Hz) |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | out | Health status (1 Hz) |
 
 ## Motor IDs (config: `config/chassis_driver.yaml`)

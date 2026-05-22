@@ -1,8 +1,8 @@
 # Packages
 
-## 1. `chassis_driver` (C++)
+## 1. `indomitus_rover_chassis_driver` (C++)
 
-This package implements the communication packages with motors. It communicates with two types of motor controllers:
+This package implements the communication with motors. It communicates with two types of motor controllers:
 - **Steer Motors (Steadywin V3.06b0):** 4 motors (IDs: 11, 13, 15, 17) for steering the wheels
 - **Drive Motors (Damiao MIT):** 4 motors (IDs: 10, 12, 14, 16) for rotating the wheels
 
@@ -12,11 +12,11 @@ This package implements the communication packages with motors. It communicates 
     - TODO: Publishes motor feedback via CAN frames
 
 **Launch files:**
-- chassis_driver.launch.py - launches `chasssis_driver` node
+- `chassis_driver.launch.py` - launches the `chassis_driver` node (package: `indomitus_rover_chassis_driver`)
 
 ---
 
-## 2. `indomitus_msgs` (Custom Messages)
+## 2. `indomitus_interfaces` (Custom Messages)
 
 **Messages:**
 
@@ -47,7 +47,7 @@ This package implements the communication packages with motors. It communicates 
 - `rover_controller`
     - Implements kinematics calculations for 4-wheel steering rover
     - Subscribes to `/cmd_vel` (geometry_msgs/Twist) - linear and angular velocity commands
-    - Publishes `/wheel_targets` (indomitus_msgs/WheelTargets) - motor commands
+    - Publishes `/wheel_targets` (indomitus_interfaces/WheelTargets) - motor commands
 
 
 **Launch files:**

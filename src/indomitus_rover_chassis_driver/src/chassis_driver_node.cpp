@@ -1,4 +1,4 @@
-#include "chassis_driver/chassis_driver_node.hpp"
+#include "indomitus_rover_chassis_driver/chassis_driver_node.hpp"
 
 #include <chrono>
 #include <thread>
@@ -66,12 +66,12 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     // --- Publishers ---
     to_can_pub_          = create_publisher<can_msgs::msg::Frame>("/to_can_bus", 10);
     joint_states_pub_    = create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
-    chassis_status_pub_  = create_publisher<indomitus_msgs::msg::ChassisStatus>(
+    chassis_status_pub_  = create_publisher<indomitus_interfaces::msg::ChassisStatus>(
                                "/chassis/motor_states", 10);
     diagnostics_pub_     = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 10);
 
     // --- Subscriptions ---
-    wheel_targets_sub_ = create_subscription<indomitus_msgs::msg::WheelTargets>(
+    wheel_targets_sub_ = create_subscription<indomitus_interfaces::msg::WheelTargets>(
         "/wheel_targets", 10,
         std::bind(&ChassisDriverNode::onWheelTargets, this, std::placeholders::_1));
 
@@ -163,7 +163,7 @@ void ChassisDriverNode::sendDisableFrames() {
 
 // ── Command handling ──────────────────────────────────────────────────────────
 
-void ChassisDriverNode::onWheelTargets(const indomitus_msgs::msg::WheelTargets::SharedPtr msg) {
+void ChassisDriverNode::onWheelTargets(const indomitus_interfaces::msg::WheelTargets::SharedPtr msg) {
     if (!motors_enabled_) return;
 
     const float angles[4] = {msg->fl_angle, msg->fr_angle, msg->rl_angle, msg->rr_angle};
@@ -204,7 +204,6 @@ void ChassisDriverNode::onCanFrame(const can_msgs::msg::Frame::SharedPtr msg) {
 
     // Steadywin steer: 0xAE status and 0xA3/0xC2 position responses at motor's own address
     for (int i = 0; i < 4; i++) {
-        static_assert(/* steer_ids < 0x100 */);
         if (msg->id == steer_ids_[i] || msg->id == (0x100u | steer_ids_[i])) {
             steadywin_protocol::parseResponse(msg->data, msg->dlc, steer_state_[i]);
             publishJointStates();
@@ -239,13 +238,13 @@ void ChassisDriverNode::publishJointStates() {
 void ChassisDriverNode::publishChassisStatus() {
     // static const char* wheel_names[4] = {"FL", "FR", "RL", "RR"};
 
-    indomitus_msgs::msg::ChassisStatus msg;
+    indomitus_interfaces::msg::ChassisStatus msg;
     msg.header.stamp = now();
 
     // Steadywin steer motors
     for (int i = 0; i < 4; i++) {
         const auto& s = steer_state_[i];
-        indomitus_msgs::msg::MotorStatus m;
+        indomitus_interfaces::msg::MotorStatus m;
         m.esc_id     = steer_ids_[i];
         m.motor_type = "steadywin";
         m.joint_name = steer_joint_names_[i];
@@ -272,7 +271,7 @@ void ChassisDriverNode::publishChassisStatus() {
     // Damiao drive motors
     for (int i = 0; i < 4; i++) {
         const auto& s = drive_state_[i];
-        indomitus_msgs::msg::MotorStatus m;
+        indomitus_interfaces::msg::MotorStatus m;
         m.esc_id     = drive_ids_[i];
         m.motor_type = "damiao";
         m.joint_name = drive_joint_names_[i];

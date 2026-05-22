@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(chassis_driver)
+project(indomitus_rover_chassis_driver)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -10,7 +10,7 @@ find_package(rclcpp REQUIRED)
 find_package(can_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
-find_package(indomitus_msgs REQUIRED)
+find_package(indomitus_interfaces REQUIRED)
 
 add_executable(chassis_driver_node
   src/chassis_driver_node.cpp
@@ -28,7 +28,7 @@ ament_target_dependencies(chassis_driver_node
   can_msgs
   sensor_msgs
   diagnostic_msgs
-  indomitus_msgs
+  indomitus_interfaces
 )
 
 install(TARGETS chassis_driver_node

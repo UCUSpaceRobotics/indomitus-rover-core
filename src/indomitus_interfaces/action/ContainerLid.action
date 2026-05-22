@@ -1,0 +1,6 @@
+bool open       # true = open, false = close
+---
+bool success
+string message # "OPEN OK" | "CLOSE OK" | "FAIL ..."
+---
+string status     # "opening" | "closing" | "done" | "error"
