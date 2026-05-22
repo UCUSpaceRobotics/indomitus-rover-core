@@ -13,9 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-robot-state-publisher \
     ros-${ROS_DISTRO}-joint-state-publisher \
     ros-${ROS_DISTRO}-ros2-socketcan \
+    ros-${ROS_DISTRO}-can-msgs \
+    ros-${ROS_DISTRO}-joy \
+    ros-${ROS_DISTRO}-teleop-twist-joy \
+    ros-${ROS_DISTRO}-sensor-msgs \
+    ros-${ROS_DISTRO}-diagnostic-msgs \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     && rm -rf /var/lib/apt/lists/*
-    
+
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
