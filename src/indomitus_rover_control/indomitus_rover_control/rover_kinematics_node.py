@@ -61,9 +61,9 @@ class RoverController(Node):
         self.declare_parameter('max_steer_rate_deg', 90.0)   # deg/s — physical steer motor speed
 
         # --- Velocity limits (rover_bringup/config/rover_controller.yaml) ---
-        self.declare_parameter('max_linear_speed',  0.20)   # m/s
-        self.declare_parameter('max_angular_speed', 0.8)   # rad/s
-        self.declare_parameter('max_accel',         0.5)   # m/s²  — linear acceleration limit
+        self.declare_parameter('max_linear_speed',  0.10)   # m/s
+        self.declare_parameter('max_angular_speed', 0.1)   # rad/s
+        self.declare_parameter('max_accel',         0.1)   # m/s²  — linear acceleration limit
         self.declare_parameter('control_frequency', 20.0)  # Hz
 
         self._read_params()
