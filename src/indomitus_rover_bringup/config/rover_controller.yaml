@@ -1,0 +1,19 @@
+rover_controller:
+  ros__parameters:
+
+    # Maximum translational speed (m/s)
+    # Lower = safer / more predictable in auto mode
+    max_linear_speed: 0.5
+
+    # Maximum rotational speed (rad/s)
+    max_angular_speed: 0.8
+
+    # Linear acceleration limit (m/s²)
+    # Controls how sharply the robot speeds up or brakes.
+    # Lower = smoother but slower response; higher = snappier but may slip.
+    max_accel: 0.5
+
+    # Control loop frequency (Hz)
+    # Should match or exceed Nav2 controller publish rate (default 20 Hz).
+    # Increase only if your hardware can handle it.
+    control_frequency: 20.0
