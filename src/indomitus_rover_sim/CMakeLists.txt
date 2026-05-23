@@ -14,17 +14,13 @@ find_package(robot_state_publisher REQUIRED)
 find_package(xacro REQUIRED)
 find_package(ros_gz_sim REQUIRED)
 find_package(ros_gz_bridge REQUIRED)
+find_package(indomitus_interfaces REQUIRED)
 
 include_directories(include)
 
 if(BUILD_TESTING)
     find_package(ament_lint_auto REQUIRED)
-    # the following line skips the linter which checks for copyrights
-    # comment the line when a copyright and license is added to all source files
     set(ament_cmake_copyright_FOUND TRUE)
-    # the following line skips cpplint (only works in a git repo)
-    # comment the line when this package is in a git repo and when
-    # a copyright and license is added to all source files
     set(ament_cmake_cpplint_FOUND TRUE)
     ament_lint_auto_find_test_dependencies()
 endif()
@@ -35,12 +31,12 @@ install(
     DESTINATION share/${PROJECT_NAME}
 )
 
-add_executable(icr_controller_node src/icr_controller_node.cpp)
-ament_target_dependencies(icr_controller_node rclcpp geometry_msgs std_msgs)
-install(TARGETS icr_controller_node DESTINATION lib/${PROJECT_NAME})
+add_executable(sim_chassis_driver_node src/sim_chassis_driver_node.cpp)
+ament_target_dependencies(sim_chassis_driver_node rclcpp geometry_msgs std_msgs indomitus_interfaces)
+install(TARGETS sim_chassis_driver_node DESTINATION lib/${PROJECT_NAME})
 
-add_executable(rocker_soft_mimic src/rocker_soft_mimic.cpp)
-ament_target_dependencies(rocker_soft_mimic rclcpp sensor_msgs std_msgs)
-install(TARGETS rocker_soft_mimic DESTINATION lib/${PROJECT_NAME})
+add_executable(sim_diff_bar_node src/sim_diff_bar_node.cpp)
+ament_target_dependencies(sim_diff_bar_node rclcpp sensor_msgs std_msgs)
+install(TARGETS sim_diff_bar_node DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

@@ -18,6 +18,7 @@
 
   <depend>joint_state_publisher</depend>
   <depend>robot_state_publisher</depend>
+  <depend>indomitus_interfaces</depend>
   <exec_depend>xacro</exec_depend>
 
   <depend>ros_gz_sim</depend>
