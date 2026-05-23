@@ -1,0 +1,21 @@
+teleop_node:
+  ros__parameters:
+    require_enable_button: false
+
+    enable_turbo_button: 5
+
+    # --- LINEAR CONTROLS (Left Stick) ---
+    axis_linear:
+      x: 1 # Left stick vertical (forward/backward)
+    scale_linear:
+      x: 0.1
+    scale_linear_turbo:
+      x: 0.5
+
+    # --- ANGULAR CONTROLS (Right Stick) ---
+    axis_angular:
+      yaw: 3 # Right stick horizontal (rotation clockwise/counterclockwise)
+    scale_angular:
+      yaw: 0.1
+    scale_angular_turbo:
+      yaw: 0.5
