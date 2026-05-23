@@ -1,5 +1,7 @@
 teleop_node:
   ros__parameters:
+    publish_topic: /joy_raw_cmd_vel
+    
     require_enable_button: false
 
     # Usually LB on Xbox-style controllers

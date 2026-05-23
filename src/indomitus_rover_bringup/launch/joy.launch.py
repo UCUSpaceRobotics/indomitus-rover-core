@@ -39,6 +39,12 @@ def generate_launch_description():
         ]
     )
 
+    joy_intepreter = Node(
+        package='indomitus_rover_control',
+        executable='joystick_interpreter_node',
+        output='screen',
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'joy_dev',
@@ -47,7 +53,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'cmd_vel_topic',
-            default_value='/cmd_vel',
+            default_value='/joy_raw_cmd_vel',
             description='Output velocity command topic'
         ),
         DeclareLaunchArgument(
@@ -57,4 +63,5 @@ def generate_launch_description():
         ),
         joy_node,
         teleop_node,
+        joy_intepreter,
     ])
