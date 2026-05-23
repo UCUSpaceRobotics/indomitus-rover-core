@@ -62,6 +62,7 @@ private:
     std::array<damiao_protocol::MotorState, 4>    drive_state_;
 
     bool motors_enabled_ = false;
+    int enable_wait_count_ = 0;
     rclcpp::Time last_wheel_targets_time_{0, 0, RCL_ROS_TIME};
 };
 

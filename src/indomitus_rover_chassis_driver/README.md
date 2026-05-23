@@ -80,5 +80,9 @@ Motors enable automatically 3 seconds after startup.
 
 ### Known issues
 
-- `ros2_socketcan` rejects standard CAN ID `0x7FF` on the installed Humble version (likely `>=` bug in the sender). **Workaround**: `is_extended = true` on `0x7FF` frames. Confirmed working — Damiao motors accept extended-flag frames at this address.
-- Damiao motor 16 (decimal) has ESC ID `0x10`; the MIT feedback stores the motor ID in the low nibble of `data[0]` (4 bits, max 15). Motor 16 will never match in `parseFeedback()`. Needs investigation — possible register-level ID remapping.
+- `ros2_socketcan` rejects standard CAN ID `0x7FF` on the installed Humble version 
+  (likely `>=` bug in the sender). **Workaround**: `is_extended = true` on `0x7FF` frames. 
+  Confirmed working — Damiao motors accept extended-flag frames at this address.
+- ~~Damiao motor 16 (decimal) has ESC ID `0x10`...~~ **Resolved** — `onCanFrame` now 
+  routes by full CAN ID before calling `parseFeedback`, so the 4-bit nibble limitation 
+  no longer affects motor 16.
