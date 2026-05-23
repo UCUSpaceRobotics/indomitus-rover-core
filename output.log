@@ -1,0 +1,10 @@
+[CAN] Configuring can0 at 1000000 bit/s...
+[CAN] can0 is UP — bringing down to reconfigure...
+[CAN] can0 is UP at 1000000 bit/s
+2: can0: <NOARP,UP,LOWER_UP,ECHO> mtu 16 qdisc pfifo_fast state UP mode DEFAULT group default qlen 10
+    link/can  promiscuity 0  allmulti 0 minmtu 0 maxmtu 0 
+    can state ERROR-ACTIVE restart-ms 0 
+	  bitrate 1000000 sample-point 0.747
+	  tq 5 prop-seg 63 phase-seg1 63 phase-seg2 43 sjw 21 brp 1
+	  gs_usb: tseg1 2..256 tseg2 2..128 sjw 1..128 brp 1..512 brp_inc 1
+	  clock 170000000 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 parentbus usb parentdev 3-4:1.0 
