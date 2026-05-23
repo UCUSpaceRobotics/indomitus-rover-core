@@ -25,7 +25,6 @@ setup(
     entry_points={
         'console_scripts': [
             'rover_kinematics_node = indomitus_rover_control.rover_kinematics_node:main',
-            'joystick_interpreter_node = indomitus_rover_control.joystick_interpreter_node:main',
         ],
     },
 )
