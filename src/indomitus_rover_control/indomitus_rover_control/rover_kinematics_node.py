@@ -57,11 +57,11 @@ class RoverController(Node):
         self.declare_parameter('wheel_radius', 0.15)  # m
 
         # --- Steering limits (rover_description/config/rover_motors.yaml) ---
-        self.declare_parameter('max_steer_deg',      45.0)   # max steering angle
+        self.declare_parameter('max_steer_deg',      10.0)   # max steering angle
         self.declare_parameter('max_steer_rate_deg', 90.0)   # deg/s — physical steer motor speed
 
         # --- Velocity limits (rover_bringup/config/rover_controller.yaml) ---
-        self.declare_parameter('max_linear_speed',  0.5)   # m/s
+        self.declare_parameter('max_linear_speed',  0.20)   # m/s
         self.declare_parameter('max_angular_speed', 0.8)   # rad/s
         self.declare_parameter('max_accel',         0.5)   # m/s²  — linear acceleration limit
         self.declare_parameter('control_frequency', 20.0)  # Hz
@@ -212,6 +212,7 @@ class RoverController(Node):
         if abs(wz) < 1e-4:
             speed = math.hypot(vx, vy) / self.wheel_radius
             angle = math.atan2(vy, vx)
+            angle, speed = self._normalize_wheel_angle(angle, speed)
             return [angle] * 4, [speed] * 4
 
         # Case 3: general motion (Ackermann / holonomic)
