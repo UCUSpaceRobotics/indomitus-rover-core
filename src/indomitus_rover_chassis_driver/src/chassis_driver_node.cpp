@@ -63,6 +63,12 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
             "drive_tmax=" + std::to_string(drive_tmax_));
     }
 
+    // --- Services ---
+    set_steer_zero_srv_ = create_service<indomitus_interfaces::srv::SetSteerZero>(
+        "~/set_steer_zero",
+        std::bind(&ChassisDriverNode::onSetSteerZero, this,
+                  std::placeholders::_1, std::placeholders::_2));
+
     // --- Publishers ---
     to_can_pub_          = create_publisher<can_msgs::msg::Frame>("/to_can_bus", 10);
     joint_states_pub_    = create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
@@ -159,6 +165,74 @@ void ChassisDriverNode::sendDisableFrames() {
 
     motors_enabled_ = false;
     RCLCPP_INFO(get_logger(), "All motors disabled");
+}
+
+// ── Service handlers ──────────────────────────────────────────────────────────
+
+void ChassisDriverNode::onSetSteerZero(
+    const indomitus_interfaces::srv::SetSteerZero::Request::SharedPtr req,
+    indomitus_interfaces::srv::SetSteerZero::Response::SharedPtr res)
+{
+    if (!motors_enabled_) {
+        res->success = false;
+        res->message = "Motors not enabled — cannot set zero";
+        return;
+    }
+
+    static const char* names[4] = {"FL", "FR", "RL", "RR"};
+
+    // Empty list → zero all steering motors
+    bool zero_all = req->motor_ids.empty();
+
+    std::string zeroed;
+    std::string unknown;
+
+    for (const uint8_t req_id : req->motor_ids) {
+        bool found = false;
+        for (int i = 0; i < 4; i++) {
+            if (steer_ids_[i] == req_id) {
+                to_can_pub_->publish(steadywin_protocol::buildSetOriginFrame(steer_ids_[i]));
+                zeroed += names[i];
+                zeroed += '(';
+                zeroed += std::to_string(steer_ids_[i]);
+                zeroed += ") ";
+                RCLCPP_INFO(get_logger(),
+                    "Set steer zero: motor %s (id=%d)", names[i], steer_ids_[i]);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            unknown += std::to_string(req_id);
+            unknown += ' ';
+        }
+    }
+
+    if (zero_all) {
+        for (int i = 0; i < 4; i++) {
+            to_can_pub_->publish(steadywin_protocol::buildSetOriginFrame(steer_ids_[i]));
+            zeroed += names[i];
+            zeroed += '(';
+            zeroed += std::to_string(steer_ids_[i]);
+            zeroed += ") ";
+            RCLCPP_INFO(get_logger(),
+                "Set steer zero: motor %s (id=%d)", names[i], steer_ids_[i]);
+        }
+    }
+
+    if (!unknown.empty()) {
+        res->success = false;
+        res->message = "Unknown steer IDs: " + unknown +
+                       "— valid IDs: " +
+                       std::to_string(steer_ids_[0]) + " " +
+                       std::to_string(steer_ids_[1]) + " " +
+                       std::to_string(steer_ids_[2]) + " " +
+                       std::to_string(steer_ids_[3]);
+        return;
+    }
+
+    res->success = true;
+    res->message = "Origin set for: " + zeroed;
 }
 
 // ── Command handling ──────────────────────────────────────────────────────────

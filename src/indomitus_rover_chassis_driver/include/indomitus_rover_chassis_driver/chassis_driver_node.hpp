@@ -9,6 +9,7 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "indomitus_interfaces/msg/wheel_targets.hpp"
 #include "indomitus_interfaces/msg/chassis_status.hpp"
+#include "indomitus_interfaces/srv/set_steer_zero.hpp"
 #include "indomitus_rover_chassis_driver/damiao_protocol.hpp"
 #include "indomitus_rover_chassis_driver/steadywin_protocol.hpp"
 
@@ -28,10 +29,16 @@ private:
     void publishChassisStatus();
     void publishDiagnostics();
     void sendEnableFrames();
+    void onSetSteerZero(
+        const indomitus_interfaces::srv::SetSteerZero::Request::SharedPtr req,
+        indomitus_interfaces::srv::SetSteerZero::Response::SharedPtr res);
 
     // Subscriptions
     rclcpp::Subscription<indomitus_interfaces::msg::WheelTargets>::SharedPtr wheel_targets_sub_;
     rclcpp::Subscription<can_msgs::msg::Frame>::SharedPtr from_can_sub_;
+
+    // Services
+    rclcpp::Service<indomitus_interfaces::srv::SetSteerZero>::SharedPtr set_steer_zero_srv_;
 
     // Publishers
     rclcpp::Publisher<can_msgs::msg::Frame>::SharedPtr to_can_pub_;
