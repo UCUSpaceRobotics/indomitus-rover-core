@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-chassis_driver pipeline test — interactive.
+chassis_driver test — interactive.
 
-Requires chassis_driver_node + can_hw_bridge_node running:
-    bash /work/run_rover.bash
+Requires chassis_driver_node + can_hw_bridge_node running
 
 Controls:
     e       Enable all motors  (publishes init frames to /to_can_bus)
