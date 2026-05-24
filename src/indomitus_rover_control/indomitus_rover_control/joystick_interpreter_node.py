@@ -38,6 +38,7 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('cmd_timeout', 1.0)
         self.declare_parameter('timeout_pub_rate', 10.0)
         self.declare_parameter('initial_timed_out', True)
+        self.declare_parameter('compact_mode_button', 1)
 
         self._vy_toggle_button: int = self.get_parameter('vy_toggle_button').value
         self._motor_toggle_button: int = self.get_parameter('motor_toggle_button').value
@@ -51,6 +52,11 @@ class JoystickInterpreterNode(Node):
 
         self._last_joy_msg_time: float = 0.0
 
+        self._compact_mode: bool = False
+        self._prev_compact_button: int = 0
+        self._compact_toggle_button: int = self.get_parameter('compact_mode_button').value
+
+        # Track previous button state to detect press edge (not hold)
         self._prev_vy_button: int = 0
         self._prev_motor_button: int = 0
 
@@ -73,6 +79,7 @@ class JoystickInterpreterNode(Node):
         )
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
+        self._compact_mode_client = self.create_client(SetBool, '/set_compact_mode')
 
         self.get_logger().info(
             f'JoystickInterpreter started — '
@@ -103,6 +110,12 @@ class JoystickInterpreterNode(Node):
             if current == 1 and self._prev_motor_button == 0:
                 self._toggle_motors()
             self._prev_motor_button = current
+        
+        if self._compact_toggle_button < len(msg.buttons):
+            current = msg.buttons[self._compact_toggle_button]
+            if current == 1 and self._prev_compact_button == 0:
+                self._toggle_compact_mode()
+            self._prev_compact_button = current
 
     def _on_raw_cmd_vel(self, msg: Twist):
         self._last_twist_time = self._now_seconds()
@@ -169,6 +182,28 @@ class JoystickInterpreterNode(Node):
             )
         )
 
+    def _toggle_compact_mode(self):
+        target = not self._compact_mode
+        if not self._compact_mode_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn('/set_compact_mode service not available')
+            return
+        req = SetBool.Request()
+        req.data = target
+        future = self._compact_mode_client.call_async(req)
+        future.add_done_callback(
+            lambda f, desired=target: self._on_compact_mode_result(f, desired))
+
+    def _on_compact_mode_result(self, future, desired: bool):
+        try:
+            response = future.result()
+        except Exception as exc:
+            self.get_logger().error(f'Compact mode service call failed: {exc!r}')
+            return
+        if response.success:
+            self._compact_mode = desired
+        self.get_logger().info(
+            f'Compact mode {"ENABLED" if self._compact_mode else "DISABLED"}: {response.message}')
+
     def _on_motor_toggle_result(self, future, desired_state: bool):
         try:
             response = future.result()
@@ -189,7 +224,7 @@ class JoystickInterpreterNode(Node):
         self, vx: float, vy: float, wz: float
     ) -> float:
         """
-        Invert wz when the rover is moving 'backward' relative to its heading.
+        Invert wz when the rover is moving 'backwaard' relative to its heading.
 
         Uses the dominant axis to decide direction so diagonal motion
         (e.g. vx=-0.1, vy=0.9) is handled intuitively — mostly sideways

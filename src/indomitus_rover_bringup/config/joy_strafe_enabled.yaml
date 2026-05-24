@@ -17,7 +17,7 @@ teleop_node:
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise)
+      yaw: 3 # Right stick horizontal (rotation clockwise/counterclockwise)
     scale_angular:
       yaw: 0.1
     scale_angular_turbo:
