@@ -64,7 +64,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'autorepeat_rate',
             default_value='20.0',
-            description='Joystick autorepeat rate (Hz); 0.0 disables autorepeat'
+            description='Joystick autorepeat rate (Hz); 0.0 disables autorepeat,' \
+                'joystick will send the command only on the change of the state'
         ),
         DeclareLaunchArgument(
             'enable_strafe',
