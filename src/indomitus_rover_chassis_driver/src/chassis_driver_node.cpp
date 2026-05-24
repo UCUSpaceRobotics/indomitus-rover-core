@@ -15,8 +15,8 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
 {
     // --- Parameters ---
     // steer_ids → Steadywin rotation motors, drive_ids → Damiao drive motors
-    declare_parameter("steer_ids",          std::vector<int64_t>{11, 13, 15, 17});
-    declare_parameter("drive_ids",          std::vector<int64_t>{10, 12, 14, 16});
+    declare_parameter("steer_ids",          std::vector<int64_t>{11, 13, 17, 15});
+    declare_parameter("drive_ids",          std::vector<int64_t>{10, 12, 16, 14});
     declare_parameter("drive_pmax",         12.5);
     declare_parameter("drive_vmax",         50.0);
     declare_parameter("drive_tmax",         20.0);
@@ -227,7 +227,7 @@ void ChassisDriverNode::onWheelTargets(const indomitus_interfaces::msg::WheelTar
     if (!motors_enabled_) return;
 
     const float angles[4] = {msg->fl_angle, msg->fr_angle, msg->rl_angle, msg->rr_angle};
-    const float speeds[4] = {msg->fl_speed, msg->fr_speed, msg->rl_speed, msg->rr_speed};
+    const float speeds[4] = {-msg->fl_speed, msg->fr_speed, -msg->rl_speed, msg->rr_speed};
 
     for (int i = 0; i < 4; i++) {
         // Steadywin steer: 0xC2 absolute position (rad)
