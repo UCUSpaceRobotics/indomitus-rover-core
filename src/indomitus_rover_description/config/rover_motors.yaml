@@ -1,4 +1,4 @@
 rover_controller:
   ros__parameters:
     max_steer_deg: 90.0   # degrees
-    max_steer_rate_deg: 20.0
+    max_steer_rate_deg: 45.0
