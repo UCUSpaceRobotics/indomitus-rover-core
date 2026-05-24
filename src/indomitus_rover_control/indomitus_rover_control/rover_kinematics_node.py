@@ -64,6 +64,7 @@ class RoverController(Node):
         self.declare_parameter('max_linear_speed',  0.10)   # m/s
         self.declare_parameter('max_angular_speed', 0.1)   # rad/s
         self.declare_parameter('max_accel',         0.1)   # m/s²  — linear acceleration limit
+        self.declare_parameter('max_decel',  0.3)
         self.declare_parameter('control_frequency', 20.0)  # Hz
 
         self._read_params()
@@ -108,6 +109,8 @@ class RoverController(Node):
         self.max_linear     = self.get_parameter('max_linear_speed').value
         self.max_angular    = self.get_parameter('max_angular_speed').value
         self.max_accel      = self.get_parameter('max_accel').value
+        self.max_decel      = self.get_parameter('max_decel').value
+        
         self.control_freq   = self.get_parameter('control_frequency').value
 
         self.L2 = self.wheelbase / 2.0
@@ -130,9 +133,9 @@ class RoverController(Node):
         dt = 1.0 / self.control_freq
 
         # Step 1 — smooth velocities with a linear rate limiter (acceleration cap)
-        self.current_vx = self._rate_limit(self.current_vx, self.target_vx, self.max_accel, dt)
-        self.current_vy = self._rate_limit(self.current_vy, self.target_vy, self.max_accel, dt)
-        self.current_wz = self._rate_limit(self.current_wz, self.target_wz, self.max_accel * 2, dt)
+        self.current_vx = self._rate_limit(self.current_vx, self.target_vx, self.max_accel, self.max_decel, dt)
+        self.current_vy = self._rate_limit(self.current_vy, self.target_vy, self.max_accel, self.max_decel, dt)
+        self.current_wz = self._rate_limit(self.current_wz, self.target_wz, self.max_accel * 2, self.max_decel * 2, dt)
 
         vx = self.current_vx
         vy = self.current_vy
@@ -238,10 +241,14 @@ class RoverController(Node):
     # Helpers
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _rate_limit(self, current: float, target: float, max_rate: float, dt: float) -> float:
+    def _rate_limit(self, current, target, max_accel, max_decel, dt):
         """Linear rate limiter — limits how fast a value can change per second."""
         diff = target - current
-        step = self._clamp(diff, -max_rate * dt, max_rate * dt)
+        if abs(target) < abs(current) or (current * target < 0):
+            rate = max_decel
+        else:
+            rate = max_accel
+        step = self._clamp(diff, -rate * dt, rate * dt)
         return current + step
 
     def _step_angle(self, current: float, target: float, dt: float) -> float:
