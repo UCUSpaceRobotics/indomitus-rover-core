@@ -41,15 +41,9 @@ import math
 
 from geometry_msgs.msg import Twist
 from indomitus_interfaces.msg import WheelTargets
-from std_srvs.srv import SetBool
 
 import rclpy
 from rclpy.node import Node
-
-
-_COMPACT_ANGLES = {'FL': +math.pi / 2, 'FR': -math.pi / 2,
-                   'RL': -math.pi / 2, 'RR': +math.pi / 2}
-_NORMAL_ANGLES  = {name: 0.0 for name in _COMPACT_ANGLES}
 
 
 class RoverController(Node):
@@ -97,13 +91,6 @@ class RoverController(Node):
         self.sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.pub = self.create_publisher(WheelTargets, 'wheel_targets', 10)
 
-        # Compact mode state
-        self._compact_mode = False
-        self._compact_target_angles = _NORMAL_ANGLES.copy()
-
-        self._compact_srv = self.create_service(
-            SetBool, 'set_compact_mode', self._on_set_compact_mode)
-
         dt = 1.0 / self.control_freq
         self.timer = self.create_timer(dt, self.control_loop)
 
@@ -123,40 +110,17 @@ class RoverController(Node):
         self.max_angular    = self.get_parameter('max_angular_speed').value
         self.max_accel      = self.get_parameter('max_accel').value
         self.max_decel      = self.get_parameter('max_decel').value
-
+        
         self.control_freq   = self.get_parameter('control_frequency').value
 
         self.L2 = self.wheelbase / 2.0
         self.W2 = self.track_width / 2.0
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Compact mode service
-    # ──────────────────────────────────────────────────────────────────────────
-
-    def _on_set_compact_mode(self, request: SetBool.Request, response: SetBool.Response):
-        if request.data == self._compact_mode:
-            response.success = True
-            response.message = 'Already in requested mode'
-            return response
-        self._compact_mode = request.data
-        if self._compact_mode:
-            self.get_logger().info('Compact mode ENABLED')
-            self._compact_target_angles = _COMPACT_ANGLES.copy()
-            self.target_vx = self.target_vy = self.target_wz = 0.0
-        else:
-            self.get_logger().info('Compact mode DISABLED')
-            self._compact_target_angles = _NORMAL_ANGLES.copy()
-        response.success = True
-        response.message = 'Compact mode ' + ('enabled' if self._compact_mode else 'disabled')
-        return response
-
-    # ──────────────────────────────────────────────────────────────────────────
     # cmd_vel subscriber — only stores the clamped target; no kinematics here
     # ──────────────────────────────────────────────────────────────────────────
 
     def cmd_vel_callback(self, msg: Twist):
-        if self._compact_mode:
-            return
         self.target_vx = self._clamp(msg.linear.x,  -self.max_linear,  self.max_linear)
         self.target_vy = self._clamp(msg.linear.y,  -self.max_linear,  self.max_linear)
         self.target_wz = self._clamp(msg.angular.z, -self.max_angular, self.max_angular)
@@ -167,17 +131,6 @@ class RoverController(Node):
 
     def control_loop(self):
         dt = 1.0 / self.control_freq
-
-        if self._compact_mode:
-            for name in self.wheel_names:
-                self.current_angles[name] = self._step_angle_unlimited(
-                    self.current_angles[name], self._compact_target_angles[name], dt)
-            out = WheelTargets()
-            out.fl_angle, out.fr_angle, out.rl_angle, out.rr_angle = \
-                [self.current_angles[n] for n in self.wheel_names]
-            out.fl_speed = out.fr_speed = out.rl_speed = out.rr_speed = 0.0
-            self.pub.publish(out)
-            return
 
         # Step 1 — smooth velocities with a linear rate limiter (acceleration cap)
         self.current_vx = self._rate_limit(self.current_vx, self.target_vx, self.max_accel, self.max_decel, dt)
@@ -307,16 +260,6 @@ class RoverController(Node):
         diff = (diff + math.pi) % (2 * math.pi) - math.pi  # shortest-path wrap
         step = self._clamp(diff, -self.max_steer_rate * dt, self.max_steer_rate * dt)
         return self._clamp(current + step, -self.max_steer, self.max_steer)
-
-    def _step_angle_unlimited(self, current: float, target: float, dt: float) -> float:
-        """
-        Advance a steering angle toward target without max_steer clamp.
-        Used in compact mode where full ±90° rotation is required.
-        """
-        diff = target - current
-        diff = (diff + math.pi) % (2 * math.pi) - math.pi  # shortest-path wrap
-        step = self._clamp(diff, -self.max_steer_rate * dt, self.max_steer_rate * dt)
-        return current + step
 
     def _normalize_wheel_angle(self, angle: float, speed: float):
         """
