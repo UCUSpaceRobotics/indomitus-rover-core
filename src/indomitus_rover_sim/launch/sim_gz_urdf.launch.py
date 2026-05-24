@@ -135,6 +135,10 @@ def generate_launch_description() -> LaunchDescription:
                     'config', 'rover_geometry.yaml',
                 ),
                 os.path.join(
+                    get_package_share_directory('indomitus_rover_description'),
+                    'config', 'rover_motors.yaml',
+                ),
+                os.path.join(
                     get_package_share_directory('indomitus_rover_bringup'),
                     'config', 'rover_controller.yaml',
                 ),

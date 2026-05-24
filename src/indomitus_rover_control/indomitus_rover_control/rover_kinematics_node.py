@@ -57,8 +57,8 @@ class RoverController(Node):
         self.declare_parameter('wheel_radius', 0.15)  # m
 
         # --- Steering limits (rover_description/config/rover_motors.yaml) ---
-        self.declare_parameter('max_steer_deg',      90.0)   # max steering angle
-        self.declare_parameter('max_steer_rate_deg', 90.0)   # deg/s — physical steer motor speed
+        self.declare_parameter('max_steer_deg',      10.0)   # max steering angle
+        self.declare_parameter('max_steer_rate_deg', 10.0)   # deg/s — physical steer motor speed
 
         # --- Velocity limits (rover_bringup/config/rover_controller.yaml) ---
         self.declare_parameter('max_linear_speed',  0.10)   # m/s
@@ -259,7 +259,7 @@ class RoverController(Node):
         diff = target - current
         diff = (diff + math.pi) % (2 * math.pi) - math.pi  # shortest-path wrap
         step = self._clamp(diff, -self.max_steer_rate * dt, self.max_steer_rate * dt)
-        return current + step
+        return self._clamp(current + step, -self.max_steer, self.max_steer)
 
     def _normalize_wheel_angle(self, angle: float, speed: float):
         """
