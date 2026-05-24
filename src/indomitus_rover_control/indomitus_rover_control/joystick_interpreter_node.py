@@ -20,8 +20,6 @@ Parameters:
     vy_enabled_default (bool, default: false) — initial state of vy mode
 """
 
-import math
-
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
@@ -37,6 +35,9 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('vy_toggle_button', 4)
         self.declare_parameter('motor_toggle_button', 6)
         self.declare_parameter('vy_enabled_default', False)
+        self.declare_parameter('cmd_timeout', 1.0)
+        self.declare_parameter('timeout_pub_rate', 10.0)
+        self.declare_parameter('initial_timed_out', True)
 
         self._vy_toggle_button: int = self.get_parameter('vy_toggle_button').value
         self._motor_toggle_button: int = self.get_parameter('motor_toggle_button').value
@@ -44,7 +45,12 @@ class JoystickInterpreterNode(Node):
         self._motors_enabled: bool = False
         self._motor_toggle_pending: bool = False
 
-        # Track previous button state to detect press edge (not hold)
+        self._cmd_timeout: float = float(self.get_parameter('cmd_timeout').value)
+        self._timeout_pub_rate: float = float(self.get_parameter('timeout_pub_rate').value)
+        self._timed_out: bool = bool(self.get_parameter('initial_timed_out').value)
+
+        self._last_joy_msg_time: float = 0.0
+
         self._prev_vy_button: int = 0
         self._prev_motor_button: int = 0
 
@@ -66,6 +72,8 @@ class JoystickInterpreterNode(Node):
             '/chassis/set_motors_enabled',
         )
 
+        self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
+
         self.get_logger().info(
             f'JoystickInterpreter started — '
             f'vy_toggle_button={self._vy_toggle_button}, '
@@ -73,14 +81,16 @@ class JoystickInterpreterNode(Node):
             f'vy_enabled={self._vy_enabled}'
         )
 
-    # ── Button handling ────────────────────────────────────────────────────
-
     def _on_joy(self, msg: Joy):
         """Detect button press edges for toggle actions."""
+        self._last_joy_msg_time = self._now_seconds()
+        if self._timed_out:
+            self._timed_out = False
+            self.get_logger().info('Joystick input recovered — resuming command forwarding')
+
         if self._vy_toggle_button < len(msg.buttons):
             current = msg.buttons[self._vy_toggle_button]
 
-            # Rising edge only — toggle on press, not on hold
             if current == 1 and self._prev_vy_button == 0:
                 self._vy_enabled = not self._vy_enabled
                 state_str = 'ENABLED' if self._vy_enabled else 'DISABLED'
@@ -94,20 +104,19 @@ class JoystickInterpreterNode(Node):
                 self._toggle_motors()
             self._prev_motor_button = current
 
-    # ── Twist processing ───────────────────────────────────────────────────
-
     def _on_raw_cmd_vel(self, msg: Twist):
+        self._last_twist_time = self._now_seconds()
+
+        if self._timed_out:
+            return
+
         vx = msg.linear.x
         vy = msg.linear.y
         wz = msg.angular.z
 
-        # 1. vy toggle
         if not self._vy_enabled:
             vy = 0.0
 
-        # 2. Swerve-aware wz inversion:
-        #    When moving backward (dominant axis determines "backward"),
-        #    invert wz so steering feels intuitive from the operator's perspective.
         wz = self._apply_swerve_wz_correction(vx, vy, wz)
 
         out = Twist()
@@ -116,6 +125,28 @@ class JoystickInterpreterNode(Node):
         out.angular.z = wz
         self._cmd_vel_pub.publish(out)
 
+    def _timeout_check(self):
+        now = self._now_seconds()
+        dt = now - self._last_joy_msg_time if self._last_joy_msg_time > 0.0 else float('inf')
+
+        if dt > self._cmd_timeout:
+            if not self._timed_out:
+                self._timed_out = True
+                self.get_logger().warn('Joystick input timed out — publishing zeros to /cmd_vel')
+                self._publish_zero_cmd()
+            else:
+                self._publish_zero_cmd()
+
+    def _publish_zero_cmd(self):
+        out = Twist()
+        out.linear.x = 0.0
+        out.linear.y = 0.0
+        out.angular.z = 0.0
+        self._cmd_vel_pub.publish(out)
+
+    def _now_seconds(self) -> float:
+        return float(self.get_clock().now().nanoseconds) * 1e-9
+
     def _toggle_motors(self):
         if self._motor_toggle_pending:
             self.get_logger().warn('Motor toggle request is already in flight')
@@ -123,7 +154,6 @@ class JoystickInterpreterNode(Node):
 
         target_enabled = not self._motors_enabled
 
-        # Wait briefly for the service to appear so a single button press isn't lost.
         if not self._motor_enable_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().warn('Motor enable service is not available yet')
             return
@@ -166,7 +196,6 @@ class JoystickInterpreterNode(Node):
         motion does not trigger inversion.
         """
         if abs(vx) < 1e-3 and abs(vy) < 1e-3:
-            # Pure rotation — no correction needed
             return wz
 
         if abs(vx) >= abs(vy):
