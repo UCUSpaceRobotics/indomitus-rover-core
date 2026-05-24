@@ -13,11 +13,9 @@ echo "[CAN] INFO: Checking for CAN hardware on interface: ${TARGET_IFACE}"
 if ip link show "${TARGET_IFACE}" > /dev/null 2>&1; then
     echo "[CAN] INFO: Hardware found. Configuring ${TARGET_IFACE} at ${TARGET_BITRATE} bps..."
 
-    if ip link show "${TARGET_IFACE}" | grep -q "UP"; then
-        ip link set "${TARGET_IFACE}" down || true
-    fi
-
-    ip link set "${TARGET_IFACE}" up type can bitrate "${TARGET_BITRATE}"
+    ip link set "${TARGET_IFACE}" down 2>/dev/null || true
+    ip link set "${TARGET_IFACE}" txqueuelen 1000 type can bitrate "${TARGET_BITRATE}"
+    ip link set "${TARGET_IFACE}" up
 
     echo "[CAN] SUCCESS: Interface '${TARGET_IFACE}' configured at ${TARGET_BITRATE} bps."
 else
