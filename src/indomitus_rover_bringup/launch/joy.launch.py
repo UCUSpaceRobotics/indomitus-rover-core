@@ -9,6 +9,7 @@ def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     enable_strafe = LaunchConfiguration('enable_strafe')
+    autorepeat_rate = LaunchConfiguration('autorepeat_rate')
 
     config_filename = PythonExpression([
         "'joy_strafe_enabled.yaml' if '", enable_strafe, "' == 'true' else 'joy_strafe_disabled.yaml'"
@@ -28,7 +29,7 @@ def generate_launch_description():
         parameters=[{
             'dev': joy_dev,
             'deadzone': 0.05,
-            'autorepeat_rate': 20.0,
+            'autorepeat_rate': autorepeat_rate,
         }]
     )
 
@@ -59,6 +60,11 @@ def generate_launch_description():
             'cmd_vel_topic',
             default_value='/joy_raw_cmd_vel',
             description='Output velocity command topic'
+        ),
+        DeclareLaunchArgument(
+            'autorepeat_rate',
+            default_value='20.0',
+            description='Joystick autorepeat rate (Hz); 0.0 disables autorepeat'
         ),
         DeclareLaunchArgument(
             'enable_strafe',
