@@ -8,8 +8,8 @@ rover_controller:
     max_angular_speed: 1.0
 
     # Linear acceleration limit (m/s²)
-    max_accel: 0.2
-    max_decel: 0.5
+    max_accel: 0.3
+    max_decel: 0.9
 
     # Control loop frequency (Hz)
     control_frequency: 20.0
