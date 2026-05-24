@@ -9,15 +9,15 @@ teleop_node:
       x: 1 # Left stick vertical (forward/backward)
       y: 0 # Left stick horizontal (strafing left/right)
     scale_linear:
-      x: 0.1
-      y: 0.1
+      x: 0.2
+      y: 0.2
     scale_linear_turbo:
       x: 0.5
       y: 0.5
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 3 # Right stick horizontal (rotation clockwise/counterclockwise)
+      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise)
     scale_angular:
       yaw: 0.1
     scale_angular_turbo:

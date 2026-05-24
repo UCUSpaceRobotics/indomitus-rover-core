@@ -57,7 +57,7 @@ class RoverController(Node):
         self.declare_parameter('wheel_radius', 0.15)  # m
 
         # --- Steering limits (rover_description/config/rover_motors.yaml) ---
-        self.declare_parameter('max_steer_deg',      10.0)   # max steering angle
+        self.declare_parameter('max_steer_deg',      90.0)   # max steering angle
         self.declare_parameter('max_steer_rate_deg', 90.0)   # deg/s — physical steer motor speed
 
         # --- Velocity limits (rover_bringup/config/rover_controller.yaml) ---
@@ -135,7 +135,7 @@ class RoverController(Node):
         # Step 1 — smooth velocities with a linear rate limiter (acceleration cap)
         self.current_vx = self._rate_limit(self.current_vx, self.target_vx, self.max_accel, self.max_decel, dt)
         self.current_vy = self._rate_limit(self.current_vy, self.target_vy, self.max_accel, self.max_decel, dt)
-        self.current_wz = self._rate_limit(self.current_wz, self.target_wz, self.max_accel * 2, self.max_decel * 2, dt)
+        self.current_wz = self._rate_limit(self.current_wz, self.target_wz, self.max_accel, self.max_decel, dt)
 
         vx = self.current_vx
         vy = self.current_vy

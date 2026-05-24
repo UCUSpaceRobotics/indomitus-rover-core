@@ -5,7 +5,7 @@ rover_controller:
     max_linear_speed: 1.0
 
     # Maximum rotational speed (rad/s)
-    max_angular_speed: 0.5
+    max_angular_speed: 1.0
 
     # Linear acceleration limit (m/s²)
     max_accel: 0.2
