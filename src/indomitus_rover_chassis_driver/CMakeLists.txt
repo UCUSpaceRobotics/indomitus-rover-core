@@ -10,6 +10,7 @@ find_package(rclcpp REQUIRED)
 find_package(can_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(indomitus_interfaces REQUIRED)
 
 add_executable(chassis_driver_node
@@ -28,6 +29,7 @@ ament_target_dependencies(chassis_driver_node
   can_msgs
   sensor_msgs
   diagnostic_msgs
+  std_srvs
   indomitus_interfaces
 )
 

@@ -9,12 +9,14 @@ applies swerve-aware wz inversion and vy toggle, then publishes to /cmd_vel.
 Subscriptions:
     /joy_raw_cmd_vel  (geometry_msgs/Twist)  — raw output from teleop_twist_joy
     /joy              (sensor_msgs/Joy)       — raw joystick for button handling
+    /chassis/set_motors_enabled (std_srvs/SetBool) — explicit chassis motor enable/disable
 
 Publications:
     /cmd_vel          (geometry_msgs/Twist)   — processed output
 
 Parameters:
     vy_toggle_button  (int, default: 4)  — button index to toggle vy mode (LB on most controllers)
+    motor_toggle_button (int, default: 5) — button index to toggle chassis motors
     vy_enabled_default (bool, default: false) — initial state of vy mode
 """
 
@@ -24,6 +26,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
+from std_srvs.srv import SetBool
 
 
 class JoystickInterpreterNode(Node):
@@ -32,13 +35,18 @@ class JoystickInterpreterNode(Node):
         super().__init__('joystick_interpreter')
 
         self.declare_parameter('vy_toggle_button', 4)
+        self.declare_parameter('motor_toggle_button', 6)
         self.declare_parameter('vy_enabled_default', False)
 
         self._vy_toggle_button: int = self.get_parameter('vy_toggle_button').value
+        self._motor_toggle_button: int = self.get_parameter('motor_toggle_button').value
         self._vy_enabled: bool = self.get_parameter('vy_enabled_default').value
+        self._motors_enabled: bool = False
+        self._motor_toggle_pending: bool = False
 
         # Track previous button state to detect press edge (not hold)
         self._prev_vy_button: int = 0
+        self._prev_motor_button: int = 0
 
         self._raw_sub = self.create_subscription(
             Twist,
@@ -53,10 +61,15 @@ class JoystickInterpreterNode(Node):
             10,
         )
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self._motor_enable_client = self.create_client(
+            SetBool,
+            '/chassis/set_motors_enabled',
+        )
 
         self.get_logger().info(
             f'JoystickInterpreter started — '
             f'vy_toggle_button={self._vy_toggle_button}, '
+            f'motor_toggle_button={self._motor_toggle_button}, '
             f'vy_enabled={self._vy_enabled}'
         )
 
@@ -64,18 +77,22 @@ class JoystickInterpreterNode(Node):
 
     def _on_joy(self, msg: Joy):
         """Detect button press edges for toggle actions."""
-        if self._vy_toggle_button >= len(msg.buttons):
-            return
+        if self._vy_toggle_button < len(msg.buttons):
+            current = msg.buttons[self._vy_toggle_button]
 
-        current = msg.buttons[self._vy_toggle_button]
+            # Rising edge only — toggle on press, not on hold
+            if current == 1 and self._prev_vy_button == 0:
+                self._vy_enabled = not self._vy_enabled
+                state_str = 'ENABLED' if self._vy_enabled else 'DISABLED'
+                self.get_logger().info(f'vy mode: {state_str}')
 
-        # Rising edge only — toggle on press, not on hold
-        if current == 1 and self._prev_vy_button == 0:
-            self._vy_enabled = not self._vy_enabled
-            state_str = 'ENABLED' if self._vy_enabled else 'DISABLED'
-            self.get_logger().info(f'vy mode: {state_str}')
+            self._prev_vy_button = current
 
-        self._prev_vy_button = current
+        if self._motor_toggle_button < len(msg.buttons):
+            current = msg.buttons[self._motor_toggle_button]
+            if current == 1 and self._prev_motor_button == 0:
+                self._toggle_motors()
+            self._prev_motor_button = current
 
     # ── Twist processing ───────────────────────────────────────────────────
 
@@ -98,6 +115,45 @@ class JoystickInterpreterNode(Node):
         out.linear.y = vy
         out.angular.z = wz
         self._cmd_vel_pub.publish(out)
+
+    def _toggle_motors(self):
+        if self._motor_toggle_pending:
+            self.get_logger().warn('Motor toggle request is already in flight')
+            return
+
+        target_enabled = not self._motors_enabled
+
+        # Wait briefly for the service to appear so a single button press isn't lost.
+        if not self._motor_enable_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn('Motor enable service is not available yet')
+            return
+
+        self._motor_toggle_pending = True
+        request = SetBool.Request()
+        request.data = target_enabled
+        future = self._motor_enable_client.call_async(request)
+        future.add_done_callback(
+            lambda completed_future, desired_state=target_enabled: self._on_motor_toggle_result(
+                completed_future,
+                desired_state,
+            )
+        )
+
+    def _on_motor_toggle_result(self, future, desired_state: bool):
+        try:
+            response = future.result()
+        except Exception as exc:
+            self._motor_toggle_pending = False
+            self.get_logger().error(f'Motor enable service call failed: {exc!r}')
+            return
+
+        if response.success:
+            self._motors_enabled = desired_state
+
+        self._motor_toggle_pending = False
+
+        status = 'ENABLED' if self._motors_enabled else 'DISABLED'
+        self.get_logger().info(f'Motors {status}: {response.message}')
 
     def _apply_swerve_wz_correction(
         self, vx: float, vy: float, wz: float
