@@ -117,6 +117,24 @@ inline can_msgs::msg::Frame buildSetModeFrame(uint8_t esc_id, uint8_t mode) {
     return f;
 }
 
+// CAN ID = 0x7FF, write uint32 to register — for multi-byte registers (e.g. reg 9 = TIMEOUT in ms)
+inline can_msgs::msg::Frame buildWriteRegisterUint32Frame(uint8_t esc_id, uint8_t reg, uint32_t value) {
+    can_msgs::msg::Frame f;
+    f.id          = 0x7FFu;
+    f.is_extended = true;
+    f.dlc         = 8;
+    f.data.fill(0x00);
+    f.data[0] = esc_id & 0xFFu;
+    f.data[1] = (esc_id >> 8) & 0xFFu;
+    f.data[2] = 0x55;   // write command
+    f.data[3] = reg;
+    f.data[4] = static_cast<uint8_t>((value >>  0) & 0xFFu);
+    f.data[5] = static_cast<uint8_t>((value >>  8) & 0xFFu);
+    f.data[6] = static_cast<uint8_t>((value >> 16) & 0xFFu);
+    f.data[7] = static_cast<uint8_t>((value >> 24) & 0xFFu);
+    return f;
+}
+
 // CAN ID = esc_id, payload FF FF FF FF FF FF FF FC
 inline can_msgs::msg::Frame buildEnableFrame(uint8_t esc_id) {
     can_msgs::msg::Frame f;

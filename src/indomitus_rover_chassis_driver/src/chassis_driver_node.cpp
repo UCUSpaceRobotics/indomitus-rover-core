@@ -1,5 +1,6 @@
 #include "indomitus_rover_chassis_driver/chassis_driver_node.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -21,6 +22,8 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     declare_parameter("drive_vmax",         50.0);
     declare_parameter("drive_tmax",         20.0);
     declare_parameter("mst_id",             0);
+    declare_parameter("steer_angle_min",    -1.5707963);  // -π/2 rad = -90°
+    declare_parameter("steer_angle_max",     1.5707963);  //  π/2 rad =  90°
     declare_parameter("steer_joint_names",  std::vector<std::string>{
         "fl_wheel_mount_joint", "fr_wheel_mount_joint",
         "bl_wheel_mount_joint", "br_wheel_mount_joint"});
@@ -52,6 +55,8 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     drive_vmax_       = static_cast<float>(get_parameter("drive_vmax").as_double());
     drive_tmax_       = static_cast<float>(get_parameter("drive_tmax").as_double());
     mst_id_           = static_cast<uint32_t>(get_parameter("mst_id").as_int());
+    steer_angle_min_  = static_cast<float>(get_parameter("steer_angle_min").as_double());
+    steer_angle_max_  = static_cast<float>(get_parameter("steer_angle_max").as_double());
     steer_joint_names_ = get_parameter("steer_joint_names").as_string_array();
     drive_joint_names_ = get_parameter("drive_joint_names").as_string_array();
 
@@ -163,7 +168,9 @@ void ChassisDriverNode::sendEnableFrames() {
     for (int i = 0; i < 4; i++)
         to_can_pub_->publish(steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f));
 
-    // Damiao drive: setMode(3=velocity) then enable(0xFC)
+    // Damiao drive: set TIMEOUT watchdog (reg 9, 200ms) → setMode(3=velocity) → enable(0xFC)
+    for (int i = 0; i < 4; i++)
+        to_can_pub_->publish(damiao_protocol::buildWriteRegisterUint32Frame(drive_ids_[i], 9, 200u));
     for (int i = 0; i < 4; i++)
         to_can_pub_->publish(damiao_protocol::buildSetModeFrame(drive_ids_[i], 3));
     for (int i = 0; i < 4; i++)
@@ -226,13 +233,15 @@ void ChassisDriverNode::onSetMotorsEnabled(
 void ChassisDriverNode::onWheelTargets(const indomitus_interfaces::msg::WheelTargets::SharedPtr msg) {
     if (!motors_enabled_) return;
 
-    const float angles[4] = {msg->fl_angle, msg->fr_angle, msg->rl_angle, msg->rr_angle};
-    const float speeds[4] = {-msg->fl_speed, msg->fr_speed, -msg->rl_speed, msg->rr_speed};
+    const float raw_angles[4] = {msg->fl_angle, msg->fr_angle, msg->rl_angle, msg->rr_angle};
+    const float speeds[4]     = {-msg->fl_speed, msg->fr_speed, -msg->rl_speed, msg->rr_speed};
 
     for (int i = 0; i < 4; i++) {
-        // Steadywin steer: 0xC2 absolute position (rad)
+        float angle = std::clamp(raw_angles[i], steer_angle_min_, steer_angle_max_);
+
+        // Steadywin steer: 0xC2 absolute position (rad), clamped to [steer_angle_min_, steer_angle_max_]
         to_can_pub_->publish(
-            steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], angles[i]));
+            steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], angle));
 
         // Damiao drive: float velocity (rad/s) — firmware handles gear reduction internally
         to_can_pub_->publish(

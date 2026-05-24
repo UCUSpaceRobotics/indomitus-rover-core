@@ -62,6 +62,9 @@ private:
 
     // Damiao MIT feedback decoding ranges (fixed-point → float)
     float drive_pmax_, drive_vmax_, drive_tmax_;
+
+    // Steering angle limits (rad)
+    float steer_angle_min_, steer_angle_max_;
     uint32_t mst_id_;
 
     // Joint names
