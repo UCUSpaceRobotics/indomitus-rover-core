@@ -4,6 +4,7 @@
 #include <thread>
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "std_srvs/srv/set_bool.hpp"
 
 using namespace std::chrono_literals;
 
@@ -79,13 +80,21 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
         "/from_can_bus", 10,
         std::bind(&ChassisDriverNode::onCanFrame, this, std::placeholders::_1));
 
+    motor_enable_service_ = create_service<std_srvs::srv::SetBool>(
+        "/chassis/set_motors_enabled",
+        std::bind(
+            &ChassisDriverNode::onSetMotorsEnabled,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2));
+
     // --- Timers ---
 
-    // One-shot 3s: send enable sequence after CAN bridge has time to activate
-    enable_timer_ = create_wall_timer(3s, [this]() {
-        sendEnableFrames();
-        enable_timer_->cancel();
-    });
+    // --- Boot disable handling ---
+    // Start in a known safe state: attempt to publish disable frames, but if
+    // the CAN bridge isn't yet subscribed to `/to_can_bus` retry for a short
+    // window to avoid losing the safety-critical disable frames.
+    tryPublishBootDisable();
 
     // 1 Hz: poll all motors for status feedback
     status_poll_timer_ = create_wall_timer(1s, [this]() {
@@ -116,6 +125,33 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
         drive_ids_[0], drive_ids_[1], drive_ids_[2], drive_ids_[3]);
 }
 
+void ChassisDriverNode::tryPublishBootDisable() {
+    // If there's already a subscriber on /to_can_bus, publish immediately.
+    if (to_can_pub_->get_subscription_count() > 0u) {
+        sendDisableFrames();
+        return;
+    }
+
+    // Otherwise, start a retry timer (non-blocking) that fires every 200ms
+    // and publishes once a subscriber appears. Give up after boot_retry_max_attempts_.
+    boot_retry_attempts_ = 0;
+    boot_retry_timer_ = create_wall_timer(200ms, [this]() {
+        if (to_can_pub_->get_subscription_count() > 0u) {
+            RCLCPP_INFO(this->get_logger(), "/to_can_bus subscriber detected — publishing boot disable frames");
+            sendDisableFrames();
+            boot_retry_timer_->cancel();
+            return;
+        }
+
+        ++boot_retry_attempts_;
+        if (boot_retry_attempts_ >= boot_retry_max_attempts_) {
+            RCLCPP_WARN(get_logger(), "No /to_can_bus subscriber after %d attempts (~%.1fs); initial disable frames may have been lost",
+                boot_retry_attempts_, (boot_retry_attempts_ * 0.2));
+            boot_retry_timer_->cancel();
+        }
+    });
+}
+
 // ── Hardware lifecycle ────────────────────────────────────────────────────────
 
 void ChassisDriverNode::sendEnableFrames() {
@@ -138,11 +174,26 @@ void ChassisDriverNode::sendEnableFrames() {
 }
 
 void ChassisDriverNode::sendDisableFrames() {
-    if (!motors_enabled_) return;
+    RCLCPP_INFO(get_logger(), "Motor command: disabling all chassis motors");
+
+    for (int i = 0; i < 4; i++)
+        to_can_pub_->publish(steadywin_protocol::buildDisableFrame(steer_ids_[i]));
+    for (int i = 0; i < 4; i++)
+        to_can_pub_->publish(damiao_protocol::buildDisableFrame(drive_ids_[i]));
+
+    motors_enabled_ = false;
+    RCLCPP_INFO(get_logger(), "All motors disabled");
+}
+
+void ChassisDriverNode::sendShutdownFrames() {
+    if (!motors_enabled_) {
+        sendDisableFrames();
+        return;
+    }
 
     RCLCPP_INFO(get_logger(), "Motor shutdown: zeroing commands");
 
-    // Send zero/home targets
+    // Send zero/home targets before disabling so the rover stops cleanly.
     for (int i = 0; i < 4; i++)
         to_can_pub_->publish(steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f));
     for (int i = 0; i < 4; i++)
@@ -151,14 +202,23 @@ void ChassisDriverNode::sendDisableFrames() {
     RCLCPP_INFO(get_logger(), "Waiting 1.5s for motion to settle...");
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
 
-    // Disable all motors
-    for (int i = 0; i < 4; i++)
-        to_can_pub_->publish(steadywin_protocol::buildDisableFrame(steer_ids_[i]));
-    for (int i = 0; i < 4; i++)
-        to_can_pub_->publish(damiao_protocol::buildDisableFrame(drive_ids_[i]));
+    sendDisableFrames();
+}
 
-    motors_enabled_ = false;
-    RCLCPP_INFO(get_logger(), "All motors disabled");
+void ChassisDriverNode::onSetMotorsEnabled(
+    const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
+    std::shared_ptr<std_srvs::srv::SetBool::Response> response)
+{
+    if (request->data) {
+        sendEnableFrames();
+        response->success = true;
+        response->message = "All chassis motors enabled";
+        return;
+    }
+
+    sendDisableFrames();
+    response->success = true;
+    response->message = "All chassis motors disabled";
 }
 
 // ── Command handling ──────────────────────────────────────────────────────────
@@ -377,7 +437,7 @@ int main(int argc, char* argv[]) {
     auto node = std::make_shared<chassis_driver::ChassisDriverNode>();
     rclcpp::spin(node);
     // spin() returns on SIGINT — perform graceful motor shutdown before exit
-    node->sendDisableFrames();
+    node->sendShutdownFrames();
     rclcpp::shutdown();
     return 0;
 }

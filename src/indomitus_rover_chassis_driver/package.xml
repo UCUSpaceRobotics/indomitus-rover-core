@@ -17,6 +17,7 @@
   <depend>can_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>diagnostic_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>indomitus_interfaces</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>

@@ -7,6 +7,7 @@
 #include "can_msgs/msg/frame.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "std_srvs/srv/set_bool.hpp"
 #include "indomitus_interfaces/msg/wheel_targets.hpp"
 #include "indomitus_interfaces/msg/chassis_status.hpp"
 #include "indomitus_rover_chassis_driver/damiao_protocol.hpp"
@@ -19,19 +20,27 @@ public:
     explicit ChassisDriverNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions{});
 
     // Graceful shutdown: zero → settle → disable all motors
-    void sendDisableFrames();
+    void sendShutdownFrames();
 
 private:
     void onWheelTargets(const indomitus_interfaces::msg::WheelTargets::SharedPtr msg);
     void onCanFrame(const can_msgs::msg::Frame::SharedPtr msg);
+    void onSetMotorsEnabled(
+        const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
+        std::shared_ptr<std_srvs::srv::SetBool::Response> response);
     void publishJointStates();
     void publishChassisStatus();
     void publishDiagnostics();
     void sendEnableFrames();
+    void sendDisableFrames();
+    void tryPublishBootDisable();
 
     // Subscriptions
     rclcpp::Subscription<indomitus_interfaces::msg::WheelTargets>::SharedPtr wheel_targets_sub_;
     rclcpp::Subscription<can_msgs::msg::Frame>::SharedPtr from_can_sub_;
+
+    // Services
+    rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr motor_enable_service_;
 
     // Publishers
     rclcpp::Publisher<can_msgs::msg::Frame>::SharedPtr to_can_pub_;
@@ -40,10 +49,12 @@ private:
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
 
     // Timers
-    rclcpp::TimerBase::SharedPtr enable_timer_;            // one-shot, 3s: initial motor enable
     rclcpp::TimerBase::SharedPtr status_poll_timer_;       // 1 Hz: 0xAE query to Steadywin
     rclcpp::TimerBase::SharedPtr chassis_status_timer_;    // 10 Hz: /chassis/motor_states
     rclcpp::TimerBase::SharedPtr diagnostics_timer_;       // 1 Hz: /diagnostics
+    rclcpp::TimerBase::SharedPtr boot_retry_timer_;
+    int boot_retry_attempts_ = 0;
+    int boot_retry_max_attempts_ = 25; // ~25 * 200ms = 5s
 
     // Motor IDs [FL, FR, RL, RR]
     std::array<uint8_t, 4> steer_ids_;  // Steadywin rotation motors
