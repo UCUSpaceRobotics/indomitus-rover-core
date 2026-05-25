@@ -71,6 +71,7 @@ class RoverController(Node):
         self.declare_parameter('max_accel',         0.1)   # m/s²  — linear acceleration limit
         self.declare_parameter('max_decel',  0.3)
         self.declare_parameter('control_frequency', 20.0)  # Hz
+        self.declare_parameter('cmd_vel_timeout_s', 0.5)   # s
 
         self._read_params()
 
@@ -107,6 +108,9 @@ class RoverController(Node):
 
         dt = 1.0 / self.control_freq
         self.timer = self.create_timer(dt, self.control_loop)
+
+        self._last_cmd_vel_time = self.get_clock().now()
+        self._cmd_vel_timeout = self.get_parameter('cmd_vel_timeout_s').value
 
         self.get_logger().info('RoverController started — listening on cmd_vel')
 
@@ -156,6 +160,8 @@ class RoverController(Node):
     # ──────────────────────────────────────────────────────────────────────────
 
     def cmd_vel_callback(self, msg: Twist):
+        self._last_cmd_vel_time = self.get_clock().now()
+
         self.target_vx = self._clamp(msg.linear.x,  -self.max_linear,  self.max_linear)
         self.target_vy = self._clamp(msg.linear.y,  -self.max_linear,  self.max_linear)
         self.target_wz = self._clamp(msg.angular.z, -self.max_angular, self.max_angular)
@@ -165,6 +171,12 @@ class RoverController(Node):
     # ──────────────────────────────────────────────────────────────────────────
 
     def control_loop(self):
+        elapsed = (self.get_clock().now() - self._last_cmd_vel_time).nanoseconds * 1e-9
+        if elapsed > self._cmd_vel_timeout:
+            self.target_vx = 0.0
+            self.target_vy = 0.0
+            self.target_wz = 0.0
+
         dt = 1.0 / self.control_freq
 
         # Step 1 — smooth velocities with a linear rate limiter (acceleration cap)
