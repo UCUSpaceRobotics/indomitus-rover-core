@@ -47,8 +47,8 @@ import rclpy
 from rclpy.node import Node
 
 
-_COMPACT_OFFSETS = {'FL': +math.pi, 'FR': -math.pi,
-                   'RL': -math.pi, 'RR': +math.pi}
+_COMPACT_OFFSETS = {'FL': -math.pi, 'FR': +math.pi,
+                   'RL': +math.pi, 'RR': -math.pi}
 _ZERO_OFFSETS  = {name: 0.0 for name in _COMPACT_OFFSETS}
 
 class RoverController(Node):
