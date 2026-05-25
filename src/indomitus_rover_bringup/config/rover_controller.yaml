@@ -13,3 +13,5 @@ rover_controller:
 
     # Control loop frequency (Hz)
     control_frequency: 20.0
+
+    cmd_vel_timeout_s: 0.5
