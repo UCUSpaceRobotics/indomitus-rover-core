@@ -167,7 +167,7 @@ class JoystickInterpreterNode(Node):
 
         target_enabled = not self._motors_enabled
 
-        if not self._motor_enable_client.wait_for_service(timeout_sec=1.0):
+        if not self._motor_enable_client.service_is_ready():
             self.get_logger().warn('Motor enable service is not available yet')
             return
 
@@ -184,7 +184,7 @@ class JoystickInterpreterNode(Node):
 
     def _toggle_compact_mode(self):
         target = not self._compact_mode
-        if not self._compact_mode_client.wait_for_service(timeout_sec=1.0):
+        if not self._compact_mode_client.service_is_ready():
             self.get_logger().warn('/set_compact_mode service not available')
             return
         req = SetBool.Request()

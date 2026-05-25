@@ -309,6 +309,11 @@ class RoverController(Node):
         diff = target - current
         # diff = (diff + math.pi) % (2 * math.pi) - math.pi  # shortest-path wrap
         step = self._clamp(diff, -self.max_steer_rate * dt, self.max_steer_rate * dt)
+
+        # Steering clamp is intentionally omitted here.
+        # Each wheel has asymmetric limits ([-π/2, 3π/2] or [-3π/2, π/2]
+        # depending on side) which are enforced by the chassis driver.
+        # Adding a symmetric clamp here would incorrectly restrict valid angles.
         # return self._clamp(current + step, -self.max_steer, self.max_steer)
         return current + step
 

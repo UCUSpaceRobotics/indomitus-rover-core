@@ -81,6 +81,22 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
         "/wheel_targets", 10,
         std::bind(&ChassisDriverNode::onWheelTargets, this, std::placeholders::_1));
 
+
+    // ====== WATCHDOG PART ======
+    last_wheel_targets_time_ = now();
+
+    // Watchdog: if /wheel_targets stops arriving, zero all commands
+    watchdog_timer_ = create_wall_timer(100ms, [this]() {
+        if (!motors_enabled_) return;
+        if ((now() - last_wheel_targets_time_).seconds() < kWheelTargetsTimeoutSec) return;
+
+        for (int i = 0; i < 4; i++) {
+            to_can_pub_->publish(steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f));
+            to_can_pub_->publish(damiao_protocol::buildVelocityFrame(drive_ids_[i], 0.0f));
+        }
+    });
+    // ====== WATCHDOG PART ======
+
     from_can_sub_ = create_subscription<can_msgs::msg::Frame>(
         "/from_can_bus", 10,
         std::bind(&ChassisDriverNode::onCanFrame, this, std::placeholders::_1));
@@ -231,6 +247,8 @@ void ChassisDriverNode::onSetMotorsEnabled(
 // ── Command handling ──────────────────────────────────────────────────────────
 
 void ChassisDriverNode::onWheelTargets(const indomitus_interfaces::msg::WheelTargets::SharedPtr msg) {
+    last_wheel_targets_time_ = now();
+
     if (!motors_enabled_) return;
 
     const float raw_angles[4] = {msg->fl_angle, msg->fr_angle, msg->rl_angle, msg->rr_angle};

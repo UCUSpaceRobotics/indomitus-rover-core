@@ -77,6 +77,12 @@ private:
 
     bool motors_enabled_ = false;
     rclcpp::Time last_wheel_targets_time_{0, 0, RCL_ROS_TIME};
+
+    // ====== WATCHDOG PART ======
+    rclcpp::TimerBase::SharedPtr watchdog_timer_;
+    rclcpp::Time last_wheel_targets_time_;
+    static constexpr double kWheelTargetsTimeoutSec = 0.5;
+    // ====== WATCHDOG PART ======
 };
 
 } // namespace chassis_driver
