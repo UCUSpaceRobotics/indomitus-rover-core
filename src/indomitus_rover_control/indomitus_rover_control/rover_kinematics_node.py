@@ -85,6 +85,8 @@ class RoverController(Node):
         self.target_vy = 0.0
         self.target_wz = 0.0
 
+        self._current_scale = 0.0
+
         self.wheel_names = ['FL', 'FR', 'RL', 'RR']
         self.wheel_pos = {
             'FL': ( self.L2,  self.W2),
@@ -195,11 +197,22 @@ class RoverController(Node):
             for i, name in enumerate(self.wheel_names)
         )
 
-        speed_scale = max(0.0, math.cos(max_angle_error))
+        raw_scale = max(0.0, math.cos(max_angle_error))
 
         # Hard cap: if any wheel is more than 20° off, limit to 30 % speed
         if max_angle_error > math.radians(20):
-            speed_scale = min(speed_scale, 0.3)
+            speed_scale = min(speed_scale, 0.2)
+
+        scale_up_rate   = 0.5 
+        scale_down_rate = 5.0
+        dt = 1.0 / self.control_freq
+
+        if raw_scale < self._current_scale:
+            self._current_scale = max(raw_scale, self._current_scale - scale_down_rate * dt)
+        else:
+            self._current_scale = min(raw_scale, self._current_scale + scale_up_rate * dt)
+
+        speed_scale = self._current_scale
 
         # Step 5 — publish
         out = WheelTargets()
@@ -211,11 +224,11 @@ class RoverController(Node):
         self.pub.publish(out)
 
         self.get_logger().debug(
-            f'FL={math.degrees(result_angles[0]):+.1f}° '
-            f'FR={math.degrees(result_angles[1]):+.1f}° '
-            f'RL={math.degrees(result_angles[2]):+.1f}° '
-            f'RR={math.degrees(result_angles[3]):+.1f}° | '
-            f'speeds: {[f"{s:+.2f}" for s in result_speeds]} rad/s | '
+            # f'FL={math.degrees(result_angles[0]):+.1f}° '
+            # f'FR={math.degrees(result_angles[1]):+.1f}° '
+            # f'RL={math.degrees(result_angles[2]):+.1f}° '
+            # f'RR={math.degrees(result_angles[3]):+.1f}° | '
+            # f'speeds: {[f"{s:+.2f}" for s in result_speeds]} rad/s | '
             f'scale={speed_scale:.2f}'
         )
 
