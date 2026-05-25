@@ -12,7 +12,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         Node(
-            package="indomitus_rover_container",
+            package="indomitus_rover_peripherals",
             executable="rover_container_node",
             parameters=[container_can_config],
         ),
