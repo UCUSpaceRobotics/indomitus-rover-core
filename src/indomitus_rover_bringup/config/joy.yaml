@@ -2,20 +2,16 @@ teleop_node:
   ros__parameters:
     require_enable_button: false
 
-    enable_turbo_button: 5
-
     # --- LINEAR CONTROLS (Left Stick) ---
     axis_linear:
       x: 1 # Left stick vertical (forward/backward)
+      y: 0 # Left stick horizontal (strafing left/right)
     scale_linear:
-      x: 0.5
-    scale_linear_turbo:
-      x: 1.0
+      x: 1
+      y: 1
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 3 # Right stick horizontal (rotation clockwise/counterclockwise)
+      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise). 2 for ubuntu 22.04, 3 for ubuntu 24.04
     scale_angular:
-      yaw: 1.0
-    scale_angular_turbo:
       yaw: 1.0

@@ -8,17 +8,12 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
-    enable_strafe = LaunchConfiguration('enable_strafe')
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
-
-    config_filename = PythonExpression([
-        "'joy_strafe_enabled.yaml' if '", enable_strafe, "' == 'true' else 'joy_strafe_disabled.yaml'"
-    ])
 
     default_config = PathJoinSubstitution([
         FindPackageShare('indomitus_rover_bringup'),
         'config',
-        config_filename
+        'joy'
     ])
 
     joy_node = Node(
@@ -66,12 +61,6 @@ def generate_launch_description():
             default_value='20.0',
             description='Joystick autorepeat rate (Hz); 0.0 disables autorepeat,' \
                 'joystick will send the command only on the change of the state'
-        ),
-        DeclareLaunchArgument(
-            'enable_strafe',
-            default_value='true',
-            choices=['true', 'false'],
-            description='Set to true to enable y-axis strafing, false for differential drive'
         ),
         joy_node,
         teleop_node,
