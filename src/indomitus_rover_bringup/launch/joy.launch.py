@@ -7,6 +7,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
+    deadzone = LaunchConfiguration('deadzone')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
 
@@ -23,7 +24,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'dev': joy_dev,
-            'deadzone': 0.05,
+            'deadzone': deadzone,
             'autorepeat_rate': autorepeat_rate,
         }]
     )
@@ -43,6 +44,7 @@ def generate_launch_description():
         package='indomitus_rover_control',
         executable='joystick_interpreter_node',
         output='screen',
+        parameters=[default_config],
     )
 
     return LaunchDescription([
@@ -50,6 +52,11 @@ def generate_launch_description():
             'joy_dev',
             default_value='/dev/input/js0',
             description='Joystick device path'
+        ),
+        DeclareLaunchArgument(
+            'deadzone',
+            default_value='0.05',
+            description='Joystick deadzone passed to joy_node'
         ),
         DeclareLaunchArgument(
             'cmd_vel_topic',
