@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   indomitus_rover_prod:
     image: indomitus-rover:humble-prod
