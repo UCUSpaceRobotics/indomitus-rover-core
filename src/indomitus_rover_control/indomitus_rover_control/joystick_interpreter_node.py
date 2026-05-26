@@ -6,18 +6,32 @@ Sits between teleop_twist_joy and the rest of the stack.
 Subscribes to raw cmd_vel from teleop and /joy for button events,
 applies swerve-aware wz inversion and vy toggle, then publishes to /cmd_vel.
 
+Timeout/watchdog behavior:
+    - The watchdog is based on /joy freshness (not /joy_raw_cmd_vel).
+    - If no /joy message is received for longer than cmd_timeout,
+      forwarding from /joy_raw_cmd_vel is blocked and zero Twist is published.
+    - While timed out, zero Twist continues to be published at timeout_pub_rate.
+    - On the next /joy message, timeout state is cleared and forwarding resumes.
+
 Subscriptions:
     /joy_raw_cmd_vel  (geometry_msgs/Twist)  — raw output from teleop_twist_joy
     /joy              (sensor_msgs/Joy)       — raw joystick for button handling
-    /chassis/set_motors_enabled (std_srvs/SetBool) — explicit chassis motor enable/disable
 
 Publications:
     /cmd_vel          (geometry_msgs/Twist)   — processed output
 
 Parameters:
-    vy_toggle_button  (int, default: 4)  — button index to toggle vy mode (LB on most controllers)
-    motor_toggle_button (int, default: 5) — button index to toggle chassis motors
+    vy_toggle_button      (int, default: 8)  — button index to toggle vy mode
+    motor_toggle_button   (int, default: 9)  — button index to toggle chassis motors
+    compact_mode_button   (int, default: 1)  — button index to toggle compact mode
     vy_enabled_default (bool, default: false) — initial state of vy mode
+    cmd_timeout        (float, default: 0.5)  — /joy staleness threshold in seconds
+    timeout_pub_rate   (float, default: 10.0) — zero-command publish/check rate while timed out (Hz)
+    initial_timed_out  (bool, default: true)  — startup state; safe if true
+
+Services used:
+    /chassis/set_motors_enabled (std_srvs/SetBool) — explicit chassis motor enable/disable
+    /set_compact_mode           (std_srvs/SetBool) — compact mode toggle
 """
 
 import rclpy
@@ -32,13 +46,13 @@ class JoystickInterpreterNode(Node):
     def __init__(self):
         super().__init__('joystick_interpreter')
 
-        self.declare_parameter('vy_toggle_button', 4)
-        self.declare_parameter('motor_toggle_button', 6)
+        self.declare_parameter('vy_toggle_button', 8)
+        self.declare_parameter('motor_toggle_button', 9)
+        self.declare_parameter('compact_mode_button', 1)
         self.declare_parameter('vy_enabled_default', False)
-        self.declare_parameter('cmd_timeout', 1.0)
+        self.declare_parameter('cmd_timeout', 0.5)
         self.declare_parameter('timeout_pub_rate', 10.0)
         self.declare_parameter('initial_timed_out', True)
-        self.declare_parameter('compact_mode_button', 1)
 
         self._vy_toggle_button: int = self.get_parameter('vy_toggle_button').value
         self._motor_toggle_button: int = self.get_parameter('motor_toggle_button').value
@@ -89,7 +103,12 @@ class JoystickInterpreterNode(Node):
         )
 
     def _on_joy(self, msg: Joy):
-        """Detect button press edges for toggle actions."""
+        """
+        Detect button press edges for toggle actions and refresh watchdog timestamp.
+
+        Any /joy message marks joystick input as alive. If we were in timed-out mode,
+        this callback clears timeout and re-enables forwarding from /joy_raw_cmd_vel.
+        """
         self._last_joy_msg_time = self._now_seconds()
         if self._timed_out:
             self._timed_out = False
@@ -139,6 +158,7 @@ class JoystickInterpreterNode(Node):
         self._cmd_vel_pub.publish(out)
 
     def _timeout_check(self):
+        """Apply /joy freshness timeout and publish safe zero commands when stale."""
         now = self._now_seconds()
         dt = now - self._last_joy_msg_time if self._last_joy_msg_time > 0.0 else float('inf')
 
