@@ -13,7 +13,7 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='indomitus_rover_chassis_driver',
-            executable='chassis_driver_node',
+            executable='chassis_driver_node_exe',
             name='chassis_driver',
             output='screen',
             parameters=[config],
