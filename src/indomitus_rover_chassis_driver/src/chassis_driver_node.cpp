@@ -1,9 +1,11 @@
 #include "indomitus_rover_chassis_driver/chassis_driver_node.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "std_srvs/srv/set_bool.hpp"
 
 using namespace std::chrono_literals;
 
@@ -14,12 +16,14 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
 {
     // --- Parameters ---
     // steer_ids → Steadywin rotation motors, drive_ids → Damiao drive motors
-    declare_parameter("steer_ids",          std::vector<int64_t>{11, 13, 15, 17});
-    declare_parameter("drive_ids",          std::vector<int64_t>{10, 12, 14, 16});
+    declare_parameter("steer_ids",          std::vector<int64_t>{11, 13, 17, 15});
+    declare_parameter("drive_ids",          std::vector<int64_t>{10, 12, 16, 14});
     declare_parameter("drive_pmax",         12.5);
     declare_parameter("drive_vmax",         50.0);
     declare_parameter("drive_tmax",         20.0);
     declare_parameter("mst_id",             0);
+    declare_parameter("steer_angle_min",    -1.5707963);  // -π/2 rad = -90°
+    declare_parameter("steer_angle_max",     1.5707963);  //  π/2 rad =  90°
     declare_parameter("steer_joint_names",  std::vector<std::string>{
         "fl_wheel_mount_joint", "fr_wheel_mount_joint",
         "bl_wheel_mount_joint", "br_wheel_mount_joint"});
@@ -51,6 +55,8 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     drive_vmax_       = static_cast<float>(get_parameter("drive_vmax").as_double());
     drive_tmax_       = static_cast<float>(get_parameter("drive_tmax").as_double());
     mst_id_           = static_cast<uint32_t>(get_parameter("mst_id").as_int());
+    steer_angle_min_  = static_cast<float>(get_parameter("steer_angle_min").as_double());
+    steer_angle_max_  = static_cast<float>(get_parameter("steer_angle_max").as_double());
     steer_joint_names_ = get_parameter("steer_joint_names").as_string_array();
     drive_joint_names_ = get_parameter("drive_joint_names").as_string_array();
 
@@ -75,17 +81,41 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
         "/wheel_targets", 10,
         std::bind(&ChassisDriverNode::onWheelTargets, this, std::placeholders::_1));
 
+
+    // ====== WATCHDOG PART ======
+    last_wheel_targets_time_ = now();
+
+    // Watchdog: if /wheel_targets stops arriving, zero all commands
+    watchdog_timer_ = create_wall_timer(100ms, [this]() {
+        if (!motors_enabled_) return;
+        if ((now() - last_wheel_targets_time_).seconds() < kWheelTargetsTimeoutSec) return;
+
+        for (int i = 0; i < 4; i++) {
+            to_can_pub_->publish(steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f));
+            to_can_pub_->publish(damiao_protocol::buildVelocityFrame(drive_ids_[i], 0.0f));
+        }
+    });
+    // ====== WATCHDOG PART ======
+
     from_can_sub_ = create_subscription<can_msgs::msg::Frame>(
         "/from_can_bus", 10,
         std::bind(&ChassisDriverNode::onCanFrame, this, std::placeholders::_1));
 
+    motor_enable_service_ = create_service<std_srvs::srv::SetBool>(
+        "/chassis/set_motors_enabled",
+        std::bind(
+            &ChassisDriverNode::onSetMotorsEnabled,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2));
+
     // --- Timers ---
 
-    // One-shot 3s: send enable sequence after CAN bridge has time to activate
-    enable_timer_ = create_wall_timer(3s, [this]() {
-        sendEnableFrames();
-        enable_timer_->cancel();
-    });
+    // --- Boot disable handling ---
+    // Start in a known safe state: attempt to publish disable frames, but if
+    // the CAN bridge isn't yet subscribed to `/to_can_bus` retry for a short
+    // window to avoid losing the safety-critical disable frames.
+    tryPublishBootDisable();
 
     // 1 Hz: poll all motors for status feedback
     status_poll_timer_ = create_wall_timer(1s, [this]() {
@@ -116,6 +146,33 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
         drive_ids_[0], drive_ids_[1], drive_ids_[2], drive_ids_[3]);
 }
 
+void ChassisDriverNode::tryPublishBootDisable() {
+    // If there's already a subscriber on /to_can_bus, publish immediately.
+    if (to_can_pub_->get_subscription_count() > 0u) {
+        sendDisableFrames();
+        return;
+    }
+
+    // Otherwise, start a retry timer (non-blocking) that fires every 200ms
+    // and publishes once a subscriber appears. Give up after boot_retry_max_attempts_.
+    boot_retry_attempts_ = 0;
+    boot_retry_timer_ = create_wall_timer(200ms, [this]() {
+        if (to_can_pub_->get_subscription_count() > 0u) {
+            RCLCPP_INFO(this->get_logger(), "/to_can_bus subscriber detected — publishing boot disable frames");
+            sendDisableFrames();
+            boot_retry_timer_->cancel();
+            return;
+        }
+
+        ++boot_retry_attempts_;
+        if (boot_retry_attempts_ >= boot_retry_max_attempts_) {
+            RCLCPP_WARN(get_logger(), "No /to_can_bus subscriber after %d attempts (~%.1fs); initial disable frames may have been lost",
+                boot_retry_attempts_, (boot_retry_attempts_ * 0.2));
+            boot_retry_timer_->cancel();
+        }
+    });
+}
+
 // ── Hardware lifecycle ────────────────────────────────────────────────────────
 
 void ChassisDriverNode::sendEnableFrames() {
@@ -127,7 +184,9 @@ void ChassisDriverNode::sendEnableFrames() {
     for (int i = 0; i < 4; i++)
         to_can_pub_->publish(steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f));
 
-    // Damiao drive: setMode(3=velocity) then enable(0xFC)
+    // Damiao drive: set TIMEOUT watchdog (reg 9, 200ms) → setMode(3=velocity) → enable(0xFC)
+    for (int i = 0; i < 4; i++)
+        to_can_pub_->publish(damiao_protocol::buildWriteRegisterUint32Frame(drive_ids_[i], 9, 200u));
     for (int i = 0; i < 4; i++)
         to_can_pub_->publish(damiao_protocol::buildSetModeFrame(drive_ids_[i], 3));
     for (int i = 0; i < 4; i++)
@@ -138,20 +197,8 @@ void ChassisDriverNode::sendEnableFrames() {
 }
 
 void ChassisDriverNode::sendDisableFrames() {
-    if (!motors_enabled_) return;
+    RCLCPP_INFO(get_logger(), "Motor command: disabling all chassis motors");
 
-    RCLCPP_INFO(get_logger(), "Motor shutdown: zeroing commands");
-
-    // Send zero/home targets
-    for (int i = 0; i < 4; i++)
-        to_can_pub_->publish(steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f));
-    for (int i = 0; i < 4; i++)
-        to_can_pub_->publish(damiao_protocol::buildVelocityFrame(drive_ids_[i], 0.0f));
-
-    RCLCPP_INFO(get_logger(), "Waiting 1.5s for motion to settle...");
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-
-    // Disable all motors
     for (int i = 0; i < 4; i++)
         to_can_pub_->publish(steadywin_protocol::buildDisableFrame(steer_ids_[i]));
     for (int i = 0; i < 4; i++)
@@ -161,18 +208,58 @@ void ChassisDriverNode::sendDisableFrames() {
     RCLCPP_INFO(get_logger(), "All motors disabled");
 }
 
+void ChassisDriverNode::sendShutdownFrames() {
+    if (!motors_enabled_) {
+        sendDisableFrames();
+        return;
+    }
+
+    RCLCPP_INFO(get_logger(), "Motor shutdown: zeroing commands");
+
+    // Send zero/home targets before disabling so the rover stops cleanly.
+    for (int i = 0; i < 4; i++)
+        to_can_pub_->publish(steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f));
+    for (int i = 0; i < 4; i++)
+        to_can_pub_->publish(damiao_protocol::buildVelocityFrame(drive_ids_[i], 0.0f));
+
+    RCLCPP_INFO(get_logger(), "Waiting 1.5s for motion to settle...");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+    sendDisableFrames();
+}
+
+void ChassisDriverNode::onSetMotorsEnabled(
+    const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
+    std::shared_ptr<std_srvs::srv::SetBool::Response> response)
+{
+    if (request->data) {
+        sendEnableFrames();
+        response->success = true;
+        response->message = "All chassis motors enabled";
+        return;
+    }
+
+    sendDisableFrames();
+    response->success = true;
+    response->message = "All chassis motors disabled";
+}
+
 // ── Command handling ──────────────────────────────────────────────────────────
 
 void ChassisDriverNode::onWheelTargets(const indomitus_interfaces::msg::WheelTargets::SharedPtr msg) {
+    last_wheel_targets_time_ = now();
+
     if (!motors_enabled_) return;
 
-    const float angles[4] = {msg->fl_angle, msg->fr_angle, msg->rl_angle, msg->rr_angle};
-    const float speeds[4] = {msg->fl_speed, msg->fr_speed, msg->rl_speed, msg->rr_speed};
+    const float raw_angles[4] = {msg->fl_angle, msg->fr_angle, msg->rl_angle, msg->rr_angle};
+    const float speeds[4]     = {-msg->fl_speed, msg->fr_speed, -msg->rl_speed, msg->rr_speed};
 
     for (int i = 0; i < 4; i++) {
-        // Steadywin steer: 0xC2 absolute position (rad)
+        float angle = std::clamp(raw_angles[i], steer_angle_min_, steer_angle_max_);
+
+        // Steadywin steer: 0xC2 absolute position (rad), clamped to [steer_angle_min_, steer_angle_max_]
         to_can_pub_->publish(
-            steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], angles[i]));
+            steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], angle));
 
         // Damiao drive: float velocity (rad/s) — firmware handles gear reduction internally
         to_can_pub_->publish(
@@ -377,7 +464,7 @@ int main(int argc, char* argv[]) {
     auto node = std::make_shared<chassis_driver::ChassisDriverNode>();
     rclcpp::spin(node);
     // spin() returns on SIGINT — perform graceful motor shutdown before exit
-    node->sendDisableFrames();
+    node->sendShutdownFrames();
     rclcpp::shutdown();
     return 0;
 }

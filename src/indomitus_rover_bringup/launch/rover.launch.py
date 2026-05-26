@@ -68,6 +68,10 @@ def generate_launch_description():
                 'config', 'rover_geometry.yaml',
             ),
             os.path.join(
+                get_package_share_directory('indomitus_rover_description'),
+                'config', 'rover_motors.yaml',
+            ),
+            os.path.join(
                 get_package_share_directory('indomitus_rover_bringup'),
                 'config', 'rover_controller.yaml',
             ),
@@ -76,7 +80,7 @@ def generate_launch_description():
     
     chassis_driver_node =Node(
         package='indomitus_rover_chassis_driver',
-        executable='chassis_driver_node',
+        executable='chassis_driver_node_exe',
         output='screen',
         parameters=[os.path.join(
             get_package_share_directory('indomitus_rover_chassis_driver'),

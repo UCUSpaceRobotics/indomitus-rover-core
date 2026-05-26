@@ -7,13 +7,14 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
+    deadzone = LaunchConfiguration('deadzone')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
-    config_file = LaunchConfiguration('config_file')
+    autorepeat_rate = LaunchConfiguration('autorepeat_rate')
 
     default_config = PathJoinSubstitution([
         FindPackageShare('indomitus_rover_bringup'),
         'config',
-        'joy.yaml'
+        'joy.yaml',
     ])
 
     joy_node = Node(
@@ -23,8 +24,8 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'dev': joy_dev,
-            'deadzone': 0.05,
-            'autorepeat_rate': 20.0,
+            'deadzone': deadzone,
+            'autorepeat_rate': autorepeat_rate,
         }]
     )
 
@@ -33,10 +34,17 @@ def generate_launch_description():
         executable='teleop_node',
         name='teleop_node',
         output='screen',
-        parameters=[config_file],
+        parameters=[default_config],
         remappings=[
             ('/cmd_vel', cmd_vel_topic),
         ]
+    )
+
+    joy_interpreter = Node(
+        package='indomitus_rover_control',
+        executable='joystick_interpreter_node',
+        output='screen',
+        parameters=[default_config],
     )
 
     return LaunchDescription([
@@ -46,15 +54,22 @@ def generate_launch_description():
             description='Joystick device path'
         ),
         DeclareLaunchArgument(
+            'deadzone',
+            default_value='0.05',
+            description='Joystick deadzone passed to joy_node'
+        ),
+        DeclareLaunchArgument(
             'cmd_vel_topic',
-            default_value='/cmd_vel',
+            default_value='/joy_raw_cmd_vel',
             description='Output velocity command topic'
         ),
         DeclareLaunchArgument(
-            'config_file',
-            default_value=default_config,
-            description='teleop_twist_joy config file'
+            'autorepeat_rate',
+            default_value='20.0',
+            description='Joystick autorepeat rate (Hz); 0.0 disables autorepeat,' \
+                'joystick will send the command only on the change of the state'
         ),
         joy_node,
         teleop_node,
+        joy_interpreter,
     ])

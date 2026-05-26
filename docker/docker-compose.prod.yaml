@@ -11,6 +11,7 @@ services:
       - NET_RAW
     stdin_open: true
     tty: true
+    command: tail -f /dev/null
     environment:
       - ROS_DOMAIN_ID=42
       - ROS_LOCALHOST_ONLY=0

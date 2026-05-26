@@ -45,7 +45,7 @@ sudo ip link set can0 txqueuelen 1000
 bash /work/run_rover.bash
 ```
 
-Motors enable automatically 3 seconds after startup.
+Motors start disabled. Use the joystick button mapped to `/chassis/set_motors_enabled` to enable or disable them explicitly.
 
 ---
 
@@ -66,6 +66,7 @@ Motors enable automatically 3 seconds after startup.
 - **`/diagnostics`** — all 8 motors reporting correctly at 1 Hz
 - **`/joint_states`** — position and velocity publishing for all connected motors
 - **CAN frame routing** — ros2_socketcan bidirectional; feedback dispatched by CAN ID
+- **Operator motor toggle** — `/chassis/set_motors_enabled` service controls enable/disable from joystick button edge
 
 ### ⚠️ Needs testing
 

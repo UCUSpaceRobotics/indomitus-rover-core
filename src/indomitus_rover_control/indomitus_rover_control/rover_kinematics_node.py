@@ -41,10 +41,15 @@ import math
 
 from geometry_msgs.msg import Twist
 from indomitus_interfaces.msg import WheelTargets
+from std_srvs.srv import SetBool
 
 import rclpy
 from rclpy.node import Node
 
+
+_COMPACT_OFFSETS = {'FL': -math.pi, 'FR': +math.pi,
+                   'RL': +math.pi, 'RR': -math.pi}
+_ZERO_OFFSETS  = {name: 0.0 for name in _COMPACT_OFFSETS}
 
 class RoverController(Node):
 
@@ -58,13 +63,15 @@ class RoverController(Node):
 
         # --- Steering limits (rover_description/config/rover_motors.yaml) ---
         self.declare_parameter('max_steer_deg',      10.0)   # max steering angle
-        self.declare_parameter('max_steer_rate_deg', 90.0)   # deg/s — physical steer motor speed
+        self.declare_parameter('max_steer_rate_deg', 10.0)   # deg/s — physical steer motor speed
 
         # --- Velocity limits (rover_bringup/config/rover_controller.yaml) ---
         self.declare_parameter('max_linear_speed',  0.10)   # m/s
         self.declare_parameter('max_angular_speed', 0.1)   # rad/s
         self.declare_parameter('max_accel',         0.1)   # m/s²  — linear acceleration limit
+        self.declare_parameter('max_decel',  0.3)
         self.declare_parameter('control_frequency', 20.0)  # Hz
+        self.declare_parameter('cmd_vel_timeout_s', 0.5)   # s
 
         self._read_params()
 
@@ -79,6 +86,8 @@ class RoverController(Node):
         self.target_vy = 0.0
         self.target_wz = 0.0
 
+        self._current_scale = 0.0
+
         self.wheel_names = ['FL', 'FR', 'RL', 'RR']
         self.wheel_pos = {
             'FL': ( self.L2,  self.W2),
@@ -90,8 +99,18 @@ class RoverController(Node):
         self.sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.pub = self.create_publisher(WheelTargets, 'wheel_targets', 10)
 
+        # Compact mode state
+        self._compact_mode = False
+        self._offset_angles = _ZERO_OFFSETS.copy()
+
+        self._compact_srv = self.create_service(
+            SetBool, 'set_compact_mode', self._on_set_compact_mode)
+
         dt = 1.0 / self.control_freq
         self.timer = self.create_timer(dt, self.control_loop)
+
+        self._last_cmd_vel_time = self.get_clock().now()
+        self._cmd_vel_timeout = self.get_parameter('cmd_vel_timeout_s').value
 
         self.get_logger().info('RoverController started — listening on cmd_vel')
 
@@ -108,16 +127,41 @@ class RoverController(Node):
         self.max_linear     = self.get_parameter('max_linear_speed').value
         self.max_angular    = self.get_parameter('max_angular_speed').value
         self.max_accel      = self.get_parameter('max_accel').value
+        self.max_decel      = self.get_parameter('max_decel').value
+        
         self.control_freq   = self.get_parameter('control_frequency').value
 
         self.L2 = self.wheelbase / 2.0
         self.W2 = self.track_width / 2.0
 
     # ──────────────────────────────────────────────────────────────────────────
+    # Compact mode service
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _on_set_compact_mode(self, request: SetBool.Request, response: SetBool.Response):
+        if request.data == self._compact_mode:
+            response.success = True
+            response.message = 'Already in requested mode'
+            return response
+        self._compact_mode = request.data
+        if self._compact_mode:
+            self.get_logger().info('Compact mode ENABLED')
+            self._offset_angles = _COMPACT_OFFSETS.copy()
+        else:
+            self.get_logger().info('Compact mode DISABLED')
+            self._offset_angles = _ZERO_OFFSETS.copy()
+        
+        response.success = True
+        response.message = 'Compact mode ' + ('enabled' if self._compact_mode else 'disabled')
+        return response
+
+    # ──────────────────────────────────────────────────────────────────────────
     # cmd_vel subscriber — only stores the clamped target; no kinematics here
     # ──────────────────────────────────────────────────────────────────────────
 
     def cmd_vel_callback(self, msg: Twist):
+        self._last_cmd_vel_time = self.get_clock().now()
+
         self.target_vx = self._clamp(msg.linear.x,  -self.max_linear,  self.max_linear)
         self.target_vy = self._clamp(msg.linear.y,  -self.max_linear,  self.max_linear)
         self.target_wz = self._clamp(msg.angular.z, -self.max_angular, self.max_angular)
@@ -127,19 +171,29 @@ class RoverController(Node):
     # ──────────────────────────────────────────────────────────────────────────
 
     def control_loop(self):
+        elapsed = (self.get_clock().now() - self._last_cmd_vel_time).nanoseconds * 1e-9
+        if elapsed > self._cmd_vel_timeout:
+            self.target_vx = 0.0
+            self.target_vy = 0.0
+            self.target_wz = 0.0
+
         dt = 1.0 / self.control_freq
 
         # Step 1 — smooth velocities with a linear rate limiter (acceleration cap)
-        self.current_vx = self._rate_limit(self.current_vx, self.target_vx, self.max_accel, dt)
-        self.current_vy = self._rate_limit(self.current_vy, self.target_vy, self.max_accel, dt)
-        self.current_wz = self._rate_limit(self.current_wz, self.target_wz, self.max_accel * 2, dt)
-
-        vx = self.current_vx
-        vy = self.current_vy
-        wz = self.current_wz
+        self.current_vx = self._rate_limit(self.current_vx, self.target_vx, self.max_accel, self.max_decel, dt)
+        self.current_vy = self._rate_limit(self.current_vy, self.target_vy, self.max_accel, self.max_decel, dt)
+        self.current_wz = self._rate_limit(self.current_wz, self.target_wz, self.max_accel, self.max_decel, dt)
 
         # Step 2 — kinematics: desired wheel angles and drive speeds
-        target_angles, target_speeds = self.compute_wheel_commands(vx, vy, wz)
+        target_angles, target_speeds = self.compute_wheel_commands(
+            self.current_vx, self.current_vy, self.current_wz)
+
+        if self._compact_mode:
+            target_angles = [
+                target_angles[i] + self._offset_angles[name]
+                for i, name in enumerate(self.wheel_names)
+            ]
+            target_speeds = [-s for s in target_speeds]
 
         # Step 3 — advance each wheel angle toward its target at max_steer_rate
         for name, t_angle in zip(self.wheel_names, target_angles):
@@ -155,11 +209,22 @@ class RoverController(Node):
             for i, name in enumerate(self.wheel_names)
         )
 
-        speed_scale = max(0.0, math.cos(max_angle_error))
+        raw_scale = max(0.0, math.cos(max_angle_error))
 
         # Hard cap: if any wheel is more than 20° off, limit to 30 % speed
         if max_angle_error > math.radians(20):
-            speed_scale = min(speed_scale, 0.3)
+            speed_scale = min(speed_scale, 0.2)
+
+        scale_up_rate   = 0.5 
+        scale_down_rate = 5.0
+        dt = 1.0 / self.control_freq
+
+        if raw_scale < self._current_scale:
+            self._current_scale = max(raw_scale, self._current_scale - scale_down_rate * dt)
+        else:
+            self._current_scale = min(raw_scale, self._current_scale + scale_up_rate * dt)
+
+        speed_scale = self._current_scale
 
         # Step 5 — publish
         out = WheelTargets()
@@ -171,11 +236,11 @@ class RoverController(Node):
         self.pub.publish(out)
 
         self.get_logger().debug(
-            f'FL={math.degrees(result_angles[0]):+.1f}° '
-            f'FR={math.degrees(result_angles[1]):+.1f}° '
-            f'RL={math.degrees(result_angles[2]):+.1f}° '
-            f'RR={math.degrees(result_angles[3]):+.1f}° | '
-            f'speeds: {[f"{s:+.2f}" for s in result_speeds]} rad/s | '
+            # f'FL={math.degrees(result_angles[0]):+.1f}° '
+            # f'FR={math.degrees(result_angles[1]):+.1f}° '
+            # f'RL={math.degrees(result_angles[2]):+.1f}° '
+            # f'RR={math.degrees(result_angles[3]):+.1f}° | '
+            # f'speeds: {[f"{s:+.2f}" for s in result_speeds]} rad/s | '
             f'scale={speed_scale:.2f}'
         )
 
@@ -238,10 +303,14 @@ class RoverController(Node):
     # Helpers
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _rate_limit(self, current: float, target: float, max_rate: float, dt: float) -> float:
+    def _rate_limit(self, current, target, max_accel, max_decel, dt):
         """Linear rate limiter — limits how fast a value can change per second."""
         diff = target - current
-        step = self._clamp(diff, -max_rate * dt, max_rate * dt)
+        if abs(target) < abs(current) or (current * target < 0):
+            rate = max_decel
+        else:
+            rate = max_accel
+        step = self._clamp(diff, -rate * dt, rate * dt)
         return current + step
 
     def _step_angle(self, current: float, target: float, dt: float) -> float:
@@ -250,8 +319,14 @@ class RoverController(Node):
         Difference is normalised to (-π, π) to take the shortest path.
         """
         diff = target - current
-        diff = (diff + math.pi) % (2 * math.pi) - math.pi  # shortest-path wrap
+        # diff = (diff + math.pi) % (2 * math.pi) - math.pi  # shortest-path wrap
         step = self._clamp(diff, -self.max_steer_rate * dt, self.max_steer_rate * dt)
+
+        # Steering clamp is intentionally omitted here.
+        # Each wheel has asymmetric limits ([-π/2, 3π/2] or [-3π/2, π/2]
+        # depending on side) which are enforced by the chassis driver.
+        # Adding a symmetric clamp here would incorrectly restrict valid angles.
+        # return self._clamp(current + step, -self.max_steer, self.max_steer)
         return current + step
 
     def _normalize_wheel_angle(self, angle: float, speed: float):
@@ -281,4 +356,5 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()

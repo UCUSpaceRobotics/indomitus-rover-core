@@ -176,7 +176,7 @@
     <child link="fl_wheel_mount_link"/>
     <origin xyz="0.53 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-1.5708" upper="1.5708" effort="500" velocity="2"/>
+    <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
     <dynamics damping="0.5" friction="0.3"/>
   </joint>
 
@@ -237,7 +237,7 @@
     <child link="fr_wheel_mount_link"/>
     <origin xyz="0.53 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-1.5708" upper="1.5708" effort="500" velocity="2"/>
+    <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
     <dynamics damping="0.5" friction="0.3"/>
   </joint>
 
@@ -298,7 +298,7 @@
     <child link="bl_wheel_mount_link"/>
     <origin xyz="-0.53 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-1.5708" upper="1.5708" effort="500" velocity="2"/>
+    <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
     <dynamics damping="0.5" friction="0.3"/>
   </joint>
 
@@ -359,7 +359,7 @@
     <child link="br_wheel_mount_link"/>
     <origin xyz="-0.53 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-1.5708" upper="1.5708" effort="500" velocity="2"/>
+    <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
     <dynamics damping="0.5" friction="0.3"/>
   </joint>
 

@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'indomitus_rover_container'
+package_name = 'indomitus_rover_peripherals'
 
 setup(
     name=package_name,
@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'rover_container_node = indomitus_rover_container.rover_container_node:main',
+            'rover_container_node = indomitus_rover_peripherals.rover_container_node:main',
         ],
     },
 )
