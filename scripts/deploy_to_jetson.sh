@@ -8,15 +8,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
-JETSON_USER="ros"
-JETSON_IP="10.42.0.1"
-REMOTE_DIR="/home/ros/Indomitus/indomitus-rover-core/"
-IMAGE_NAME="indomitus-rover"
-IMAGE_TAG="humble-prod"
-DOCKERFILE="docker/Dockerfile"
-COMPOSE_FILE="docker/docker-compose.prod.yaml"
-WIFI_SSID="JetsonRosIndomitus"
-WIFI_PASS="jetson1234"
+DEFAULT_JETSON_USER="ros"
+DEFAULT_JETSON_IP="10.42.0.1"
+DEFAULT_REMOTE_DIR="/home/ros/Indomitus/indomitus-rover-core/"
+DEFAULT_IMAGE_NAME="indomitus-rover"
+DEFAULT_IMAGE_TAG="humble-prod"
+DEFAULT_DOCKERFILE="docker/Dockerfile"
+DEFAULT_COMPOSE_FILE="docker/docker-compose.prod.yaml"
+DEFAULT_WIFI_SSID="JetsonRosIndomitus"
+DEFAULT_WIFI_PASS="jetson1234"
+
+JETSON_USER="$DEFAULT_JETSON_USER"
+JETSON_IP="$DEFAULT_JETSON_IP"
+REMOTE_DIR="$DEFAULT_REMOTE_DIR"
+IMAGE_NAME="$DEFAULT_IMAGE_NAME"
+IMAGE_TAG="$DEFAULT_IMAGE_TAG"
+DOCKERFILE="$DEFAULT_DOCKERFILE"
+COMPOSE_FILE="$DEFAULT_COMPOSE_FILE"
+WIFI_SSID="$DEFAULT_WIFI_SSID"
+WIFI_PASS="$DEFAULT_WIFI_PASS"
 
 show_help() {
     cat << EOF
@@ -29,15 +39,15 @@ NOTE: You can run this script from any folder on your computer. All local paths
 provided in the flags MUST be relative to the root of the repository.
 
 Options:
-  -i, --ip IP           Jetson Nano IP address (Default: 10.42.0.1)
-  -u, --user USER       Jetson Nano SSH username (Default: ros)
-  -d, --dir DIR         Remote deployment directory on the Jetson. Can be absolute (e.g. /opt/rover) or relative to user home (Default: /home/ros/Indomitus/indomitus-rover-core/)
-  -n, --name NAME       Docker image name (Default: indomitus-rover)
-  -t, --tag TAG         Docker image tag (Default: humble-prod)
-  -f, --file FILE       Path to the Dockerfile, relative to repo root (Default: docker/Dockerfile)
-  -c, --compose FILE    Path to the Production Compose file, relative to repo root (Default: docker/docker-compose.prod.yaml)
-  -w, --ssid SSID       Wi-Fi SSID of the Jetson hotspot to auto-connect (Default: JetsonRosIndomitus)
-  -p, --pass PASS       Wi-Fi password for the Jetson hotspot (Default: jetson1234)
+    -i, --ip IP           Jetson Nano IP address (Default: ${DEFAULT_JETSON_IP})
+    -u, --user USER       Jetson Nano SSH username (Default: ${DEFAULT_JETSON_USER})
+    -d, --dir DIR         Remote deployment directory on the Jetson. Can be absolute (e.g. /opt/rover) or relative to user home (Default: ${DEFAULT_REMOTE_DIR})
+    -n, --name NAME       Docker image name (Default: ${DEFAULT_IMAGE_NAME})
+    -t, --tag TAG         Docker image tag (Default: ${DEFAULT_IMAGE_TAG})
+    -f, --file FILE       Path to the Dockerfile, relative to repo root (Default: ${DEFAULT_DOCKERFILE})
+    -c, --compose FILE    Path to the Production Compose file, relative to repo root (Default: ${DEFAULT_COMPOSE_FILE})
+    -w, --ssid SSID       Wi-Fi SSID of the Jetson hotspot to auto-connect (Default: ${DEFAULT_WIFI_SSID})
+    -p, --pass PASS       Wi-Fi password for the Jetson hotspot (Default: ${DEFAULT_WIFI_PASS})
   -h, --help            Display this help message and exit
 EOF
 }

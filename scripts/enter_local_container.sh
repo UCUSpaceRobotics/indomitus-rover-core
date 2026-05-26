@@ -8,8 +8,8 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
 # DEFAULT CONFIGURATION
-CONTAINER_NAME="indomitus_rover_prod"
-COMPOSE_FILE="docker/docker-compose.prod.yaml"
+CONTAINER_NAME="indomitus_rover_dev"
+COMPOSE_FILE="docker-compose.yaml"
 ROS_DISTRO="humble"
 WORKSPACE_DIR="/opt/ws"
 PACKAGES="indomitus_rover_control indomitus_rover_bringup"
@@ -112,12 +112,13 @@ fi
 step "Opening Interactive Terminal..."
 echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 echo -e "\e[32mYou are now inside the Docker container.\e[0m"
+echo -e "The ROS environment and workspace are sourced automatically."
 echo -e "To start the joystick node, run:"
-echo -e "  \e[36msource /opt/ros/${ROS_DISTRO}/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && ros2 launch ${LAUNCH_PACKAGE} ${LAUNCH_FILE}\e[0m"
+echo -e "  \e[36mros2 launch ${LAUNCH_PACKAGE} ${LAUNCH_FILE}\e[0m"
 echo -e ""
 echo -e "Press \e[31mCtrl+C\e[0m to stop the node gracefully, then type \e[33mexit\e[0m to leave."
 echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
-docker exec -it "$CONTAINER_NAME" bash
+docker exec -it "$CONTAINER_NAME" bash -lc "source /opt/ros/${ROS_DISTRO}/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && exec bash -i"
 
 echo -e "\n\e[32m[DONE]\e[0m Session closed."
