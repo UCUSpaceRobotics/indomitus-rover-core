@@ -1,6 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -13,7 +13,7 @@ def generate_launch_description():
     default_config = PathJoinSubstitution([
         FindPackageShare('indomitus_rover_bringup'),
         'config',
-        'joy'
+        'joy.yaml',
     ])
 
     joy_node = Node(
@@ -39,7 +39,7 @@ def generate_launch_description():
         ]
     )
 
-    joy_intepreter = Node(
+    joy_interpreter = Node(
         package='indomitus_rover_control',
         executable='joystick_interpreter_node',
         output='screen',
@@ -64,5 +64,5 @@ def generate_launch_description():
         ),
         joy_node,
         teleop_node,
-        joy_intepreter,
+        joy_interpreter,
     ])

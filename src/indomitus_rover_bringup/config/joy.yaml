@@ -7,11 +7,11 @@ teleop_node:
       x: 1 # Left stick vertical (forward/backward)
       y: 0 # Left stick horizontal (strafing left/right)
     scale_linear:
-      x: 1
-      y: 1
+      x: 1.0
+      y: 1.0
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise). 2 for ubuntu 22.04, 3 for ubuntu 24.04
+      yaw: 3 # Right stick horizontal (rotation clockwise/counterclockwise). 3 for ubuntu 22.04, 2 for ubuntu 24.04
     scale_angular:
       yaw: 1.0
