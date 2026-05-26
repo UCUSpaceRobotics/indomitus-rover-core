@@ -146,10 +146,9 @@ class JoystickInterpreterNode(Node):
             if not self._timed_out:
                 self._timed_out = True
                 self.get_logger().warn('Joystick input timed out — publishing zeros to /cmd_vel')
-                self._publish_zero_cmd()
-            else:
-                self._publish_zero_cmd()
-
+            
+            self._publish_zero_cmd()
+            
     def _publish_zero_cmd(self):
         out = Twist()
         out.linear.x = 0.0

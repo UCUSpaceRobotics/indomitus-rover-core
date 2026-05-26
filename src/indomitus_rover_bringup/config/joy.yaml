@@ -21,7 +21,7 @@ joystick_interpreter:
     vy_toggle_button: 4
     motor_toggle_button: 6
     vy_enabled_default: false
-    cmd_timeout: 1.0
+    cmd_timeout: 0.5
     timeout_pub_rate: 10.0
     initial_timed_out: true
     compact_mode_button: 1
