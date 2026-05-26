@@ -13,6 +13,8 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    device_cgroup_rules:
+      - "c 13:* rmw"
     stdin_open: true
     tty: true
     environment:
@@ -23,8 +25,10 @@ services:
       - CAN_INTERFACE=can0
       - CAN_BITRATE=1000000
       - CAN_TRANSMIT_QUEUE_SIZE=1000
+      - SDL_VIDEODRIVER=dummy
+      - SDL_AUDIODRIVER=dummy
     volumes:
       - ./:/work:rw
       - ./src:/opt/ws/src:rw
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - /dev/input:/dev/input:ro
+      - /dev/input:/dev/input:rw

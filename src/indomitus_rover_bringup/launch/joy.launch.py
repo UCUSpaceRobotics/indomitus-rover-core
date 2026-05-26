@@ -19,11 +19,11 @@ def generate_launch_description():
 
     joy_node = Node(
         package='joy',
-        executable='joy_node',
+        executable='game_controller_node',
         name='joy_node',
         output='screen',
         parameters=[{
-            'dev': joy_dev,
+            'device_name': joy_dev,
             'deadzone': deadzone,
             'autorepeat_rate': autorepeat_rate,
         }]
@@ -50,13 +50,13 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'joy_dev',
-            default_value='/dev/input/js0',
-            description='Joystick device path'
+            default_value='Wireless Controller',
+            description='Joystick device name as reported by joy_enumerate_devices'
         ),
         DeclareLaunchArgument(
             'deadzone',
             default_value='0.05',
-            description='Joystick deadzone passed to joy_node'
+            description='Joystick deadzone'
         ),
         DeclareLaunchArgument(
             'cmd_vel_topic',
@@ -66,8 +66,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'autorepeat_rate',
             default_value='20.0',
-            description='Joystick autorepeat rate (Hz); 0.0 disables autorepeat,' \
-                'joystick will send the command only on the change of the state'
+            description='Joystick autorepeat rate (Hz); 0.0 disables autorepeat, '
+                        'joystick will only send on state change'
         ),
         joy_node,
         teleop_node,
