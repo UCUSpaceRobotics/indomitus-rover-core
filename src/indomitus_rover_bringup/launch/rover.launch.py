@@ -88,6 +88,13 @@ def generate_launch_description():
         )],
     )
 
+    lighting_node = Node(
+        package='indomitus_rover_peripherals',
+        executable='rover_lighting_node',
+        name='lights_can_node',
+        output='screen',
+    )
+
     start_after_can_nodes = RegisterEventHandler(
         OnStateTransition(
             target_lifecycle_node=receiver_node,
@@ -106,4 +113,5 @@ def generate_launch_description():
         *lifecycle_sequence(sender_node),
         *lifecycle_sequence(receiver_node),
         start_after_can_nodes,
+        lighting_node,
     ])
