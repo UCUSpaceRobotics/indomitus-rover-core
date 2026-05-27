@@ -76,7 +76,7 @@ class LightsCanNode(Node):
             f"  CAN TX id=0x{self._cmd_id:03X}\n"
             f"  CAN RX id=0x{self._resp_id:03X}\n"
             f"  /lights/spotlight      (Service) - bool spotlight\n"
-            f"  /lights/traffic_light  (Service) - bool red/yellow/green/blue"
+            f"  /lights/traffic_light  (Service) - bool red/yellow/green/blue\n"
             f"  /lights/beautiful      (Service) - bool beautiful light\n"
         )
 
