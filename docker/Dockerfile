@@ -18,7 +18,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-teleop-twist-joy \
     ros-${ROS_DISTRO}-sensor-msgs \
     ros-${ROS_DISTRO}-diagnostic-msgs \
+    ros-${ROS_DISTRO}-std-srvs \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
+    ros-${ROS_DISTRO}-rosidl-default-generators \
+    ros-${ROS_DISTRO}-rosidl-default-runtime \
+    ros-${ROS_DISTRO}-action-msgs \
+    ros-${ROS_DISTRO}-std-msgs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US.UTF-8
@@ -63,8 +68,7 @@ CMD ["bash"]
 FROM base AS prod
 COPY ./src ${WS}/src
 
-# Temporary commented
-# RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS_DISTRO} && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS_DISTRO} && rm -rf /var/lib/apt/lists/*
 
 RUN touch ${WS}/src/indomitus_rover_sim/COLCON_IGNORE
 
