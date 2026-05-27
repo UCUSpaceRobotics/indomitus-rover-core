@@ -36,23 +36,33 @@ Services used:
 
 import rclpy
 from rclpy.node import Node
+
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
 from std_srvs.srv import SetBool
-
+from indomitus_interfaces.srv import SetTrafficLight
 
 class JoystickInterpreterNode(Node):
 
     def __init__(self):
         super().__init__('joystick_interpreter')
 
-        self.declare_parameter('vy_toggle_button', 8)
-        self.declare_parameter('motor_toggle_button', 9)
+        self.declare_parameter('vy_toggle_button', 4)
+        self.declare_parameter('motor_toggle_button', 6)
         self.declare_parameter('compact_mode_button', 1)
         self.declare_parameter('vy_enabled_default', False)
         self.declare_parameter('cmd_timeout', 0.5)
         self.declare_parameter('timeout_pub_rate', 10.0)
         self.declare_parameter('initial_timed_out', True)
+
+        # Lights
+        self.declare_parameter('spotlight_button',      9)   # L1
+        self.declare_parameter('beautiful_button',      10)  # R1
+
+        self.declare_parameter('traffic_red_button',    11)  # ←
+        self.declare_parameter('traffic_yellow_button', 12)  # →
+        self.declare_parameter('traffic_green_button',  13)  # ↑
+        self.declare_parameter('traffic_blue_button',   14)  # ↓
 
         self._vy_toggle_button: int = self.get_parameter('vy_toggle_button').value
         self._motor_toggle_button: int = self.get_parameter('motor_toggle_button').value
@@ -69,6 +79,32 @@ class JoystickInterpreterNode(Node):
         self._compact_mode: bool = False
         self._prev_compact_button: int = 0
         self._compact_toggle_button: int = self.get_parameter('compact_mode_button').value
+
+        # Lights
+        self._traffic_red_button    = self.get_parameter('traffic_red_button').value
+        self._traffic_yellow_button = self.get_parameter('traffic_yellow_button').value
+        self._traffic_green_button  = self.get_parameter('traffic_green_button').value
+        self._traffic_blue_button   = self.get_parameter('traffic_blue_button').value
+        self._prev_traffic_red_button    = 0
+        self._prev_traffic_yellow_button = 0
+        self._prev_traffic_green_button  = 0
+        self._prev_traffic_blue_button   = 0
+
+        self._spotlight_on  = False
+        self._beautiful_on  = False
+        self._traffic_red   = False
+        self._traffic_yellow = False
+        self._traffic_green = False
+        self._traffic_blue  = False
+
+        self._spotlight_button = self.get_parameter('spotlight_button').value
+        self._beautiful_button = self.get_parameter('beautiful_button').value
+        self._prev_spotlight_button      = 0
+        self._prev_beautiful_button      = 0
+
+        self._spotlight_pending = False
+        self._beautiful_pending = False
+        self._traffic_pending   = False
 
         # Track previous button state to detect press edge (not hold)
         self._prev_vy_button: int = 0
@@ -94,6 +130,10 @@ class JoystickInterpreterNode(Node):
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
         self._compact_mode_client = self.create_client(SetBool, '/set_compact_mode')
+
+        self._spotlight_client = self.create_client(SetBool, '/lights/spotlight')
+        self._beautiful_client = self.create_client(SetBool, '/lights/beautiful')
+        self._traffic_client   = self.create_client(SetTrafficLight, '/lights/traffic_light')
 
         self.get_logger().info(
             f'JoystickInterpreter started — '
@@ -135,6 +175,43 @@ class JoystickInterpreterNode(Node):
             if current == 1 and self._prev_compact_button == 0:
                 self._toggle_compact_mode()
             self._prev_compact_button = current
+        
+        def _check_btn(buttons, idx, prev):
+            cur = buttons[idx] if idx < len(buttons) else 0
+            pressed = (cur == 1 and prev == 0)
+            return cur, pressed
+
+        cur, pressed = _check_btn(msg.buttons, self._spotlight_button, self._prev_spotlight_button)
+        if pressed: self._toggle_spotlight()
+        self._prev_spotlight_button = cur
+
+        cur, pressed = _check_btn(msg.buttons, self._beautiful_button, self._prev_beautiful_button)
+        if pressed: self._toggle_beautiful()
+        self._prev_beautiful_button = cur
+        
+        cur, pressed = _check_btn(msg.buttons, self._traffic_red_button, self._prev_traffic_red_button)
+        if pressed:
+            self._traffic_red = not self._traffic_red
+            self._send_traffic()
+        self._prev_traffic_red_button = cur
+
+        cur, pressed = _check_btn(msg.buttons, self._traffic_yellow_button, self._prev_traffic_yellow_button)
+        if pressed:
+            self._traffic_yellow = not self._traffic_yellow
+            self._send_traffic()
+        self._prev_traffic_yellow_button = cur
+
+        cur, pressed = _check_btn(msg.buttons, self._traffic_green_button, self._prev_traffic_green_button)
+        if pressed:
+            self._traffic_green = not self._traffic_green
+            self._send_traffic()
+        self._prev_traffic_green_button = cur
+
+        cur, pressed = _check_btn(msg.buttons, self._traffic_blue_button, self._prev_traffic_blue_button)
+        if pressed:
+            self._traffic_blue = not self._traffic_blue
+            self._send_traffic()
+        self._prev_traffic_blue_button = cur
 
     def _on_raw_cmd_vel(self, msg: Twist):
         self._last_twist_time = self._now_seconds()
@@ -238,6 +315,60 @@ class JoystickInterpreterNode(Node):
 
         status = 'ENABLED' if self._motors_enabled else 'DISABLED'
         self.get_logger().info(f'Motors {status}: {response.message}')
+    
+    def _toggle_spotlight(self):
+        self.get_logger().info(f'DEBUG _toggle_spotlight called, pending={self._spotlight_pending}, ready={self._spotlight_client.service_is_ready()}')
+        if self._spotlight_pending or not self._spotlight_client.service_is_ready():
+            return
+        self._spotlight_on = not self._spotlight_on
+        self._spotlight_pending = True
+        req = SetBool.Request()
+        req.data = self._spotlight_on
+        self._spotlight_client.call_async(req).add_done_callback(
+            lambda f: self._on_light_result(f, 'spotlight', self._spotlight_on,
+                                            '_spotlight_pending'))
+
+    def _toggle_beautiful(self):
+        self.get_logger().info(f'DEBUG _toggle_beautiful called, pending={self._beautiful_pending}, ready={self._beautiful_client.service_is_ready()}')
+        if self._beautiful_pending or not self._beautiful_client.service_is_ready():
+            return
+        self._beautiful_on = not self._beautiful_on
+        self._beautiful_pending = True
+        req = SetBool.Request()
+        req.data = self._beautiful_on
+        self._beautiful_client.call_async(req).add_done_callback(
+            lambda f: self._on_light_result(f, 'beautiful', self._beautiful_on,
+                                            '_beautiful_pending'))
+
+    def _send_traffic(self):
+        self.get_logger().info(f'DEBUG _send_traffic called, pending={self._traffic_pending}, ready={self._traffic_client.service_is_ready()}, R={self._traffic_red} Y={self._traffic_yellow} G={self._traffic_green} B={self._traffic_blue}')
+        if self._traffic_pending or not self._traffic_client.service_is_ready():
+            return
+        self._traffic_pending = True
+        req = SetTrafficLight.Request()
+        req.red    = self._traffic_red
+        req.yellow = self._traffic_yellow
+        req.green  = self._traffic_green
+        req.blue   = self._traffic_blue
+        self._traffic_client.call_async(req).add_done_callback(
+            lambda f: self._on_traffic_result(f))
+
+    def _on_light_result(self, future, name: str, desired: bool, pending_attr: str):
+        setattr(self, pending_attr, False)
+        try:
+            response = future.result()
+            state = 'ON' if desired else 'OFF'
+            self.get_logger().info(f'{name} {state}: {response.message}')
+        except Exception as exc:
+            self.get_logger().error(f'{name} service call failed: {exc!r}')
+
+    def _on_traffic_result(self, future):
+        self._traffic_pending = False
+        try:
+            response = future.result()
+            self.get_logger().info(f'traffic_light: {response.message}')
+        except Exception as exc:
+            self.get_logger().error(f'traffic_light service call failed: {exc!r}')
 
     def _apply_swerve_wz_correction(
         self, vx: float, vy: float, wz: float
