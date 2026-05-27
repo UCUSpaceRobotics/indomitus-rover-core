@@ -213,7 +213,7 @@ class RoverController(Node):
 
         # Hard cap: if any wheel is more than 20° off, limit to 30 % speed
         if max_angle_error > math.radians(20):
-            speed_scale = min(speed_scale, 0.2)
+            raw_scale = min(raw_scale, 0.3)
 
         scale_up_rate   = 0.5 
         scale_down_rate = 5.0
