@@ -212,7 +212,9 @@ echo ""
 success "Image loaded and remote temporary files cleaned."
 
 
-echo -e "\n\e[32m[DONE]\e[0m Deployment staged successfully!"
-echo -e "To start the container on the Jetson, run the following command:"
+step "Restarting Container on Jetson..."
 REMOTE_COMPOSE_FILE=$(basename "${COMPOSE_FILE}")
-echo -e "\e[36mssh ${TARGET} 'cd \"${REMOTE_DIR}\" && docker compose -f ${REMOTE_COMPOSE_FILE} up -d'\e[0m\n"
+
+ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && docker compose -f ${REMOTE_COMPOSE_FILE} up -d"
+
+echo -e "\n\e[32m[DONE]\e[0m Deployment complete! The new container is now running."
