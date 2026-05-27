@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'rover_container_node = indomitus_rover_peripherals.rover_container_node:main',
+            'rover_lighting_node = indomitus_rover_peripherals.rover_lighting_node:main'
         ],
     },
 )
