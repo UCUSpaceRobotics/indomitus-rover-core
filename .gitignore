@@ -245,3 +245,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 *.log
+COLCON_IGNORE
