@@ -41,6 +41,7 @@ class LightsCanNode(Node):
         self._sub_cbg      = MutuallyExclusiveCallbackGroup()
         self._spotlight_cbg = MutuallyExclusiveCallbackGroup()
         self._traffic_cbg  = MutuallyExclusiveCallbackGroup()
+        self._beautiful_cbg = MutuallyExclusiveCallbackGroup()
 
         # --- CAN pub/sub ---
         self._pub = self.create_publisher(Frame, "/to_can_bus", 10)
@@ -59,6 +60,11 @@ class LightsCanNode(Node):
             callback_group=self._traffic_cbg,
         )
 
+        self._beautiful_srv = self.create_service(
+            SetBool, "lights/beautiful", self._on_beautiful_request,
+            callback_group=self._beautiful_cbg,
+        )
+
         # --- response state ---
         self._resp_lock  = threading.Lock()
         self._resp_event = threading.Event()
@@ -71,6 +77,7 @@ class LightsCanNode(Node):
             f"  CAN RX id=0x{self._resp_id:03X}\n"
             f"  /lights/spotlight      (Service) - bool spotlight\n"
             f"  /lights/traffic_light  (Service) - bool red/yellow/green/blue"
+            f"  /lights/beautiful      (Service) - bool beautiful light\n"
         )
 
     # =======================================================================
@@ -86,6 +93,8 @@ class LightsCanNode(Node):
         self.declare_parameter("can.status_ok",           0x00)
         self.declare_parameter("can.status_error",        0x01)
         self.declare_parameter("timeouts.ack_s",          2.0)
+        self.declare_parameter("can.cmd_beautiful_light_on",  0x04)
+        self.declare_parameter("can.cmd_beautiful_light_off", 0x05)
 
     def _load_parameters(self):
         self._cmd_id             = self.get_parameter("can.cmd_id").value
@@ -96,6 +105,8 @@ class LightsCanNode(Node):
         self._status_ok          = self.get_parameter("can.status_ok").value
         self._status_error       = self.get_parameter("can.status_error").value
         self._ack_timeout        = self.get_parameter("timeouts.ack_s").value
+        self._cmd_beautiful_on  = self.get_parameter("can.cmd_beautiful_light_on").value
+        self._cmd_beautiful_off = self.get_parameter("can.cmd_beautiful_light_off").value
 
     # =======================================================================
     # Services
@@ -139,6 +150,22 @@ class LightsCanNode(Node):
         else:
             response.success = False
             response.message = "TRAFFIC_LIGHT FAIL" + (" (timeout)" if not ok else " (ESP32 error)")
+
+        return response
+
+    def _on_beautiful_request(self, request, response):
+        cmd = self._cmd_beautiful_on if request.data else self._cmd_beautiful_off
+        label = "ON" if request.data else "OFF"
+        self.get_logger().info(f"Service call: BEAUTIFUL_LIGHT {label}")
+
+        ok, status = self._send_and_wait(cmd, [cmd])
+
+        if ok and status == self._status_ok:
+            response.success = True
+            response.message = f"BEAUTIFUL_LIGHT {label} OK"
+        else:
+            response.success = False
+            response.message = f"BEAUTIFUL_LIGHT {label} FAIL" + (" (timeout)" if not ok else " (ESP32 error)")
 
         return response
 
