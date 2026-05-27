@@ -255,7 +255,7 @@ void ChassisDriverNode::onWheelTargets(const indomitus_interfaces::msg::WheelTar
     const float speeds[4]     = {-msg->fl_speed, msg->fr_speed, -msg->rl_speed, msg->rr_speed};
 
     for (int i = 0; i < 4; i++) {
-        float angle = std::clamp(raw_angles[i], steer_angle_min_, steer_angle_max_);
+        float angle = raw_angles[i];
 
         // Steadywin steer: 0xC2 absolute position (rad), clamped to [steer_angle_min_, steer_angle_max_]
         to_can_pub_->publish(
