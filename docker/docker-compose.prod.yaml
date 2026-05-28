@@ -16,7 +16,7 @@ services:
       - CAN_INTERFACE=can0
       - CAN_BITRATE=1000000
     volumes:
-    - ../src:/opt/ws/src:rw
+    - /home/ros/Indomitus/indomitus-rover-core/src:/opt/ws/src:rw
     deploy:
       resources:
         reservations:

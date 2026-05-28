@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-can-msgs \
     ros-${ROS_DISTRO}-std-srvs \
     ros-${ROS_DISTRO}-action-msgs \
+    vim \
     && rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US.UTF-8
@@ -78,8 +79,11 @@ RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS
 
 COPY ./src ${WS}/src
 
-RUN touch ${WS}/src/indomitus_rover_sim/COLCON_IGNORE
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    colcon build \
+    --executor sequential \
+    --parallel-workers 1"
 
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build --symlink-install"
+# RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build --symlink-install"
 
 CMD ["bash"]

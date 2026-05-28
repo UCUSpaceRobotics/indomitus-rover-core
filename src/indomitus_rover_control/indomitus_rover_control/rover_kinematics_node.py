@@ -162,9 +162,15 @@ class RoverController(Node):
     def cmd_vel_callback(self, msg: Twist):
         self._last_cmd_vel_time = self.get_clock().now()
 
-        self.target_vx = self._clamp(msg.linear.x,  -self.max_linear,  self.max_linear)
-        self.target_vy = self._clamp(msg.linear.y,  -self.max_linear,  self.max_linear)
-        self.target_wz = self._clamp(msg.angular.z, -self.max_angular, self.max_angular)
+        vx = self._clamp(msg.linear.x, -self.max_linear, self.max_linear)
+        vy = self._clamp(msg.linear.y, -self.max_linear, self.max_linear)
+        wz = self._clamp(msg.angular.z, -self.max_angular, self.max_angular)
+
+        wz = self._clamp_wz(vx, vy, wz)
+
+        self.target_vx = vx
+        self.target_vy = vy
+        self.target_wz = wz
 
     # ──────────────────────────────────────────────────────────────────────────
     # Main control loop (runs at control_frequency Hz)
@@ -298,6 +304,31 @@ class RoverController(Node):
 
         angles = [self._clamp(a, -self.max_steer, self.max_steer) for a in angles]
         return angles, speeds
+    
+    def _clamp_wz(self, vx: float, vy: float, wz: float) -> float:
+        """
+        Limit angular velocity so the ICR never falls between the wheels.
+        |vy / wz| >= L2  →  |wz| <= |vy| / L2
+        |vx / wz| >= W2  →  |wz| <= |vx| / W2
+        """
+        if abs(wz) < 1e-6:
+            return wz
+
+        sign = math.copysign(1.0, wz)
+
+        margin = 1.1
+
+        max_wz = self.max_angular
+
+        if abs(vy) > 1e-3:
+            max_wz_from_vy = abs(vy) / (self.L2 * margin)
+            max_wz = min(max_wz, max_wz_from_vy)
+
+        if abs(vx) > 1e-3:
+            max_wz_from_vx = abs(vx) / (self.W2 * margin)
+            max_wz = min(max_wz, max_wz_from_vx)
+
+        return sign * min(abs(wz), max_wz)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Helpers
