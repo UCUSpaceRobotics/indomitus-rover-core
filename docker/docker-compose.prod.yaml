@@ -15,6 +15,8 @@ services:
       - ROS_LOCALHOST_ONLY=0
       - CAN_INTERFACE=can0
       - CAN_BITRATE=1000000
+    volumes:
+    - ../src:/opt/ws/src:rw
     deploy:
       resources:
         reservations:
