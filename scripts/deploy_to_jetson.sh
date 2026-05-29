@@ -148,18 +148,19 @@ if [ "$SYNC_MODE" = true ]; then
     
     rsync -avz --delete -e "ssh -q -o StrictHostKeyChecking=accept-new" src/ "${TARGET}:${REMOTE_DIR}/src/"
     
-    step "Compiling code on Jetson (Inside Docker)..."
-    echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
+    # step "Compiling code on Jetson (Inside Docker)..."
+    # echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
     
-    echo ""
-    if ssh -q "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/\$ROS_DISTRO/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
-        success "Code successfully compiled on the Jetson!"
-    else
-        echo -e "\e[31m[ERROR]\e[0m Compilation failed, or the container '${CONTAINER_NAME}' is not running."
-        exit 1
-    fi
+    # echo ""
+    # if ssh -q "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/\$ROS_DISTRO/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
+    #     success "Code successfully compiled on the Jetson!"
+    # else
+    #     echo -e "\e[31m[ERROR]\e[0m Compilation failed, or the container '${CONTAINER_NAME}' is not running."
+    #     exit 1
+    # fi
     
-    echo -e "\n\e[32m[DONE]\e[0m Sync & Build Process Complete!"
+    # echo -e "\n\e[32m[DONE]\e[0m Sync & Build Process Complete!"
+    echo -e "\n\e[32m[DONE]\e[0m Sync Process Complete!"
     exit 0
 fi
 

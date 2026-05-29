@@ -190,6 +190,8 @@ class RoverController(Node):
         self.current_vy = self._rate_limit(self.current_vy, self.target_vy, self.max_accel, self.max_decel, dt)
         self.current_wz = self._rate_limit(self.current_wz, self.target_wz, self.max_accel, self.max_decel, dt)
 
+        self.current_wz = self._clamp_wz(self.current_vx, self.current_vy, self.current_wz)
+
         # Step 2 — kinematics: desired wheel angles and drive speeds
         target_angles, target_speeds = self.compute_wheel_commands(
             self.current_vx, self.current_vy, self.current_wz)
@@ -267,17 +269,28 @@ class RoverController(Node):
             if abs(wz) < 1e-4:
                 return [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]
 
-            # Wheels point tangentially around the chassis centre
-            angle = math.atan2(self.L2, self.W2)
-            r = math.hypot(self.L2, self.W2)
-            wheel_speed = abs(wz) * r / self.wheel_radius
-            sign = math.copysign(1.0, wz)
+            # # Wheels point tangentially around the chassis centre
+            # angle = math.atan2(self.L2, self.W2)
+            # r = math.hypot(self.L2, self.W2)
+            # wheel_speed = abs(wz) * r / self.wheel_radius
+            # sign = math.copysign(1.0, wz)
 
-            return (
-                [-angle,  angle,  angle, -angle],
-                [-wheel_speed * sign,  wheel_speed * sign,
-                 -wheel_speed * sign,  wheel_speed * sign],
-            )
+            # return (
+            #     [-angle,  angle,  angle, -angle],
+            #     [-wheel_speed * sign,  wheel_speed * sign,
+            #      -wheel_speed * sign,  wheel_speed * sign],
+            # )
+
+            angles, speeds = [], []
+            for _, (wx, wy) in self.wheel_pos.items():
+                vx_w = -wz * wy
+                vy_w = +wz * wx
+                angle = math.atan2(vy_w, vx_w)
+                speed = math.hypot(vx_w, vy_w) / self.wheel_radius
+                angle, speed = self._normalize_wheel_angle(angle, speed)
+                angles.append(angle)
+                speeds.append(speed)
+            return angles, speeds
 
         # Case 2: straight-line motion (no rotation)
         if abs(wz) < 1e-4:
