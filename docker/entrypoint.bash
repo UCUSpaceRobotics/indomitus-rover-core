@@ -33,9 +33,9 @@ if [ -d /opt/ws/src ] && [ "$(ls -A  /opt/ws/src 2> /dev/null)" ]; then
     if [ ! -f /opt/ws/install/setup.bash ] || [ /opt/ws/src -nt /opt/ws/install/setup.bash ]; then
         echo "[ROS] INFO: Building workspace /opt/ws..."
 
-        rosdep install --from-paths src  --ignore-src -r -y || true
+        # rosdep install --from-paths src  --ignore-src -r -y || true
 
-        colcon build --symlink-install --packages-skip indomitus_rover_sim
+        # colcon build --symlink-install --packages-skip indomitus_rover_sim
     fi
 fi
 

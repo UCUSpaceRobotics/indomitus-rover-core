@@ -246,3 +246,4 @@ __marimo__/
 
 *.log
 COLCON_IGNORE
+*.tar
