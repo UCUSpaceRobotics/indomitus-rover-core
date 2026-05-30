@@ -1,4 +1,0 @@
-build:
-  symlink-install: true
-  packages-ignore:
-    - indomitus_rover_sim
