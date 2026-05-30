@@ -291,24 +291,41 @@ class RoverController(Node):
         vy = self.current_vy
         wz = self.current_wz
 
-        # Step 2 — state transitions
-        if self._state == 'NORMAL':
-            if self._should_rotate(vx, vy, wz):
-                rotate_angles, _ = self._ik_rotate(wz)
-                target = {name: rotate_angles[i]
-                          for i, name in enumerate(self.wheel_names)}
-                self._enter_transit(target, 'ROTATE')
+        # Step 2 — determine desired destination state from current cmd_vel
+        # This runs every tick regardless of current state so that a changing
+        # cmd_vel always updates the transit target, even mid-transition.
+        if self._should_rotate(vx, vy, wz):
+            desired_dest = 'ROTATE'
+            desired_angles, _ = self._ik_rotate(wz)
+        elif self._should_translate(vx, vy):
+            desired_dest = 'NORMAL'
+            desired_angles, _ = self._ik_full(vx, vy, wz)
+        else:
+            # Fully stopped — stay in current non-transit state
+            desired_dest = self._transit_dest if self._state == 'TRANSIT' else self._state
+            desired_angles_list, _ = self._ik_full(vx, vy, wz)
+            desired_angles = desired_angles_list
 
-        elif self._state == 'ROTATE':
-            if self._should_translate(vx, vy):
-                # Target angles are what IK wants for the new motion — computed
-                # once here and frozen until alignment is done.
-                ik_angles, _ = self._ik_general(vx, vy, wz)
-                target = {name: ik_angles[i]
+        desired_target = {name: desired_angles[i]
                           for i, name in enumerate(self.wheel_names)}
-                self._enter_transit(target, 'NORMAL')
 
-        elif self._state == 'TRANSIT':
+        # Trigger or update transit whenever the destination or target changes
+        # significantly vs what we're currently tracking.
+        if self._state != 'TRANSIT':
+            # Only enter transit on a real mode change
+            current_dest = self._state
+            if desired_dest != current_dest:
+                self._enter_transit(desired_target, desired_dest)
+        else:
+            # Already in transit — update target to latest IK so that a
+            # mid-transit cmd_vel change is reflected immediately.
+            # Only update during stopping phase (wheels not yet moving);
+            # once aligning, keep target stable so wheels don't chase a
+            # moving goal.
+            self._transit_target = desired_target
+            self._transit_dest   = desired_dest
+
+            # Check completion
             if not self._transit_stopping and self._transit_complete():
                 self._state = self._transit_dest
                 self.get_logger().info(f'Aligned → {self._state}')
@@ -411,7 +428,8 @@ class RoverController(Node):
         """Full IK for NORMAL mode. Compact offset applied here."""
         if abs(vx) < _VXY_EPS and abs(vy) < _VXY_EPS:
             if abs(wz) < _WZ_EPS:
-                return [0.0] * 4, [0.0] * 4
+                angles = self._apply_compact_offset([0.0] * 4)
+                return angles, [0.0] * 4
             return self._ik_rotate(wz)
 
         if abs(wz) < _WZ_EPS:
