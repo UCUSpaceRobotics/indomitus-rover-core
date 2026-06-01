@@ -25,7 +25,7 @@ To run the script with defaults:
 Once connected, the script opens an interactive terminal inside the container. From there you can launch the rover manually, for example:
 
 ```bash
-ros2 launch indomitus_rover_bringup rover.launch.py
+ros2 launch rover_bringup rover.launch.py
 ```
 
 ## Configuration Flags
@@ -35,7 +35,7 @@ The script is pre-configured with default values matching the standard repositor
 * `-i, --ip IP` : The Jetson Nano IP address over the hotspot. (Default: 10.42.0.1)
 * `-u, --user USER` : The Jetson Nano SSH username. (Default: ros)
 * `-d, --dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/ros/Indomitus/indomitus-rover-core/`)
-* `-n, --name NAME` : The Docker container name to enter. (Default: `indomitus_rover_prod`)
+* `-n, --name NAME` : The Docker container name to enter. (Default: `rover_prod`)
 * `-c, --compose FILE` : The path to the Compose file, relative to the repository root. (Default: `docker/docker-compose.prod.yaml`)
 * `-w, --ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `JetsonRosIndomitus`)
 * `-p, --pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `jetson1234`)

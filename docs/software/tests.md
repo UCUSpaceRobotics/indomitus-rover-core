@@ -4,14 +4,14 @@
 
 ```bash
 src/<package>/test/               # unit tests (per package)
-src/indomitus_rover_bringup/test/ # integration tests
+src/rover_bringup/test/ # integration tests
 ```
 
 ## Running
 
 ```bash
 colcon test                                             # all tests
-colcon test --packages-select indomitus_rover_control   # single package
+colcon test --packages-select rover_control   # single package
 colcon test --event-handlers console_direct+            # with terminal output
 colcon test-result --verbose                            # view results
 ```
@@ -24,4 +24,4 @@ colcon test-result --verbose                            # view results
 ## Integration Tests
 
 TODO:  
-Use `launch_testing` in `indomitus_rover_bringup/test/`. Spins up real nodes and checks topics.
+Use `launch_testing` in `rover_bringup/test/`. Spins up real nodes and checks topics.

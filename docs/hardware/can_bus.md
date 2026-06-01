@@ -45,7 +45,7 @@ sudo ip link set can0 up type can bitrate 1000000
 ```
 
 ```bash
-ros2 launch indomitus_rover_bringup can.launch.py interface:=can0
+ros2 launch rover_bringup can.launch.py interface:=can0
 ```
 
 | Argument | Default | Description |

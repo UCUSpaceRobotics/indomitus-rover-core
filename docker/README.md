@@ -20,7 +20,7 @@ sudo usermod -aG docker $USER           # run docker without sudo (re-login requ
 | Build | `docker compose build` |
 | Force rebuild | `docker compose build --no-cache` |
 | Create + start | `docker compose up -d` |
-| Enter container | `docker compose exec indomitus_rover_dev bash` |
+| Enter container | `docker compose exec rover_dev bash` |
 | Stop (keep container) | `docker compose stop` |
 | Start stopped container | `docker compose start` |
 | Stop + delete | `docker compose down` |

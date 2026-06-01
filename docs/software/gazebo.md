@@ -11,7 +11,7 @@ joint_state_publisher або joint_state_publisher_gui — для керуван
 
 ## RViz2 — для візуалізації моделі
 
-⚠️ rviz.launch.py в indomitus_rover_bringup не запускає реальні драйвери або контролери — тільки віртуальну модель.
+⚠️ rviz.launch.py в rover_bringup не запускає реальні драйвери або контролери — тільки віртуальну модель.
 
 #### 1. Підготовка
 
@@ -34,7 +34,7 @@ source install/setup.bash
 
 #### 2. Запуск launch-файлу
 ```bash
-ros2 launch indomitus_rover_bringup rviz.launch.py
+ros2 launch rover_bringup rviz.launch.py
 ```
 
 За замовчуванням запускається RViz і joint_state_publisher_gui.
@@ -57,22 +57,22 @@ use_joint_state_publisher_gui	bool	Використовувати GUI для к�
 
 Запуск без RViz:
 ```bash
-ros2 launch indomitus_rover_bringup rviz.launch.py use_rviz:=false
+ros2 launch rover_bringup rviz.launch.py use_rviz:=false
 ```
 
 Запуск без GUI для суглобів:
 ```bash
-ros2 launch indomitus_rover_bringup rviz.launch.py use_joint_state_publisher_gui:=false
+ros2 launch rover_bringup rviz.launch.py use_joint_state_publisher_gui:=false
 ```
 
 Використання TF префіксу:
 ```bash
-ros2 launch indomitus_rover_bringup rviz.launch.py name:=mars_rover
+ros2 launch rover_bringup rviz.launch.py name:=mars_rover
 ```
 
 4. Що відбувається після запуску
 
-Robot State Publisher читає URDF з пакета indomitus_rover_description і публікує TF для всіх лінків.
+Robot State Publisher читає URDF з пакета rover_description і публікує TF для всіх лінків.
 
 Joint State Publisher / GUI дозволяє рухати суглоби вручну.
 
@@ -123,19 +123,19 @@ source install/setup.bash
 
 To run URDF model:
 ```bash
-ros2 launch indomitus_rover_sim sim_gz_urdf.launch.py
+ros2 launch rover_sim sim_gz_urdf.launch.py
 ```
 
 #### Additional Parameters to Launch File
 ```bash
-ros2 launch indomitus_rover_sim sim_gz_urdf.launch.py \
+ros2 launch rover_sim sim_gz_urdf.launch.py \
     world_name:=world_demo \
     model_name:=indomitus_rover
 ```
 
 | Parameter | Description | Default |
 |---|---|---|
-| `world_name` | Name of a world located in `indomitus_rover_sim/world/` | `world_demo` |
+| `world_name` | Name of a world located in `rover_sim/world/` | `world_demo` |
 | `model_name` | Name of a model | `indomitus_rover` |
 
 ## Camera on marsrover
