@@ -22,11 +22,10 @@ jobs:
         run: |
           source /opt/ros/humble/setup.bash
           sudo apt update
-          sudo apt install -y can-utils iproute2
           rosdep update
           rosdep install --from-paths src --ignore-src -r -y
 
       - name: Build
         run: |
           source /opt/ros/humble/setup.bash
-          colcon build --packages-ignore rover_sim
+          colcon build
