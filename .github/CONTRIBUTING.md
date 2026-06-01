@@ -39,3 +39,4 @@ All team branches **must** follow this pattern:
 - `science` - Science team
 - `drone` - Drone team
 - `suspension` - Suspension team
+- `shared` - cross-team branch
