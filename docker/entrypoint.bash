@@ -6,6 +6,14 @@ TARGET_IFACE="${CAN_INTERFACE:-can0}"
 TARGET_BITRATE="${CAN_BITRATE:-1000000}"
 TARGET_QUEUE_SIZE="${CAN_TRANSMIT_QUEUE_SIZE:-1000}"
 
+source_if_exists() {
+    local script_path="$1"
+
+    if [ -f "$script_path" ]; then
+        # shellcheck disable=SC1090
+        source "$script_path"
+    fi
+}
 
 # -------------------- CAN Interface Setup --------------------
 
@@ -27,21 +35,8 @@ fi
 
 # -------------------- ROS2 Workspace Setup --------------------
 
-source /opt/ros/${ROS_DISTRO}/setup.bash
-
-if [ -d /opt/ws/src ] && [ "$(ls -A  /opt/ws/src 2> /dev/null)" ]; then
-    if [ ! -f /opt/ws/install/setup.bash ] || [ /opt/ws/src -nt /opt/ws/install/setup.bash ]; then
-        echo "[ROS] INFO: Building workspace /opt/ws..."
-
-        # rosdep install --from-paths src  --ignore-src -r -y || true
-
-        # colcon build --symlink-install --packages-skip indomitus_rover_sim
-    fi
-fi
-
-if [ -f /opt/ws/install/setup.bash ]; then
-    source /opt/ws/install/setup.bash
-fi
+source_if_exists "/opt/ros/${ROS_DISTRO}/setup.bash"
+source_if_exists "/opt/ws/install/setup.bash"
 
 echo "[ROS] SUCCESS: Environment ready (${ROS_DISTRO})."
 
