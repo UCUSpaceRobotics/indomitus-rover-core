@@ -36,7 +36,7 @@ This package implements the communication with motors. It communicates with two 
 
 **Launch Files:**
 - `launch/can.launch.py` - Configures and launches CAN bus interface
-- `launch/rviz.launch.py` - rover visualization (stored in indomitus_rover_description)
+- `launch/rviz.launch.py` - rover visualization (stored in indomitus_rover_viz)
 
 
 ---

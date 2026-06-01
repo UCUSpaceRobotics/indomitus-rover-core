@@ -17,11 +17,13 @@ args_descriptions = {
 
 
 def urdf(name: str = '') -> str:
-    urdf_xacro = os.path.join(get_package_share_directory('indomitus_rover_description'),
-                              'urdf', 'indomitus_rover_s1.urdf.xacro')
-    
+    urdf_xacro = os.path.join(
+        get_package_share_directory('indomitus_rover_description'),
+        'urdf', 'indomitus_rover_s1.urdf.xacro',
+    )
+
     xacro_args = [f'name:={name}']
-    
+
     opts, input_file_name = xacro.process_args([urdf_xacro] + xacro_args)
     try:
         doc = xacro.process_file(input_file_name, **vars(opts))
@@ -35,16 +37,15 @@ def launch_nodes(context: LaunchContext,
                  **substitutions: launch.substitutions.LaunchConfiguration
                  ) -> List[Node]:
     kwargs = {k: perform_substitutions(context, [v]) for k, v in substitutions.items()}
-    
+
     use_rviz = kwargs.get('use_rviz', 'true').lower() == 'true'
     use_joint_gui = kwargs.get('use_joint_state_publisher_gui', 'true').lower() == 'true'
-    
-    urdf_string = urdf(**{k: v for k, v in kwargs.items() 
+
+    urdf_string = urdf(**{k: v for k, v in kwargs.items()
                           if k not in ('use_rviz', 'use_joint_state_publisher_gui')})
-    
+
     nodes = []
-    
-    # Robot State Publisher
+
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -54,8 +55,7 @@ def launch_nodes(context: LaunchContext,
         arguments=["--ros-args", "--log-level", "warn"]
     )
     nodes.append(robot_state_publisher_node)
-    
-    # Joint State Publisher (GUI або без GUI)
+
     if use_joint_gui:
         joint_state_publisher_node = Node(
             package='joint_state_publisher_gui',
@@ -71,21 +71,18 @@ def launch_nodes(context: LaunchContext,
             output='screen'
         )
     nodes.append(joint_state_publisher_node)
-    
-    # RViz2
+
     if use_rviz:
         rviz_config_file = os.path.join(
-            get_package_share_directory('indomitus_rover_bringup'),
+            get_package_share_directory('indomitus_rover_viz'),
             'rviz', 'robot.rviz'
         )
-        # Завжди використовуємо конфігураційний файл, якщо він існує
         if os.path.exists(rviz_config_file):
             rviz_args = ['-d', rviz_config_file]
         else:
-            # Якщо файл не знайдено в install директорії, спробуємо в source директорії
             source_rviz_config = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                'indomitus_rover_bringup', 'rviz', 'robot.rviz'
+                'indomitus_rover_viz', 'rviz', 'robot.rviz'
             )
             if os.path.exists(source_rviz_config):
                 rviz_args = ['-d', source_rviz_config]
@@ -99,7 +96,7 @@ def launch_nodes(context: LaunchContext,
             arguments=rviz_args
         )
         nodes.append(rviz_node)
-    
+
     return nodes
 
 
@@ -109,7 +106,7 @@ def generate_launch_description():
             k, default_value=str(urdf.__defaults__[i]), description=args_descriptions.get(k, ''))
         for i, (k, _) in enumerate(urdf.__annotations__.items()) if k != 'return'
     ]
-    
+
     additional_args = [
         launch.actions.DeclareLaunchArgument(
             'use_rviz',
@@ -122,12 +119,12 @@ def generate_launch_description():
             description='Launch joint_state_publisher_gui for joint control'
         )
     ]
-    
+
     all_kwargs = {k: launch.substitutions.LaunchConfiguration(k)
                   for (k, _) in urdf.__annotations__.items() if k != 'return'}
     all_kwargs['use_rviz'] = launch.substitutions.LaunchConfiguration('use_rviz')
     all_kwargs['use_joint_state_publisher_gui'] = launch.substitutions.LaunchConfiguration('use_joint_state_publisher_gui')
-    
+
     return LaunchDescription(
         urdf_args + additional_args + [
             launch.actions.OpaqueFunction(
