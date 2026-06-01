@@ -10,6 +10,8 @@ Before running the script for the first time, grant it execution permissions. Fr
 chmod +x scripts/enter_local_container.sh
 ```
 
+This container expects the Jetson-side `src/` directory to be mounted directly over `/opt/ws/src` inside the Docker container. That works only when `deploy_to_jetson.sh` full deploy has already copied `src/` to the Jetson, because `docker/docker-compose.prod.yaml` uses a `../src:/opt/ws/src` bind mount.
+
 ## Running the Script
 
 You can run this script from any folder; it will locate the repository root automatically.
