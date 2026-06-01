@@ -26,18 +26,18 @@ To run the script with defaults:
 
 ## Defaults & Behaviour
 
-- **Container name:** `indomitus_rover_prod`
+- **Container name:** `rover_prod`
 - **Compose file:** `docker/docker-compose.prod.yaml` (path relative to repo root)
 - **ROS distro:** `humble`
 - **Workspace dir (inside container):** `/opt/ws`
-- **Packages built by default:** `indomitus_rover_control`, `indomitus_rover_bringup`
-- **Launch package/file:** `indomitus_rover_bringup` / `joy.launch.py`
+- **Packages built by default:** `rover_control`, `rover_bringup`
+- **Launch package/file:** `rover_bringup` / `joy.launch.py`
 
 ## Configuration Flags
 
 The script accepts the following flags to override defaults:
 
-* `-n, --name NAME` : Docker container name. (Default: `indomitus_rover_prod`)
+* `-n, --name NAME` : Docker container name. (Default: `rover_prod`)
 * `-c, --compose FILE` : Path to Compose file, relative to repo root. (Default: `docker/docker-compose.prod.yaml`)
 * `-r, --ros-distro DIST` : ROS 2 distribution name. (Default: `humble`)
 * `-w, --workspace DIR` : ROS 2 workspace path inside the container. (Default: `/opt/ws`)

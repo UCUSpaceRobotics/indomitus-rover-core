@@ -8,12 +8,12 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
 # DEFAULT CONFIGURATION
-CONTAINER_NAME="indomitus_rover_dev"
+CONTAINER_NAME="rover_dev"
 COMPOSE_FILE="docker-compose.yaml"
 ROS_DISTRO="humble"
 WORKSPACE_DIR="/opt/ws"
-PACKAGES="indomitus_rover_control indomitus_rover_bringup"
-LAUNCH_PACKAGE="indomitus_rover_bringup"
+PACKAGES="rover_control rover_bringup"
+LAUNCH_PACKAGE="rover_bringup"
 LAUNCH_FILE="joy.launch.py"
 BUILD=false
 
