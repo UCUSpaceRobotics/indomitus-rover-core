@@ -31,15 +31,15 @@ The container auto-builds the ROS2 workspace on first start (skips Gazebo sim pa
 Watch build progress:
 
 ```bash
-docker logs -f indomitus_rover_dev
+docker logs -f rover_dev
 # Wait for: "ROS humble ready. Workspace: /opt/ws"
 ```
 
 If you need to rebuild manually (e.g. after code changes):
 
 ```bash
-docker exec -it indomitus_rover_dev bash
-colcon build --symlink-install --packages-skip indomitus_rover_sim
+docker exec -it rover_dev bash
+colcon build --symlink-install --packages-skip rover_sim
 source install/setup.bash
 exit
 ```
@@ -51,13 +51,13 @@ exit
 Open a shell inside the container:
 
 ```bash
-docker exec -it indomitus_rover_dev bash
+docker exec -it rover_dev bash
 ```
 
 Launch everything (CAN bridge + kinematics + chassis driver):
 
 ```bash
-ros2 launch indomitus_rover_bringup rover.launch.py
+ros2 launch rover_bringup rover.launch.py
 ```
 
 What starts:
@@ -74,7 +74,7 @@ Useful when you changed `chassis_driver` or `rover_kinematics_node` and don't wa
 Open a second terminal inside the container:
 
 ```bash
-docker exec -it indomitus_rover_dev bash
+docker exec -it rover_dev bash
 ```
 
 Kill only the node you want to restart (by name):
@@ -86,20 +86,20 @@ ros2 node kill /rover_controller
 ```
 
 ```bash
-colcon build --symlink-install --packages-select indomitus_rover_chassis_driver
+colcon build --symlink-install --packages-select rover_chassis_driver
 source install/setup.bash
 ```
 
 Then start it manually:
 
 ```bash
-# indomitus_rover_chassis_driver
-ros2 run indomitus_rover_chassis_driver chassis_driver_node \
-  --ros-args --params-file /opt/ws/install/indomitus_rover_chassis_driver/share/indomitus_rover_chassis_driver/config/chassis_driver.yaml
+# rover_chassis_driver
+ros2 run rover_chassis_driver chassis_driver_node \
+  --ros-args --params-file /opt/ws/install/rover_chassis_driver/share/rover_chassis_driver/config/chassis_driver.yaml
 
 # rover_kinematics_node
-ros2 run indomitus_rover_control rover_kinematics_node \
-  --ros-args --params-file /opt/ws/install/indomitus_rover_description/share/indomitus_rover_description/config/rover_geometry.yaml
+ros2 run rover_control rover_kinematics_node \
+  --ros-args --params-file /opt/ws/install/rover_description/share/rover_description/config/rover_geometry.yaml
 ```
 
 > `socket_can_sender` and `socket_can_receiver` keep running — motors stay powered and CAN stays up.
@@ -111,7 +111,7 @@ ros2 run indomitus_rover_control rover_kinematics_node \
 Open a second shell inside the container:
 
 ```bash
-docker exec -it indomitus_rover_dev bash
+docker exec -it rover_dev bash
 ```
 
 Run the test tool:
@@ -142,7 +142,7 @@ python3 /work/test_pipeline.py
 ## 5. Monitor topics (optional, separate terminal)
 
 ```bash
-docker exec -it indomitus_rover_dev bash
+docker exec -it rover_dev bash
 
 # Wheel targets from kinematics
 ros2 topic echo /wheel_targets

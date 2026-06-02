@@ -3,4 +3,4 @@ build:
   executor: sequential
   parallel-workers: 1
   packages-ignore:
-    - indomitus_rover_sim
+    - rover_sim

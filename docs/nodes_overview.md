@@ -36,12 +36,24 @@ This package implements the communication with motors. It communicates with two 
 
 **Launch Files:**
 - `launch/can.launch.py` - Configures and launches CAN bus interface
-- `launch/rviz.launch.py` - rover visualization (stored in indomitus_rover_viz)
 
 
 ---
 
-## 4. `indomitus_rover_control` (Python)
+## 4. `indomitus_rover_viz` (RViz Visualization)
+
+**Package Type:** RViz visualization package
+
+**Launch Files:**
+- `launch/rviz.launch.py` - rover visualization
+
+**Visualization Config:**
+- `rviz/robot.rviz`
+
+
+---
+
+## 5. `indomitus_rover_control` (Python)
 
 **Nodes:** 
 - `rover_controller`
@@ -55,13 +67,13 @@ This package implements the communication with motors. It communicates with two 
 
 ---
 
-## 5. `indomitus_rover_description` (URDF & Configuration)
+## 6. `indomitus_rover_description` (URDF & Configuration)
 
 Containes all urdf files describing rover, 3D rover models, geometry config files.
 
 ---
 
-## 6. `indomitus_rover_sim` (Gazebo Simulation)
+## 7. `indomitus_rover_sim` (Gazebo Simulation)
 
 Simulation of a rover on a mars yard.
 
