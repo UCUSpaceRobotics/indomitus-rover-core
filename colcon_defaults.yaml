@@ -4,3 +4,4 @@ build:
   parallel-workers: 1
   packages-ignore:
     - rover_sim
+    - rover_viz
