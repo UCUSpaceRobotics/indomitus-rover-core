@@ -20,8 +20,8 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>controller_manager</exec_depend>
-  <exec_depend>indomitus_rover_bringup</exec_depend>
-  <exec_depend>indomitus_rover_description</exec_depend>
+  <exec_depend>rover_bringup</exec_depend>
+  <exec_depend>rover_description</exec_depend>
 
   <depend>robot_state_publisher</depend>
   <depend>indomitus_interfaces</depend>
