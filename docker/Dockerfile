@@ -42,13 +42,13 @@ RUN mkdir -p ${WS}/src && \
         cd /tmp/src_packages/src && \
         for pkg in *; do \
             case "$pkg" in \
-                indomitus_rover_sim|indomitus_rover_viz) ;; \
+                rover_sim|rover_viz) ;; \
                 *) cp -r "$pkg" ${WS}/src/ ;; \
             esac; \
         done; \
     fi
 
-RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS_DISTRO} && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
@@ -66,12 +66,12 @@ RUN mkdir -p ${WS}/src && \
     cd /tmp/src_packages/src && \
     for pkg in *; do \
         case "$pkg" in \
-            indomitus_rover_sim|indomitus_rover_viz) ;; \
+            rover_sim|rover_viz) ;; \
             *) cp -r "$pkg" ${WS}/src/ ;; \
         esac; \
     done
 
-RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS_DISTRO} && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && rm -rf /var/lib/apt/lists/*
 
 RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
     colcon build \
