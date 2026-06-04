@@ -25,9 +25,6 @@ Parameters:
     motor_toggle_button   (int, default: 9)  — button index to toggle chassis motors
     compact_mode_button   (int, default: 1)  — button index to toggle compact mode
     vy_enabled_default (bool, default: false) — initial state of vy mode
-    cmd_timeout        (float, default: 0.5)  — /joy staleness threshold in seconds
-    timeout_pub_rate   (float, default: 10.0) — zero-command publish/check rate while timed out (Hz)
-    initial_timed_out  (bool, default: true)  — startup state; safe if true
 
 Services used:
     /chassis/set_motors_enabled (std_srvs/SetBool) — explicit chassis motor enable/disable
@@ -51,9 +48,6 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('motor_toggle_button', 6)
         self.declare_parameter('compact_mode_button', 1)
         self.declare_parameter('vy_enabled_default', False)
-        self.declare_parameter('cmd_timeout', 0.5)
-        self.declare_parameter('timeout_pub_rate', 10.0)
-        self.declare_parameter('initial_timed_out', True)
 
         # Lights
         self.declare_parameter('spotlight_button',      9)   # L1
@@ -69,12 +63,6 @@ class JoystickInterpreterNode(Node):
         self._vy_enabled: bool = self.get_parameter('vy_enabled_default').value
         self._motors_enabled: bool = False
         self._motor_toggle_pending: bool = False
-
-        self._cmd_timeout: float = float(self.get_parameter('cmd_timeout').value)
-        self._timeout_pub_rate: float = float(self.get_parameter('timeout_pub_rate').value)
-        self._timed_out: bool = bool(self.get_parameter('initial_timed_out').value)
-
-        self._last_joy_msg_time: float = 0.0
 
         self._compact_mode: bool = False
         self._prev_compact_button: int = 0
@@ -128,7 +116,6 @@ class JoystickInterpreterNode(Node):
             '/chassis/set_motors_enabled',
         )
 
-        self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
         self._compact_mode_client = self.create_client(SetBool, '/set_compact_mode')
 
         self._spotlight_client = self.create_client(SetBool, '/lights/spotlight')
@@ -144,15 +131,8 @@ class JoystickInterpreterNode(Node):
 
     def _on_joy(self, msg: Joy):
         """
-        Detect button press edges for toggle actions and refresh watchdog timestamp.
-
-        Any /joy message marks joystick input as alive. If we were in timed-out mode,
-        this callback clears timeout and re-enables forwarding from /joy_raw_cmd_vel.
+        Process incoming joystick messages.
         """
-        self._last_joy_msg_time = self._now_seconds()
-        if self._timed_out:
-            self._timed_out = False
-            self.get_logger().info('Joystick input recovered — resuming command forwarding')
 
         if self._vy_toggle_button < len(msg.buttons):
             current = msg.buttons[self._vy_toggle_button]
@@ -216,9 +196,6 @@ class JoystickInterpreterNode(Node):
     def _on_raw_cmd_vel(self, msg: Twist):
         self._last_twist_time = self._now_seconds()
 
-        if self._timed_out:
-            return
-
         vx = msg.linear.x
         vy = msg.linear.y
         wz = msg.angular.z
@@ -232,25 +209,6 @@ class JoystickInterpreterNode(Node):
         out.linear.x = vx
         out.linear.y = vy
         out.angular.z = wz
-        self._cmd_vel_pub.publish(out)
-
-    def _timeout_check(self):
-        """Apply /joy freshness timeout and publish safe zero commands when stale."""
-        now = self._now_seconds()
-        dt = now - self._last_joy_msg_time if self._last_joy_msg_time > 0.0 else float('inf')
-
-        if dt > self._cmd_timeout:
-            if not self._timed_out:
-                self._timed_out = True
-                self.get_logger().warn('Joystick input timed out — publishing zeros to /cmd_vel')
-            
-            self._publish_zero_cmd()
-            
-    def _publish_zero_cmd(self):
-        out = Twist()
-        out.linear.x = 0.0
-        out.linear.y = 0.0
-        out.angular.z = 0.0
         self._cmd_vel_pub.publish(out)
 
     def _now_seconds(self) -> float:

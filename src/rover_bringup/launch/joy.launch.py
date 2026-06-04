@@ -26,7 +26,9 @@ def generate_launch_description():
             'device_name': joy_dev,
             'deadzone': deadzone,
             'autorepeat_rate': autorepeat_rate,
-        }]
+        }],
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     teleop_node = Node(
