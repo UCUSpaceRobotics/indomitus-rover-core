@@ -16,7 +16,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Cache apt packages
-        shell: bash
         uses: actions/cache@v4
         with:
           path: /var/cache/apt
