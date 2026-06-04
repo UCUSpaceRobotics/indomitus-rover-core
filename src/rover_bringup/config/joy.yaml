@@ -18,7 +18,17 @@ teleop_node:
 
 joystick_interpreter:
   ros__parameters:
-    vy_toggle_button: 4 # Share button
-    motor_toggle_button: 6 # Options button
-    compact_mode_button: 1 # B button
+    # --- LINEAR CONTROLS (Left Stick) ---
+    axis_linear_x: 1
+    axis_linear_y: 0
+    scale_linear_x: 0.5
+    scale_linear_y: 0.5
+
+    # --- ANGULAR CONTROLS (Right Stick) ---
+    axis_angular_yaw: 2
+    scale_angular_yaw: 1.0
+
+    vy_toggle_button: 4      # Share button
+    motor_toggle_button: 6   # Options button
+    compact_mode_button: 1   # B button
     vy_enabled_default: false

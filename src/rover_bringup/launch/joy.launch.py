@@ -8,7 +8,6 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
     deadzone = LaunchConfiguration('deadzone')
-    cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
 
     default_config = PathJoinSubstitution([
@@ -29,17 +28,6 @@ def generate_launch_description():
         }],
         respawn=True,
         respawn_delay=5.0,
-    )
-
-    teleop_node = Node(
-        package='teleop_twist_joy',
-        executable='teleop_node',
-        name='teleop_node',
-        output='screen',
-        parameters=[default_config],
-        remappings=[
-            ('/cmd_vel', cmd_vel_topic),
-        ]
     )
 
     joy_interpreter = Node(
@@ -72,6 +60,5 @@ def generate_launch_description():
                         'joystick will only send on state change'
         ),
         joy_node,
-        teleop_node,
         joy_interpreter,
     ])
