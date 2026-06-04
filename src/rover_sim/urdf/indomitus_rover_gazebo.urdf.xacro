@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<robot name="indomitus_rover" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Main robot description -->
+  <xacro:include filename="$(find rover_description)/urdf/rover_s1.urdf.xacro"/>
+
+  <!-- Gazebo plugins -->
+  <xacro:include filename="$(find rover_sim)/urdf/gazebo_plugins.urdf.xacro"/>
+
+</robot>

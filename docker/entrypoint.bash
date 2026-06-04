@@ -4,6 +4,7 @@ set -e
 
 TARGET_IFACE="${CAN_INTERFACE:-can0}"
 TARGET_BITRATE="${CAN_BITRATE:-1000000}"
+TARGET_QUEUE_SIZE="${CAN_TRANSMIT_QUEUE_SIZE:-1000}"
 
 
 # -------------------- CAN Interface Setup --------------------
@@ -11,13 +12,12 @@ TARGET_BITRATE="${CAN_BITRATE:-1000000}"
 echo "[CAN] INFO: Checking for CAN hardware on interface: ${TARGET_IFACE}"
 
 if ip link show "${TARGET_IFACE}" > /dev/null 2>&1; then
-    echo "[CAN] INFO: Hardware found. Configuring ${TARGET_IFACE} at ${TARGET_BITRATE} bps..."
+    echo "[CAN] INFO: Hardware found. Configuring ${TARGET_IFACE} at ${TARGET_BITRATE} bps with queue size ${TARGET_QUEUE_SIZE}..."
 
-    if ip link show "${TARGET_IFACE}" | grep -q "UP"; then
-        ip link set "${TARGET_IFACE}" down || true
-    fi
-
-    ip link set "${TARGET_IFACE}" up type can bitrate "${TARGET_BITRATE}"
+    ip link set "${TARGET_IFACE}" down 2>/dev/null || true    
+    ip link set "${TARGET_IFACE}" type can bitrate "${TARGET_BITRATE}"    
+    ip link set "${TARGET_IFACE}" txqueuelen "${TARGET_QUEUE_SIZE}"
+    ip link set "${TARGET_IFACE}" up
 
     echo "[CAN] SUCCESS: Interface '${TARGET_IFACE}' configured at ${TARGET_BITRATE} bps."
 else
@@ -33,9 +33,9 @@ if [ -d /opt/ws/src ] && [ "$(ls -A  /opt/ws/src 2> /dev/null)" ]; then
     if [ ! -f /opt/ws/install/setup.bash ] || [ /opt/ws/src -nt /opt/ws/install/setup.bash ]; then
         echo "[ROS] INFO: Building workspace /opt/ws..."
 
-        rosdep install --from-paths src  --ignore-src -r -y || true
+        # rosdep install --from-paths src  --ignore-src -r -y || true
 
-        colcon build --symlink-install --packages-skip indomitus_rover_sim
+        # colcon build --symlink-install --packages-skip rover_sim
     fi
 fi
 

@@ -1,0 +1,8 @@
+# Individual LED control: R Y G B
+bool red
+bool yellow
+bool green
+bool blue
+---
+bool success
+string message
