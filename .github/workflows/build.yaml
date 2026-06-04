@@ -9,15 +9,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container:
+      image: ros:humble-ros-base
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup ROS2 Humble
-        uses: ros-tooling/setup-ros@v0.7
-        with:
-          required-ros-distributions: humble
-
       - name: Install dependencies
+        shell: bash
         run: |
           source /opt/ros/humble/setup.bash
           sudo apt update
@@ -25,6 +23,7 @@ jobs:
           rosdep install --from-paths src --ignore-src -r -y
 
       - name: Build
+        shell: bash
         run: |
           source /opt/ros/humble/setup.bash
           colcon build
