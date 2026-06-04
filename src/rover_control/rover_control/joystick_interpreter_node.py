@@ -6,13 +6,6 @@ Sits between teleop_twist_joy and the rest of the stack.
 Subscribes to raw cmd_vel from teleop and /joy for button events,
 applies swerve-aware wz inversion and vy toggle, then publishes to /cmd_vel.
 
-Timeout/watchdog behavior:
-    - The watchdog is based on /joy freshness (not /joy_raw_cmd_vel).
-    - If no /joy message is received for longer than cmd_timeout,
-      forwarding from /joy_raw_cmd_vel is blocked and zero Twist is published.
-    - While timed out, zero Twist continues to be published at timeout_pub_rate.
-    - On the next /joy message, timeout state is cleared and forwarding resumes.
-
 Subscriptions:
     /joy_raw_cmd_vel  (geometry_msgs/Twist)  — raw output from teleop_twist_joy
     /joy              (sensor_msgs/Joy)       — raw joystick for button handling
@@ -39,6 +32,44 @@ from sensor_msgs.msg import Joy
 from std_srvs.srv import SetBool
 from indomitus_interfaces.srv import SetTrafficLight
 
+class ButtonEdgeDetector:
+    def __init__(self, index: int):
+        self.index = index
+        self._prev = 0
+    
+    def is_pressed(self, buttons: list[int]) -> bool:
+        current = buttons[self.index] if 0 <= self.index < len(buttons) else 0
+        pressed = current == 1 and self._prev == 0
+        self._prev = current
+        return pressed
+
+
+class ToggleServiceCaller:
+    def __init__(self, client, name: str, logger):
+        self._client = client
+        self._name = name
+        self._logger = logger
+        self._state = False
+        self._pending = False
+
+    def toggle(self):
+        if self._pending or not self._client.service_is_ready():
+            return
+        self._state = not self._state
+        self._pending = True
+        req = SetBool.Request()
+        req.data = self._state
+        self._client.call_async(req).add_done_callback(self._on_result)
+
+    def _on_result(self, future):
+        self._pending = False
+        try:
+            response = future.result()
+            self._logger.info(f'{self._name} {"ON" if self._state else "OFF"}: {response.message}')
+        except Exception as exc:
+            self._logger.error(f'{self._name} service call failed: {exc!r}')
+
+
 class JoystickInterpreterNode(Node):
 
     def __init__(self):
@@ -58,45 +89,33 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('traffic_green_button',  13)  # ↑
         self.declare_parameter('traffic_blue_button',   14)  # ↓
 
-        self._vy_toggle_button: int = self.get_parameter('vy_toggle_button').value
-        self._motor_toggle_button: int = self.get_parameter('motor_toggle_button').value
+        self._vy_toggle_btn    = ButtonEdgeDetector(self.get_parameter('vy_toggle_button').value)
+        self._motor_toggle_btn = ButtonEdgeDetector(self.get_parameter('motor_toggle_button').value)
         self._vy_enabled: bool = self.get_parameter('vy_enabled_default').value
         self._motors_enabled: bool = False
         self._motor_toggle_pending: bool = False
 
         self._compact_mode: bool = False
-        self._prev_compact_button: int = 0
-        self._compact_toggle_button: int = self.get_parameter('compact_mode_button').value
+        self._compact_toggle_btn = ButtonEdgeDetector(self.get_parameter('compact_mode_button').value)
 
         # Lights
-        self._traffic_red_button    = self.get_parameter('traffic_red_button').value
-        self._traffic_yellow_button = self.get_parameter('traffic_yellow_button').value
-        self._traffic_green_button  = self.get_parameter('traffic_green_button').value
-        self._traffic_blue_button   = self.get_parameter('traffic_blue_button').value
-        self._prev_traffic_red_button    = 0
-        self._prev_traffic_yellow_button = 0
-        self._prev_traffic_green_button  = 0
-        self._prev_traffic_blue_button   = 0
+        self._traffic_btns = {
+            'red':    ButtonEdgeDetector(self.get_parameter('traffic_red_button').value),
+            'yellow': ButtonEdgeDetector(self.get_parameter('traffic_yellow_button').value),
+            'green':  ButtonEdgeDetector(self.get_parameter('traffic_green_button').value),
+            'blue':   ButtonEdgeDetector(self.get_parameter('traffic_blue_button').value),
+        }
+        self._traffic_state = {'red': False, 'yellow': False, 'green': False, 'blue': False}
 
-        self._spotlight_on  = False
-        self._beautiful_on  = False
-        self._traffic_red   = False
-        self._traffic_yellow = False
-        self._traffic_green = False
-        self._traffic_blue  = False
+        # Sptolight and beafitul
+        self._spotlight_btn = ButtonEdgeDetector(self.get_parameter('spotlight_button').value)
+        self._beautiful_btn = ButtonEdgeDetector(self.get_parameter('beautiful_button').value)
+        self._spotlight = ToggleServiceCaller(
+            self.create_client(SetBool, '/lights/spotlight'), 'spotlight', self.get_logger())
+        self._beautiful = ToggleServiceCaller(
+            self.create_client(SetBool, '/lights/beautiful'), 'beautiful', self.get_logger())
 
-        self._spotlight_button = self.get_parameter('spotlight_button').value
-        self._beautiful_button = self.get_parameter('beautiful_button').value
-        self._prev_spotlight_button      = 0
-        self._prev_beautiful_button      = 0
-
-        self._spotlight_pending = False
-        self._beautiful_pending = False
         self._traffic_pending   = False
-
-        # Track previous button state to detect press edge (not hold)
-        self._prev_vy_button: int = 0
-        self._prev_motor_button: int = 0
 
         self._raw_sub = self.create_subscription(
             Twist,
@@ -124,8 +143,8 @@ class JoystickInterpreterNode(Node):
 
         self.get_logger().info(
             f'JoystickInterpreter started — '
-            f'vy_toggle_button={self._vy_toggle_button}, '
-            f'motor_toggle_button={self._motor_toggle_button}, '
+            f'vy_toggle_button={self._vy_toggle_btn.index}, '
+            f'motor_toggle_button={self._motor_toggle_btn.index}, '
             f'vy_enabled={self._vy_enabled}'
         )
 
@@ -134,64 +153,30 @@ class JoystickInterpreterNode(Node):
         Process incoming joystick messages.
         """
 
-        if self._vy_toggle_button < len(msg.buttons):
-            current = msg.buttons[self._vy_toggle_button]
+        if self._vy_toggle_btn.is_pressed(msg.buttons):
+            self._vy_enabled = not self._vy_enabled
+            state_str = 'ENABLED' if self._vy_enabled else 'DISABLED'
+            self.get_logger().info(f'vy mode: {state_str}')
 
-            if current == 1 and self._prev_vy_button == 0:
-                self._vy_enabled = not self._vy_enabled
-                state_str = 'ENABLED' if self._vy_enabled else 'DISABLED'
-                self.get_logger().info(f'vy mode: {state_str}')
-
-            self._prev_vy_button = current
-
-        if self._motor_toggle_button < len(msg.buttons):
-            current = msg.buttons[self._motor_toggle_button]
-            if current == 1 and self._prev_motor_button == 0:
-                self._toggle_motors()
-            self._prev_motor_button = current
+        if self._motor_toggle_btn.is_pressed(msg.buttons):
+            self._toggle_motors()
         
-        if self._compact_toggle_button < len(msg.buttons):
-            current = msg.buttons[self._compact_toggle_button]
-            if current == 1 and self._prev_compact_button == 0:
-                self._toggle_compact_mode()
-            self._prev_compact_button = current
+        if self._compact_toggle_btn.is_pressed(msg.buttons):
+            self._toggle_compact_mode()
+
+        if self._spotlight_btn.is_pressed(msg.buttons):
+            self._spotlight.toggle()
+
+        if self._beautiful_btn.is_pressed(msg.buttons):
+            self._beautiful.toggle()
         
-        def _check_btn(buttons, idx, prev):
-            cur = buttons[idx] if idx < len(buttons) else 0
-            pressed = (cur == 1 and prev == 0)
-            return cur, pressed
-
-        cur, pressed = _check_btn(msg.buttons, self._spotlight_button, self._prev_spotlight_button)
-        if pressed: self._toggle_spotlight()
-        self._prev_spotlight_button = cur
-
-        cur, pressed = _check_btn(msg.buttons, self._beautiful_button, self._prev_beautiful_button)
-        if pressed: self._toggle_beautiful()
-        self._prev_beautiful_button = cur
-        
-        cur, pressed = _check_btn(msg.buttons, self._traffic_red_button, self._prev_traffic_red_button)
-        if pressed:
-            self._traffic_red = not self._traffic_red
+        changed = False
+        for color, btn in self._traffic_btns.items():
+            if btn.is_pressed(msg.buttons):
+                self._traffic_state[color] = not self._traffic_state[color]
+                changed = True
+        if changed:
             self._send_traffic()
-        self._prev_traffic_red_button = cur
-
-        cur, pressed = _check_btn(msg.buttons, self._traffic_yellow_button, self._prev_traffic_yellow_button)
-        if pressed:
-            self._traffic_yellow = not self._traffic_yellow
-            self._send_traffic()
-        self._prev_traffic_yellow_button = cur
-
-        cur, pressed = _check_btn(msg.buttons, self._traffic_green_button, self._prev_traffic_green_button)
-        if pressed:
-            self._traffic_green = not self._traffic_green
-            self._send_traffic()
-        self._prev_traffic_green_button = cur
-
-        cur, pressed = _check_btn(msg.buttons, self._traffic_blue_button, self._prev_traffic_blue_button)
-        if pressed:
-            self._traffic_blue = not self._traffic_blue
-            self._send_traffic()
-        self._prev_traffic_blue_button = cur
 
     def _on_raw_cmd_vel(self, msg: Twist):
         self._last_twist_time = self._now_seconds()
@@ -273,30 +258,6 @@ class JoystickInterpreterNode(Node):
 
         status = 'ENABLED' if self._motors_enabled else 'DISABLED'
         self.get_logger().info(f'Motors {status}: {response.message}')
-    
-    def _toggle_spotlight(self):
-        self.get_logger().info(f'DEBUG _toggle_spotlight called, pending={self._spotlight_pending}, ready={self._spotlight_client.service_is_ready()}')
-        if self._spotlight_pending or not self._spotlight_client.service_is_ready():
-            return
-        self._spotlight_on = not self._spotlight_on
-        self._spotlight_pending = True
-        req = SetBool.Request()
-        req.data = self._spotlight_on
-        self._spotlight_client.call_async(req).add_done_callback(
-            lambda f: self._on_light_result(f, 'spotlight', self._spotlight_on,
-                                            '_spotlight_pending'))
-
-    def _toggle_beautiful(self):
-        self.get_logger().info(f'DEBUG _toggle_beautiful called, pending={self._beautiful_pending}, ready={self._beautiful_client.service_is_ready()}')
-        if self._beautiful_pending or not self._beautiful_client.service_is_ready():
-            return
-        self._beautiful_on = not self._beautiful_on
-        self._beautiful_pending = True
-        req = SetBool.Request()
-        req.data = self._beautiful_on
-        self._beautiful_client.call_async(req).add_done_callback(
-            lambda f: self._on_light_result(f, 'beautiful', self._beautiful_on,
-                                            '_beautiful_pending'))
 
     def _send_traffic(self):
         self.get_logger().info(f'DEBUG _send_traffic called, pending={self._traffic_pending}, ready={self._traffic_client.service_is_ready()}, R={self._traffic_red} Y={self._traffic_yellow} G={self._traffic_green} B={self._traffic_blue}')
@@ -304,12 +265,11 @@ class JoystickInterpreterNode(Node):
             return
         self._traffic_pending = True
         req = SetTrafficLight.Request()
-        req.red    = self._traffic_red
-        req.yellow = self._traffic_yellow
-        req.green  = self._traffic_green
-        req.blue   = self._traffic_blue
-        self._traffic_client.call_async(req).add_done_callback(
-            lambda f: self._on_traffic_result(f))
+        req.red    = self._traffic_state['red']
+        req.yellow = self._traffic_state['yellow']
+        req.green  = self._traffic_state['green']
+        req.blue   = self._traffic_state['blue']
+        self._traffic_client.call_async(req).add_done_callback(self._on_traffic_result)
 
     def _on_light_result(self, future, name: str, desired: bool, pending_attr: str):
         setattr(self, pending_attr, False)
@@ -332,11 +292,7 @@ class JoystickInterpreterNode(Node):
         self, vx: float, vy: float, wz: float
     ) -> float:
         """
-        Invert wz when the rover is moving 'backwaard' relative to its heading.
-
-        Uses the dominant axis to decide direction so diagonal motion
-        (e.g. vx=-0.1, vy=0.9) is handled intuitively — mostly sideways
-        motion does not trigger inversion.
+        Invert wz when the rover is moving 'backward' relative to its heading.
         """
         if abs(vx) < 1e-3 and abs(vy) < 1e-3:
             return wz
