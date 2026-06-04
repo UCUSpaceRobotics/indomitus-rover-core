@@ -15,12 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache apt packages
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt
-          key: apt-${{ hashFiles('**/package.xml') }}
-
       - name: Install dependencies
         shell: bash
         run: |
