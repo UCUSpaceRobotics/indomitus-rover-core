@@ -1,21 +1,25 @@
 name: Build
 
 on:
-  pull_request:
+  push:
     branches:
       - main
       - develop
+      - feature/shared/workflow-ci-fix
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container:
+      image: ros:humble-ros-base
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup ROS2 Humble
-        uses: ros-tooling/setup-ros@v0.7
+      - name: Cache apt packages
+        uses: actions/cache@v4
         with:
-          required-ros-distributions: humble
+          path: /var/cache/apt
+          key: apt-${{ hashFiles('**/package.xml') }}
 
       - name: Install dependencies
         run: |
