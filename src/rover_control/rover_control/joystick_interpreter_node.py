@@ -45,26 +45,32 @@ class ButtonEdgeDetector:
 
 
 class ToggleServiceCaller:
-    def __init__(self, client, name: str, logger):
+    def __init__(self, client, name: str, logger, optimistic: bool = True):
         self._client = client
         self._name = name
         self._logger = logger
         self._state = False
         self._pending = False
+        self._optimistic = optimistic
 
     def toggle(self):
         if self._pending or not self._client.service_is_ready():
             return
-        self._state = not self._state
+        target = not self._state
+        if self._optimistic:
+            self._state = target
         self._pending = True
         req = SetBool.Request()
-        req.data = self._state
-        self._client.call_async(req).add_done_callback(self._on_result)
+        req.data = target
+        self._client.call_async(req).add_done_callback(
+            lambda f, t=target: self._on_result(f, t))
 
-    def _on_result(self, future):
+    def _on_result(self, future, target: bool):
         self._pending = False
         try:
             response = future.result()
+            if not self._optimistic and response.success:
+                self._state = target
             self._logger.info(f'{self._name} {"ON" if self._state else "OFF"}: {response.message}')
         except Exception as exc:
             self._logger.error(f'{self._name} service call failed: {exc!r}')
@@ -90,13 +96,15 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('traffic_blue_button',   14)  # ↓
 
         self._vy_toggle_btn    = ButtonEdgeDetector(self.get_parameter('vy_toggle_button').value)
-        self._motor_toggle_btn = ButtonEdgeDetector(self.get_parameter('motor_toggle_button').value)
+        self._motor_enabled_toggle_btn = ButtonEdgeDetector(self.get_parameter('motor_toggle_button').value)
+        self._compact_mode_toggle_btn = ButtonEdgeDetector(self.get_parameter('compact_mode_button').value)
+        
         self._vy_enabled: bool = self.get_parameter('vy_enabled_default').value
-        self._motors_enabled: bool = False
-        self._motor_toggle_pending: bool = False
 
-        self._compact_mode: bool = False
-        self._compact_toggle_btn = ButtonEdgeDetector(self.get_parameter('compact_mode_button').value)
+        self._motors_enabled  = ToggleServiceCaller(
+            self.create_client(SetBool, '/chassis/set_motors_enabled'), 'motors', self.get_logger(), optimistic=False)
+        self._compact_mode = ToggleServiceCaller(
+            self.create_client(SetBool, '/set_compact_mode'), 'compact_mode', self.get_logger(), optimistic=False)
 
         # Lights
         self._traffic_btns = {
@@ -130,21 +138,13 @@ class JoystickInterpreterNode(Node):
             10,
         )
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self._motor_enable_client = self.create_client(
-            SetBool,
-            '/chassis/set_motors_enabled',
-        )
 
-        self._compact_mode_client = self.create_client(SetBool, '/set_compact_mode')
-
-        self._spotlight_client = self.create_client(SetBool, '/lights/spotlight')
-        self._beautiful_client = self.create_client(SetBool, '/lights/beautiful')
         self._traffic_client   = self.create_client(SetTrafficLight, '/lights/traffic_light')
 
         self.get_logger().info(
             f'JoystickInterpreter started — '
             f'vy_toggle_button={self._vy_toggle_btn.index}, '
-            f'motor_toggle_button={self._motor_toggle_btn.index}, '
+            f'motor_toggle_button={self._motor_enabled_toggle_btn.index}, '
             f'vy_enabled={self._vy_enabled}'
         )
 
@@ -158,11 +158,11 @@ class JoystickInterpreterNode(Node):
             state_str = 'ENABLED' if self._vy_enabled else 'DISABLED'
             self.get_logger().info(f'vy mode: {state_str}')
 
-        if self._motor_toggle_btn.is_pressed(msg.buttons):
-            self._toggle_motors()
+        if self._motor_enabled_toggle_btn.is_pressed(msg.buttons):
+            self._motors_enabled.toggle()
         
-        if self._compact_toggle_btn.is_pressed(msg.buttons):
-            self._toggle_compact_mode()
+        if self._compact_mode_toggle_btn.is_pressed(msg.buttons):
+            self._compact_mode.toggle()
 
         if self._spotlight_btn.is_pressed(msg.buttons):
             self._spotlight.toggle()
@@ -199,68 +199,7 @@ class JoystickInterpreterNode(Node):
     def _now_seconds(self) -> float:
         return float(self.get_clock().now().nanoseconds) * 1e-9
 
-    def _toggle_motors(self):
-        if self._motor_toggle_pending:
-            self.get_logger().warn('Motor toggle request is already in flight')
-            return
-
-        target_enabled = not self._motors_enabled
-
-        if not self._motor_enable_client.service_is_ready():
-            self.get_logger().warn('Motor enable service is not available yet')
-            return
-
-        self._motor_toggle_pending = True
-        request = SetBool.Request()
-        request.data = target_enabled
-        future = self._motor_enable_client.call_async(request)
-        future.add_done_callback(
-            lambda completed_future, desired_state=target_enabled: self._on_motor_toggle_result(
-                completed_future,
-                desired_state,
-            )
-        )
-
-    def _toggle_compact_mode(self):
-        target = not self._compact_mode
-        if not self._compact_mode_client.service_is_ready():
-            self.get_logger().warn('/set_compact_mode service not available')
-            return
-        req = SetBool.Request()
-        req.data = target
-        future = self._compact_mode_client.call_async(req)
-        future.add_done_callback(
-            lambda f, desired=target: self._on_compact_mode_result(f, desired))
-
-    def _on_compact_mode_result(self, future, desired: bool):
-        try:
-            response = future.result()
-        except Exception as exc:
-            self.get_logger().error(f'Compact mode service call failed: {exc!r}')
-            return
-        if response.success:
-            self._compact_mode = desired
-        self.get_logger().info(
-            f'Compact mode {"ENABLED" if self._compact_mode else "DISABLED"}: {response.message}')
-
-    def _on_motor_toggle_result(self, future, desired_state: bool):
-        try:
-            response = future.result()
-        except Exception as exc:
-            self._motor_toggle_pending = False
-            self.get_logger().error(f'Motor enable service call failed: {exc!r}')
-            return
-
-        if response.success:
-            self._motors_enabled = desired_state
-
-        self._motor_toggle_pending = False
-
-        status = 'ENABLED' if self._motors_enabled else 'DISABLED'
-        self.get_logger().info(f'Motors {status}: {response.message}')
-
     def _send_traffic(self):
-        self.get_logger().info(f'DEBUG _send_traffic called, pending={self._traffic_pending}, ready={self._traffic_client.service_is_ready()}, R={self._traffic_red} Y={self._traffic_yellow} G={self._traffic_green} B={self._traffic_blue}')
         if self._traffic_pending or not self._traffic_client.service_is_ready():
             return
         self._traffic_pending = True
@@ -270,15 +209,6 @@ class JoystickInterpreterNode(Node):
         req.green  = self._traffic_state['green']
         req.blue   = self._traffic_state['blue']
         self._traffic_client.call_async(req).add_done_callback(self._on_traffic_result)
-
-    def _on_light_result(self, future, name: str, desired: bool, pending_attr: str):
-        setattr(self, pending_attr, False)
-        try:
-            response = future.result()
-            state = 'ON' if desired else 'OFF'
-            self.get_logger().info(f'{name} {state}: {response.message}')
-        except Exception as exc:
-            self.get_logger().error(f'{name} service call failed: {exc!r}')
 
     def _on_traffic_result(self, future):
         self._traffic_pending = False
