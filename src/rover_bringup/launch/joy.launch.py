@@ -45,7 +45,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'deadzone',
-            default_value='0.05',
+            default_value='0.005',
             description='Joystick deadzone'
         ),
         DeclareLaunchArgument(
