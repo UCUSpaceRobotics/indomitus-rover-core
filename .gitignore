@@ -247,3 +247,4 @@ __marimo__/
 *.log
 COLCON_IGNORE
 *.tar
+colcon_defaults.yaml
