@@ -53,6 +53,15 @@ inline can_msgs::msg::Frame buildAbsPositionFrame(uint8_t esc_id, float angle_ra
     return f;
 }
 
+// Set origin (0xB1) — saves current position as zero; persists across power cycles
+// Motor responds with DLC=3: [0xB1, mechanical_angle_offset_low, mechanical_angle_offset_high]
+inline can_msgs::msg::Frame buildSetOriginFrame(uint8_t esc_id) {
+    can_msgs::msg::Frame f;
+    f.id = esc_id; f.dlc = 1; f.data.fill(0);
+    f.data[0] = 0xB1;
+    return f;
+}
+
 // Free/disable motor (0xCF) — motor enters uncontrolled free-spin state
 inline can_msgs::msg::Frame buildDisableFrame(uint8_t esc_id) {
     can_msgs::msg::Frame f;
