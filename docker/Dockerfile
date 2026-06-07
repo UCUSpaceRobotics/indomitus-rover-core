@@ -13,12 +13,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-robot-state-publisher \
     ros-${ROS_DISTRO}-joint-state-publisher \
     ros-${ROS_DISTRO}-ros2-socketcan \
-    ros-${ROS_DISTRO}-can-msgs \
     ros-${ROS_DISTRO}-joy \
     ros-${ROS_DISTRO}-teleop-twist-joy \
+    ros-${ROS_DISTRO}-teleop-twist-keyboard \
+    ros-${ROS_DISTRO}-rosidl-default-generators \
+    ros-${ROS_DISTRO}-rosidl-default-runtime \
+    ros-${ROS_DISTRO}-std-msgs \
     ros-${ROS_DISTRO}-sensor-msgs \
     ros-${ROS_DISTRO}-diagnostic-msgs \
-    ros-${ROS_DISTRO}-teleop-twist-keyboard \
+    ros-${ROS_DISTRO}-can-msgs \
+    ros-${ROS_DISTRO}-std-srvs \
+    ros-${ROS_DISTRO}-action-msgs \
+    vim \
     && rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US.UTF-8
@@ -61,13 +67,23 @@ CMD ["bash"]
 
 
 FROM base AS prod
+
+COPY src/ /tmp/src_packages/
+RUN mkdir -p ${WS}/src && \
+    cd /tmp/src_packages && \
+    find . -name "package.xml" -exec cp --parents {} ${WS}/src/ \; && \
+    cd ${WS} && \
+    rm -rf /tmp/src_packages
+
+RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS_DISTRO} && rm -rf /var/lib/apt/lists/*
+
 COPY ./src ${WS}/src
 
-# Temporary commented
-# RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS_DISTRO} && rm -rf /var/lib/apt/lists/*
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    colcon build \
+    --executor sequential \
+    --parallel-workers 1"
 
-RUN touch ${WS}/src/indomitus_rover_sim/COLCON_IGNORE
-
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build"
+# RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build --symlink-install"
 
 CMD ["bash"]

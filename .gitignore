@@ -60,6 +60,7 @@ install/
 log/
 
 docker-compose.yml
+docker-compose.yaml
 
 # PYTHON
 
@@ -242,3 +243,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+*.log
+COLCON_IGNORE
+*.tar
+colcon_defaults.yaml

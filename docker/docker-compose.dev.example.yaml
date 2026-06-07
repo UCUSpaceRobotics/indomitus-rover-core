@@ -1,7 +1,5 @@
-version: '3.8'
-
 services:
-  indomitus_rover_dev:
+  rover_dev:
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -10,11 +8,13 @@ services:
         ROS_DISTRO: humble
         INSTALL_SIM_TOOLS: "false"
     image: indomitus-rover:humble-dev
-    container_name: indomitus_rover_dev
+    container_name: rover_dev
     network_mode: host
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    device_cgroup_rules:
+      - "c 13:* rmw"
     stdin_open: true
     tty: true
     environment:
@@ -24,9 +24,11 @@ services:
       - ROS_LOCALHOST_ONLY=0
       - CAN_INTERFACE=can0
       - CAN_BITRATE=1000000
-    devices:
-      - /dev/input:/dev/input
+      - CAN_TRANSMIT_QUEUE_SIZE=1000
+      - SDL_VIDEODRIVER=dummy
+      - SDL_AUDIODRIVER=dummy
     volumes:
       - ./:/work:rw
       - ./src:/opt/ws/src:rw
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev/input:/dev/input:rw

@@ -1,0 +1,29 @@
+name: Build
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container:
+      image: ros:humble-ros-base
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          sudo apt update
+          rosdep update
+          rosdep install --from-paths src --ignore-src -r -y
+
+      - name: Build
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build

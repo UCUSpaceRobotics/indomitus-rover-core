@@ -1,0 +1,5 @@
+rover_controller:
+  ros__parameters:
+    wheelbase:     0.842   # meters, front-to-rear axle distance
+    track_width:   0.682   # meters, left-to-right wheel distance
+    wheel_radius:  0.16   # meters
