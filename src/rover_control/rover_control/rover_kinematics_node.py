@@ -7,7 +7,6 @@ Converts cmd_vel (Twist) → wheel angles + speeds for 4-wheel swerve-drive rove
 
 import math
 from dataclasses import dataclass
-import copy
 from enum import Enum
 
 from geometry_msgs.msg import Twist
@@ -26,10 +25,10 @@ class RoverState(str, Enum):
 
 @dataclass(frozen=True)
 class WheelData:
-    fl: float | tuple[float, float]
-    fr: float | tuple[float, float]
-    rl: float | tuple[float, float]
-    rr: float | tuple[float, float]
+    fl: float
+    fr: float
+    rl: float
+    rr: float
 
     def __iter__(self):
         return iter((self.fl, self.fr, self.rl, self.rr))
@@ -183,6 +182,89 @@ class SlewRateLimiter:
         return self.current
 
 
+class RoverStateMachine:
+    """State machine with NORMAL, ROTATE, and TRANSIT states."""
+    def __init__(self, align_threshold: float, scale_up_rate: float, scale_down_rate: float):
+        self.align_threshold = align_threshold
+        self.scale_up_rate = scale_up_rate
+        self.scale_down_rate = scale_down_rate
+
+        self.state = RoverState.NORMAL
+        self.transit_dest = RoverState.NORMAL
+        self.transit_target = WheelData.filled(0.0)
+        
+        self.transit_stopping = False
+        self.current_scale = 0.0
+        self.last_work_speeds = WheelData.filled(0.0)
+
+    def enter_transit(self, target_angles: WheelData, dest: RoverState, logger=None):
+        """Enter transit state."""
+        self.state = RoverState.TRANSIT
+        self.transit_dest = dest
+        self.transit_target = target_angles
+        self.transit_stopping = True
+        if logger:
+            logger.info(f'TRANSIT → {dest}')
+
+    def update_transitions(self, vx: float, vy: float, wz: float, desired_angles: WheelData, current_angles: WheelData, logger=None):
+        """Analyzes incoming velocities and controls transitions between states."""
+        if self._should_rotate(vx, vy, wz):
+            desired_dest = RoverState.ROTATE
+        elif self._should_translate(vx, vy):
+            desired_dest = RoverState.NORMAL
+        else:
+            desired_dest = self.transit_dest if self.state == RoverState.TRANSIT else self.state
+
+        if self.state != RoverState.TRANSIT:
+            if desired_dest != self.state:
+                self.enter_transit(desired_angles, desired_dest, logger)
+        else:
+            self.transit_target = desired_angles
+            self.transit_dest = desired_dest
+
+            if not self.transit_stopping and self._transit_complete(current_angles):
+                self.state = self.transit_dest
+                if logger:
+                    logger.info(f'Aligned → {self.state}')
+
+    def update_scale(self, dt: float, work_angles: WheelData, current_angles: WheelData, logger=None) -> float:
+        """Calculates the smoothed speed scale based on the current state and wheel angle errors."""
+        if self.state == RoverState.TRANSIT:
+            if self.transit_stopping:
+                self.current_scale = max(0.0, self.current_scale - self.scale_down_rate * dt)
+                if self.current_scale < 0.02:
+                    self.current_scale = 0.0
+                    self.transit_stopping = False
+                    if logger:
+                        logger.debug('TRANSIT: stopped, now aligning wheels')
+            else:
+                self.current_scale = 0.0
+        else:
+            max_err = max(abs(w_a - c_a) for w_a, c_a in zip(work_angles, current_angles))
+            raw_scale = max(0.0, math.cos(max_err))
+            if max_err > math.radians(20):
+                raw_scale = min(raw_scale, 0.3)
+
+            if raw_scale < self.current_scale:
+                self.current_scale = max(raw_scale, self.current_scale - self.scale_down_rate * dt)
+            else:
+                self.current_scale = min(raw_scale, self.current_scale + self.scale_up_rate * dt)
+
+        return self.current_scale
+
+    def _transit_complete(self, current_angles: WheelData) -> bool:
+        return all(
+            abs(t_angle - c_angle) < self.align_threshold
+            for t_angle, c_angle in zip(self.transit_target, current_angles)
+        )
+
+    def _should_rotate(self, vx: float, vy: float, wz: float) -> bool:
+        return abs(vx) < _VXY_EPS and abs(vy) < _VXY_EPS and abs(wz) > _WZ_EPS
+
+    def _should_translate(self, vx: float, vy: float) -> bool:
+        return abs(vx) > _VXY_EPS or abs(vy) > _VXY_EPS
+
+
 class RoverController(Node):
 
     def __init__(self):
@@ -225,6 +307,12 @@ class RoverController(Node):
             max_steer=self.max_steer
         )
 
+        self.state_machine = RoverStateMachine(
+            align_threshold=self.align_threshold,
+            scale_up_rate=self.scale_up_rate,
+            scale_down_rate=self.scale_down_rate
+        )
+
         self.current_angles = WheelData(fl=0.0, fr=0.0, rl=0.0, rr=0.0)
 
         self.vx_smoothed = 0.0
@@ -236,24 +324,8 @@ class RoverController(Node):
         self.target_vy = 0.0
         self.target_wz = 0.0
 
-        # Speed scale (0.0–1.0)
-        self._current_scale = 0.0
-
-        # State machine — states: 'NORMAL', 'ROTATE', 'TRANSIT'
-        self._state = RoverState.NORMAL
-        self._transit_dest   = RoverState.NORMAL
-        self._transit_target = WheelData(fl=0.0, fr=0.0, rl=0.0, rr=0.0)
-        # True while scale is still ramping down before wheels start moving
-        self._transit_stopping = False
         # Last real IK speeds — held during stopping so scale ramps down smoothly
         self._last_work_speeds = WheelData(fl=0.0, fr=0.0, rl=0.0, rr=0.0)
-
-        # self.wheel_pos = WheelData(
-        #     fl=(+self.L2, +self.W2),
-        #     fr=(+self.L2, -self.W2),
-        #     rl=(-self.L2, +self.W2),
-        #     rr=(-self.L2, -self.W2)
-        # )
 
         self.sub = self.create_subscription(
             Twist, 'cmd_vel', self.cmd_vel_callback, 10)
@@ -304,19 +376,14 @@ class RoverController(Node):
             return response
 
         self.kinematics.set_compact_mode(request.data)
-
-        self.get_logger().info(
-            f'Compact mode {"ENABLED" if self.kinematics.compact_mode else "DISABLED"}')
+        self.get_logger().info(f'Compact mode {"ENABLED" if request.data else "DISABLED"}')
 
         vx, vy, wz = self.vx_smoothed, self.vy_smoothed, self.wz_smoothed
         is_idle = (abs(vx) < 1e-3 and abs(vy) < 1e-3 and abs(wz) < 1e-3)
 
-        if is_idle:
-            target = self.kinematics.get_offset_angles()
-        else:
-            target, _ = self.kinematics.ik_full(vx, vy, wz)
+        target = self.kinematics.get_offset_angles() if is_idle else self.kinematics.ik_full(vx, vy, wz)[0]
 
-        self._enter_transit(target, self._state)
+        self.state_machine.enter_transit(target, self.state_machine.state, self.get_logger())
 
         response.success = True
         response.message = f'Compact mode {"enabled" if self.kinematics.compact_mode else "disabled"}'
@@ -337,38 +404,6 @@ class RoverController(Node):
         self.target_wz = wz
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Transit helpers
-    # ──────────────────────────────────────────────────────────────────────────
-
-    def _enter_transit(self, target_angles: WheelData, dest: RoverState):
-        """
-        Begin transition to dest state.
-        Does NOT reset _current_scale — deceleration is smooth.
-        Wheels only start moving once _transit_stopping phase ends (scale ≈ 0).
-        """
-        self._state            = RoverState.TRANSIT
-        self._transit_dest     = dest
-        self._transit_target   = target_angles
-        self._transit_stopping = True   # phase 1: decelerate
-        self.get_logger().info(f'TRANSIT → {dest}')
-
-    def _transit_complete(self) -> bool:
-        return all(
-            abs(t_angle - c_angle) < self.align_threshold
-            for t_angle, c_angle in zip(self._transit_target, self.current_angles)
-        )
-
-    def _should_rotate(self, vx, vy, wz) -> bool:
-        return (
-            abs(vx) < _VXY_EPS and
-            abs(vy) < _VXY_EPS and
-            abs(wz) > _WZ_EPS
-        )
-
-    def _should_translate(self, vx, vy) -> bool:
-        return abs(vx) > _VXY_EPS or abs(vy) > _VXY_EPS
-
-    # ──────────────────────────────────────────────────────────────────────────
     # Main control loop
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -385,86 +420,36 @@ class RoverController(Node):
         self.vy_smoothed = self.limiters['vy'].update(self.target_vy, dt)
         self.wz_smoothed = self.limiters['wz'].update(self.target_wz, dt)
         
-        self.wz_smoothed = self._clamp_wz(
-            self.vx_smoothed, self.vy_smoothed, self.wz_smoothed)
+        self.wz_smoothed = self._clamp_wz(self.vx_smoothed, self.vy_smoothed, self.wz_smoothed)
 
         vx = self.vx_smoothed
         vy = self.vy_smoothed
         wz = self.wz_smoothed
 
-        if self._should_rotate(vx, vy, wz):
-            desired_dest = RoverState.ROTATE
-            desired_angles, _ = self.kinematics.ik_rotate(wz)
-        elif self._should_translate(vx, vy):
-            desired_dest = RoverState.NORMAL
-            desired_angles, _ = self.kinematics.ik_full(vx, vy, wz)
-        else:
-            # Fully stopped — stay in current non-transit state
-            desired_dest = self._transit_dest if self._state == RoverState.TRANSIT else self._state
-            desired_angles, _ = self.kinematics.ik_full(vx, vy, wz)
+        desired_angles, _ = self.kinematics.ik_full(vx, vy, wz)
 
-        if self._state != RoverState.TRANSIT:
-            current_dest = self._state
-            if desired_dest != current_dest:
-                self._enter_transit(desired_angles, desired_dest)
-        else:
-            self._transit_target = desired_angles
-            self._transit_dest   = desired_dest
-
-            # Check completion
-            if not self._transit_stopping and self._transit_complete():
-                self._state = self._transit_dest
-                self.get_logger().info(f'Aligned → {self._state}')
+        self.state_machine.update_transitions(
+            vx, vy, wz, desired_angles, self.current_angles, self.get_logger()
+        )
 
         # Step 3 — compute work angles and speeds
-        if self._state == RoverState.NORMAL:
+        if self.state_machine.state == RoverState.NORMAL:
             work_angles, work_speeds = self.kinematics.ik_full(vx, vy, wz)
-
-        elif self._state == RoverState.ROTATE:
+        elif self.state_machine.state == RoverState.ROTATE:
             work_angles, work_speeds = self.kinematics.ik_rotate(wz)
-
-        elif self._state == RoverState.TRANSIT:
-            if self._transit_stopping:
+        else: # TRANSIT
+            if self.state_machine.transit_stopping:
                 work_angles = self.current_angles
                 work_speeds = self._last_work_speeds
             else:
-                # Phase 2: scale already 0, steer toward target
-                work_angles = self._transit_target
+                work_angles = self.state_machine.transit_target
                 work_speeds = WheelData.filled(0.0)
 
-        if self._state != RoverState.TRANSIT:
+        if self.state_machine.state != RoverState.TRANSIT:
             self._last_work_speeds = work_speeds
 
         # Step 4 — speed scale
-        if self._state == RoverState.TRANSIT:
-            if self._transit_stopping:
-                self._current_scale = max(0.0,
-                    self._current_scale - self.scale_down_rate * dt)
-                if self._current_scale < 0.02:
-                    self._current_scale    = 0.0
-                    self._transit_stopping = False
-                    self.get_logger().debug('TRANSIT: stopped, now aligning wheels')
-            else:
-                self._current_scale = 0.0
-            speed_scale = self._current_scale
-
-        else:
-            # NORMAL or ROTATE — scale by worst-case angle error
-            max_err = max(abs(w_a - c_a) for w_a, c_a in zip(work_angles, self.current_angles))
-            raw_scale = max(0.0, math.cos(max_err))
-            if max_err > math.radians(20):
-                raw_scale = min(raw_scale, 0.3)
-
-            if raw_scale < self._current_scale:
-                self._current_scale = max(
-                    raw_scale,
-                    self._current_scale - self.scale_down_rate * dt)
-            else:
-                self._current_scale = min(
-                    raw_scale,
-                    self._current_scale + self.scale_up_rate * dt)
-
-            speed_scale = self._current_scale
+        speed_scale = self.state_machine.update_scale(dt, work_angles, self.current_angles, self.get_logger())
 
         # Step 5 — advance wheel angles
         self.current_angles = WheelData(
