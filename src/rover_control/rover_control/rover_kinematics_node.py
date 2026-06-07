@@ -61,6 +61,25 @@ _VXY_EPS = 1e-3   # m/s  — below this vx/vy is considered zero
 _WZ_EPS  = 1e-3   # rad/s — below this wz is considered zero
 
 
+class SlewRateLimiter:
+    """Class to limit acceleration and deceleration rates for a single variable."""
+    
+    def __init__(self, max_accel: float, max_decel: float, initial_value: float = 0.0):
+        self.max_accel = max_accel
+        self.max_decel = max_decel
+        self.current = initial_value
+
+    def update(self, target: float, dt: float) -> float:
+        diff = target - self.current
+        # Determine if we are braking or accelerating
+        is_braking = (abs(target) < abs(self.current)) or (self.current * target < 0)
+        rate = self.max_decel if is_braking else self.max_accel
+        
+        step = max(-rate * dt, min(rate * dt, diff))
+        self.current += step
+        return self.current
+
+
 class RoverController(Node):
 
     def __init__(self):
@@ -90,13 +109,19 @@ class RoverController(Node):
 
         self._read_params()
 
+        self.limiters = {
+            'vx': SlewRateLimiter(self.max_accel, self.max_decel),
+            'vy': SlewRateLimiter(self.max_accel, self.max_decel),
+            'wz': SlewRateLimiter(self.max_accel, self.max_decel),
+        }
+
         # Estimated wheel angles (open loop — no encoders yet)
         self.current_angles = {'FL': 0.0, 'FR': 0.0, 'RL': 0.0, 'RR': 0.0}
 
         # Smoothed body-frame velocities
-        self.current_vx = 0.0
-        self.current_vy = 0.0
-        self.current_wz = 0.0
+        self.vx_smoothed = 0.0
+        self.vy_smoothed = 0.0
+        self.wz_smoothed = 0.0
 
         # Raw targets from cmd_vel
         self.target_vx = 0.0
@@ -188,7 +213,7 @@ class RoverController(Node):
         # so calling it now gives the correct post-toggle angles.
         # Special case: if robot is fully stopped (idle), _ik_full returns zeros
         # and we must explicitly use the offset as the target instead.
-        vx, vy, wz = self.current_vx, self.current_vy, self.current_wz
+        vx, vy, wz = self.vx_smoothed, self.vy_smoothed, self.wz_smoothed
         is_idle = (abs(vx) < 1e-3 and abs(vy) < 1e-3 and abs(wz) < 1e-3)
 
         if is_idle:
@@ -267,29 +292,24 @@ class RoverController(Node):
     # ──────────────────────────────────────────────────────────────────────────
 
     def control_loop(self):
-        elapsed = (
-            self.get_clock().now() - self._last_cmd_vel_time
-        ).nanoseconds * 1e-9
+        # Check topic timeout
+        elapsed = (self.get_clock().now() - self._last_cmd_vel_time).nanoseconds * 1e-9
         if elapsed > self._cmd_vel_timeout:
-            self.target_vx = 0.0
-            self.target_vy = 0.0
-            self.target_wz = 0.0
+            self.target_vx, self.target_vy, self.target_wz = 0.0, 0.0, 0.0
 
         dt = 1.0 / self.control_freq
 
         # Step 1 — smooth velocities
-        self.current_vx = self._rate_limit(
-            self.current_vx, self.target_vx, self.max_accel, self.max_decel, dt)
-        self.current_vy = self._rate_limit(
-            self.current_vy, self.target_vy, self.max_accel, self.max_decel, dt)
-        self.current_wz = self._rate_limit(
-            self.current_wz, self.target_wz, self.max_accel, self.max_decel, dt)
-        self.current_wz = self._clamp_wz(
-            self.current_vx, self.current_vy, self.current_wz)
+        self.vx_smoothed = self.limiters['vx'].update(self.target_vx, dt)
+        self.vy_smoothed = self.limiters['vy'].update(self.target_vy, dt)
+        self.wz_smoothed = self.limiters['wz'].update(self.target_wz, dt)
+        
+        self.wz_smoothed = self._clamp_wz(
+            self.vx_smoothed, self.vy_smoothed, self.wz_smoothed)
 
-        vx = self.current_vx
-        vy = self.current_vy
-        wz = self.current_wz
+        vx = self.vx_smoothed
+        vy = self.vy_smoothed
+        wz = self.wz_smoothed
 
         # Step 2 — determine desired destination state from current cmd_vel
         # This runs every tick regardless of current state so that a changing
@@ -397,19 +417,9 @@ class RoverController(Node):
 
         # Step 6 — publish
         out = WheelTargets()
-        result_angles = [self.current_angles[n] for n in self.wheel_names]
-        result_speeds = [s * speed_scale for s in work_speeds]
-
-        out.fl_angle, out.fr_angle, out.rl_angle, out.rr_angle = result_angles
-        out.fl_speed, out.fr_speed, out.rl_speed, out.rr_speed = result_speeds
+        out.fl_angle, out.fr_angle, out.rl_angle, out.rr_angle = [self.current_angles[n] for n in self.wheel_names]
+        out.fl_speed, out.fr_speed, out.rl_speed, out.rr_speed = [s * speed_scale for s in work_speeds]
         self.pub.publish(out)
-
-        self.get_logger().debug(
-            f'{self._state}{"(stop)" if self._transit_stopping else ""} | '
-            f'compact={self._compact_mode} | '
-            f'scale={speed_scale:.2f} | '
-            f'angles=[{",".join(f"{math.degrees(self.current_angles[n]):+.1f}" for n in self.wheel_names)}]'
-        )
 
     # ──────────────────────────────────────────────────────────────────────────
     # Kinematics
@@ -493,13 +503,6 @@ class RoverController(Node):
     # ──────────────────────────────────────────────────────────────────────────
     # Helpers
     # ──────────────────────────────────────────────────────────────────────────
-
-    def _rate_limit(self, current, target, max_accel, max_decel, dt):
-        diff = target - current
-        rate = max_decel if (
-            abs(target) < abs(current) or current * target < 0
-        ) else max_accel
-        return current + self._clamp(diff, -rate * dt, rate * dt)
 
     def _step_angle(self, current: float, target: float, dt: float) -> float:
         """Advance steering angle toward target. No wrap — cable safe."""
