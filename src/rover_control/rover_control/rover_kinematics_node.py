@@ -3,40 +3,6 @@
 Rover Controller Node.
 
 Converts cmd_vel (Twist) → wheel angles + speeds for 4-wheel swerve-drive rover.
-
-Wheel layout (top view):
-        front
-   FL -------- FR
-   |            |
-   |   (center) |
-   |            |
-   RL -------- RR
-        rear
-
-State machine:
-    NORMAL  — full operation, IK angles + traction
-    ROTATE  — pure rotate-in-place, fixed tangential angles + traction
-    TRANSIT — traction held at 0, wheels moving to target angles for next state
-
-Transitions:
-    NORMAL → TRANSIT → ROTATE   when |vx|<eps and |vy|<eps and |wz|>eps
-    ROTATE → TRANSIT → NORMAL   when |vx|>eps or |vy|>eps
-
-TRANSIT entry:
-    - Does NOT instantly zero speed_scale.
-    - speed_scale decelerates at scale_down_rate until it reaches 0.
-    - Only then wheels begin rotating to new target angles.
-    - When all wheels aligned → enter destination state, scale ramps back up.
-
-Compact mode:
-    NOT a state. A flag that adds ±180° offset to all IK output angles.
-    NORMAL / ROTATE / TRANSIT all work identically in compact mode.
-    Toggling compact triggers a TRANSIT to realign wheels with new offsets.
-    Drive works normally once realigned.
-
-Nav2 compatibility:
-    Nav2 publishes standard cmd_vel (vx, vy, wz).
-    No Nav2 configuration needed beyond motion_model: Omni.
 """
 
 import math
@@ -208,20 +174,11 @@ class RoverController(Node):
         self.get_logger().info(
             'Compact mode ' + ('ENABLED' if self._compact_mode else 'DISABLED'))
 
-        # Compute transit target: current IK angles WITH new compact offset.
-        # _ik_full already applies self._offset_angles, which was just updated,
-        # so calling it now gives the correct post-toggle angles.
-        # Special case: if robot is fully stopped (idle), _ik_full returns zeros
-        # and we must explicitly use the offset as the target instead.
         vx, vy, wz = self.vx_smoothed, self.vy_smoothed, self.wz_smoothed
         is_idle = (abs(vx) < 1e-3 and abs(vy) < 1e-3 and abs(wz) < 1e-3)
 
         if is_idle:
-            # Target is simply the offset position for each wheel
             if self._compact_mode:
-                # Compact on: go to offset angles (current_angle + offset delta)
-                # Use the raw offset value as absolute target since at idle
-                # wheels should be at exactly the offset position
                 target = {
                     name: _COMPACT_OFFSETS[name]
                     for name in self.wheel_names
@@ -311,9 +268,6 @@ class RoverController(Node):
         vy = self.vy_smoothed
         wz = self.wz_smoothed
 
-        # Step 2 — determine desired destination state from current cmd_vel
-        # This runs every tick regardless of current state so that a changing
-        # cmd_vel always updates the transit target, even mid-transition.
         if self._should_rotate(vx, vy, wz):
             desired_dest = 'ROTATE'
             desired_angles, _ = self._ik_rotate(wz)
@@ -329,19 +283,11 @@ class RoverController(Node):
         desired_target = {name: desired_angles[i]
                           for i, name in enumerate(self.wheel_names)}
 
-        # Trigger or update transit whenever the destination or target changes
-        # significantly vs what we're currently tracking.
         if self._state != 'TRANSIT':
-            # Only enter transit on a real mode change
             current_dest = self._state
             if desired_dest != current_dest:
                 self._enter_transit(desired_target, desired_dest)
         else:
-            # Already in transit — update target to latest IK so that a
-            # mid-transit cmd_vel change is reflected immediately.
-            # Only update during stopping phase (wheels not yet moving);
-            # once aligning, keep target stable so wheels don't chase a
-            # moving goal.
             self._transit_target = desired_target
             self._transit_dest   = desired_dest
 
@@ -359,9 +305,6 @@ class RoverController(Node):
 
         else:  # TRANSIT
             if self._transit_stopping:
-                # Phase 1: keep current angles, let scale ramp down smoothly.
-                # Use last real IK speeds — speed_scale * speeds gives smooth
-                # decel, NOT instant zero.
                 work_angles = [self.current_angles[n] for n in self.wheel_names]
                 work_speeds = self._last_work_speeds
             else:
