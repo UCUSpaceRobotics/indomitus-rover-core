@@ -6,6 +6,9 @@ Converts cmd_vel (Twist) → wheel angles + speeds for 4-wheel swerve-drive rove
 """
 
 import math
+from dataclasses import dataclass
+import copy
+from enum import Enum
 
 from geometry_msgs.msg import Twist
 from indomitus_interfaces.msg import WheelTargets
@@ -15,16 +18,42 @@ import rclpy
 from rclpy.node import Node
 
 
-_COMPACT_OFFSETS = {
-    'FL': -math.pi,
-    'FR': +math.pi,
-    'RL': +math.pi,
-    'RR': -math.pi,
-}
-_ZERO_OFFSETS = {name: 0.0 for name in _COMPACT_OFFSETS}
+class RoverState(str, Enum):
+    NORMAL = "NORMAL"
+    ROTATE = "ROTATE"
+    TRANSIT = "TRANSIT"
+
+
+@dataclass(frozen=True)
+class WheelData:
+    fl: float | tuple[float, float]
+    fr: float | tuple[float, float]
+    rl: float | tuple[float, float]
+    rr: float | tuple[float, float]
+
+    def __iter__(self):
+        return iter((self.fl, self.fr, self.rl, self.rr))
+
+    @classmethod
+    def filled(cls, value):
+        return cls(value, value, value, value)
+
+
+_COMPACT_OFFSETS = WheelData(
+    fl=-math.pi, fr=+math.pi,
+    rl=+math.pi, rr=-math.pi
+)
+_ZERO_OFFSETS = WheelData(
+    fl=0.0, fr=0.0,
+    rl=0.0, rr=0.0
+)
 
 _VXY_EPS = 1e-3   # m/s  — below this vx/vy is considered zero
 _WZ_EPS  = 1e-3   # rad/s — below this wz is considered zero
+
+
+def clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
 
 
 class SlewRateLimiter:
@@ -41,7 +70,7 @@ class SlewRateLimiter:
         is_braking = (abs(target) < abs(self.current)) or (self.current * target < 0)
         rate = self.max_decel if is_braking else self.max_accel
         
-        step = max(-rate * dt, min(rate * dt, diff))
+        step = clamp(diff, -rate * dt, rate * dt)
         self.current += step
         return self.current
 
@@ -82,7 +111,7 @@ class RoverController(Node):
         }
 
         # Estimated wheel angles (open loop — no encoders yet)
-        self.current_angles = {'FL': 0.0, 'FR': 0.0, 'RL': 0.0, 'RR': 0.0}
+        self.current_angles = WheelData(fl=0.0, fr=0.0, rl=0.0, rr=0.0)
 
         # Smoothed body-frame velocities
         self.vx_smoothed = 0.0
@@ -98,25 +127,24 @@ class RoverController(Node):
         self._current_scale = 0.0
 
         # State machine — states: 'NORMAL', 'ROTATE', 'TRANSIT'
-        self._state = 'NORMAL'
-        self._transit_dest   = 'NORMAL'
-        self._transit_target = {'FL': 0.0, 'FR': 0.0, 'RL': 0.0, 'RR': 0.0}
+        self._state = RoverState.NORMAL
+        self._transit_dest   = RoverState.NORMAL
+        self._transit_target = WheelData(fl=0.0, fr=0.0, rl=0.0, rr=0.0)
         # True while scale is still ramping down before wheels start moving
         self._transit_stopping = False
         # Last real IK speeds — held during stopping so scale ramps down smoothly
-        self._last_work_speeds = [0.0, 0.0, 0.0, 0.0]
+        self._last_work_speeds = WheelData(fl=0.0, fr=0.0, rl=0.0, rr=0.0)
 
-        self.wheel_names = ['FL', 'FR', 'RL', 'RR']
-        self.wheel_pos = {
-            'FL': (+self.L2, +self.W2),
-            'FR': (+self.L2, -self.W2),
-            'RL': (-self.L2, +self.W2),
-            'RR': (-self.L2, -self.W2),
-        }
+        self.wheel_pos = WheelData(
+            fl=(+self.L2, +self.W2),
+            fr=(+self.L2, -self.W2),
+            rl=(-self.L2, +self.W2),
+            rr=(-self.L2, -self.W2)
+        )
 
         # Compact mode — flag only, not a state
         self._compact_mode  = False
-        self._offset_angles = _ZERO_OFFSETS.copy()
+        self._offset_angles = copy.copy(_ZERO_OFFSETS)
 
         self.sub = self.create_subscription(
             Twist, 'cmd_vel', self.cmd_vel_callback, 10)
@@ -148,8 +176,7 @@ class RoverController(Node):
         self.max_accel       = self.get_parameter('max_accel').value
         self.max_decel       = self.get_parameter('max_decel').value
         self.control_freq    = self.get_parameter('control_frequency').value
-        self.align_threshold = math.radians(
-            self.get_parameter('align_threshold_deg').value)
+        self.align_threshold = math.radians(self.get_parameter('align_threshold_deg').value)
         self.scale_up_rate   = self.get_parameter('scale_up_rate').value
         self.scale_down_rate = self.get_parameter('scale_down_rate').value
         self.L2 = self.wheelbase / 2.0
@@ -168,33 +195,22 @@ class RoverController(Node):
             return response
 
         self._compact_mode  = request.data
-        self._offset_angles = (
-            _COMPACT_OFFSETS.copy() if self._compact_mode else _ZERO_OFFSETS.copy()
-        )
+        self._offset_angles = _COMPACT_OFFSETS.copy() if self._compact_mode else _ZERO_OFFSETS
         self.get_logger().info(
-            'Compact mode ' + ('ENABLED' if self._compact_mode else 'DISABLED'))
+            f'Compact mode {"ENABLED" if self._compact_mode else "DISABLED"}')
 
         vx, vy, wz = self.vx_smoothed, self.vy_smoothed, self.wz_smoothed
         is_idle = (abs(vx) < 1e-3 and abs(vy) < 1e-3 and abs(wz) < 1e-3)
 
         if is_idle:
-            if self._compact_mode:
-                target = {
-                    name: _COMPACT_OFFSETS[name]
-                    for name in self.wheel_names
-                }
-            else:
-                # Compact off: return to 0° (straight)
-                target = {name: 0.0 for name in self.wheel_names}
+            target = _COMPACT_OFFSETS if self._compact_mode else _ZERO_OFFSETS
         else:
-            ik_angles, _ = self._ik_full(vx, vy, wz)
-            target = {name: ik_angles[i] for i, name in enumerate(self.wheel_names)}
+            target, _ = self._ik_full(vx, vy, wz)
 
         self._enter_transit(target, self._state)
 
         response.success = True
-        response.message = 'Compact mode ' + (
-            'enabled' if self._compact_mode else 'disabled')
+        response.message = f'Compact mode {"enabled" if self._compact_mode else "disabled"}'
         return response
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -203,9 +219,9 @@ class RoverController(Node):
 
     def cmd_vel_callback(self, msg: Twist):
         self._last_cmd_vel_time = self.get_clock().now()
-        vx = self._clamp(msg.linear.x, -self.max_linear, self.max_linear)
-        vy = self._clamp(msg.linear.y, -self.max_linear, self.max_linear)
-        wz = self._clamp(msg.angular.z, -self.max_angular, self.max_angular)
+        vx = clamp(msg.linear.x, -self.max_linear, self.max_linear)
+        vy = clamp(msg.linear.y, -self.max_linear, self.max_linear)
+        wz = clamp(msg.angular.z, -self.max_angular, self.max_angular)
         wz = self._clamp_wz(vx, vy, wz)
         self.target_vx = vx
         self.target_vy = vy
@@ -215,23 +231,22 @@ class RoverController(Node):
     # Transit helpers
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _enter_transit(self, target_angles: dict, dest: str):
+    def _enter_transit(self, target_angles: WheelData, dest: RoverState):
         """
         Begin transition to dest state.
         Does NOT reset _current_scale — deceleration is smooth.
         Wheels only start moving once _transit_stopping phase ends (scale ≈ 0).
         """
-        self._state            = 'TRANSIT'
+        self._state            = RoverState.TRANSIT
         self._transit_dest     = dest
-        self._transit_target   = dict(target_angles)
+        self._transit_target   = target_angles
         self._transit_stopping = True   # phase 1: decelerate
         self.get_logger().info(f'TRANSIT → {dest}')
 
     def _transit_complete(self) -> bool:
         return all(
-            abs(self._transit_target[name] - self.current_angles[name])
-            < self.align_threshold
-            for name in self.wheel_names
+            abs(t_angle - c_angle) < self.align_threshold
+            for t_angle, c_angle in zip(self._transit_target, self.current_angles)
         )
 
     def _should_rotate(self, vx, vy, wz) -> bool:
@@ -269,26 +284,22 @@ class RoverController(Node):
         wz = self.wz_smoothed
 
         if self._should_rotate(vx, vy, wz):
-            desired_dest = 'ROTATE'
+            desired_dest = RoverState.ROTATE
             desired_angles, _ = self._ik_rotate(wz)
         elif self._should_translate(vx, vy):
-            desired_dest = 'NORMAL'
+            desired_dest = RoverState.NORMAL
             desired_angles, _ = self._ik_full(vx, vy, wz)
         else:
             # Fully stopped — stay in current non-transit state
-            desired_dest = self._transit_dest if self._state == 'TRANSIT' else self._state
-            desired_angles_list, _ = self._ik_full(vx, vy, wz)
-            desired_angles = desired_angles_list
+            desired_dest = self._transit_dest if self._state == RoverState.TRANSIT else self._state
+            desired_angles, _ = self._ik_full(vx, vy, wz)
 
-        desired_target = {name: desired_angles[i]
-                          for i, name in enumerate(self.wheel_names)}
-
-        if self._state != 'TRANSIT':
+        if self._state != RoverState.TRANSIT:
             current_dest = self._state
             if desired_dest != current_dest:
-                self._enter_transit(desired_target, desired_dest)
+                self._enter_transit(desired_angles, desired_dest)
         else:
-            self._transit_target = desired_target
+            self._transit_target = desired_angles
             self._transit_dest   = desired_dest
 
             # Check completion
@@ -297,33 +308,29 @@ class RoverController(Node):
                 self.get_logger().info(f'Aligned → {self._state}')
 
         # Step 3 — compute work angles and speeds
-        if self._state == 'NORMAL':
+        if self._state == RoverState.NORMAL:
             work_angles, work_speeds = self._ik_full(vx, vy, wz)
 
-        elif self._state == 'ROTATE':
+        elif self._state == RoverState.ROTATE:
             work_angles, work_speeds = self._ik_rotate(wz)
 
-        else:  # TRANSIT
+        elif self._state == RoverState.TRANSIT:
             if self._transit_stopping:
-                work_angles = [self.current_angles[n] for n in self.wheel_names]
+                work_angles = self.current_angles
                 work_speeds = self._last_work_speeds
             else:
                 # Phase 2: scale already 0, steer toward target
-                work_angles = [self._transit_target[n] for n in self.wheel_names]
-                work_speeds = [0.0] * 4
+                work_angles = self._transit_target
+                work_speeds = WheelData.filled(0.0)
 
-        # Save work_speeds for use in next tick's stopping phase
-        if self._state != 'TRANSIT':
-            self._last_work_speeds = list(work_speeds)
+        if self._state != RoverState.TRANSIT:
+            self._last_work_speeds = work_speeds
 
         # Step 4 — speed scale
-        if self._state == 'TRANSIT':
+        if self._state == RoverState.TRANSIT:
             if self._transit_stopping:
-                # Smooth deceleration — do not hard-zero
-                self._current_scale = max(
-                    0.0,
+                self._current_scale = max(0.0,
                     self._current_scale - self.scale_down_rate * dt)
-                # Once slow enough, switch to steering phase
                 if self._current_scale < 0.02:
                     self._current_scale    = 0.0
                     self._transit_stopping = False
@@ -334,10 +341,7 @@ class RoverController(Node):
 
         else:
             # NORMAL or ROTATE — scale by worst-case angle error
-            max_err = max(
-                abs(work_angles[i] - self.current_angles[name])
-                for i, name in enumerate(self.wheel_names)
-            )
+            max_err = max(abs(w_a - c_a) for w_a, c_a in zip(work_angles, self.current_angles))
             raw_scale = max(0.0, math.cos(max_err))
             if max_err > math.radians(20):
                 raw_scale = min(raw_scale, 0.3)
@@ -354,81 +358,104 @@ class RoverController(Node):
             speed_scale = self._current_scale
 
         # Step 5 — advance wheel angles
-        for name, t_angle in zip(self.wheel_names, work_angles):
-            self.current_angles[name] = self._step_angle(
-                self.current_angles[name], t_angle, dt)
+        self.current_angles = WheelData(
+            fl=self._step_angle(self.current_angles.fl, work_angles.fl, dt),
+            fr=self._step_angle(self.current_angles.fr, work_angles.fr, dt),
+            rl=self._step_angle(self.current_angles.rl, work_angles.rl, dt),
+            rr=self._step_angle(self.current_angles.rr, work_angles.rr, dt)
+        )
 
         # Step 6 — publish
         out = WheelTargets()
-        out.fl_angle, out.fr_angle, out.rl_angle, out.rr_angle = [self.current_angles[n] for n in self.wheel_names]
-        out.fl_speed, out.fr_speed, out.rl_speed, out.rr_speed = [s * speed_scale for s in work_speeds]
+
+        out.fl_angle = self.current_angles.fl
+        out.fr_angle = self.current_angles.fr
+        out.rl_angle = self.current_angles.rl
+        out.rr_angle = self.current_angles.rr
+
+        out.fl_speed = work_speeds.fl * speed_scale
+        out.fr_speed = work_speeds.fr * speed_scale
+        out.rl_speed = work_speeds.rl * speed_scale
+        out.rr_speed = work_speeds.rr * speed_scale
+
         self.pub.publish(out)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Kinematics
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _apply_compact_offset(self, angles: list) -> list:
+    def _apply_compact_offset(self, angles: WheelData) -> WheelData:
         """Add compact offset to each wheel angle if compact mode is active."""
         if not self._compact_mode:
             return angles
-        return [
-            angles[i] + self._offset_angles[name]
-            for i, name in enumerate(self.wheel_names)
-        ]
+        return WheelData(
+            fl=angles.fl + self._offset_angles.fl,
+            fr=angles.fr + self._offset_angles.fr,
+            rl=angles.rl + self._offset_angles.rl,
+            rr=angles.rr + self._offset_angles.rr
+        )
 
-    def _ik_full(self, vx: float, vy: float, wz: float):
+    def _ik_full(self, vx: float, vy: float, wz: float) -> tuple[WheelData, WheelData]:
         """Full IK for NORMAL mode. Compact offset applied here."""
         if abs(vx) < _VXY_EPS and abs(vy) < _VXY_EPS:
             if abs(wz) < _WZ_EPS:
-                angles = self._apply_compact_offset([0.0] * 4)
-                return angles, [0.0] * 4
+                angles = self._apply_compact_offset(WheelData.filled(0.0))
+                return angles, WheelData.filled(0.0)
             return self._ik_rotate(wz)
 
         if abs(wz) < _WZ_EPS:
             speed = math.hypot(vx, vy) / self.wheel_radius
             angle = math.atan2(vy, vx)
             angle, speed = self._normalize_wheel_angle(angle, speed)
-            angles = self._apply_compact_offset([angle] * 4)
-            speeds = [speed] * 4
+            angles = self._apply_compact_offset(WheelData.filled(angle))
+            speeds = WheelData.filled(speed)
             if self._compact_mode:
-                speeds = [-s for s in speeds]
+                speeds = WheelData(fl=-speeds.fl, fr=-speeds.fr, rl=-speeds.rl, rr=-speeds.rr)
             return angles, speeds
 
         angles, speeds = self._ik_general(vx, vy, wz)
         angles = self._apply_compact_offset(angles)
         if self._compact_mode:
-            speeds = [-s for s in speeds]
+            speeds = WheelData(fl=-speeds.fl, fr=-speeds.fr, rl=-speeds.rl, rr=-speeds.rr)
         return angles, speeds
 
-    def _ik_rotate(self, wz: float):
+    def _ik_rotate(self, wz: float) -> tuple[WheelData, WheelData]:
         """IK for pure rotate-in-place. Compact offset applied here."""
-        angles, speeds = [], []
-        for _, (wx, wy) in self.wheel_pos.items():
-            vx_w = -wz * wy
-            vy_w = +wz * wx
-            angle = math.atan2(vy_w, vx_w)
-            speed = math.hypot(vx_w, vy_w) / self.wheel_radius
-            angle, speed = self._normalize_wheel_angle(angle, speed)
-            angles.append(angle)
-            speeds.append(speed)
+        fl_a, fl_s = self._compute_wheel_ik(-wz * self.W2, +wz * self.L2)
+        fr_a, fr_s = self._compute_wheel_ik(+wz * self.W2, +wz * self.L2)
+        rl_a, rl_s = self._compute_wheel_ik(-wz * self.W2, -wz * self.L2)
+        rr_a, rr_s = self._compute_wheel_ik(+wz * self.W2, -wz * self.L2)
+
+        angles = WheelData(fl=fl_a, fr=fr_a, rl=rl_a, rr=rr_a)
         angles = self._apply_compact_offset(angles)
+
         if self._compact_mode:
-            speeds = [-s for s in speeds]
+            speeds = WheelData(fl=-fl_s, fr=-fr_s, rl=-rl_s, rr=-rr_s)
+        else:
+            speeds = WheelData(fl=fl_s, fr=fr_s, rl=rl_s, rr=rr_s)
+
         return angles, speeds
 
-    def _ik_general(self, vx: float, vy: float, wz: float):
+    def _ik_general(self, vx: float, vy: float, wz: float) -> tuple[WheelData, WheelData]:
         """Raw holonomic IK — no compact offset (applied by callers)."""
-        angles, speeds = [], []
-        for _, (wx, wy) in self.wheel_pos.items():
-            vx_w = vx - wz * wy
-            vy_w = vy + wz * wx
-            angle = math.atan2(vy_w, vx_w)
-            speed = math.hypot(vx_w, vy_w) / self.wheel_radius
-            angle, speed = self._normalize_wheel_angle(angle, speed)
-            angles.append(angle)
-            speeds.append(speed)
-        angles = [self._clamp(a, -self.max_steer, self.max_steer) for a in angles]
+        fl_a_raw, fl_s_raw = self._compute_wheel_ik(vx - wz * self.W2, vy + wz * self.L2)
+        fr_a_raw, fr_s_raw = self._compute_wheel_ik(vx + wz * self.W2, vy + wz * self.L2)
+        rl_a_raw, rl_s_raw = self._compute_wheel_ik(vx - wz * self.W2, vy - wz * self.L2)
+        rr_a_raw, rr_s_raw = self._compute_wheel_ik(vx + wz * self.W2, vy - wz * self.L2)
+
+        fl_a = clamp(fl_a_raw, -self.max_steer, self.max_steer)
+        fr_a = clamp(fr_a_raw, -self.max_steer, self.max_steer)
+        rl_a = clamp(rl_a_raw, -self.max_steer, self.max_steer)
+        rr_a = clamp(rr_a_raw, -self.max_steer, self.max_steer)
+
+        fl_s = fl_s_raw * math.cos(fl_a_raw - fl_a)
+        fr_s = fr_s_raw * math.cos(fr_a_raw - fr_a)
+        rl_s = rl_s_raw * math.cos(rl_a_raw - rl_a)
+        rr_s = rr_s_raw * math.cos(rr_a_raw - rr_a)
+
+        angles = WheelData(fl=fl_a, fr=fr_a, rl=rl_a, rr=rr_a)
+        speeds = WheelData(fl=fl_s, fr=fr_s, rl=rl_s, rr=rr_s)
+
         return angles, speeds
 
     def _clamp_wz(self, vx: float, vy: float, wz: float) -> float:
@@ -447,10 +474,16 @@ class RoverController(Node):
     # Helpers
     # ──────────────────────────────────────────────────────────────────────────
 
+    def _compute_wheel_ik(self, vx_w: float, vy_w: float) -> tuple[float, float]:
+        """Compute steering angle and speed for a single wheel."""
+        angle = math.atan2(vy_w, vx_w)
+        speed = math.hypot(vx_w, vy_w) / self.wheel_radius
+        return self._normalize_wheel_angle(angle, speed)
+
     def _step_angle(self, current: float, target: float, dt: float) -> float:
         """Advance steering angle toward target. No wrap — cable safe."""
         diff = target - current
-        step = self._clamp(diff, -self.max_steer_rate * dt, self.max_steer_rate * dt)
+        step = clamp(diff, -self.max_steer_rate * dt, self.max_steer_rate * dt)
         return current + step
 
     def _normalize_wheel_angle(self, angle: float, speed: float):
@@ -462,10 +495,6 @@ class RoverController(Node):
             angle += math.pi
             speed = -speed
         return angle, speed
-
-    @staticmethod
-    def _clamp(value: float, lo: float, hi: float) -> float:
-        return max(lo, min(hi, value))
 
 
 def main(args=None):
