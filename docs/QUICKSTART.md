@@ -7,23 +7,16 @@
 - rover_description - packages with meshes and everythin related to rover geometry, form, so on
 - rover_chassis_driver - package with nodes resposible for communication with motors via CAN bus
     - chassis_driver_node - transforms WheelTargets msg into CAN bus frames for motors. Also it collects data from each motor about voltage, current, tempreture, so on.
-- rover_control -
-
-## 3. Host — CAN interface setup
-
-Run once before starting Docker (requires physical CAN adapter connected):
-
-```bash
-sudo ip link set can0 up type can bitrate 1000000
-sudo ip link set can0 txqueuelen 1000
-```
-
-Verify it's up:
-
-```bash
-ip link show can0
-# should say: UP LOWER_UP
-```
+- rover_control - package with kinematics_node and everything that is related to movement control
+    - rover_kinematics_node
+    - joystick_interpreter_node
+    - rover_odometry_node (TODO)
+- rover_peripherals - package with nodes communicating with devices mounted to rover body
+    - rover_container_node
+    - rover_lighting_node
+- rover_sim - package with all stuff that is related to simulation
+    - sim_chassis_driver_node - takes data from /wheel_targets topic and moves wheels via ros2_control
+    - sim_diff_bar_node - nodes that simulates differential bar work
 
 ---
 
@@ -55,7 +48,25 @@ exit
 
 ---
 
-## 3. Bring up the rover
+## 3. Host — CAN interface setup
+
+Run once before starting Docker (requires physical CAN adapter connected):
+
+```bash
+sudo ip link set can0 up type can bitrate 1000000
+sudo ip link set can0 txqueuelen 1000
+```
+
+Verify it's up:
+
+```bash
+ip link show can0
+# should say: UP LOWER_UP
+```
+
+---
+
+## 4. Bring up the rover
 
 Open a shell inside the container:
 
