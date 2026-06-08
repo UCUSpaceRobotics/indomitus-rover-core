@@ -1,3 +1,6 @@
+Here is the updated `QUICKSTART.md`. I have updated the "Build and start Docker" section to reflect that the workspace build is now a manual process.
+
+```markdown
 # Rover Quickstart
 
 ## 1. Host — CAN interface setup
@@ -27,19 +30,19 @@ cd ~/Desktop/indomitus-rover-core
 docker compose up --build -d
 ```
 
-The container auto-builds the ROS2 workspace on first start (skips Gazebo sim package).
-Watch build progress:
-
-```bash
-docker logs -f rover_dev
-# Wait for: "ROS humble ready. Workspace: /opt/ws"
-```
-
-If you need to rebuild manually (e.g. after code changes):
+Once the container is running, build the ROS2 workspace:
 
 ```bash
 docker exec -it rover_dev bash
-colcon build --symlink-install --packages-skip rover_sim
+colcon build --symlink-install
+source install/setup.bash
+```
+
+If you need to rebuild after code changes:
+
+```bash
+docker exec -it rover_dev bash
+colcon build --symlink-install
 source install/setup.bash
 exit
 ```
@@ -61,9 +64,10 @@ ros2 launch rover_bringup rover.launch.py
 ```
 
 What starts:
-- `socket_can_sender` + `socket_can_receiver` — CAN ↔ ROS2 bridge
-- `rover_kinematics_node` — Ackermann geometry (starts 1.5s after CAN bridge)
-- `chassis_driver_node` — motor driver (starts 1.5s after CAN bridge, enables motors after 3s)
+
+* `socket_can_sender` + `socket_can_receiver` — CAN ↔ ROS2 bridge
+* `rover_kinematics_node` — Ackermann geometry (starts 1.5s after CAN bridge)
+* `chassis_driver_node` — motor driver (starts 1.5s after CAN bridge, enables motors after 3s)
 
 Leave this terminal open. Open a second terminal for testing.
 
@@ -123,7 +127,7 @@ python3 /work/test_pipeline.py
 ### Controls
 
 | Key | Action |
-|-----|--------|
+| --- | --- |
 | `e` | Enable all motors (send init frames) |
 | `d` | Disable all motors (zero → wait 1.5s → disable) |
 | `1` | Straight forward 0.5 m/s |
