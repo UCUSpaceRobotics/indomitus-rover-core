@@ -11,18 +11,6 @@ Subscriptions:
 Publications:
     /cmd_vel          (geometry_msgs/Twist)   — processed output
 
-Parameters:
-    axis_linear_x         (int,   default: 1)     — axis index for vx
-    axis_linear_y         (int,   default: 0)     — axis index for vy
-    axis_angular_yaw      (int,   default: 2)     — axis index for wz
-    scale_linear_x        (float, default: 0.5)   — scale for vx
-    scale_linear_y        (float, default: 0.5)   — scale for vy
-    scale_angular_yaw     (float, default: 1.0)   — scale for wz
-    vy_toggle_button      (int,   default: 4)     — button index to toggle vy mode
-    motor_toggle_button   (int,   default: 6)     — button index to toggle chassis motors
-    compact_mode_button   (int,   default: 1)     — button index to toggle compact mode
-    vy_enabled_default    (bool,  default: false) — initial state of vy mode
-
 Services used:
     /chassis/set_motors_enabled (std_srvs/SetBool) — explicit chassis motor enable/disable
     /set_compact_mode           (std_srvs/SetBool) — compact mode toggle
