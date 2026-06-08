@@ -7,7 +7,7 @@
 - rover_description - packages with meshes and everythin related to rover geometry, form, so on
 - rover_chassis_driver - package with nodes resposible for communication with motors via CAN bus
     - chassis_driver_node - transforms WheelTargets msg into CAN bus frames for motors. Also it collects data from each motor about voltage, current, tempreture, so on.
-- rover_control -
+- rover_control - 
 
 ## 3. Host — CAN interface setup
 
