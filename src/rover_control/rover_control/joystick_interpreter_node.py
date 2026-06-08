@@ -380,15 +380,8 @@ class JoystickInterpreterNode(Node):
         (e.g. vx=-0.1, vy=0.9) is handled intuitively — mostly sideways
         motion does not trigger inversion.
         """
-        if abs(vx) < 1e-3 and abs(vy) < 1e-3:
-            return wz
-
-        if abs(vx) >= abs(vy):
-            if vx < 0.0:
-                return -wz
-        else:
-            if vy < 0.0:
-                return -wz
+        if vx < -1e-3:
+            return -wz
 
         return wz
 

@@ -389,6 +389,10 @@ class RoverController(Node):
         vy = self.vy_smoothed
         wz = self.wz_smoothed
 
+        # vx = self.target_vx
+        # vy = self.target_vy
+        # wz = self.target_wz
+
         # Step 2 — Handle transitions based on current kinematics targets
         desired_angles, _ = self.kinematics.ik_full(vx, vy, wz, self.current_angles)
         self.state_machine.update_transitions(vx, vy, wz, desired_angles, self.current_angles, self.get_logger())
@@ -409,10 +413,7 @@ class RoverController(Node):
         if self.state_machine.state != RoverState.TRANSIT:
             self._last_work_speeds = work_speeds
 
-        # Step 4 — Update global acceleration tracking scales
-        speed_scale = self.state_machine.update_scale(dt, work_angles, self.current_angles, self.get_logger())
-
-        # Step 5 — Move actual joints towards target configuration
+        # Step 4 — Move actual joints towards target configuration
         self.current_angles = WheelData(
             fl=self._step_angle(self.current_angles.fl, work_angles.fl, dt),
             fr=self._step_angle(self.current_angles.fr, work_angles.fr, dt),
@@ -420,14 +421,8 @@ class RoverController(Node):
             rr=self._step_angle(self.current_angles.rr, work_angles.rr, dt)
         )
 
-        # Step 6 — Aggressive per-wheel safety alignment filter to prevent skidding/jerking
-        def calculate_safe_speed(base_speed, target_a, current_a):
-            err = target_a - current_a
-            # If the wheel is out of sync by more than 25 degrees (e.g. flipping), cut drive force immediately
-            if abs(err) > math.radians(25):
-                return 0.0
-            # Otherwise, scale dynamically based on the cosine of the misalignment error
-            return base_speed * max(0.0, math.cos(err))
+        # Step 5 — Update global acceleration tracking scales
+        speed_scale = self.state_machine.update_scale(dt, work_angles, self.current_angles, self.get_logger())
 
         out = WheelTargets()
         out.fl_angle = self.current_angles.fl
@@ -435,10 +430,10 @@ class RoverController(Node):
         out.rl_angle = self.current_angles.rl
         out.rr_angle = self.current_angles.rr
 
-        out.fl_speed = calculate_safe_speed(work_speeds.fl * speed_scale, work_angles.fl, self.current_angles.fl)
-        out.fr_speed = calculate_safe_speed(work_speeds.fr * speed_scale, work_angles.fr, self.current_angles.fr)
-        out.rl_speed = calculate_safe_speed(work_speeds.rl * speed_scale, work_angles.rl, self.current_angles.rl)
-        out.rr_speed = calculate_safe_speed(work_speeds.rr * speed_scale, work_angles.rr, self.current_angles.rr)
+        out.fl_speed = work_speeds.fl * speed_scale
+        out.fr_speed = work_speeds.fr * speed_scale
+        out.rl_speed = work_speeds.rl * speed_scale
+        out.rr_speed = work_speeds.rr * speed_scale
 
         self.pub.publish(out)
 
