@@ -1,0 +1,7 @@
+# Set current position as zero/origin for selected steering motors.
+# motor_ids: list of ESC CAN IDs to zero (e.g. [11, 13] for FL and FR only)
+# Send an empty list to zero all steering motors.
+uint8[] motor_ids
+---
+bool success
+string message

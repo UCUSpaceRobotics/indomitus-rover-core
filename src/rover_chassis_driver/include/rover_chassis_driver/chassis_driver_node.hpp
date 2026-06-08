@@ -10,6 +10,7 @@
 #include "std_srvs/srv/set_bool.hpp"
 #include "indomitus_interfaces/msg/wheel_targets.hpp"
 #include "indomitus_interfaces/msg/chassis_status.hpp"
+#include "indomitus_interfaces/srv/set_steer_zero.hpp"
 #include "rover_chassis_driver/damiao_protocol.hpp"
 #include "rover_chassis_driver/steadywin_protocol.hpp"
 
@@ -32,6 +33,9 @@ private:
     void publishChassisStatus();
     void publishDiagnostics();
     void sendEnableFrames();
+    void onSetSteerZero(
+        const indomitus_interfaces::srv::SetSteerZero::Request::SharedPtr req,
+        indomitus_interfaces::srv::SetSteerZero::Response::SharedPtr res);
     void sendDisableFrames();
     void tryPublishBootDisable();
 
@@ -40,6 +44,7 @@ private:
     rclcpp::Subscription<can_msgs::msg::Frame>::SharedPtr from_can_sub_;
 
     // Services
+    rclcpp::Service<indomitus_interfaces::srv::SetSteerZero>::SharedPtr set_steer_zero_srv_;
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr motor_enable_service_;
 
     // Publishers
