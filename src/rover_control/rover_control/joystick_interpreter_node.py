@@ -226,7 +226,7 @@ class JoystickInterpreterNode(Node):
         if not self._vy_enabled:
             vy = 0.0
 
-        wz = self._apply_swerve_wz_correction(vx, vy, wz)
+        # wz = self._apply_swerve_wz_correction(vx, vy, wz)
 
         out = Twist()
         out.linear.x = vx

@@ -421,26 +421,21 @@ class RoverController(Node):
             rr=self._step_angle(self.current_angles.rr, work_angles.rr, dt)
         )
 
-        # Крок 5 — ГЛОБАЛЬНА СИНХРОНІЗАЦІЯ ШВИДКОСТЕЙ (Захист підвіски та рокерів)
+        # Step 5 — GLOBAL SPEED SYNCHRONIZATION (Suspension and Rocker Protection)
         
-        # 1. Рахуємо коефіцієнти вирівнювання для кожного колеса
         c_fl = math.cos(work_angles.fl - self.current_angles.fl)
         c_fr = math.cos(work_angles.fr - self.current_angles.fr)
         c_rl = math.cos(work_angles.rl - self.current_angles.rl)
         c_rr = math.cos(work_angles.rr - self.current_angles.rr)
 
-        # 2. Знаходимо глобальний масштаб за найменш вирівняним колісним модулем.
-        # Це гарантує, що всі колеса сповільнюються пропорційно і жорсткість структури не порушується.
         global_align_scale = min(c_fl**2, c_fr**2, c_rl**2, c_rr**2)
 
-        # 3. Отримуємо згладжувальний коефіцієнт від загального темпу прискорення машини
         speed_scale = self.state_machine.update_scale(dt, work_angles, self.current_angles, self.get_logger())
         total_chassis_scale = global_align_scale * speed_scale
 
         def get_sign(val):
             return 1.0 if val >= 0 else -1.0
 
-        # 4. Публікація таргетів із локальним коригуванням знаку руху, але ГЛОБАЛЬНИМ масштабуванням швидкості
         out = WheelTargets()
         out.fl_angle = self.current_angles.fl
         out.fr_angle = self.current_angles.fr
