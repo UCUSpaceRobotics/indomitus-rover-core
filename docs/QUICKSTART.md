@@ -1,6 +1,3 @@
-Here is the updated `QUICKSTART.md`. I have updated the "Build and start Docker" section to reflect that the workspace build is now a manual process.
-
-```markdown
 # Rover Quickstart
 
 ## 1. Host — CAN interface setup
