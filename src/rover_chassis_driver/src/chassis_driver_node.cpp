@@ -47,6 +47,19 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     }
 
     for (int i = 0; i < 4; i++) {
+        if (steer_ids_param[i] < 0 || steer_ids_param[i] > 255) {
+            throw std::invalid_argument(
+                "steer_ids[" + std::to_string(i) + "] = " +
+                std::to_string(steer_ids_param[i]) + " is out of range 0..255"
+            );
+        }
+        if (drive_ids_param[i] < 0 || drive_ids_param[i] > 255) {
+            throw std::invalid_argument(
+                "drive_ids[" + std::to_string(i) + "] = " + 
+                std::to_string(drive_ids_param[i]) + " is out of range 0..255"
+            );
+        }
+
         steer_ids_[i] = static_cast<uint8_t>(steer_ids_param[i]);
         drive_ids_[i] = static_cast<uint8_t>(drive_ids_param[i]);
     }
@@ -116,6 +129,7 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
             std::placeholders::_2));
 
     // --- Timers ---
+
 
     // --- Boot disable handling ---
     // Start in a known safe state: attempt to publish disable frames, but if
@@ -349,17 +363,37 @@ void ChassisDriverNode::onCanFrame(const can_msgs::msg::Frame::SharedPtr msg) {
     // Each motor sends feedback with CAN ID = its ESC_ID or MST_ID (Register 7, default 0).
     // Route by CAN ID: check if frame came from mst_id or any drive motor's ESC_ID.
     // This works for any motor ID (0-255); the 4-bit payload ID field is just a sanity check.
-    bool is_damiao = (msg->id == mst_id_);
-    for (int i = 0; !is_damiao && i < 4; i++)
-        is_damiao = (msg->id == drive_ids_[i]);
+    int drive_index = -1;
+    for (int i = 0; i < 4; i++) {
+        if (msg->id == drive_ids_[i]) {
+            drive_index = i;
+            break;
+        }
+    }
 
-    if (is_damiao) {
+    if (drive_index >= 0) {
+        damiao_protocol::parseFeedback(msg->data, msg->dlc, drive_ids_[drive_index],
+            drive_pmax_, drive_vmax_, drive_tmax_, drive_state_[drive_index]);
+        damiao_protocol::parseRegisterResponse(msg->data, msg->dlc, drive_ids_[drive_index],
+            drive_state_[drive_index]);
+        publishJointStates();
+        return;
+    }
+
+    if (msg->id == mst_id_) {
         for (int i = 0; i < 4; i++) {
             if (damiao_protocol::parseFeedback(msg->data, msg->dlc, drive_ids_[i],
-                    drive_pmax_, drive_vmax_, drive_tmax_, drive_state_[i])) break;
+                    drive_pmax_, drive_vmax_, drive_tmax_, drive_state_[i])) {
+                break;
+            }
         }
-        for (int i = 0; i < 4; i++)
-            damiao_protocol::parseRegisterResponse(msg->data, msg->dlc, drive_ids_[i], drive_state_[i]);
+        if (msg->dlc >= 8 && msg->data[2] == 0x33) {
+            for (int i = 0; i < 4; i++) {
+                if (damiao_protocol::parseRegisterResponse(msg->data, msg->dlc, drive_ids_[i], drive_state_[i])) {
+                    break;
+                }
+            }
+        }
         publishJointStates();
         return;
     }

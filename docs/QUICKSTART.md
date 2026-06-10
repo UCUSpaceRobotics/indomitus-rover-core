@@ -1,6 +1,54 @@
 # Rover Quickstart
 
-## 1. Host — CAN interface setup
+## 1. ROS2 Packages Overview
+
+- indomitus_interfaces - package with all custom messages, services, actions
+- rover_bringup - package with main launch files and configs
+- rover_description - packages with meshes and everythin related to rover geometry, form, so on
+- rover_chassis_driver - package with nodes resposible for communication with motors via CAN bus
+    - chassis_driver_node - transforms WheelTargets msg into CAN bus frames for motors. Also it collects data from each motor about voltage, current, tempreture, so on.
+- rover_control - package with kinematics_node and everything that is related to movement control
+    - rover_kinematics_node
+    - joystick_interpreter_node
+    - rover_odometry_node (TODO)
+- rover_peripherals - package with nodes communicating with devices mounted to rover body
+    - rover_container_node
+    - rover_lighting_node
+- rover_sim - package with all stuff that is related to simulation
+    - sim_chassis_driver_node - takes data from /wheel_targets topic and moves wheels via ros2_control
+    - sim_diff_bar_node - nodes that simulates differential bar work
+
+---
+
+## 2. Build and start Docker
+
+```bash
+cd ~/Desktop/indomitus-rover-core
+
+# Build image and start container
+docker compose up --build -d
+```
+
+Once the container is running, build the ROS2 workspace:
+
+```bash
+docker exec -it rover_dev bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+If you need to rebuild after code changes:
+
+```bash
+docker exec -it rover_dev bash
+colcon build --symlink-install
+source install/setup.bash
+exit
+```
+
+---
+
+## 3. Host — CAN interface setup
 
 Run once before starting Docker (requires physical CAN adapter connected):
 
@@ -18,35 +66,7 @@ ip link show can0
 
 ---
 
-## 2. Build and start Docker
-
-```bash
-cd ~/Desktop/indomitus-rover-core
-
-# Build image and start container
-docker compose up --build -d
-```
-
-The container auto-builds the ROS2 workspace on first start (skips Gazebo sim package).
-Watch build progress:
-
-```bash
-docker logs -f rover_dev
-# Wait for: "ROS humble ready. Workspace: /opt/ws"
-```
-
-If you need to rebuild manually (e.g. after code changes):
-
-```bash
-docker exec -it rover_dev bash
-colcon build --symlink-install --packages-skip rover_sim
-source install/setup.bash
-exit
-```
-
----
-
-## 3. Bring up the rover
+## 4. Bring up the rover
 
 Open a shell inside the container:
 
@@ -61,9 +81,10 @@ ros2 launch rover_bringup rover.launch.py
 ```
 
 What starts:
-- `socket_can_sender` + `socket_can_receiver` — CAN ↔ ROS2 bridge
-- `rover_kinematics_node` — Ackermann geometry (starts 1.5s after CAN bridge)
-- `chassis_driver_node` — motor driver (starts 1.5s after CAN bridge, enables motors after 3s)
+
+* `socket_can_sender` + `socket_can_receiver` — CAN ↔ ROS2 bridge
+* `rover_kinematics_node` — Ackermann geometry (starts 1.5s after CAN bridge)
+* `chassis_driver_node` — motor driver (starts 1.5s after CAN bridge, enables motors after 3s)
 
 Leave this terminal open. Open a second terminal for testing.
 
@@ -103,39 +124,6 @@ ros2 run rover_control rover_kinematics_node \
 ```
 
 > `socket_can_sender` and `socket_can_receiver` keep running — motors stay powered and CAN stays up.
-
----
-
-## 4. Run test_pipeline
-
-Open a second shell inside the container:
-
-```bash
-docker exec -it rover_dev bash
-```
-
-Run the test tool:
-
-```bash
-python3 /work/test_pipeline.py
-```
-
-### Controls
-
-| Key | Action |
-|-----|--------|
-| `e` | Enable all motors (send init frames) |
-| `d` | Disable all motors (zero → wait 1.5s → disable) |
-| `1` | Straight forward 0.5 m/s |
-| `2` | Spin in place left |
-| `3` | Turn left (Ackermann) |
-| `4` | All wheels max steer angle, no drive |
-| `s` | Stop drive (send zero cmd_vel) |
-| `f` | Print latest motor feedback |
-| `q` | Quit |
-
-> Note: motors are enabled automatically by `chassis_driver_node` 3 seconds after launch.
-> Press `e` only if you need to re-enable after a fault.
 
 ---
 

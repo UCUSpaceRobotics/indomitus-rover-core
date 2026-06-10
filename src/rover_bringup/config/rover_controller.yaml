@@ -12,6 +12,6 @@ rover_controller:
     max_decel: 0.6
 
     # Control loop frequency (Hz)
-    control_frequency: 20.0
+    control_frequency: 80.0
 
     cmd_vel_timeout_s: 0.5
