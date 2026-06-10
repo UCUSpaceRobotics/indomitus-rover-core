@@ -8,22 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions python3-rosdep \
     iputils-ping pkg-config usbutils iproute2 g++ make cmake \
     can-utils \
-    ros-${ROS_DISTRO}-ros2launch \
-    ros-${ROS_DISTRO}-xacro \
-    ros-${ROS_DISTRO}-robot-state-publisher \
-    ros-${ROS_DISTRO}-joint-state-publisher \
-    ros-${ROS_DISTRO}-ros2-socketcan \
-    ros-${ROS_DISTRO}-joy \
-    ros-${ROS_DISTRO}-teleop-twist-joy \
-    ros-${ROS_DISTRO}-teleop-twist-keyboard \
-    ros-${ROS_DISTRO}-rosidl-default-generators \
-    ros-${ROS_DISTRO}-rosidl-default-runtime \
-    ros-${ROS_DISTRO}-std-msgs \
-    ros-${ROS_DISTRO}-sensor-msgs \
-    ros-${ROS_DISTRO}-diagnostic-msgs \
-    ros-${ROS_DISTRO}-can-msgs \
-    ros-${ROS_DISTRO}-std-srvs \
-    ros-${ROS_DISTRO}-action-msgs \
     vim \
     && rm -rf /var/lib/apt/lists/*
 
@@ -50,15 +34,24 @@ FROM base AS dev
 
 ARG INSTALL_SIM_TOOLS=false
 
+COPY src/ /tmp/src_packages/src/
+RUN mkdir -p ${WS}/src && \
+    if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
+        cp -r /tmp/src_packages/src/* ${WS}/src/; \
+    else \
+        cd /tmp/src_packages/src && \
+        for pkg in *; do \
+            case "$pkg" in \
+                rover_sim|rover_viz) ;; \
+                *) cp -r "$pkg" ${WS}/src/ ;; \
+            esac; \
+        done; \
+    fi
+
+RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && rm -rf /var/lib/apt/lists/*
+
 RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
-        ros-${ROS_DISTRO}-joint-state-publisher-gui \
-        ros-${ROS_DISTRO}-rviz2 \
-        ros-${ROS_DISTRO}-rosbag2 \
-        ros-${ROS_DISTRO}-ros-gz \
-        ros-${ROS_DISTRO}-ros-gz-sim \
-        ros-${ROS_DISTRO}-ros-gz-bridge \
-        ros-${ROS_DISTRO}-gazebo-ros-pkgs \
         libgl1 libglib2.0-0 \
         && rm -rf /var/lib/apt/lists/*; \
     fi
@@ -68,22 +61,21 @@ CMD ["bash"]
 
 FROM base AS prod
 
-COPY src/ /tmp/src_packages/
+COPY src/ /tmp/src_packages/src/
 RUN mkdir -p ${WS}/src && \
-    cd /tmp/src_packages && \
-    find . -name "package.xml" -exec cp --parents {} ${WS}/src/ \; && \
-    cd ${WS} && \
-    rm -rf /tmp/src_packages
+    cd /tmp/src_packages/src && \
+    for pkg in *; do \
+        case "$pkg" in \
+            rover_sim|rover_viz) ;; \
+            *) cp -r "$pkg" ${WS}/src/ ;; \
+        esac; \
+    done
 
-RUN apt-get update && rosdep install -y -r -i --from-paths src --rosdistro ${ROS_DISTRO} && rm -rf /var/lib/apt/lists/*
-
-COPY ./src ${WS}/src
+RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && rm -rf /var/lib/apt/lists/*
 
 RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
     colcon build \
     --executor sequential \
     --parallel-workers 1"
-
-# RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build --symlink-install"
 
 CMD ["bash"]

@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>rover_bringup</name>
+  <name>rover_viz</name>
   <version>0.0.0</version>
   <description>
-    Bringup package for the Indomitus rover, providing
-    launch files and configuration for hardware
+    Visualization package for the Indomitus rover,
+    providing RViz launch files and visualization presets.
   </description>
   <maintainer email="fito.pn@ucu.edu.ua">yurFitio</maintainer>
   <license>MIT</license>
@@ -14,15 +14,13 @@
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>rover_description</exec_depend>
-  <exec_depend>rover_control</exec_depend>
-  <exec_depend>rover_chassis_driver</exec_depend>
-  <exec_depend>rover_peripherals</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>lifecycle_msgs</exec_depend>
-  <exec_depend>ros2_socketcan</exec_depend>
-  <exec_depend>joy</exec_depend>
-  <exec_depend>teleop_twist_joy</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher_gui</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>xacro</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

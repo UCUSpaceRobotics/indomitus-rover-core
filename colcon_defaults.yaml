@@ -1,0 +1,7 @@
+build:
+  symlink-install: true
+  executor: sequential
+  parallel-workers: 1
+  packages-ignore:
+    - rover_sim
+    - rover_viz

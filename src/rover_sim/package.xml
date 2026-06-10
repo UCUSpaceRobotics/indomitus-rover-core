@@ -16,14 +16,18 @@
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
-  <depend>joint_state_publisher</depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>rover_bringup</exec_depend>
+  <exec_depend>rover_description</exec_depend>
+
   <depend>robot_state_publisher</depend>
   <depend>indomitus_interfaces</depend>
-  <exec_depend>xacro</exec_depend>
-
+  <depend>xacro</depend>
   <depend>ros_gz_sim</depend>
   <depend>ros_gz_bridge</depend>
-
   <depend>rclcpp</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
