@@ -1,3 +1,7 @@
+"""
+Node that estimates and publishes 2D wheel odometry.
+"""
+
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -23,7 +27,7 @@ class RoverOdometryPublisher(Node):
     def __init__(self):
         super().__init__("rover_odometry_publisher")
 
-        # ── Declare parameters (з rover_geometry.yaml) ─────────────
+        # Config: rover_description/config/rover_geometry.yaml
         self.declare_parameter("wheelbase",    0.842)
         self.declare_parameter("track_width",  0.682)
         self.declare_parameter("wheel_radius", 0.16)
@@ -32,10 +36,9 @@ class RoverOdometryPublisher(Node):
         tw = self.get_parameter("track_width").value
         self._wheel_radius = self.get_parameter("wheel_radius").value
 
-        # ── Позиції коліс з геометрії ──────────────────────────────
-        # FL, FR, RL, RR
-        hx = wb / 2.0   # половина wheelbase
-        hy = tw / 2.0   # половина track_width
+        # Wheels positions
+        hx = wb / 2.0
+        hy = tw / 2.0
 
         self._wheel_positions = np.array([
             [ hx,  hy],   # FL
@@ -52,13 +55,12 @@ class RoverOdometryPublisher(Node):
         )
         self.get_logger().info(f"Wheel positions:\n{self._wheel_positions}")
 
-        # ── State ──────────────────────────────────────────────────
+        # Rover position
         self._x = 0.0
         self._y = 0.0
         self._theta = 0.0
         self._last_stamp = None
 
-        # ── ROS interfaces ─────────────────────────────────────────
         self._odom_pub = self.create_publisher(Odometry, "/odom", 10)
         self._tf_broadcaster = TransformBroadcaster(self)
         self._chassis_sub = self.create_subscription(
@@ -94,7 +96,7 @@ class RoverOdometryPublisher(Node):
             self._last_stamp = now
             return
 
-        # ── Швидкості коліс у декартових координатах ──────────────
+        # Speeds in Cartesian coordinates
         wheel_vels = np.zeros(8)
         for i in range(4):
             speed = drive_speeds[i] * self._wheel_radius
@@ -102,25 +104,24 @@ class RoverOdometryPublisher(Node):
             wheel_vels[2*i    ] = speed * np.cos(angle)
             wheel_vels[2*i + 1] = speed * np.sin(angle)
 
-        # ── Least-squares → body velocities ───────────────────────
+        # Least square solution, system is overdetermined
         vx, vy, wz = self._A_pinv @ wheel_vels
 
-        # після розрахунку vx, vy, wz
-        VEL_EPS = 0.05  # м/с
-        WZ_EPS  = 0.001  # рад/с
+        VEL_EPS = 0.05  # m/s
+        WZ_EPS  = 0.001 # rad/s
         if abs(vx) < VEL_EPS: vx = 0.0
         if abs(vy) < VEL_EPS: vy = 0.0
         if abs(wz) < WZ_EPS:  wz = 0.0
 
-        # ── Інтегрування (exp map) ─────────────────────────────────
+        # exp map
         if self._last_stamp is not None:
             dt = (now - self._last_stamp).nanoseconds * 1e-9
 
             if abs(wz) > 1e-9:
-                # локальне зміщення в системі робота
+                # shift in local (rover) coordinates
                 dx_local = (vx * np.sin(wz * dt) - vy * (1 - np.cos(wz * dt))) / wz
                 dy_local = (vx * (1 - np.cos(wz * dt)) + vy * np.sin(wz * dt)) / wz
-                # поворот в глобальну систему координат
+                # shift in global coordinates
                 self._x += dx_local * np.cos(self._theta) - dy_local * np.sin(self._theta)
                 self._y += dx_local * np.sin(self._theta) + dy_local * np.cos(self._theta)
             else:
@@ -129,14 +130,13 @@ class RoverOdometryPublisher(Node):
 
             self._theta += wz * dt
 
-        self.get_logger().info(
-            f'x={self._x:.3f} y={self._y:.3f} theta={self._theta:.3f}'
-        )
+        # self.get_logger().info(
+        #     f'x={self._x:.3f} y={self._y:.3f} theta={self._theta:.3f}'
+        # )
 
         self._last_stamp = now
         self._publish_odom(vx, vy, wz, now)
 
-    # ──────────────────────────────────────────────────────────────
     def _publish_odom(self, vx, vy, wz, stamp):
         from math import cos, sin
 
