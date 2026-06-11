@@ -17,12 +17,13 @@
 - `rover_sim` - package with all stuff that is related to simulation
     - `sim_chassis_driver_node` - takes data from /wheel_targets topic and moves wheels via ros2_control
     - `sim_diff_bar_node` - nodes that simulates differential bar work
+- `rover_viz` - package with all stuff that is related to visualizations and rviz
 
 ---
 
 ## 2. Build and start Docker
 
-Navigate to the root of the repository `indomitus-rover-core`
+Navigate to the root of the repository **indomitus-rover-core**
 
 Build image and start container:
 
