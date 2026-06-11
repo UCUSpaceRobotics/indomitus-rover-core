@@ -22,10 +22,11 @@
 
 ## 2. Build and start Docker
 
-```bash
-cd ~/Desktop/indomitus-rover-core
+Navigate to the root of the repository `indomitus-rover-core`
 
-# Build image and start container
+Build image and start container:
+
+```bash
 docker compose up --build -d
 ```
 
