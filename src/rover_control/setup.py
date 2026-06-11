@@ -15,8 +15,11 @@ setup(
     zip_safe=True,
     maintainer='yurifi',
     maintainer_email='fito.pn@ucu.edu.ua',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='''
+        Core control package for the Indomitus rover. Contains nodes for 
+        joystick command interpretation, kinematics calculation, 
+        and wheel-odometry estimation.''',
+    license='MIT',
     extras_require={
         'test': [
             'pytest',
