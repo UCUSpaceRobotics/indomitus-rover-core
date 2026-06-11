@@ -3,11 +3,22 @@
 <package format="3">
   <name>rover_localization</name>
   <version>0.0.0</version>
-  <description>Package containing the launch files and configs for the localization nodes</description>
+  <description>
+    Localization and mapping support for the Indomitus Rover. This package provides 
+    the framework for state estimation, sensor data fusion, and the transformation 
+    pipeline required to track the rover's position within its environment.
+  </description>
   <maintainer email="bohdan.zasymovych@gmail.com">BohdanZasymovych</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>ros2launch</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
