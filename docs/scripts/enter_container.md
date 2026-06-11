@@ -28,7 +28,7 @@ The script accepts the following flags to override defaults depending on the sub
 | Flag | Applies To | Description | Default |
 | --- | --- | --- | --- |
 | **`-n, --name`** | `local`, `rover` | Docker container name | `rover_dev` (local), `rover_prod` (rover) |
-| **`-c, --compose`** | `local`, `rover` | Path to Compose file | `docker-compose.yaml` (local), `docker/docker-compose.prod.yaml` (rover) |
+| **`-c, --compose`** | `local`, `rover` | Path to Compose file | `docker-compose.yaml` (local), `docker-compose.prod.yaml` (rover) |
 | **`-r, --ros-distro`** | `local` | ROS 2 distribution name | `humble` |
 | **`-w, --workspace`** | `local` | ROS 2 workspace path inside container | `/opt/ws` |
 | **`-u, --user`** | `rover` | Jetson SSH username | `ros` |

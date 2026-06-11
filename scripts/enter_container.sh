@@ -34,7 +34,7 @@ EOF
 # ===========================================================================
 run_local() {
   # Defaults
-  local CONTAINER_NAME="indomitus_rover_dev"
+  local CONTAINER_NAME="rover_dev"
   local COMPOSE_FILE="docker-compose.yaml"
   local ROS_DISTRO="humble"
   local WORKSPACE_DIR="/opt/ws"
@@ -108,8 +108,8 @@ run_rover() {
   local JETSON_USER="ros"
   local JETSON_IP="10.42.0.1"
   local REMOTE_DIR="/home/ros/Indomitus/indomitus-rover-core/"
-  local CONTAINER_NAME="indomitus_rover_prod"
-  local COMPOSE_FILE="docker/docker-compose.prod.yaml"
+  local CONTAINER_NAME="rover_prod"
+  local COMPOSE_FILE="docker-compose.prod.yaml"
   local WIFI_SSID="JetsonRosIndomitus"
   local WIFI_PASS="jetson1234"
 
