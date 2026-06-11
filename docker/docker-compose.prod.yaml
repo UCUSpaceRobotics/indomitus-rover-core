@@ -1,7 +1,7 @@
 services:
   rover_prod:
     image: indomitus-rover:humble-prod
-    container_name: indmitus_rover_prod
+    container_name: indomitus_rover_prod
     network_mode: host
     restart: unless-stopped
     cap_add:
