@@ -1,6 +1,6 @@
 # Packages
 
-## 1. `indomitus_rover_chassis_driver` (C++)
+## 1. `rover_chassis_driver` (C++)
 
 This package implements the communication with motors. It communicates with two types of motor controllers:
 - **Steer Motors (Steadywin V3.06b0):** 4 motors (IDs: 11, 13, 15, 17) for steering the wheels
@@ -12,7 +12,7 @@ This package implements the communication with motors. It communicates with two 
     - TODO: Publishes motor feedback via CAN frames
 
 **Launch files:**
-- `chassis_driver.launch.py` - launches the `chassis_driver` node (package: `indomitus_rover_chassis_driver`)
+- `chassis_driver.launch.py` - launches the `chassis_driver` node (package: `rover_chassis_driver`)
 
 ---
 
@@ -30,7 +30,7 @@ This package implements the communication with motors. It communicates with two 
 
 ---
 
-## 3. `indomitus_rover_bringup` (Launch & Configuration)
+## 3. `rover_bringup` (Launch & Configuration)
 
 **Package Type:** Launch/configuration package
 
@@ -40,7 +40,7 @@ This package implements the communication with motors. It communicates with two 
 
 ---
 
-## 4. `indomitus_rover_viz` (RViz Visualization)
+## 4. `rover_viz` (RViz Visualization)
 
 **Package Type:** RViz visualization package
 
@@ -53,7 +53,7 @@ This package implements the communication with motors. It communicates with two 
 
 ---
 
-## 5. `indomitus_rover_control` (Python)
+## 5. `rover_control` (Python)
 
 **Nodes:** 
 - `rover_controller`
@@ -67,13 +67,13 @@ This package implements the communication with motors. It communicates with two 
 
 ---
 
-## 6. `indomitus_rover_description` (URDF & Configuration)
+## 6. `rover_description` (URDF & Configuration)
 
 Containes all urdf files describing rover, 3D rover models, geometry config files.
 
 ---
 
-## 7. `indomitus_rover_sim` (Gazebo Simulation)
+## 7. `rover_sim` (Gazebo Simulation)
 
 Simulation of a rover on a mars yard.
 
