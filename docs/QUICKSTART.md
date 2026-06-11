@@ -2,21 +2,21 @@
 
 ## 1. ROS2 Packages Overview
 
-- indomitus_interfaces - package with all custom messages, services, actions
-- rover_bringup - package with main launch files and configs
-- rover_description - packages with meshes and everythin related to rover geometry, form, so on
-- rover_chassis_driver - package with nodes resposible for communication with motors via CAN bus
-    - chassis_driver_node - transforms WheelTargets msg into CAN bus frames for motors. Also it collects data from each motor about voltage, current, tempreture, so on.
-- rover_control - package with kinematics_node and everything that is related to movement control
-    - rover_kinematics_node
-    - joystick_interpreter_node
-    - rover_odometry_node (TODO)
-- rover_peripherals - package with nodes communicating with devices mounted to rover body
-    - rover_container_node
-    - rover_lighting_node
-- rover_sim - package with all stuff that is related to simulation
-    - sim_chassis_driver_node - takes data from /wheel_targets topic and moves wheels via ros2_control
-    - sim_diff_bar_node - nodes that simulates differential bar work
+- `indomitus_interfaces` - package with all custom messages, services, actions
+- `rover_bringup` - package with main launch files and configs
+- `rover_description` - packages with meshes and everythin related to rover geometry, form, so on
+- `rover_chassis_driver` - package with nodes resposible for communication with motors via CAN bus
+    - `chassis_driver_node` - transforms WheelTargets msg into CAN bus frames for motors. Also it collects data from each motor about voltage, current, tempreture, so on.
+- `rover_control` - package with kinematics_node and everything that is related to movement control
+    - `rover_kinematics_node`
+    - `joystick_interpreter_node`
+    - `rover_odometry_node` (TODO)
+- `rover_peripherals` - package with nodes communicating with devices mounted to rover body
+    - `rover_container_node`
+    - `rover_lighting_node`
+- `rover_sim` - package with all stuff that is related to simulation
+    - `sim_chassis_driver_node` - takes data from /wheel_targets topic and moves wheels via ros2_control
+    - `sim_diff_bar_node` - nodes that simulates differential bar work
 
 ---
 
