@@ -18,9 +18,13 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(nav2_bringup REQUIRED)
-find_package(nav2_msgs REQUIRED)
+find_package(rclpy REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(nav2_bringup REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 if(BUILD_TESTING)
     find_package(ament_lint_auto REQUIRED)
@@ -28,7 +32,7 @@ if(BUILD_TESTING)
 endif()
 
 # Install launch files
-install(DIRECTORY launch config
+install(DIRECTORY launch config maps behaviour_trees
     DESTINATION share/${PROJECT_NAME}
 )
 
