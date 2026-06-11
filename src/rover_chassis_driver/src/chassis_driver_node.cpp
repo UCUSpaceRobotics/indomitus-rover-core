@@ -20,7 +20,7 @@ ChassisDriverNode::ChassisDriverNode(const rclcpp::NodeOptions& options)
     declare_parameter("drive_ids",          std::vector<int64_t>{10, 12, 16, 14});
     declare_parameter("drive_pmax",         12.5);
     declare_parameter("drive_vmax",         25.0);
-    declare_parameter("drive_tmax",         20.0);
+    declare_parameter("drive_tmax",         200.0);
     declare_parameter("mst_id",             0);
     declare_parameter("steer_angle_min",    -1.5707963);  // -π/2 rad = -90°
     declare_parameter("steer_angle_max",     1.5707963);  //  π/2 rad =  90°
