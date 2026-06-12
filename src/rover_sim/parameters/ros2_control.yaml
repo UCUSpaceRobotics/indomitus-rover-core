@@ -1,3 +1,4 @@
+# rover_sim/parameters/ros2_control.yaml
 controller_manager:
   ros__parameters:
     update_rate: 100
@@ -5,34 +6,24 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    steering_controller:
-      type: forward_command_controller/ForwardCommandController
+    swerve_controller:
+      type: rover_chassis_controller/SwerveController
 
-    drive_controller:
-      type: velocity_controllers/JointGroupVelocityController
-
-    r_rocker_position_controller:
-      type: forward_command_controller/ForwardCommandController
-
-steering_controller:
+swerve_controller:
   ros__parameters:
-    joints:
-      - fl_wheel_mount_joint
-      - fr_wheel_mount_joint
-      - bl_wheel_mount_joint
-      - br_wheel_mount_joint
-    interface_name: position
-
-drive_controller:
-  ros__parameters:
-    joints:
+    drive_joints:
       - fl_wheel_joint
       - fr_wheel_joint
       - bl_wheel_joint
       - br_wheel_joint
+    steering_joints:
+      - fl_wheel_mount_joint
+      - fr_wheel_mount_joint
+      - bl_wheel_mount_joint
+      - br_wheel_mount_joint
 
-r_rocker_position_controller:
-  ros__parameters:
-    joints:
-      - r_rocker_joint
-    interface_name: position
+    max_linear_speed:  1.0
+    max_angular_speed: 1.0
+    max_accel:         0.3
+    max_decel:         0.6
+    cmd_vel_timeout_s: 0.5
