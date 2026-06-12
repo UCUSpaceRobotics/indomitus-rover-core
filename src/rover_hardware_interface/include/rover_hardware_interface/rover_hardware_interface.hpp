@@ -15,9 +15,7 @@
 //     fl/fr/rl/rr  wheel_mount_joint  — position [rad]   → Steadywin 0xC2
 //     fl/fr/rl/rr  wheel_joint        — velocity [rad/s] → Damiao 0x200
 //
-// CAN topics (ros2_socketcan):
-//   /to_can_bus   [can_msgs/Frame]  — outgoing CAN frames
-//   /from_can_bus [can_msgs/Frame]  — incoming CAN feedback
+// Direct POSIX SocketCAN I/O (no ROS topics on the hot path).
 //
 // Services:
 //   ~/set_motors_enabled  [std_srvs/SetBool]
@@ -25,21 +23,25 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <array>
-#include <string>
-#include <vector>
+#include <atomic>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <linux/can.h> // For struct can_frame
 
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 
-#include "can_msgs/msg/frame.hpp"
-#include "std_srvs/srv/set_bool.hpp"
-#include "indomitus_interfaces/srv/set_steer_zero.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "indomitus_interfaces/msg/chassis_status.hpp"
+#include "indomitus_interfaces/srv/set_steer_zero.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "std_srvs/srv/set_bool.hpp"
 
 #include "rover_hardware_interface/damiao_protocol.hpp"
 #include "rover_hardware_interface/steadywin_protocol.hpp"
@@ -83,9 +85,14 @@ public:
         const rclcpp::Duration & period) override;
 
 private:
-    // ── CAN callbacks ──────────────────────────────────────────────────────────
+    // ── SocketCAN internals ────────────────────────────────────────────────────
 
-    void on_can_frame(const can_msgs::msg::Frame::SharedPtr msg);
+    bool open_can_socket();
+    void close_can_socket();
+    bool send_can_frame(uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended = false);
+
+    void rx_thread_fn();
+    void dispatch_can_frame(const struct can_frame & frame);
 
     // ── Motor lifecycle helpers ────────────────────────────────────────────────
 
@@ -108,13 +115,11 @@ private:
     void publish_chassis_status();
     void publish_diagnostics();
 
-    // ── Boot-time CAN subscriber detection ────────────────────────────────────
-
-    void try_publish_boot_disable();
-
     // ─────────────────────────────────────────────────────────────────────────
     // Parameters (populated in on_init from HardwareInfo::hardware_parameters)
     // ─────────────────────────────────────────────────────────────────────────
+
+    std::string can_interface_{"can0"};
 
     std::array<uint8_t, NUM_WHEELS> steer_ids_;   ///< Steadywin motor CAN IDs [FL,FR,RL,RR]
     std::array<uint8_t, NUM_WHEELS> drive_ids_;   ///< Damiao motor CAN IDs    [FL,FR,RL,RR]
@@ -144,41 +149,43 @@ private:
     std::array<double, NUM_WHEELS> drive_cmd_{};    ///< target drive velocity    [rad/s]
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Raw motor feedback (filled by on_can_frame, read by read())
+    // Raw motor feedback (filled by rx_thread, read by read())
     // ─────────────────────────────────────────────────────────────────────────
 
+    std::mutex feedback_mutex_;
     std::array<steadywin_protocol::MotorState, NUM_WHEELS> steer_state_{};
     std::array<damiao_protocol::MotorState,    NUM_WHEELS> drive_state_{};
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Concurrency & Hardware
+    // ─────────────────────────────────────────────────────────────────────────
+
+    int can_fd_{-1};
+    std::atomic<bool> rx_running_{false};
+    std::thread       rx_thread_;
 
     // ─────────────────────────────────────────────────────────────────────────
     // ROS 2 interfaces
     // (hardware plugins share the lifecycle node provided by controller_manager)
     // ─────────────────────────────────────────────────────────────────────────
 
-    rclcpp::Publisher<can_msgs::msg::Frame>::SharedPtr           to_can_pub_;
-    rclcpp::Subscription<can_msgs::msg::Frame>::SharedPtr        from_can_sub_;
-
     rclcpp::Publisher<indomitus_interfaces::msg::ChassisStatus>::SharedPtr chassis_status_pub_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr    diagnostics_pub_;
 
-    rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr                          motor_enable_srv_;
-    rclcpp::Service<indomitus_interfaces::srv::SetSteerZero>::SharedPtr         set_steer_zero_srv_;
+    rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr                  motor_enable_srv_;
+    rclcpp::Service<indomitus_interfaces::srv::SetSteerZero>::SharedPtr set_steer_zero_srv_;
 
     rclcpp::TimerBase::SharedPtr status_poll_timer_;      ///< 1 Hz  — 0xAE + 0xA3 query
     rclcpp::TimerBase::SharedPtr chassis_status_timer_;   ///< 10 Hz — /chassis/motor_states
     rclcpp::TimerBase::SharedPtr diagnostics_timer_;      ///< 1 Hz  — /diagnostics
     rclcpp::TimerBase::SharedPtr watchdog_timer_;         ///< 10 Hz — cmd_vel timeout guard
-    rclcpp::TimerBase::SharedPtr boot_retry_timer_;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Runtime state
     // ─────────────────────────────────────────────────────────────────────────
 
-    bool     motors_enabled_{false};
+    bool         motors_enabled_{false};
     rclcpp::Time last_write_time_;
-
-    int boot_retry_attempts_{0};
-    static constexpr int    kBootRetryMax{25};         ///< 25 × 200 ms = 5 s
     static constexpr double kWatchdogTimeoutSec{0.5};  ///< zero commands if write() stalls
 };
 
