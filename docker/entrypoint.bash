@@ -40,4 +40,19 @@ source_if_exists "/opt/ws/install/setup.bash"
 
 echo "[ROS] SUCCESS: Environment ready (${ROS_DISTRO})."
 
+# -------------------- Launch ROS2 nodes --------------------
+if [ "${1}" = "autolaunch" ]; then
+    echo "[ROVER] Starting launch file 1..."
+    ros2 launch rover_bringup rover.launch.py &
+    PID1=$!
+
+    # echo "[ROVER] Starting launch file 2..."
+    # ros2 launch rover_bringup joy.launch.py &
+    # PID2=$!
+
+    wait -n $PID1
+    # wait -n $PID1 $PID2
+    exit $?
+fi
+
 exec "$@"
