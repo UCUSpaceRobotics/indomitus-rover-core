@@ -214,7 +214,8 @@ if [ ! -d "src" ]; then error "No 'src' directory found in the repository root."
 
 rsync -avz --delete -e "ssh -q -o StrictHostKeyChecking=accept-new" src/ "${TARGET}:${REMOTE_DIR}/src/"
 
-scp "${ARCHIVE_NAME}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/"
+scp "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
+scp "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
 
 
 step "Loading Image on Jetson Nano..."
@@ -228,8 +229,7 @@ success "Image loaded and remote temporary files cleaned."
 
 
 step "Restarting Container on Jetson..."
-REMOTE_COMPOSE_FILE=$(basename "${COMPOSE_FILE}")
 
-ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && docker compose -f ${REMOTE_COMPOSE_FILE} up -d"
+ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && docker compose up -d"
 
 echo -e "\n\e[32m[DONE]\e[0m Deployment complete! The new container is now running."
