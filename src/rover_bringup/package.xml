@@ -15,7 +15,7 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>rover_description</exec_depend>
   <exec_depend>rover_control</exec_depend>
-  <exec_depend>rover_chassis_driver</exec_depend>
+  <exec_depend>rover_hardware_interface</exec_depend>
   <exec_depend>rover_peripherals</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

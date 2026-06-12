@@ -1,4 +1,4 @@
-#include "rover_chassis_driver/chassis_driver_node.hpp"
+#include "rover_hardware_interface/chassis_driver_node.hpp"
 
 #include <algorithm>
 #include <chrono>

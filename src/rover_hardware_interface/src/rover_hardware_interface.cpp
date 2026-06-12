@@ -32,6 +32,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <linux/can.h>
+#include <linux/can/raw.h>
+
 #include "pluginlib/class_list_macros.hpp"
 
 PLUGINLIB_EXPORT_CLASS(
@@ -75,13 +78,15 @@ std::string optional_param(
 // ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::CallbackReturn
-RoverHardwareInterface::on_init(const hardware_interface::HardwareInfo & info)
+RoverHardwareInterface::on_init(const hardware_interface::HardwareComponentInterfaceParams & params)
 {
-    if (hardware_interface::SystemInterface::on_init(info) !=
+    if (hardware_interface::SystemInterface::on_init(params) !=
         hardware_interface::CallbackReturn::SUCCESS)
     {
         return hardware_interface::CallbackReturn::ERROR;
     }
+
+    const auto & info = params.hardware_info;
 
     // ── CAN interface name ─────────────────────────────────────────────────────
     can_interface_ = optional_param(info, "can_interface", "can0");
@@ -186,11 +191,13 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*prev*/)
     // ── Services ───────────────────────────────────────────────────────────────
     motor_enable_srv_ = node->create_service<std_srvs::srv::SetBool>(
         "~/set_motors_enabled",
-        [this](auto req, auto res) { on_set_motors_enabled(req, res); });
+        [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
+                std::shared_ptr<std_srvs::srv::SetBool::Response> res) { on_set_motors_enabled(req, res); });
 
     set_steer_zero_srv_ = node->create_service<indomitus_interfaces::srv::SetSteerZero>(
         "~/set_steer_zero",
-        [this](auto req, auto res) { on_set_steer_zero(req, res); });
+        [this](const std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Request> req,
+                std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Response> res) { on_set_steer_zero(req, res); });
 
     // ── 1 Hz status poll (Steadywin 0xAE + 0xA3, Damiao reg 80) ──────────────
     status_poll_timer_ = node->create_wall_timer(1s, [this]() {

@@ -11,8 +11,8 @@
 #include "indomitus_interfaces/msg/wheel_targets.hpp"
 #include "indomitus_interfaces/msg/chassis_status.hpp"
 #include "indomitus_interfaces/srv/set_steer_zero.hpp"
-#include "rover_chassis_driver/damiao_protocol.hpp"
-#include "rover_chassis_driver/steadywin_protocol.hpp"
+#include "rover_hardware_interface/damiao_protocol.hpp"
+#include "rover_hardware_interface/steadywin_protocol.hpp"
 
 namespace chassis_driver {
 
