@@ -364,7 +364,7 @@ private:
     void write_steer_commands(const WheelData & angles);
 
     /// Write velocity commands to drive command interfaces.
-    void write_drive_commands(const WheelData & speeds, double scale);
+    void write_drive_commands(const WheelData & work_angles, const WheelData & speeds, double scale);
 
     /// Advance a single steering joint toward target, respecting max_steer_rate_.
     double step_angle(double current, double target, double dt) const;
