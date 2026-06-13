@@ -238,7 +238,7 @@ RoverSwerveController::update(
 
     // Step 5: Step steering joints toward target (rate-limited)
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
+        //current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
 
         const double before = current_angles_[i];
         current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
