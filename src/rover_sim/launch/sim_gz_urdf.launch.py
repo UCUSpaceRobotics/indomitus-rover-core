@@ -58,7 +58,6 @@ def controller_spawner(name: str, remappings: list = []) -> Node:
         package='controller_manager',
         executable='spawner',
         arguments=[name],
-        remappings=remappings,
         output='screen',
     )
 
@@ -129,8 +128,18 @@ def generate_launch_description() -> LaunchDescription:
         OpaqueFunction(function=generate_bridge_config),
         make_spawn_node(cfg),
 
-        controller_spawner('joint_state_broadcaster'),
-        controller_spawner('swerve_controller'),
+        Node(
+            package='controller_manager',
+            executable='spawner',
+            arguments=['joint_state_broadcaster'],
+            output='screen',
+        ),
+        Node(
+            package='controller_manager',
+            executable='spawner',
+            arguments=['swerve_controller'],
+            output='screen',
+        ),
 
         Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),
     ])

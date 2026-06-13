@@ -41,6 +41,8 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
 from std_srvs.srv import SetBool
 from indomitus_interfaces.srv import SetTrafficLight
+from controller_manager_msgs.srv import SetHardwareComponentState
+from lifecycle_msgs.msg import State
 
 class JoystickInterpreterNode(Node):
 
@@ -124,8 +126,8 @@ class JoystickInterpreterNode(Node):
         )
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self._motor_enable_client = self.create_client(
-            SetBool,
-            '/rover_hardware_interface/set_motors_enabled',
+            SetHardwareComponentState,
+            '/controller_manager/set_hardware_component_state',
         )
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
@@ -261,21 +263,22 @@ class JoystickInterpreterNode(Node):
             self.get_logger().warn('Motor toggle request is already in flight')
             return
 
-        target_enabled = not self._motors_enabled
-
         if not self._motor_enable_client.service_is_ready():
             self.get_logger().warn('Motor enable service is not available yet')
             return
 
+        target_enabled = not self._motors_enabled
         self._motor_toggle_pending = True
-        request = SetBool.Request()
-        request.data = target_enabled
+
+        request = SetHardwareComponentState.Request()
+        request.name = 'RoverHardware'
+        request.target_state.id = (
+            State.PRIMARY_STATE_ACTIVE if target_enabled else State.PRIMARY_STATE_INACTIVE
+        )
+
         future = self._motor_enable_client.call_async(request)
         future.add_done_callback(
-            lambda completed_future, desired_state=target_enabled: self._on_motor_toggle_result(
-                completed_future,
-                desired_state,
-            )
+            lambda f, desired=target_enabled: self._on_motor_toggle_result(f, desired)
         )
 
     def _toggle_compact_mode(self):
@@ -301,20 +304,18 @@ class JoystickInterpreterNode(Node):
             f'Compact mode {"ENABLED" if self._compact_mode else "DISABLED"}: {response.message}')
 
     def _on_motor_toggle_result(self, future, desired_state: bool):
+        self._motor_toggle_pending = False
         try:
             response = future.result()
         except Exception as exc:
-            self._motor_toggle_pending = False
-            self.get_logger().error(f'Motor enable service call failed: {exc!r}')
+            self.get_logger().error(f'Motor toggle failed: {exc!r}')
             return
 
-        if response.success:
+        if response.ok:
             self._motors_enabled = desired_state
 
-        self._motor_toggle_pending = False
-
         status = 'ENABLED' if self._motors_enabled else 'DISABLED'
-        self.get_logger().info(f'Motors {status}: {response.message}')
+        self.get_logger().info(f'Motors {status}')
     
     def _toggle_spotlight(self):
         self.get_logger().info(f'DEBUG _toggle_spotlight called, pending={self._spotlight_pending}, ready={self._spotlight_client.service_is_ready()}')

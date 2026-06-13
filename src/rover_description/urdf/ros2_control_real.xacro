@@ -7,6 +7,7 @@
       <param name="can_interface">$(arg can_interface)</param>
       <param name="steer_ids">11 13 17 15</param>
       <param name="drive_ids">10 12 16 14</param>
+      <param name="lifecycle_initial_state">inactive</param>
     </hardware>
 
     <joint name="fl_wheel_mount_joint">

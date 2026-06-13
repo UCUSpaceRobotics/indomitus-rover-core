@@ -2,6 +2,10 @@ controller_manager:
   ros__parameters:
     update_rate: 100  # Hz - frequency of main loop
 
+    hardware_components_initial_state:
+      inactive:
+        - RoverHardware
+
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 

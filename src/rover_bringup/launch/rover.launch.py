@@ -87,14 +87,14 @@ def generate_launch_description():
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['joint_state_broadcaster', '--controller-manager', '/controller_manager'],
+        arguments=['joint_state_broadcaster'],
         output='screen',
     )
 
     swerve_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['swerve_controller', '--controller-manager', '/controller_manager'],
+        arguments=['swerve_controller', '--inactive'],
         output='screen',
     )
 
