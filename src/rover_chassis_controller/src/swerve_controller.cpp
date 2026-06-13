@@ -98,14 +98,9 @@ RoverSwerveController::on_activate(const rclcpp_lifecycle::State & /*previous_st
         return controller_interface::CallbackReturn::ERROR;
     }
 
-    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        current_angles_[i] =
-            steer_handles_->position_state[i].get().get_optional().value_or(0.0);
-    }
+    read_current_angles();
 
     last_cmd_vel_time_ = get_node()->get_clock()->now();
-
-    // read_current_angles();
 
     state_machine_->reset();
     vx_smoothed_ = vy_smoothed_ = wz_smoothed_ = 0.0;
@@ -123,11 +118,11 @@ RoverSwerveController::on_deactivate(const rclcpp_lifecycle::State & /*previous_
     if (drive_handles_) {
         // Command zero velocity so motors don't coast.
         for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-            std::ignore = drive_handles_->velocity_cmd[i].get().set_value(0.0);
+            (void)drive_handles_->velocity_cmd[i].get().set_value(0.0);
         }
     }
 
-    // Release optional handles — this returns loaned interfaces to controller_manager.
+    // Release optional handles
     steer_handles_.reset();
     drive_handles_.reset();
 
@@ -142,10 +137,10 @@ RoverSwerveController::command_interface_configuration() const
     controller_interface::InterfaceConfiguration cfg;
     cfg.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-    for (const auto & name : steer_command_interface_names()) {
+    for (const auto& name : steer_command_interface_names()) {
         cfg.names.push_back(name);
     }
-    for (const auto & name : drive_command_interface_names()) {
+    for (const auto& name : drive_command_interface_names()) {
         cfg.names.push_back(name);
     }
     return cfg;
@@ -158,7 +153,7 @@ RoverSwerveController::state_interface_configuration() const
     controller_interface::InterfaceConfiguration cfg;
     cfg.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-    for (const auto & name : steer_state_interface_names()) {
+    for (const auto& name : steer_state_interface_names()) {
         cfg.names.push_back(name);
     }
     return cfg;
@@ -166,8 +161,8 @@ RoverSwerveController::state_interface_configuration() const
 
 controller_interface::return_type
 RoverSwerveController::update(
-    const rclcpp::Time & time,
-    const rclcpp::Duration & period)
+    const rclcpp::Time& time,
+    const rclcpp::Duration& period)
 {
     const double dt = period.seconds();
 
@@ -184,8 +179,8 @@ RoverSwerveController::update(
     const double vy = vy_smoothed_;
     const double wz = wz_smoothed_;
 
-    // Step 2: Read current hardware steering positions
-    read_current_angles();
+    // // Step 2: Read current hardware steering positions
+    // read_current_angles(); --- IGNORE --- (already read in on_activate and updated in step_angle)
 
     // Step 3: Compute desired target angles for transition detection
     const auto [desired_angles, desired_speeds_unused] =
@@ -198,7 +193,9 @@ RoverSwerveController::update(
         desired_angles, current_angles_,
         &logger);
 
-    // Step 4: Compute active execution vectors for the current state
+    // Step 4: Compute target angles and speeds for this cycle, based on current state
+    // work_angles - targeted angles for this cycle
+    // work_speeds - targeted speeds for this cycle
     WheelData work_angles, work_speeds;
 
     switch (state_machine_->state()) {
@@ -238,20 +235,7 @@ RoverSwerveController::update(
 
     // Step 5: Step steering joints toward target (rate-limited)
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        //current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
-
-        const double before = current_angles_[i];
         current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
-
-        RCLCPP_INFO_THROTTLE(get_node()->get_logger(),
-            *get_node()->get_clock(), 500,
-            "[steer %zu] hw=%.1f° target=%.1f° after_step=%.1f° step=%.2f°/cycle  max_step=%.2f°/cycle",
-            i,
-            before                  * 180.0 / M_PI,
-            work_angles[i]          * 180.0 / M_PI,
-            current_angles_[i]      * 180.0 / M_PI,
-            (current_angles_[i] - before) * 180.0 / M_PI,
-            max_steer_rate_ * dt    * 180.0 / M_PI);
     }
 
     // Step 6: Write steering position commands
@@ -263,6 +247,8 @@ RoverSwerveController::update(
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         const double c = std::cos(work_angles[i] - current_angles_[i]);
         global_align_scale = std::min(global_align_scale, c * c);
+        // cos^2 because it derivative in 0 and pi/2 is 0,
+        // so it's smooth acceleation and deceleration
     }
 
     const double state_scale = state_machine_->update_scale(
@@ -385,7 +371,7 @@ RoverSwerveController::steer_state_interface_names() const
 bool RoverSwerveController::assign_interfaces()
 {
     auto find_cmd = [this](const std::string & full_name)
-        -> hardware_interface::LoanedCommandInterface *
+        -> hardware_interface::LoanedCommandInterface*
     {
         for (auto & iface : command_interfaces_) {
             if (iface.get_name() == full_name) { return &iface; }
@@ -409,8 +395,8 @@ bool RoverSwerveController::assign_interfaces()
         const std::string pos_name =
             steer_joint_names_[i] + "/" + hardware_interface::HW_IF_POSITION;
 
-        auto * cmd_iface   = find_cmd(pos_name);
-        auto * state_iface = find_state(pos_name);
+        auto* cmd_iface   = find_cmd(pos_name);
+        auto* state_iface = find_state(pos_name);
 
         if (!cmd_iface || !state_iface) {
             RCLCPP_ERROR(get_node()->get_logger(),
@@ -429,14 +415,14 @@ bool RoverSwerveController::assign_interfaces()
         const std::string vel_name =
             drive_joint_names_[i] + "/" + hardware_interface::HW_IF_VELOCITY;
 
-        auto * cmd_iface = find_cmd(vel_name);
+        auto* cmd_iface = find_cmd(vel_name);
         if (!cmd_iface) {
             RCLCPP_ERROR(get_node()->get_logger(),
                 "[SwerveController] Missing interface: %s", vel_name.c_str());
             return false;
         }
 
-        drive.velocity_cmd.emplace_back(*cmd_iface);  // ← emplace_back
+        drive.velocity_cmd.emplace_back(*cmd_iface);
     }
 
     steer_handles_ = std::move(steer);
@@ -448,18 +434,18 @@ bool RoverSwerveController::assign_interfaces()
 
 void RoverSwerveController::read_current_angles()
 {
-//    if (!steer_handles_) { return; }
-//    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-//        current_angles_[i] =
-//            steer_handles_->position_state[i].get().get_optional().value_or(0.0);
-//    }
+   if (!steer_handles_) { return; }
+   for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+       current_angles_[i] =
+           steer_handles_->position_state[i].get().get_optional().value_or(0.0);
+   }
 }
 
 void RoverSwerveController::write_steer_commands(const WheelData & angles)
 {
     if (!steer_handles_) { return; }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        std::ignore = steer_handles_->position_cmd[i].get().set_value(angles[i]);
+        (void)steer_handles_->position_cmd[i].get().set_value(angles[i]);
     }
 }
 
@@ -477,7 +463,7 @@ void RoverSwerveController::write_drive_commands(
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         const double cos_err = std::cos(work_angles[i] - current_angles_[i]);
         const double sign    = (cos_err >= 0.0) ? 1.0 : -1.0;
-        std::ignore = drive_handles_->velocity_cmd[i].get().set_value(
+        (void)drive_handles_->velocity_cmd[i].get().set_value(
             speeds[i] * sign * scale);
     }
 }

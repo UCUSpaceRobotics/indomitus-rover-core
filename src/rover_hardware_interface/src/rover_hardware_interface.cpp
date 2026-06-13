@@ -1,20 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// rover_hardware_interface.cpp
-//
-// All CAN I/O goes through a raw POSIX SocketCAN socket (can_fd_).
-// No ROS topics on the write/read hot path — zero middleware overhead.
-//
-// Thread model:
-//   rx_thread_  — blocks on recv(), decodes into steer_state_/drive_state_
-//                 protected by feedback_mutex_
-//   control thread (ros2_control) — calls read()/write() at control_frequency
-//   ROS timer callbacks           — status_poll, chassis_status, diagnostics,
-//                                   watchdog (all use send_can_frame())
-//
-// send_can_frame() is thread-safe: write() on a SOCK_RAW socket is
-// atomic for frames <= MTU (16 bytes), which all CAN 2.0 frames are.
-// ─────────────────────────────────────────────────────────────────────────────
-
 #include "rover_hardware_interface/rover_hardware_interface.hpp"
 
 #include <chrono>
@@ -24,7 +7,6 @@
 #include <string>
 #include <thread>
 
-// POSIX / Linux SocketCAN
 #include <errno.h>
 #include <fcntl.h>
 #include <net/if.h>
@@ -73,9 +55,6 @@ std::string optional_param(
 
 }  // namespace
 
-// ─────────────────────────────────────────────────────────────────────────────
-// on_init
-// ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::CallbackReturn
 RoverHardwareInterface::on_init(const hardware_interface::HardwareComponentInterfaceParams & params)
@@ -248,9 +227,6 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*prev*/)
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// on_activate — open CAN socket, start rx thread, enable motors
-// ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::CallbackReturn
 RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State & /*prev*/)
@@ -270,9 +246,6 @@ RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State & /*prev*/)
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// on_deactivate — graceful shutdown then close socket
-// ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::CallbackReturn
 RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State & /*prev*/)
@@ -290,9 +263,7 @@ RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State & /*prev*/)
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // read — copy latest feedback from steer_state_/drive_state_ → backing arrays
-// ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::return_type
 RoverHardwareInterface::read(
@@ -346,9 +317,7 @@ RoverHardwareInterface::write(
     return hardware_interface::return_type::OK;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // SocketCAN — open / close / send
-// ─────────────────────────────────────────────────────────────────────────────
 
 bool RoverHardwareInterface::open_can_socket()
 {
@@ -453,9 +422,7 @@ void RoverHardwareInterface::rx_thread_fn()
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // dispatch_can_frame — route one frame to the right motor decoder
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverHardwareInterface::dispatch_can_frame(const struct can_frame & frame)
 {
@@ -509,9 +476,7 @@ void RoverHardwareInterface::dispatch_can_frame(const struct can_frame & frame)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Motor lifecycle
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverHardwareInterface::send_enable_frames()
 {
@@ -566,23 +531,9 @@ void RoverHardwareInterface::send_shutdown_frames()
         return;
     }
 
-    // RCLCPP_INFO(get_logger(), "[RoverHW] Shutdown: zeroing commands");
-    // for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-    //     auto f1 = steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f);
-    //     auto f2 = damiao_protocol::buildVelocityFrame(drive_ids_[i], 0.0f);
-    //     send_can_frame(f1.id, f1.data.data(), f1.dlc);
-    //     send_can_frame(f2.id, f2.data.data(), f2.dlc);
-    // }
-
-    // // RCLCPP_INFO(get_logger(), "[RoverHW] Waiting 1.5 s for motion to settle…");
-    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
     send_disable_frames();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Services
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverHardwareInterface::on_set_motors_enabled(
     const std::shared_ptr<std_srvs::srv::SetBool::Request>  req,
@@ -640,9 +591,7 @@ void RoverHardwareInterface::on_set_steer_zero(
     res->message = "Origin set for: " + zeroed;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Diagnostics / status
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverHardwareInterface::publish_chassis_status()
 {

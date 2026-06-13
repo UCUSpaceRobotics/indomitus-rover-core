@@ -25,12 +25,18 @@ swerve_controller:
       - bl_wheel_mount_joint
       - br_wheel_mount_joint
 
-    max_linear_speed:  1.0
-    max_angular_speed: 1.0
-    max_accel:         0.3
-    max_decel:         0.6
+    # Dynamics
+    max_accel: 0.3
+    max_decel: 0.6
+    cmd_vel_timeout_s: 0.5
 
+    # Kinematics restriction
     max_steer_deg: 90.0
     max_steer_rate_deg: 450.0 # degrees/s
+    max_linear_speed:  1.0
+    max_angular_speed: 1.0
 
-    cmd_vel_timeout_s: 0.5
+    # Geometry
+    wheelbase:     0.842   # meters, front-to-rear axle distance
+    track_width:   0.682   # meters, left-to-right wheel distance
+    wheel_radius:  0.16   # meters

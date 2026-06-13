@@ -72,20 +72,6 @@ inline double clamp(double v, double lo, double hi) {
     return std::max(lo, std::min(hi, v));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SwerveKinematics
-//
-// Stateless core math — no ROS, no timers, no logging.
-// Owns:
-//   - affine velocity mapping (cmd_vel → per-wheel velocity vectors)
-//   - wheel speed desaturation
-//   - stateful angle optimisation (flip-or-not with hard steering limits)
-//   - compact-mode offset application
-// Does NOT own:
-//   - slew rate limiting    → SlewRateLimiter in controller
-//   - state machine         → RoverStateMachine in controller
-//   - joint stepping        → controller
-// ─────────────────────────────────────────────────────────────────────────────
 
 class SwerveKinematics {
 public:
