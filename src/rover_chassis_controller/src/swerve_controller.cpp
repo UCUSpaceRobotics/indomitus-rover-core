@@ -98,9 +98,14 @@ RoverSwerveController::on_activate(const rclcpp_lifecycle::State & /*previous_st
         return controller_interface::CallbackReturn::ERROR;
     }
 
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        current_angles_[i] =
+            steer_handles_->position_state[i].get().get_optional().value_or(0.0);
+    }
+
     last_cmd_vel_time_ = get_node()->get_clock()->now();
 
-    read_current_angles();
+    // read_current_angles();
 
     state_machine_->reset();
     vx_smoothed_ = vy_smoothed_ = wz_smoothed_ = 0.0;
@@ -234,6 +239,19 @@ RoverSwerveController::update(
     // Step 5: Step steering joints toward target (rate-limited)
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
+
+        const double before = current_angles_[i];
+        current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
+
+        RCLCPP_INFO_THROTTLE(get_node()->get_logger(),
+            *get_node()->get_clock(), 500,
+            "[steer %zu] hw=%.1f° target=%.1f° after_step=%.1f° step=%.2f°/cycle  max_step=%.2f°/cycle",
+            i,
+            before                  * 180.0 / M_PI,
+            work_angles[i]          * 180.0 / M_PI,
+            current_angles_[i]      * 180.0 / M_PI,
+            (current_angles_[i] - before) * 180.0 / M_PI,
+            max_steer_rate_ * dt    * 180.0 / M_PI);
     }
 
     // Step 6: Write steering position commands
@@ -430,11 +448,11 @@ bool RoverSwerveController::assign_interfaces()
 
 void RoverSwerveController::read_current_angles()
 {
-    if (!steer_handles_) { return; }
-    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        current_angles_[i] =
-            steer_handles_->position_state[i].get().get_optional().value_or(0.0);
-    }
+//    if (!steer_handles_) { return; }
+//    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+//        current_angles_[i] =
+//            steer_handles_->position_state[i].get().get_optional().value_or(0.0);
+//    }
 }
 
 void RoverSwerveController::write_steer_commands(const WheelData & angles)

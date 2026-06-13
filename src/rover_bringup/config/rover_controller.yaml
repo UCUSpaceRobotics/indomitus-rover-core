@@ -31,6 +31,6 @@ swerve_controller:
     max_decel:         0.6
 
     max_steer_deg: 90.0
-    max_steer_rate_deg: 450.0
+    max_steer_rate_deg: 450.0 # degrees/s
 
     cmd_vel_timeout_s: 0.5
