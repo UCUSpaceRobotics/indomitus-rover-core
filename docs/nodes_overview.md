@@ -83,3 +83,9 @@ Simulation of a rover on a mars yard.
 **Simulation Nodes:**
 - `sim_chassis_driver_node` - Simulated motor driver (converts commands to joint velocities)
 - `sim_diff_bar_node` - Simulated differential bar suspension
+
+## 8. `rover_navigation` (Launch & Configuration)
+
+## 9. `rover_localization` (Launch & Configuration)
+
+## 10. `rover_sensors` (Launch & Configuration)
