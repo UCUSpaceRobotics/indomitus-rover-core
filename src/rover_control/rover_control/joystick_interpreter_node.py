@@ -125,11 +125,11 @@ class JoystickInterpreterNode(Node):
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self._motor_enable_client = self.create_client(
             SetBool,
-            '/chassis/set_motors_enabled',
+            '/rover_hardware_interface/set_motors_enabled',
         )
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
-        self._compact_mode_client = self.create_client(SetBool, '/set_compact_mode')
+        self._compact_mode_client = self.create_client(SetBool, '/swerve_controller/set_compact_mode')
 
         self._spotlight_client = self.create_client(SetBool, '/lights/spotlight')
         self._beautiful_client = self.create_client(SetBool, '/lights/beautiful')

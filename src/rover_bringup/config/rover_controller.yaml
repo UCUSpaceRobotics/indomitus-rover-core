@@ -1,6 +1,6 @@
 controller_manager:
   ros__parameters:
-    update_rate: 100  # Hz — частота головного циклу
+    update_rate: 100  # Hz - frequency of main loop
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -10,7 +10,6 @@ controller_manager:
 
 swerve_controller:
   ros__parameters:
-    # Joints — імена мають збігатись з URDF
     drive_joints:
       - fl_wheel_joint
       - fr_wheel_joint
@@ -22,10 +21,12 @@ swerve_controller:
       - bl_wheel_mount_joint
       - br_wheel_mount_joint
 
-    # Кінематика (раніше були в rover_geometry.yaml)
     max_linear_speed:  1.0
     max_angular_speed: 1.0
     max_accel:         0.3
     max_decel:         0.6
+
+    max_steer_deg: 90.0
+    max_steer_rate_deg: 450.0
 
     cmd_vel_timeout_s: 0.5

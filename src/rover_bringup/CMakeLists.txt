@@ -34,7 +34,7 @@ install(DIRECTORY resource
 )
 
 # Install config files
-install(DIRECTORY config
+install(DIRECTORY config urdf
     DESTINATION share/${PROJECT_NAME}
     OPTIONAL
 )

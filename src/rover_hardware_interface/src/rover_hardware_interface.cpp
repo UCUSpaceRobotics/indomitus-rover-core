@@ -121,9 +121,14 @@ RoverHardwareInterface::on_init(const hardware_interface::HardwareComponentInter
     // ── Joint names from URDF <joint> entries ─────────────────────────────────
     // Expected order: fl_steer, fr_steer, rl_steer, rr_steer,
     //                 fl_drive,  fr_drive,  rl_drive,  rr_drive
-    if (info.joints.size() != NUM_WHEELS * 2) {
+    std::size_t controllable = 0;
+    for (const auto & j : info.joints) {
+        if (!j.command_interfaces.empty()) ++controllable;
+    }
+    if (controllable != NUM_WHEELS * 2) {
         RCLCPP_ERROR(get_logger(),
-            "[RoverHW] Expected %zu joints, got %zu", NUM_WHEELS * 2, info.joints.size());
+            "[RoverHW] Expected %zu controllable joints, got %zu",
+            NUM_WHEELS * 2, controllable);
         return hardware_interface::CallbackReturn::ERROR;
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
@@ -561,16 +566,16 @@ void RoverHardwareInterface::send_shutdown_frames()
         return;
     }
 
-    RCLCPP_INFO(get_logger(), "[RoverHW] Shutdown: zeroing commands");
-    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        auto f1 = steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f);
-        auto f2 = damiao_protocol::buildVelocityFrame(drive_ids_[i], 0.0f);
-        send_can_frame(f1.id, f1.data.data(), f1.dlc);
-        send_can_frame(f2.id, f2.data.data(), f2.dlc);
-    }
+    // RCLCPP_INFO(get_logger(), "[RoverHW] Shutdown: zeroing commands");
+    // for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+    //     auto f1 = steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f);
+    //     auto f2 = damiao_protocol::buildVelocityFrame(drive_ids_[i], 0.0f);
+    //     send_can_frame(f1.id, f1.data.data(), f1.dlc);
+    //     send_can_frame(f2.id, f2.data.data(), f2.dlc);
+    // }
 
-    RCLCPP_INFO(get_logger(), "[RoverHW] Waiting 1.5 s for motion to settle…");
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    // // RCLCPP_INFO(get_logger(), "[RoverHW] Waiting 1.5 s for motion to settle…");
+    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     send_disable_frames();
 }
