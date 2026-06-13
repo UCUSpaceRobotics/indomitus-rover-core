@@ -3,7 +3,7 @@
 
   <xacro:arg name="can_interface" default="can0"/>
 
-  <xacro:include filename="$(find rover_description)/urdf/rover_s1.urdf.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/rover.urdf.xacro"/>
 
-  <xacro:include filename="$(find rover_description)/urdf/ros2_control_real.urdf.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/ros2_control_real.xacro"/>
 </robot>

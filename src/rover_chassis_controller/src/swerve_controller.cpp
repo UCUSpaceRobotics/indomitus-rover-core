@@ -1,11 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// swerve_controller.cpp
-//
-// ros2_control ControllerInterface plugin for 4-wheel swerve drive.
-// All kinematics math lives in swerve_kinematics.hpp.
-// This file owns: lifecycle, interface claim/assign, control loop, services.
-// ─────────────────────────────────────────────────────────────────────────────
-
 #include "rover_chassis_controller/swerve_controller.hpp"
 
 #include <cmath>
@@ -15,36 +7,23 @@
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "pluginlib/class_list_macros.hpp"
 
-// Export the plugin so controller_manager can load it by name.
+
 PLUGINLIB_EXPORT_CLASS(
     rover_chassis_controller::RoverSwerveController,
     controller_interface::ControllerInterface)
 
 namespace rover_chassis_controller {
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Joint name helpers
-//
-// The four wheel prefixes must match what is declared in the URDF
-// <ros2_control> block.  They are read from parameters in read_parameters()
-// so the user can override them without recompiling.
-// ─────────────────────────────────────────────────────────────────────────────
 
 static constexpr std::array<const char *, NUM_WHEELS> kWheelPrefixes = {
     "fl", "fr", "bl", "br"
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Construction
-// ─────────────────────────────────────────────────────────────────────────────
 
 RoverSwerveController::RoverSwerveController()
 : controller_interface::ControllerInterface()
 {}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// on_init — declare parameters (controller_manager calls this before configure)
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::CallbackReturn
 RoverSwerveController::on_init()
@@ -59,9 +38,6 @@ RoverSwerveController::on_init()
     return controller_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// on_configure — read params, build subsystems, create subscriber + service
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::CallbackReturn
 RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_state*/)
@@ -70,7 +46,6 @@ RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_s
         return controller_interface::CallbackReturn::ERROR;
     }
 
-    // ── Build kinematics ───────────────────────────────────────────────────────
     kinematics_ = std::make_unique<SwerveKinematics>(
         wheelbase_,
         track_width_,
@@ -79,17 +54,14 @@ RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_s
         max_linear_
     );
 
-    // ── Build state machine ────────────────────────────────────────────────────
     state_machine_ = std::make_unique<RoverStateMachine>(
         align_threshold_,
         scale_up_rate_,
         scale_down_rate_
     );
 
-    // ── Reset slew limiters to zero ────────────────────────────────────────────
     for (auto & lim : limiters_) { lim.reset(0.0); }
 
-    // ── cmd_vel subscriber ─────────────────────────────────────────────────────
     cmd_vel_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
         "/cmd_vel",
         rclcpp::SystemDefaultsQoS(),
@@ -100,7 +72,6 @@ RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_s
             target_wz_ = clamp(msg->angular.z, -max_angular_, max_angular_);
         });
 
-    // ── Compact-mode service ───────────────────────────────────────────────────
     compact_srv_ = get_node()->create_service<std_srvs::srv::SetBool>(
         "~/set_compact_mode",
         [this](
@@ -119,9 +90,6 @@ RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_s
     return controller_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// on_activate — claim loaned interfaces, seed timestamps
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::CallbackReturn
 RoverSwerveController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/)
@@ -130,13 +98,10 @@ RoverSwerveController::on_activate(const rclcpp_lifecycle::State & /*previous_st
         return controller_interface::CallbackReturn::ERROR;
     }
 
-    // Seed timeout clock so we don't immediately timeout on first cycle.
     last_cmd_vel_time_ = get_node()->get_clock()->now();
 
-    // Read actual hardware angles so the state machine starts from reality.
     read_current_angles();
 
-    // Reset state machine and smoothed velocities to a clean slate.
     state_machine_->reset();
     vx_smoothed_ = vy_smoothed_ = wz_smoothed_ = 0.0;
     target_vx_   = target_vy_   = target_wz_   = 0.0;
@@ -146,9 +111,6 @@ RoverSwerveController::on_activate(const rclcpp_lifecycle::State & /*previous_st
     return controller_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// on_deactivate — release interface handles, zero drive commands
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::CallbackReturn
 RoverSwerveController::on_deactivate(const rclcpp_lifecycle::State & /*previous_state*/)
@@ -168,12 +130,6 @@ RoverSwerveController::on_deactivate(const rclcpp_lifecycle::State & /*previous_
     return controller_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// command_interface_configuration
-//
-// Tells controller_manager which CommandInterfaces we need.
-// Names must exactly match what hardware plugin exports.
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::InterfaceConfiguration
 RoverSwerveController::command_interface_configuration() const
@@ -190,11 +146,6 @@ RoverSwerveController::command_interface_configuration() const
     return cfg;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// state_interface_configuration
-//
-// We only need steering position feedback (not drive encoder for now).
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::InterfaceConfiguration
 RoverSwerveController::state_interface_configuration() const
@@ -208,10 +159,6 @@ RoverSwerveController::state_interface_configuration() const
     return cfg;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// update — main control loop, called at control_frequency Hz
-// ─────────────────────────────────────────────────────────────────────────────
-
 controller_interface::return_type
 RoverSwerveController::update(
     const rclcpp::Time & time,
@@ -219,12 +166,11 @@ RoverSwerveController::update(
 {
     const double dt = period.seconds();
 
-    // ── Timeout guard ──────────────────────────────────────────────────────────
     if (cmd_vel_timed_out(time)) {
         target_vx_ = target_vy_ = target_wz_ = 0.0;
     }
 
-    // ── Step 1: Smooth chassis velocities via independent slew-rate limiters ───
+    // Step 1: Smooth chassis velocities via independent slew-rate limiters
     vx_smoothed_ = limiters_[0].update(target_vx_, dt);
     vy_smoothed_ = limiters_[1].update(target_vy_, dt);
     wz_smoothed_ = limiters_[2].update(target_wz_, dt);
@@ -233,10 +179,10 @@ RoverSwerveController::update(
     const double vy = vy_smoothed_;
     const double wz = wz_smoothed_;
 
-    // ── Step 2: Read current hardware steering positions ───────────────────────
+    // Step 2: Read current hardware steering positions
     read_current_angles();
 
-    // ── Step 3: Compute desired target angles for transition detection ─────────
+    // Step 3: Compute desired target angles for transition detection
     const auto [desired_angles, desired_speeds_unused] =
         kinematics_->ik_full(vx, vy, wz, current_angles_);
     (void)desired_speeds_unused;
@@ -247,7 +193,7 @@ RoverSwerveController::update(
         desired_angles, current_angles_,
         &logger);
 
-    // ── Step 4: Compute active execution vectors for the current state ─────────
+    // Step 4: Compute active execution vectors for the current state
     WheelData work_angles, work_speeds;
 
     switch (state_machine_->state()) {
@@ -285,20 +231,15 @@ RoverSwerveController::update(
         last_work_speeds_ = work_speeds;
     }
 
-    // ── Step 5: Step steering joints toward target (rate-limited) ─────────────
+    // Step 5: Step steering joints toward target (rate-limited)
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
     }
 
-    // ── Step 6: Write steering position commands ───────────────────────────────
+    // Step 6: Write steering position commands
     write_steer_commands(current_angles_);
 
-    // ── Step 7: Global speed scale — cosine alignment penalty ─────────────────
-    //
-    // For each wheel: cos²(angle_error) — this goes to zero when the wheel is
-    // 90° off-target, preventing traction force in the wrong direction.
-    // The minimum across all four wheels is used so a single badly-aligned
-    // wheel reduces drive for the entire chassis (suspension/rocker protection).
+    // Step 7: Global speed scale — cosine alignment penalty.
 
     double global_align_scale = 1.0;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
@@ -311,15 +252,11 @@ RoverSwerveController::update(
 
     const double total_scale = global_align_scale * state_scale;
 
-    // ── Step 8: Write drive velocity commands ──────────────────────────────────
+    // Step 8: Write drive velocity commands
     write_drive_commands(work_angles, work_speeds, total_scale);
 
     return controller_interface::return_type::OK;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// declare_parameters
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverSwerveController::declare_parameters()
 {
@@ -349,9 +286,6 @@ void RoverSwerveController::declare_parameters()
                                   "bl_wheel_joint", "br_wheel_joint"});
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// read_parameters
-// ─────────────────────────────────────────────────────────────────────────────
 
 bool RoverSwerveController::read_parameters()
 {
@@ -398,9 +332,6 @@ bool RoverSwerveController::read_parameters()
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Interface name builders
-// ─────────────────────────────────────────────────────────────────────────────
 
 std::vector<std::string>
 RoverSwerveController::steer_command_interface_names() const
@@ -432,16 +363,6 @@ RoverSwerveController::steer_state_interface_names() const
     return names;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// assign_interfaces
-//
-// The controller_manager loans us CommandInterface and StateInterface objects.
-// We need to find each one by its full name ("fl_wheel_mount_joint/position")
-// and store a reference so the control loop can read/write it efficiently.
-//
-// We search by name rather than assuming a fixed order, which makes the code
-// robust to different hardware plugin implementations.
-// ─────────────────────────────────────────────────────────────────────────────
 
 bool RoverSwerveController::assign_interfaces()
 {
@@ -463,7 +384,7 @@ bool RoverSwerveController::assign_interfaces()
         return nullptr;
     };
 
-    // ── Steer handles ──────────────────────────────────────────────────────────
+    // Steer handles
     SteerHandles steer;
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
@@ -479,11 +400,11 @@ bool RoverSwerveController::assign_interfaces()
             return false;
         }
 
-        steer.position_cmd.emplace_back(*cmd_iface);      // ← emplace_back
-        steer.position_state.emplace_back(*state_iface);  // ← emplace_back
+        steer.position_cmd.emplace_back(*cmd_iface);
+        steer.position_state.emplace_back(*state_iface);
     }
 
-    // ── Drive handles ──────────────────────────────────────────────────────────
+    // Drive handles
     DriveHandles drive;
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
@@ -505,9 +426,7 @@ bool RoverSwerveController::assign_interfaces()
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Control helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverSwerveController::read_current_angles()
 {
@@ -607,9 +526,6 @@ void RoverSwerveController::on_set_compact_mode(
                         (kinematics_->compact_mode() ? "enabled" : "disabled");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// cmd_vel timeout
-// ─────────────────────────────────────────────────────────────────────────────
 
 bool RoverSwerveController::cmd_vel_timed_out(const rclcpp::Time & now) const
 {

@@ -84,7 +84,7 @@
 
 
   <!-- ===================== CAMERA ===================== -->
-  <xacro:include filename="$(find rover_description)/urdf/camera.urdf.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/camera.xacro"/>
   <xacro:camera/>
 
   <!-- ===================== LEFT ROCKER ===================== -->

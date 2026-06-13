@@ -35,29 +35,19 @@
 
 namespace rover_chassis_controller {
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Wheel index constants — used everywhere instead of magic numbers
-// ─────────────────────────────────────────────────────────────────────────────
-
 constexpr std::size_t FL = 0;
 constexpr std::size_t FR = 1;
 constexpr std::size_t RL = 2;
 constexpr std::size_t RR = 3;
 constexpr std::size_t NUM_WHEELS = 4;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RoverState — internal drive state machine
-// ─────────────────────────────────────────────────────────────────────────────
 
 enum class RoverState : uint8_t {
     NORMAL,   ///< Combined translation + rotation
-    ROTATE,   ///< Pure rotate-in-place (vx=vy=0, wz≠0)
+    ROTATE,   ///< rotate-in-place (vx, vy ~ 0, wz≠0)
     TRANSIT,  ///< Wheels re-aligning; drive output suppressed
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SlewRateLimiter — independent per-axis acceleration/deceleration cap
-// ─────────────────────────────────────────────────────────────────────────────
 
 class SlewRateLimiter {
 public:
@@ -375,10 +365,7 @@ private:
 
     bool cmd_vel_timed_out(const rclcpp::Time & now) const;
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Joint name arrays — order must match FL/FR/RL/RR index constants
-    // These are populated from parameters in read_parameters(); defaults below.
-    // ─────────────────────────────────────────────────────────────────────────
 
     // Default joint names derived from rover_description URDF:
     //   fl_wheel_mount_joint, fr_wheel_mount_joint, rl_wheel_mount_joint, rr_wheel_mount_joint
@@ -386,9 +373,7 @@ private:
     std::array<std::string, NUM_WHEELS> steer_joint_names_;
     std::array<std::string, NUM_WHEELS> drive_joint_names_;
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Subsystems
-    // ─────────────────────────────────────────────────────────────────────────
 
     std::unique_ptr<SwerveKinematics> kinematics_;
     std::unique_ptr<RoverStateMachine> state_machine_;
@@ -399,9 +384,7 @@ private:
         SlewRateLimiter{0.2, 0.5},   // wz
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Runtime state
-    // ─────────────────────────────────────────────────────────────────────────
 
     WheelData current_angles_{WheelData::filled(0.0)};
     WheelData last_work_speeds_{WheelData::filled(0.0)};
@@ -416,9 +399,6 @@ private:
 
     rclcpp::Time last_cmd_vel_time_{0, 0, RCL_ROS_TIME};
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Cached parameters (populated in read_parameters)
-    // ─────────────────────────────────────────────────────────────────────────
 
     double wheelbase_{1.20};
     double track_width_{0.80};
@@ -435,9 +415,6 @@ private:
     double scale_up_rate_{1.0};
     double scale_down_rate_{2.0};
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ROS interfaces
-    // ─────────────────────────────────────────────────────────────────────────
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr         compact_srv_;

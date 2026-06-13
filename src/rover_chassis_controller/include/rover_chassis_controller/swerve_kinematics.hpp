@@ -7,10 +7,6 @@
 
 namespace rover_chassis_controller {
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
 constexpr double VXY_EPS = 1e-3;   ///< m/s  — below this vx/vy is considered zero
 constexpr double WZ_EPS  = 1e-3;   ///< rad/s — below this wz is considered zero
 
@@ -279,7 +275,7 @@ private:
             : std::make_pair(clamp(opt2, -max_steer_, max_steer_), -target_speed);
     }
 
-    // ── Compact offset application ─────────────────────────────────────────────
+    // Compact offset application
 
     WheelData apply_compact_offset(const WheelData & angles) const
     {
@@ -291,8 +287,6 @@ private:
         }
         return out;
     }
-
-    // ── Members ────────────────────────────────────────────────────────────────
 
     double wheel_radius_;
     double max_steer_;

@@ -98,7 +98,6 @@ def generate_launch_description():
         output='screen',
     )
 
-    # --- Периферія ---
     lighting_node = Node(
         package='rover_peripherals',
         executable='rover_lighting_node',

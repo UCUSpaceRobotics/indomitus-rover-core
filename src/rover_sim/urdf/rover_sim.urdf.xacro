@@ -2,10 +2,10 @@
 <robot name="indomitus_rover" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- Main robot description -->
-  <xacro:include filename="$(find rover_description)/urdf/rover_s1.urdf.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/rover.urdf.xacro"/>
 
   <!-- Simulation ros2_control -->
-  <xacro:include filename="$(find rover_description)/urdf/ros2_control_sim.urdf.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/ros2_control_sim.xacro"/>
 
   <!-- gz_ros2_control plugin -->
   <gazebo>

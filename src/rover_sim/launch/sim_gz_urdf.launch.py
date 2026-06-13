@@ -64,7 +64,7 @@ def controller_spawner(name: str, remappings: list = []) -> Node:
 
 
 def make_robot_description(rover_sim_share: str) -> str:
-    path = os.path.join(rover_sim_share, 'urdf', 'rover_gazebo.urdf.xacro')
+    path = os.path.join(rover_sim_share, 'urdf', 'rover_sim.urdf.xacro')
     return xacro.process_file(path).toxml()
 
 
