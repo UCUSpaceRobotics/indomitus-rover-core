@@ -31,7 +31,7 @@ namespace rover_chassis_controller {
 // ─────────────────────────────────────────────────────────────────────────────
 
 static constexpr std::array<const char *, NUM_WHEELS> kWheelPrefixes = {
-    "fl", "fr", "rl", "rr"
+    "fl", "fr", "bl", "br"
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -343,10 +343,10 @@ void RoverSwerveController::declare_parameters()
     // Joint name arrays — override in yaml if your URDF uses different names.
     node->declare_parameter("steer_joint_names",
         std::vector<std::string>{"fl_wheel_mount_joint", "fr_wheel_mount_joint",
-                                  "rl_wheel_mount_joint", "rr_wheel_mount_joint"});
+                                  "bl_wheel_mount_joint", "br_wheel_mount_joint"});
     node->declare_parameter("drive_joint_names",
         std::vector<std::string>{"fl_wheel_joint", "fr_wheel_joint",
-                                  "rl_wheel_joint", "rr_wheel_joint"});
+                                  "bl_wheel_joint", "br_wheel_joint"});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -445,7 +445,6 @@ RoverSwerveController::steer_state_interface_names() const
 
 bool RoverSwerveController::assign_interfaces()
 {
-    // ── Helper: find a CommandInterface by name ────────────────────────────────
     auto find_cmd = [this](const std::string & full_name)
         -> hardware_interface::LoanedCommandInterface *
     {
@@ -455,7 +454,6 @@ bool RoverSwerveController::assign_interfaces()
         return nullptr;
     };
 
-    // ── Helper: find a StateInterface by name ─────────────────────────────────
     auto find_state = [this](const std::string & full_name)
         -> hardware_interface::LoanedStateInterface *
     {
@@ -467,6 +465,7 @@ bool RoverSwerveController::assign_interfaces()
 
     // ── Steer handles ──────────────────────────────────────────────────────────
     SteerHandles steer;
+
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         const std::string pos_name =
             steer_joint_names_[i] + "/" + hardware_interface::HW_IF_POSITION;
@@ -480,12 +479,13 @@ bool RoverSwerveController::assign_interfaces()
             return false;
         }
 
-        steer.position_cmd[i]   = std::ref(*cmd_iface);
-        steer.position_state[i] = std::ref(*state_iface);
+        steer.position_cmd.emplace_back(*cmd_iface);      // ← emplace_back
+        steer.position_state.emplace_back(*state_iface);  // ← emplace_back
     }
 
     // ── Drive handles ──────────────────────────────────────────────────────────
     DriveHandles drive;
+
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         const std::string vel_name =
             drive_joint_names_[i] + "/" + hardware_interface::HW_IF_VELOCITY;
@@ -497,7 +497,7 @@ bool RoverSwerveController::assign_interfaces()
             return false;
         }
 
-        drive.velocity_cmd[i] = std::ref(*cmd_iface);
+        drive.velocity_cmd.emplace_back(*cmd_iface);  // ← emplace_back
     }
 
     steer_handles_ = std::move(steer);
