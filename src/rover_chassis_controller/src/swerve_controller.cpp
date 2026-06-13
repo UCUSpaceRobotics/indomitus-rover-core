@@ -16,10 +16,10 @@
 
 // Export the plugin so controller_manager can load it by name.
 PLUGINLIB_EXPORT_CLASS(
-    rover_swerve_controller::RoverSwerveController,
+    rover_chassis_controller::RoverSwerveController,
     controller_interface::ControllerInterface)
 
-namespace rover_swerve_controller {
+namespace rover_chassis_controller {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Joint name helpers

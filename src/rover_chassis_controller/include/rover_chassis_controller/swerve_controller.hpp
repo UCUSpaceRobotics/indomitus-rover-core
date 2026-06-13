@@ -31,9 +31,9 @@
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 
-#include "rover_swerve_controller/swerve_kinematics.hpp"
+#include "rover_chassis_controller/swerve_kinematics.hpp"
 
-namespace rover_swerve_controller {
+namespace rover_chassis_controller {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wheel index constants — used everywhere instead of magic numbers

@@ -7,7 +7,7 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
 
     swerve_controller:
-      type: rover_chassis_controller/SwerveController
+      type: rover_chassis_controller/RoverSwerveController
 
 swerve_controller:
   ros__parameters:

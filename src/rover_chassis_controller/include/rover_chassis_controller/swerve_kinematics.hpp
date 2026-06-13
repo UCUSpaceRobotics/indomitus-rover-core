@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-namespace rover_swerve_controller {
+namespace rover_chassis_controller {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants

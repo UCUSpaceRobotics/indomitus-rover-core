@@ -127,16 +127,16 @@ def generate_launch_description() -> LaunchDescription:
             }],
         ),
 
-        # controller_manager бере robot_description + yaml з конфігом контролерів
-        Node(
-            package='controller_manager',
-            executable='ros2_control_node',
-            parameters=[
-                {'robot_description': robot_description, 'use_sim_time': True},
-                os.path.join(rover_bringup_share, 'config', 'rover_controller.yaml'),
-            ],
-            output='screen',
-        ),
+        # # controller_manager бере robot_description + yaml з конфігом контролерів
+        # Node(
+        #     package='controller_manager',
+        #     executable='ros2_control_node',
+        #     parameters=[
+        #         {'robot_description': robot_description, 'use_sim_time': True},
+        #         os.path.join(rover_bringup_share, 'config', 'rover_controller.yaml'),
+        #     ],
+        #     output='screen',
+        # ),
 
         OpaqueFunction(function=generate_bridge_config),
         make_spawn_node(cfg),

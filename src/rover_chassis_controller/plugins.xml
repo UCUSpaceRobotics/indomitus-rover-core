@@ -1,6 +1,6 @@
 <library path="rover_chassis_controller">
-  <class name="rover_swerve_controller/RoverSwerveController"
-         type="rover_swerve_controller::RoverSwerveController"
+  <class name="rover_chassis_controller/RoverSwerveController"
+         type="rover_chassis_controller::RoverSwerveController"
          base_class_type="controller_interface::ControllerInterface">
     <description>4-wheel swerve drive controller</description>
   </class>
