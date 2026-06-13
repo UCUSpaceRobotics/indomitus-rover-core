@@ -91,7 +91,7 @@ RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_s
 
     // ── cmd_vel subscriber ─────────────────────────────────────────────────────
     cmd_vel_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
-        "~/cmd_vel",
+        "/cmd_vel",
         rclcpp::SystemDefaultsQoS(),
         [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
             last_cmd_vel_time_ = get_node()->get_clock()->now();

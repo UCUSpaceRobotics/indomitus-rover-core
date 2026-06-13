@@ -21,7 +21,6 @@ class RoverConfig:
     spawn_x: float = 0.0
     spawn_y: float = 0.0
     spawn_z: float = 3.5
-    # ЗМІНЕНО: steering_controller/drive_controller → swerve_controller
     controllers: list[str] = field(default_factory=lambda: [
         'joint_state_broadcaster',
         'swerve_controller',
@@ -54,11 +53,12 @@ def generate_bridge_config(context) -> list[Node]:
     )]
 
 
-def controller_spawner(name: str) -> Node:
+def controller_spawner(name: str, remappings: list = []) -> Node:
     return Node(
         package='controller_manager',
         executable='spawner',
         arguments=[name],
+        remappings=remappings,
         output='screen',
     )
 
@@ -126,23 +126,11 @@ def generate_launch_description() -> LaunchDescription:
                 'use_sim_time': True,
             }],
         ),
-
-        # # controller_manager бере robot_description + yaml з конфігом контролерів
-        # Node(
-        #     package='controller_manager',
-        #     executable='ros2_control_node',
-        #     parameters=[
-        #         {'robot_description': robot_description, 'use_sim_time': True},
-        #         os.path.join(rover_bringup_share, 'config', 'rover_controller.yaml'),
-        #     ],
-        #     output='screen',
-        # ),
-
         OpaqueFunction(function=generate_bridge_config),
         make_spawn_node(cfg),
 
-        *[controller_spawner(c) for c in cfg.controllers],
+        controller_spawner('joint_state_broadcaster'),
+        controller_spawner('swerve_controller'),
 
-        # sim_diff_bar_node — залишаємо якщо він потрібен для диференційної балки
-        # Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),
+        Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),
     ])
