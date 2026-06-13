@@ -282,17 +282,13 @@ private:
 
 struct SteerHandles
 {
-    // StateInterface refs — actual joint position feedback from hardware
-    std::array<std::reference_wrapper<hardware_interface::LoanedStateInterface>,   NUM_WHEELS> position_state;
-
-    // CommandInterface refs — position commands sent to hardware
-    std::array<std::reference_wrapper<hardware_interface::LoanedCommandInterface>, NUM_WHEELS> position_cmd;
+    std::vector<std::reference_wrapper<hardware_interface::LoanedStateInterface>>   position_state;
+    std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>> position_cmd;
 };
 
 struct DriveHandles
 {
-    // CommandInterface refs — velocity commands sent to hardware
-    std::array<std::reference_wrapper<hardware_interface::LoanedCommandInterface>, NUM_WHEELS> velocity_cmd;
+    std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>> velocity_cmd;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

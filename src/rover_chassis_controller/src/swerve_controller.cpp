@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "pluginlib/class_list_macros.hpp"
@@ -155,7 +156,7 @@ RoverSwerveController::on_deactivate(const rclcpp_lifecycle::State & /*previous_
     if (drive_handles_) {
         // Command zero velocity so motors don't coast.
         for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-            drive_handles_->velocity_cmd[i].get().set_value(0.0);
+            std::ignore = drive_handles_->velocity_cmd[i].get().set_value(0.0);
         }
     }
 
@@ -513,7 +514,7 @@ void RoverSwerveController::read_current_angles()
     if (!steer_handles_) { return; }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         current_angles_[i] =
-            steer_handles_->position_state[i].get().get_value();
+            steer_handles_->position_state[i].get().get_optional().value_or(0.0);
     }
 }
 
@@ -521,7 +522,7 @@ void RoverSwerveController::write_steer_commands(const WheelData & angles)
 {
     if (!steer_handles_) { return; }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        steer_handles_->position_cmd[i].get().set_value(angles[i]);
+        std::ignore = steer_handles_->position_cmd[i].get().set_value(angles[i]);
     }
 }
 
@@ -539,7 +540,7 @@ void RoverSwerveController::write_drive_commands(
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         const double cos_err = std::cos(work_angles[i] - current_angles_[i]);
         const double sign    = (cos_err >= 0.0) ? 1.0 : -1.0;
-        drive_handles_->velocity_cmd[i].get().set_value(
+        std::ignore = drive_handles_->velocity_cmd[i].get().set_value(
             speeds[i] * sign * scale);
     }
 }
