@@ -64,18 +64,4 @@
 
   </ros2_control>
 
-  <!-- gz_ros2_control plugin -->
-  <gazebo>
-    <plugin filename="gz_ros2_control-system"
-            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-      <parameters>$(find rover_sim)/parameters/ros2_control.yaml</parameters>
-    </plugin>
-  </gazebo>
-
-  <gazebo>
-    <plugin filename="gz-sim-joint-state-publisher-system"
-            name="gz::sim::systems::JointStatePublisher">
-    </plugin>
-  </gazebo>
-
 </robot>

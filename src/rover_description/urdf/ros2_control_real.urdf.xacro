@@ -1,17 +1,12 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- Цей параметр прокидується з launch файлу через ' can_interface:=can0' -->
-  <xacro:arg name="can_interface" default="can0"/>
-
   <ros2_control name="RoverHardware" type="system">
     <hardware>
       <plugin>rover_hardware_interface/RoverHardwareInterface</plugin>
-      <!-- Ці <param> твій RoverHardwareInterface читає в on_init() через info_.hardware_parameters -->
       <param name="can_interface">$(arg can_interface)</param>
     </hardware>
 
-    <!-- Steering joints — position command, бо повертаємо на кут -->
     <joint name="fl_wheel_mount_joint">
       <command_interface name="position"/>
       <state_interface name="position"/>
@@ -33,7 +28,6 @@
       <state_interface name="velocity"/>
     </joint>
 
-    <!-- Drive joints — velocity command, бо крутимо колесо зі швидкістю -->
     <joint name="fl_wheel_joint">
       <command_interface name="velocity"/>
       <state_interface name="position"/>
@@ -55,7 +49,6 @@
       <state_interface name="velocity"/>
     </joint>
 
-    <!-- Rocker joints — тільки state, ми їх не контролюємо, лише читаємо -->
     <joint name="l_rocker_joint">
       <state_interface name="position"/>
       <state_interface name="velocity"/>

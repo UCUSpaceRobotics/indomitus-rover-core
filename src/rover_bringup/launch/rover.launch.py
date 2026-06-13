@@ -2,7 +2,7 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler, EmitEvent
 from launch.substitutions import LaunchConfiguration, Command
 from launch.events import matches_action
 from launch_ros.actions import LifecycleNode, Node
@@ -63,8 +63,7 @@ def generate_launch_description():
     # --- ros2_control ---
     robot_description = Command([
         'xacro ',
-        os.path.join(rover_description_dir, 'urdf', 'rover_s1.urdf.xacro'),
-        ' use_sim:=false',
+        os.path.join(rover_bringup_dir, 'urdf', 'rover_real.urdf.xacro'),
         ' can_interface:=', LaunchConfiguration('interface'),
     ])
 
