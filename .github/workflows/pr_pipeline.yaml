@@ -88,6 +88,10 @@ jobs:
       needs: [detect-changes, build-temp-image]
       if: always() && !cancelled() && !contains(needs.*.result, 'failure')
       runs-on: ubuntu-22.04
+      permissions:
+        contents: read
+        checks: write
+        pull-requests: write
       
       container:
         image: ghcr.io/${{ needs.detect-changes.outputs.image_name }}:${{ needs.detect-changes.outputs.image_tag }}
