@@ -151,7 +151,7 @@ EOF
 
   step "Running Pre-Flight Checks (Rover)..."
   if ! command -v ssh >/dev/null 2>&1; then error "SSH client is not installed."; fi
-  if [ ! -f "$COMPOSE_FILE" ]; then error "Compose file not found locally: $COMPOSE_FILE"; fi
+  # if [ ! -f "$COMPOSE_FILE" ]; then error "Compose file not found locally: $COMPOSE_FILE"; fi
 
   step "Verifying Network Connection..."
   if [ -n "$WIFI_SSID" ]; then
@@ -215,9 +215,9 @@ EOF
   if [ "${CONTAINER_STATE}" != "true" ]; then
     echo "[JETSON] INFO: Container '${CONTAINER_NAME}' is not running. Starting it..."
     if command -v docker-compose >/dev/null 2>&1; then
-      docker-compose -f "${REMOTE_COMPOSE_FILE}" up -d
+      docker-compose up -d
     else
-      docker compose -f "${REMOTE_COMPOSE_FILE}" up -d
+      docker compose up -d
     fi
   else
     echo "[JETSON] INFO: Container '${CONTAINER_NAME}' is already running."
