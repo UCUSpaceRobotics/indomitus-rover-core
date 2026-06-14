@@ -92,6 +92,7 @@ jobs:
         contents: read
         checks: write
         pull-requests: write
+        packages: read
       
       container:
         image: ghcr.io/${{ needs.detect-changes.outputs.image_name }}:${{ needs.detect-changes.outputs.image_tag }}
