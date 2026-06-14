@@ -90,7 +90,6 @@ spinner() {
 }
 
 # --- CONNECTION FUNCTION ---
-# Encapsulated to call only right before SSH access is strictly needed
 connect_to_jetson() {
     step "Verifying Jetson Nano Connection..."
 
@@ -138,9 +137,9 @@ connect_to_jetson() {
 # ==========================================
 # MODE 1: RAPID CODE SYNC (--sync)
 # ==========================================
+
 if [ "$SYNC_MODE" = true ]; then
     
-    # Connect directly before syncing
     connect_to_jetson
     
     step "SYNC MODE: Syncing local 'src' directory via rsync..."
@@ -148,18 +147,18 @@ if [ "$SYNC_MODE" = true ]; then
     
     rsync -avz --delete -e "ssh -q -o StrictHostKeyChecking=accept-new" src/ "${TARGET}:${REMOTE_DIR}/src/"
     
-    # step "Compiling code on Jetson (Inside Docker)..."
-    # echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
+    step "Compiling code on Jetson (Inside Docker)..."
+    echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
     
-    # echo ""
-    # if ssh -q "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/\$ROS_DISTRO/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
-    #     success "Code successfully compiled on the Jetson!"
-    # else
-    #     echo -e "\e[31m[ERROR]\e[0m Compilation failed, or the container '${CONTAINER_NAME}' is not running."
-    #     exit 1
-    # fi
+    echo ""
+    if ssh -q "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/\$ROS_DISTRO/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
+        success "Code successfully compiled on the Jetson!"
+    else
+        echo -e "\e[31m[ERROR]\e[0m Compilation failed, or the container '${CONTAINER_NAME}' is not running."
+        exit 1
+    fi
     
-    # echo -e "\n\e[32m[DONE]\e[0m Sync & Build Process Complete!"
+    echo -e "\n\e[32m[DONE]\e[0m Sync & Build Process Complete!"
     echo -e "\n\e[32m[DONE]\e[0m Sync Process Complete!"
     exit 0
 fi
@@ -169,7 +168,6 @@ fi
 # MODE 2: FULL IMAGE DEPLOYMENT
 # ==========================================
 
-# NOTE: Laptop remains on its current internet connection for the build phase
 step "Running Pre-Flight Checks for Full Build..."
 if ! docker info > /dev/null 2>&1; then error "Docker is not running."; fi
 if ! docker buildx version > /dev/null 2>&1; then error "Docker Buildx is missing."; fi
@@ -205,7 +203,6 @@ echo ""
 success "Exported file size: $(du -h "${ARCHIVE_NAME}" | cut -f1)"
 
 
-# Now that the build is finished, connect to the offline Jetson hotspot
 connect_to_jetson
 
 
