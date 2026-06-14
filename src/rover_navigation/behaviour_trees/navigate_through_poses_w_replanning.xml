@@ -1,0 +1,49 @@
+<root main_tree_to_execute="MainTree">
+    <BehaviorTree ID="MainTree">
+
+        <Fallback name="ThroughPosesRecovery">
+
+            <!-- Normal navigation with periodic replanning -->
+            <Sequence name="NavigateThroughPosesWithReplanning">
+
+                <RateController hz="0.33">
+
+                    <!-- Recompute path or clear global costmap on failure -->
+                    <Fallback name="ComputePathThroughPosesRecovery">
+                        <ComputePathThroughPoses
+                            goals="{goals}"
+                            path="{path}"
+                            planner_id="GridBased"/>
+
+                        <ClearEntireCostmap
+                            name="ClearGlobalCostmap-Context"
+                            service_name="global_costmap/clear_entirely_global_costmap"/>
+                    </Fallback>
+
+                </RateController>
+
+                <FollowPath
+                    path="{path}"
+                    controller_id="FollowPath"/>
+
+            </Sequence>
+
+            <!-- Recovery behavior -->
+            <Sequence name="RecoveryActions">
+
+                <ClearEntireCostmap
+                    name="ClearLocalCostmap-Recovery"
+                    service_name="local_costmap/clear_entirely_local_costmap"/>
+
+                <ClearEntireCostmap
+                    name="ClearGlobalCostmap-Recovery"
+                    service_name="global_costmap/clear_entirely_global_costmap"/>
+
+                <Wait wait_duration="3.0"/>
+
+            </Sequence>
+
+        </Fallback>
+
+    </BehaviorTree>
+</root>
