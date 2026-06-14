@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+      - feature/shared/workflows-setup
     paths:
       - 'docker/**'
       - 'src/**'
