@@ -130,9 +130,22 @@ jobs:
             source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
             source install/setup.bash            
             
-            # Disable linters for both Python (pytest) AND C++ (CTest)
+            # Run test with disabled linters for both Python (pytest) AND C++ (CTest)
             colcon test --event-handlers console_cohesion+ \
               --pytest-args -m "not linter" \
               --ctest-args -LE linter
-              
+
+        - name: Publish Test Report Dashboard
+          uses: dorny/test-reporter@v1
+          if: success() || failure() 
+          with:
+            name: ROS 2 Unit Test Results
+            path: 'build/**/test_results/**/*.xml'
+            reporter: java-junit 
+
+        - name: Evaluate Results & Block Merge
+          if: success() || failure()
+          shell: bash
+          run: |
+            source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
             colcon test-result --all
