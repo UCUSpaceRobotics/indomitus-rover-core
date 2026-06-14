@@ -136,6 +136,10 @@ jobs:
               --pytest-args -m "not linter" \
               --ctest-args -LE linter
 
+        - name: Fix Git Ownership
+          if: always()
+          run: git config --global --add safe.directory '*'
+
         - name: Publish Test Report Dashboard
           uses: dorny/test-reporter@v1
           if: success() || failure() 
