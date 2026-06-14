@@ -43,6 +43,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=develop
             type=sha
 
       - name: Set up QEMU
