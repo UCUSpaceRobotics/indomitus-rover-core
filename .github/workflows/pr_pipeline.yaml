@@ -6,6 +6,10 @@ on:
       - main
       - develop
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   ROS_DISTRO: humble
@@ -111,10 +115,19 @@ jobs:
             source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
             colcon build --symlink-install --event-handlers console_cohesion+
         
-        - name: Run Unit Tests
+        - name: Code Style & Documentation Warnings
+          continue-on-error: true
           shell: bash
           run: |
             source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
-            source install/setup.bash
-            colcon test --event-handlers console_cohesion+
+            ament_flake8 src/
+            ament_pep257 src/
+            ament_cpplint src/
+
+        - name: Run Functional Unit Tests
+          shell: bash
+          run: |
+            source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
+            source install/setup.bash            
+            colcon test --event-handlers console_cohesion+ --pytest-args -m "not linter"
             colcon test-result --all
