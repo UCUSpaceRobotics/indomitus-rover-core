@@ -150,9 +150,7 @@ jobs:
           if: success() || failure() 
           with:
             name: ROS 2 Unit Test Results
-            path: |
-              build/**/test_results/**/*.xml
-              build/**/pytest.xml
+            path: 'build/**/test_results/**/*.xml,build/**/pytest.xml'
             reporter: java-junit 
 
         - name: Evaluate Results & Block Merge
