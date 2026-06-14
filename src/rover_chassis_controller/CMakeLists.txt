@@ -23,6 +23,10 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
+if("$ENV{ROS_DISTRO}" STREQUAL "jazzy" OR "$ENV{ROS_DISTRO}" STREQUAL "rolling")
+    target_compile_definitions(rover_chassis_controller PRIVATE JAZZY_OR_LATER)
+endif()
+
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 ament_target_dependencies(${PROJECT_NAME}

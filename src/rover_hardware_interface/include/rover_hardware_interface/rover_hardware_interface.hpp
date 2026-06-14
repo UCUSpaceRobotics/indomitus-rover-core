@@ -56,7 +56,7 @@ public:
     // ── SystemInterface lifecycle ──────────────────────────────────────────────
 
     hardware_interface::CallbackReturn on_init(
-        const hardware_interface::HardwareComponentInterfaceParams & params) override;
+        const hardware_interface::HardwareInfo& info) override;
 
     hardware_interface::CallbackReturn on_configure(
         const rclcpp_lifecycle::State & previous_state) override;
@@ -114,6 +114,13 @@ private:
 
     void publish_chassis_status();
     void publish_diagnostics();
+
+    rclcpp::Logger logger_{rclcpp::get_logger("RoverHardware")};
+    rclcpp::Clock::SharedPtr clock_{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)};
+
+    rclcpp::Node::SharedPtr hw_node_;
+    rclcpp::executors::SingleThreadedExecutor::SharedPtr hw_executor_;
+    std::thread hw_node_thread_;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Parameters (populated in on_init from HardwareInfo::hardware_parameters)

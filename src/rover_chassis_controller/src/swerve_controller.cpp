@@ -269,26 +269,35 @@ void RoverSwerveController::declare_parameters()
 {
     auto node = get_node();
 
-    node->declare_parameter("wheelbase",             1.20);
-    node->declare_parameter("track_width",           0.80);
-    node->declare_parameter("wheel_radius",          0.15);
-    node->declare_parameter("max_steer_deg",         90.0);
-    node->declare_parameter("max_steer_rate_deg",    45.0);
-    node->declare_parameter("max_linear_speed",      0.50);
-    node->declare_parameter("max_angular_speed",     0.50);
-    node->declare_parameter("max_accel",             0.20);
-    node->declare_parameter("max_decel",             0.50);
-    node->declare_parameter("control_frequency",     20.0);
-    node->declare_parameter("cmd_vel_timeout_s",     2.0);
-    node->declare_parameter("align_threshold_deg",   5.0);
-    node->declare_parameter("scale_up_rate",         1.0);
-    node->declare_parameter("scale_down_rate",       2.0);
+    // Declare parameters only if they haven't been declared already
+    auto declare_param = [node](const auto& name, const auto& default_val) {
+        try {
+            node->declare_parameter(name, default_val);
+        } catch (const std::exception&) {
+            // Parameter already declared, ignore error
+        }
+    };
+
+    declare_param("wheelbase",             1.20);
+    declare_param("track_width",           0.80);
+    declare_param("wheel_radius",          0.15);
+    declare_param("max_steer_deg",         90.0);
+    declare_param("max_steer_rate_deg",    45.0);
+    declare_param("max_linear_speed",      0.50);
+    declare_param("max_angular_speed",     0.50);
+    declare_param("max_accel",             0.20);
+    declare_param("max_decel",             0.50);
+    declare_param("control_frequency",     20.0);
+    declare_param("cmd_vel_timeout_s",     2.0);
+    declare_param("align_threshold_deg",   5.0);
+    declare_param("scale_up_rate",         1.0);
+    declare_param("scale_down_rate",       2.0);
 
     // Joint name arrays — override in yaml if your URDF uses different names.
-    node->declare_parameter("steer_joint_names",
+    declare_param("steer_joint_names",
         std::vector<std::string>{"fl_wheel_mount_joint", "fr_wheel_mount_joint",
                                   "bl_wheel_mount_joint", "br_wheel_mount_joint"});
-    node->declare_parameter("drive_joint_names",
+    declare_param("drive_joint_names",
         std::vector<std::string>{"fl_wheel_joint", "fr_wheel_joint",
                                   "bl_wheel_joint", "br_wheel_joint"});
 }
@@ -439,8 +448,11 @@ void RoverSwerveController::read_current_angles()
 {
    if (!steer_handles_) { return; }
    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-       current_angles_[i] =
-           steer_handles_->position_state[i].get().get_optional().value_or(0.0);
+#if defined(JAZZY_OR_LATER)
+        current_angles_[i] = steer_handles_->position_state[i].get().get_optional().value_or(0.0);
+#else
+        current_angles_[i] = steer_handles_->position_state[i].get().get_value();
+#endif
    }
 }
 

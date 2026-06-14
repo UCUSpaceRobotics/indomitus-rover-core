@@ -57,15 +57,13 @@ std::string optional_param(
 
 
 hardware_interface::CallbackReturn
-RoverHardwareInterface::on_init(const hardware_interface::HardwareComponentInterfaceParams & params)
+RoverHardwareInterface::on_init(const hardware_interface::HardwareInfo& info)
 {
-    if (hardware_interface::SystemInterface::on_init(params) !=
+    if (hardware_interface::SystemInterface::on_init(info) !=
         hardware_interface::CallbackReturn::SUCCESS)
     {
         return hardware_interface::CallbackReturn::ERROR;
     }
-
-    const auto & info = params.hardware_info;
 
     // ── CAN interface name ─────────────────────────────────────────────────────
     can_interface_ = optional_param(info, "can_interface", "can0");
@@ -93,7 +91,7 @@ RoverHardwareInterface::on_init(const hardware_interface::HardwareComponentInter
     mst_id_     = static_cast<uint32_t>(std::stoi(optional_param(info, "mst_id", "0")));
 
     if (drive_pmax_ <= 0.0f || drive_vmax_ <= 0.0f || drive_tmax_ <= 0.0f) {
-        RCLCPP_ERROR(get_logger(), "[RoverHW] drive_pmax/vmax/tmax must be > 0");
+        RCLCPP_ERROR(logger_, "[RoverHW] drive_pmax/vmax/tmax must be > 0");
         return hardware_interface::CallbackReturn::ERROR;
     }
 
@@ -105,7 +103,7 @@ RoverHardwareInterface::on_init(const hardware_interface::HardwareComponentInter
         if (!j.command_interfaces.empty()) ++controllable;
     }
     if (controllable != NUM_WHEELS * 2) {
-        RCLCPP_ERROR(get_logger(),
+        RCLCPP_ERROR(logger_,
             "[RoverHW] Expected %zu controllable joints, got %zu",
             NUM_WHEELS * 2, controllable);
         return hardware_interface::CallbackReturn::ERROR;
@@ -118,7 +116,7 @@ RoverHardwareInterface::on_init(const hardware_interface::HardwareComponentInter
     steer_pos_.fill(0.0); drive_pos_.fill(0.0); drive_vel_.fill(0.0);
     steer_cmd_.fill(0.0); drive_cmd_.fill(0.0);
 
-    RCLCPP_INFO(get_logger(),
+    RCLCPP_INFO(logger_,
         "[RoverHW] Initialized  iface=%s  "
         "steer[%d,%d,%d,%d]  drive[%d,%d,%d,%d]",
         can_interface_.c_str(),
@@ -164,7 +162,12 @@ RoverHardwareInterface::export_command_interfaces()
 hardware_interface::CallbackReturn
 RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*prev*/)
 {
-    auto node = get_node();
+    hw_node_ = std::make_shared<rclcpp::Node>("rover_hardware_node");
+    hw_executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+    hw_executor_->add_node(hw_node_);
+    hw_node_thread_ = std::thread([this]() { hw_executor_->spin(); });
+
+    auto node = hw_node_;
 
     // ── Status / diagnostics publishers ───────────────────────────────────────
     chassis_status_pub_ = node->create_publisher<indomitus_interfaces::msg::ChassisStatus>(
@@ -210,10 +213,10 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*prev*/)
     watchdog_timer_ = node->create_wall_timer(100ms, [this]() {
         if (!motors_enabled_) return;
         const double elapsed =
-            (get_node()->get_clock()->now() - last_write_time_).seconds();
+            (clock_->now() - last_write_time_).seconds();
         if (elapsed < kWatchdogTimeoutSec) return;
 
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_node()->get_clock(), 2000,
+        RCLCPP_WARN_THROTTLE(logger_, *clock_, 2000,
             "[RoverHW] write() timeout — zeroing motors");
         for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
             auto f1 = steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f);
@@ -223,7 +226,7 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*prev*/)
         }
     });
 
-    RCLCPP_INFO(get_logger(), "[RoverHW] Configured.");
+    RCLCPP_INFO(logger_, "[RoverHW] Configured.");
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -239,10 +242,10 @@ RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State & /*prev*/)
     rx_running_.store(true);
     rx_thread_ = std::thread(&RoverHardwareInterface::rx_thread_fn, this);
 
-    last_write_time_ = get_node()->get_clock()->now();
+    last_write_time_ = clock_->now();
     send_enable_frames();
 
-    RCLCPP_INFO(get_logger(), "[RoverHW] Activated on %s.", can_interface_.c_str());
+    RCLCPP_INFO(logger_, "[RoverHW] Activated on %s.", can_interface_.c_str());
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -252,6 +255,9 @@ RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State & /*prev*/)
 {
     send_shutdown_frames();
 
+    hw_executor_->cancel();
+    if (hw_node_thread_.joinable()) hw_node_thread_.join();
+
     // Stop rx thread
     rx_running_.store(false);
     if (rx_thread_.joinable()) {
@@ -259,7 +265,7 @@ RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State & /*prev*/)
     }
 
     close_can_socket();
-    RCLCPP_INFO(get_logger(), "[RoverHW] Deactivated.");
+    RCLCPP_INFO(logger_, "[RoverHW] Deactivated.");
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -296,7 +302,7 @@ RoverHardwareInterface::write(
     const rclcpp::Time & /*time*/,
     const rclcpp::Duration & /*period*/)
 {
-    last_write_time_ = get_node()->get_clock()->now();
+    last_write_time_ = clock_->now();
 
     if (!motors_enabled_) return hardware_interface::return_type::OK;
 
@@ -323,7 +329,7 @@ bool RoverHardwareInterface::open_can_socket()
 {
     can_fd_ = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (can_fd_ < 0) {
-        RCLCPP_ERROR(get_logger(),
+        RCLCPP_ERROR(logger_,
             "[RoverHW] socket(PF_CAN) failed: %s", std::strerror(errno));
         return false;
     }
@@ -332,7 +338,7 @@ bool RoverHardwareInterface::open_can_socket()
     struct ifreq ifr{};
     std::strncpy(ifr.ifr_name, can_interface_.c_str(), IFNAMSIZ - 1);
     if (ioctl(can_fd_, SIOCGIFINDEX, &ifr) < 0) {
-        RCLCPP_ERROR(get_logger(),
+        RCLCPP_ERROR(logger_,
             "[RoverHW] ioctl SIOCGIFINDEX failed for '%s': %s",
             can_interface_.c_str(), std::strerror(errno));
         close(can_fd_); can_fd_ = -1;
@@ -343,7 +349,7 @@ bool RoverHardwareInterface::open_can_socket()
     addr.can_family  = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
     if (bind(can_fd_, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-        RCLCPP_ERROR(get_logger(),
+        RCLCPP_ERROR(logger_,
             "[RoverHW] bind() failed: %s", std::strerror(errno));
         close(can_fd_); can_fd_ = -1;
         return false;
@@ -356,7 +362,7 @@ bool RoverHardwareInterface::open_can_socket()
     // rx_thread uses blocking recv() — no need to set O_NONBLOCK on the fd
     // write() / send_can_frame() are non-blocking by nature for CAN frames
 
-    RCLCPP_INFO(get_logger(),
+    RCLCPP_INFO(logger_,
         "[RoverHW] SocketCAN opened: %s (fd=%d)", can_interface_.c_str(), can_fd_);
     return true;
 }
@@ -366,7 +372,7 @@ void RoverHardwareInterface::close_can_socket()
     if (can_fd_ >= 0) {
         close(can_fd_);
         can_fd_ = -1;
-        RCLCPP_INFO(get_logger(), "[RoverHW] SocketCAN closed.");
+        RCLCPP_INFO(logger_, "[RoverHW] SocketCAN closed.");
     }
 }
 
@@ -382,7 +388,7 @@ bool RoverHardwareInterface::send_can_frame(
 
     const ssize_t nbytes = ::write(can_fd_, &frame, sizeof(frame));
     if (nbytes != static_cast<ssize_t>(sizeof(frame))) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_node()->get_clock(), 1000,
+        RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
             "[RoverHW] send_can_frame id=0x%X failed: %s", id, std::strerror(errno));
         return false;
     }
@@ -406,7 +412,7 @@ void RoverHardwareInterface::rx_thread_fn()
         if (nbytes < 0) {
             if (errno == EINTR) continue;  // interrupted by signal — retry
             if (!rx_running_.load()) break; // socket closed during shutdown
-            RCLCPP_WARN_THROTTLE(get_logger(), *get_node()->get_clock(), 1000,
+            RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
                 "[RoverHW] CAN recv error: %s", std::strerror(errno));
             continue;
         }
@@ -480,7 +486,7 @@ void RoverHardwareInterface::dispatch_can_frame(const struct can_frame & frame)
 
 void RoverHardwareInterface::send_enable_frames()
 {
-    RCLCPP_INFO(get_logger(), "[RoverHW] Enabling all motors");
+    RCLCPP_INFO(logger_, "[RoverHW] Enabling all motors");
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = steadywin_protocol::buildClearFaultFrame(steer_ids_[i]);
@@ -504,12 +510,12 @@ void RoverHardwareInterface::send_enable_frames()
     }
 
     motors_enabled_ = true;
-    RCLCPP_INFO(get_logger(), "[RoverHW] All motors enabled");
+    RCLCPP_INFO(logger_, "[RoverHW] All motors enabled");
 }
 
 void RoverHardwareInterface::send_disable_frames()
 {
-    RCLCPP_INFO(get_logger(), "[RoverHW] Disabling all motors");
+    RCLCPP_INFO(logger_, "[RoverHW] Disabling all motors");
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = steadywin_protocol::buildDisableFrame(steer_ids_[i]);
@@ -521,7 +527,7 @@ void RoverHardwareInterface::send_disable_frames()
     }
 
     motors_enabled_ = false;
-    RCLCPP_INFO(get_logger(), "[RoverHW] All motors disabled");
+    RCLCPP_INFO(logger_, "[RoverHW] All motors disabled");
 }
 
 void RoverHardwareInterface::send_shutdown_frames()
@@ -563,7 +569,7 @@ void RoverHardwareInterface::on_set_steer_zero(
         send_can_frame(f.id, f.data.data(), f.dlc);
         zeroed += kNames[i]; zeroed += '(';
         zeroed += std::to_string(steer_ids_[i]); zeroed += ") ";
-        RCLCPP_INFO(get_logger(), "[RoverHW] Set steer zero: %s (id=%d)",
+        RCLCPP_INFO(logger_, "[RoverHW] Set steer zero: %s (id=%d)",
             kNames[i], steer_ids_[i]);
     };
 
@@ -596,7 +602,7 @@ void RoverHardwareInterface::on_set_steer_zero(
 void RoverHardwareInterface::publish_chassis_status()
 {
     indomitus_interfaces::msg::ChassisStatus msg;
-    msg.header.stamp = get_node()->get_clock()->now();
+    msg.header.stamp = clock_->now();
 
     std::lock_guard<std::mutex> lock(feedback_mutex_);
 
@@ -636,7 +642,7 @@ void RoverHardwareInterface::publish_diagnostics()
 {
     static constexpr std::array<const char *, NUM_WHEELS> kNames = {"FL","FR","RL","RR"};
     diagnostic_msgs::msg::DiagnosticArray arr;
-    arr.header.stamp = get_node()->get_clock()->now();
+    arr.header.stamp = clock_->now();
 
     auto kv = [](const std::string & k, const std::string & v) {
         diagnostic_msgs::msg::KeyValue p; p.key = k; p.value = v; return p;
