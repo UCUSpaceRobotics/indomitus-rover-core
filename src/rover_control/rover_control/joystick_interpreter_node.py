@@ -41,7 +41,7 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
 from std_srvs.srv import SetBool
 from indomitus_interfaces.srv import SetTrafficLight
-from controller_manager_msgs.srv import SetHardwareComponentState
+from controller_manager_msgs.srv import SetHardwareComponentState, SwitchController
 from lifecycle_msgs.msg import State
 
 class JoystickInterpreterNode(Node):
@@ -128,6 +128,11 @@ class JoystickInterpreterNode(Node):
         self._motor_enable_client = self.create_client(
             SetHardwareComponentState,
             '/controller_manager/set_hardware_component_state',
+        )
+
+        self._controller_state_client = self.create_client(
+            SwitchController,
+            '/controller_manager/switch_controller',
         )
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
@@ -228,7 +233,8 @@ class JoystickInterpreterNode(Node):
         if not self._vy_enabled:
             vy = 0.0
 
-        # wz = self._apply_swerve_wz_correction(vx, vy, wz)
+        if not self._vy_enabled:
+            wz = self._apply_swerve_wz_correction(vx, vy, wz)
 
         out = Twist()
         out.linear.x = vx
@@ -313,9 +319,29 @@ class JoystickInterpreterNode(Node):
 
         if response.ok:
             self._motors_enabled = desired_state
+            if desired_state:
+                self._set_swerve_controller_state(True)
+            else:
+                self._set_swerve_controller_state(False)
 
         status = 'ENABLED' if self._motors_enabled else 'DISABLED'
         self.get_logger().info(f'Motors {status}')
+    
+    def _set_swerve_controller_state(self, activate: bool):
+        if not self._controller_state_client.service_is_ready():
+            self.get_logger().warn('switch_controller service not available')
+            return
+        req = SwitchController.Request()
+        if activate:
+            req.activate_controllers = ['swerve_controller']
+            req.deactivate_controllers = []
+        else:
+            req.activate_controllers = []
+            req.deactivate_controllers = ['swerve_controller']
+        req.strictness = SwitchController.Request.BEST_EFFORT
+        self._controller_state_client.call_async(req).add_done_callback(
+            lambda f: self.get_logger().info(
+                f'swerve_controller → {"active" if activate else "inactive"}'))
     
     def _toggle_spotlight(self):
         self.get_logger().info(f'DEBUG _toggle_spotlight called, pending={self._spotlight_pending}, ready={self._spotlight_client.service_is_ready()}')

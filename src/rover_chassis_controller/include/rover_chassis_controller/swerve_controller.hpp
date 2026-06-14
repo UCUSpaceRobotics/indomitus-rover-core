@@ -353,7 +353,7 @@ private:
     void write_drive_commands(const WheelData & work_angles, const WheelData & speeds, double scale);
 
     /// Advance a single steering joint toward target, respecting max_steer_rate_.
-    double step_angle(double current, double target, double dt) const;
+    double step_angle(double current, double target, double dt, double rate) const;
 
     // ── Compact-mode service callback ─────────────────────────────────────────
 

@@ -234,8 +234,11 @@ RoverSwerveController::update(
     }
 
     // Step 5: Step steering joints toward target (rate-limited)
+    const double speed_magnitude = std::hypot(vx, vy);
+    const double dynamic_steer_rate = max_steer_rate_ * (1.0 - 0.5 * speed_magnitude / max_linear_);
+
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt);
+        current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt, dynamic_steer_rate);
     }
 
     // Step 6: Write steering position commands
@@ -471,10 +474,11 @@ void RoverSwerveController::write_drive_commands(
 double RoverSwerveController::step_angle(
     double current,
     double target,
-    double dt) const
+    double dt,
+    double rate) const
 {
     const double diff = target - current;
-    const double step = clamp(diff, -max_steer_rate_ * dt, max_steer_rate_ * dt);
+    const double step = clamp(diff, -rate * dt, rate * dt);
     return current + step;
 }
 
