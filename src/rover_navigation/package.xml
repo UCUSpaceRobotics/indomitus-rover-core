@@ -1,40 +1,65 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<?xml-model
+    href="http://download.ros.org/schema/package_format3.xsd"
+    schematypens="http://www.w3.org/2001/XMLSchema"
+?>
+
 <package format="3">
-  <name>rover_navigation</name>
-  <version>0.0.0</version>
-  <description>
-    Autonomous navigation stack for the Indomitus Rover. This package contains 
-    configurations for path planning, local controller tuning, costmap management, 
-    and the high-level behavior logic required for point-to-point movement.
-  </description>
-  <maintainer email="bohdan.zasymovych@gmail.com">BohdanZasymovych</maintainer>
-  <license>MIT</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
+    <name>rover_navigation</name>
+    <version>0.0.0</version>
 
-  <depend>rclcpp</depend>
-  <depend>rclpy</depend>
-  <depend>ros2launch</depend>
-  <depend>std_msgs</depend>
-  <depend>geometry_msgs</depend>
-  <depend>nav_msgs</depend>
-  <depend>nav2_msgs</depend>
-  <depend>nav2_bringup</depend>
-  <depend>tf2_ros</depend>
+    <description>
+        Autonomous navigation stack for the Indomitus Rover. This package
+        provides Nav2 configuration, behavior trees, path planning,
+        controller tuning, costmap management, and waypoint navigation
+        capabilities.
+    </description>
 
-  <exec_depend>nav2_planner</exec_depend>
-  <exec_depend>nav2_controller</exec_depend>
-  <exec_depend>nav2_bt_navigator</exec_depend>
-  <exec_depend>nav2_lifecycle_manager</exec_depend>
-  <exec_depend>nav2_waypoint_follower</exec_depend>
-  <exec_depend>nav2_navfn_planner</exec_depend>
-  <exec_depend>nav2_regulated_pure_pursuit_controller</exec_depend>
+    <maintainer email="bohdan.zasymovych@gmail.com">
+        BohdanZasymovych
+    </maintainer>
 
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
+    <license>MIT</license>
 
-  <export>
-    <build_type>ament_cmake</build_type>
-  </export>
+    <!-- Build tools -->
+    <buildtool_depend>ament_cmake</buildtool_depend>
+
+    <!-- Core ROS 2 -->
+    <depend>rclcpp</depend>
+    <depend>rclpy</depend>
+    <depend>ros2launch</depend>
+
+    <!-- Messages -->
+    <depend>std_msgs</depend>
+    <depend>geometry_msgs</depend>
+    <depend>nav_msgs</depend>
+    <depend>nav2_msgs</depend>
+
+    <!-- Navigation stack -->
+    <depend>nav2_bringup</depend>
+    <depend>nav2_behaviors</depend>
+    <depend>nav2_bt_navigator</depend>
+
+    <!-- TF -->
+    <depend>tf2_ros</depend>
+
+    <!-- Navigation servers -->
+    <exec_depend>nav2_planner</exec_depend>
+    <exec_depend>nav2_controller</exec_depend>
+    <exec_depend>nav2_lifecycle_manager</exec_depend>
+    <exec_depend>nav2_waypoint_follower</exec_depend>
+
+    <!-- Navigation plugins -->
+    <exec_depend>nav2_navfn_planner</exec_depend>
+    <exec_depend>nav2_regulated_pure_pursuit_controller</exec_depend>
+
+    <!-- Testing -->
+    <test_depend>ament_lint_auto</test_depend>
+    <test_depend>ament_lint_common</test_depend>
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+
 </package>
