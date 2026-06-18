@@ -24,7 +24,7 @@ class TestKinematics(unittest.TestCase):
         """Stop should result in zero angles and speeds."""
         angles, speeds = self.node.kinematics.ik_full(0.0, 0.0, 0.0, self.node.current_angles)
 
-        self.assertTrue(all(a == 1.0 for a in angles)) # Line self.assertTrue(all(a == 0.0 for a in angles)) temporary changed to test test failures in the workflows
+        self.assertTrue(all(a == 0.0 for a in angles))
         self.assertTrue(all(s == 0.0 for s in speeds))
 
     def test_straight_motion(self):
