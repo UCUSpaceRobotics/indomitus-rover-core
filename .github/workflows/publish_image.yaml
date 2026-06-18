@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - develop
-      - feature/shared/workflows-setup
+      - feature/shared/workflows-setup # Temporary branch used for development. This line will be deleted before merging
     paths:
       - 'docker/**'
       - 'src/**'
