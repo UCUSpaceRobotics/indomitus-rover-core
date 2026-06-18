@@ -1,6 +1,6 @@
 services:
   rover_prod:
-    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
+    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG}
     container_name: rover_prod
     network_mode: host
     restart: unless-stopped
@@ -15,6 +15,7 @@ services:
       - ROS_LOCALHOST_ONLY=0
       - CAN_INTERFACE=can0
       - CAN_BITRATE=1000000
+      - CAN_TRANSMIT_QUEUE_SIZE=1000
     volumes:
     - /home/ros/Indomitus/indomitus-rover-core/src:/opt/ws/src:rw
     deploy:
