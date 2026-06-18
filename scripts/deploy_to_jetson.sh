@@ -26,13 +26,13 @@ show_help() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Deploys code to the Jetson Nano. 
+Deploys code to the Jetson. 
 
 Options:
     -s, --sync            SYNC MODE: Skips Docker build. Syncs 'src' and auto-compiles on the Jetson.
     -P, --pull            PULL MODE: Laptop pulls image from GHCR, transfers, and loads it.
-    -i, --ip IP           Jetson Nano IP address (Default: ${JETSON_IP})
-    -u, --user USER       Jetson Nano SSH username (Default: ${JETSON_USER})
+    -i, --ip IP           Jetson IP address (Default: ${JETSON_IP})
+    -u, --user USER       Jetson SSH username (Default: ${JETSON_USER})
     -d, --dir DIR         Remote deployment directory on the Jetson. (Default: ${REMOTE_DIR})
     -n, --name NAME       Docker image name (Default: ${IMAGE_NAME})
     -t, --tag TAG         Docker image tag (Default: local-prod or develop-prod)
@@ -99,7 +99,7 @@ spinner() {
 
 # --- CONNECTION FUNCTION ---
 connect_to_jetson() {
-    step "Verifying Jetson Nano Connection..."
+    step "Verifying Jetson Connection..."
 
     if [ -n "$WIFI_SSID" ]; then
         echo "Attempting to automatically connect to Wi-Fi network: ${WIFI_SSID}..."
@@ -132,7 +132,7 @@ connect_to_jetson() {
         RETRY_COUNT=$((RETRY_COUNT+1))
         if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
             echo ""
-            error "Timeout: Could not connect to Jetson Nano at ${TARGET}."
+            error "Timeout: Could not connect to Jetson at ${TARGET}."
         fi
     done
     echo ""
@@ -172,21 +172,38 @@ fi
 # MODE 3: PULL & BRIDGE (--pull)
 # ==========================================
 if [ "$PULL_MODE" = true ]; then
-    step "PULL MODE: Pulling ${IMAGE_NAME}:${IMAGE_TAG} to local machine..."
-    docker pull "${IMAGE_NAME}:${IMAGE_TAG}" || error "Docker pull failed."
+    step "PULL MODE: Pulling ${IMAGE_NAME}:${IMAGE_TAG} (linux/arm64) to local machine..."
+    docker rmi -f "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1 || true
+
+    ARM64_DIGEST=$(docker manifest inspect "${IMAGE_NAME}:${IMAGE_TAG}" \
+        | python3 -c "
+import sys, json
+manifests = json.load(sys.stdin).get('manifests', [])
+for m in manifests:
+    p = m.get('platform', {})
+    if p.get('os') == 'linux' and p.get('architecture') == 'arm64':
+        print(m['digest'])
+        break
+    ")
+
+    [ -z "$ARM64_DIGEST" ] && error "Could not resolve arm64 digest from manifest for ${IMAGE_NAME}:${IMAGE_TAG}"
+
+    echo "Resolved arm64 digest: ${ARM64_DIGEST}"
+    docker pull "${IMAGE_NAME}@${ARM64_DIGEST}" || error "Docker pull failed."
+    docker tag "${IMAGE_NAME}@${ARM64_DIGEST}" "${IMAGE_NAME}:${IMAGE_TAG}"
 
     step "Exporting Image to ${ARCHIVE_NAME}..."
     docker save -o "${ARCHIVE_NAME}" "${IMAGE_NAME}:${IMAGE_TAG}"
 
     connect_to_jetson
-    
+
     step "Transferring Payload to ${TARGET}:${REMOTE_DIR}..."
     if [ ! -d "src" ]; then error "No 'src' directory found in the repository root."; fi
     rsync -avz --delete -e "ssh -q -o StrictHostKeyChecking=accept-new" src/ "${TARGET}:${REMOTE_DIR}/src/"
     scp "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
     scp "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
 
-    step "Loading Image on Jetson Nano..."
+    step "Loading Image on Jetson..."
     ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && docker load -i \"${ARCHIVE_NAME}\" && rm \"${ARCHIVE_NAME}\""
     
     step "Restarting Container on Jetson..."
@@ -232,8 +249,11 @@ rsync -avz --delete -e "ssh -q -o StrictHostKeyChecking=accept-new" src/ "${TARG
 scp "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
 scp "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
 
-step "Loading Image on Jetson Nano..."
+step "Loading Image on Jetson..."
 ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && docker load -i \"${ARCHIVE_NAME}\" && rm \"${ARCHIVE_NAME}\""
+
+step "Pruning dangling images on Jetson..."
+ssh -q "${TARGET}" "docker image prune -f"
 
 step "Restarting Container on Jetson..."
 ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose up -d"
