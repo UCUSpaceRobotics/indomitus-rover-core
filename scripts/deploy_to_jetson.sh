@@ -29,7 +29,7 @@ Usage: $0 [OPTIONS]
 Deploys code to the Jetson. 
 
 Options:
-    -s, --sync            SYNC MODE: Skips Docker build. Syncs 'src' and auto-compiles on the Jetson.
+    -S, --sync            SYNC MODE: Skips Docker build. Syncs 'src' and auto-compiles on the Jetson.
     -P, --pull            PULL MODE: Laptop pulls image from GHCR, transfers, and loads it.
     -i, --ip IP           Jetson IP address (Default: ${JETSON_IP})
     -u, --user USER       Jetson SSH username (Default: ${JETSON_USER})
@@ -52,7 +52,7 @@ step()    { echo -e "\n\e[33m>>> $1\e[0m"; }
 # PARSE TERMINAL ARGUMENTS
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        -s|--sync) SYNC_MODE=true; shift 1;;
+        -S|--sync) SYNC_MODE=true; shift 1;;
         -P|--pull) PULL_MODE=true; shift 1;;
         -u|--user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
         -i|--ip) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
