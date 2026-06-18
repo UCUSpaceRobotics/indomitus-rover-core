@@ -83,6 +83,8 @@ jobs:
           target: dev
           platforms: linux/amd64
           push: true
+          build-args: |
+            INSTALL_SIM_TOOLS=true
           tags: ${{ env.REGISTRY }}/${{ needs.detect-changes.outputs.image_name }}:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

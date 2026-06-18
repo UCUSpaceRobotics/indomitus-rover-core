@@ -36,7 +36,7 @@ jobs:
           REPO="${{ github.repository }}"
           echo "name=${REPO,,}" >> $GITHUB_OUTPUT
 
-      - name: Extract Docker metadata
+      - name: Extract Docker metadata for PROD image
         id: metadata-tags
         uses: docker/metadata-action@v5
         with:
@@ -93,6 +93,8 @@ jobs:
           target: dev
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            INSTALL_SIM_TOOLS=true
           tags: ${{ steps.meta-dev.outputs.tags }}
           cache-from: type=gha,scope=${{ github.ref_name }}-dev
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-dev
