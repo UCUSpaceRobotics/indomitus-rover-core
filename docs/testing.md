@@ -5,6 +5,7 @@
 ### Local Manual Testing
 
 **Workspace preparation:**
+
 Tests should generally be executed inside the development Docker container to ensure all dependencies and simulation tools are present.
 
 1. Start the local development container or run tests natively.
@@ -18,10 +19,11 @@ source /opt/ros/humble/setup.bash
 source install/setup.bash
 ```
 
-> Note: if you are using other ROS 2 distribution rather than humble you will need to use it in the command
+> Note: if you are using other ROS 2 distribution rather than humble you will need to specify it in the command
 
 
 **Run all tests:**
+
 Executes all suites, including functional logic and linters (code style, copyright, PEP257).
 
 ```bash
@@ -48,11 +50,21 @@ colcon test-result --all
 
 ### Remote Automated Testing
 
-Automated testing is handled by GitHub workflows:
+**Automated testing is handled by GitHub workflows:**
 
 * **Triggers:** Automatically runs when a Pull Request is opened or updated against the `main` or `develop` branches.
 * **What Is Tested:** Workflows execute only functional tests, actively ignoring code style, documentation, and copyright checks.
-* **Reporting:** Test results are published to the GitHub PR dashboard; any functional test failure will block the merge.
+* **Reporting:** Test results are published to the GitHub PR dashboard. Any functional test failure will block the merge. 
+
+
+**Finding the Test Results Dashboard in GitHub:**
+
+1. **Open your Pull Request** in GitHub.
+2. **Scroll down** to the workflow checks section at the bottom of the page.
+3. **Locate the job** named `PR Pipeline / run-tests (pull_request)`.
+4. **Click the three dots (`...`)** next to the job name, then select **View details**.
+5. **Select Summary** from the left sidebar.
+6. **Scroll down** to view the complete test results and identify any failures.
 
 ---
 
