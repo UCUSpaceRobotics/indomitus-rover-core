@@ -169,6 +169,35 @@ fi
 
 
 # ==========================================
+# MODE 3: PULL & BRIDGE (--pull)
+# ==========================================
+if [ "$PULL_MODE" = true ]; then
+    step "PULL MODE: Pulling ${IMAGE_NAME}:${IMAGE_TAG} to local machine..."
+    docker pull "${IMAGE_NAME}:${IMAGE_TAG}" || error "Docker pull failed."
+
+    step "Exporting Image to ${ARCHIVE_NAME}..."
+    docker save -o "${ARCHIVE_NAME}" "${IMAGE_NAME}:${IMAGE_TAG}"
+
+    connect_to_jetson
+    
+    step "Transferring Payload to ${TARGET}:${REMOTE_DIR}..."
+    if [ ! -d "src" ]; then error "No 'src' directory found in the repository root."; fi
+    rsync -avz --delete -e "ssh -q -o StrictHostKeyChecking=accept-new" src/ "${TARGET}:${REMOTE_DIR}/src/"
+    scp "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
+    scp "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
+
+    step "Loading Image on Jetson Nano..."
+    ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && docker load -i \"${ARCHIVE_NAME}\" && rm \"${ARCHIVE_NAME}\""
+    
+    step "Restarting Container on Jetson..."
+    ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose up -d"
+    
+    echo -e "\n\e[32m[DONE]\e[0m Pull & Deploy Complete!"
+    exit 0
+fi
+
+
+# ==========================================
 # MODE 2: FULL IMAGE DEPLOYMENT (Default)
 # ==========================================
 step "Running Pre-Flight Checks for Full Build..."
@@ -210,32 +239,3 @@ step "Restarting Container on Jetson..."
 ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose up -d"
 
 echo -e "\n\e[32m[DONE]\e[0m Deployment complete!"
-
-
-# ==========================================
-# MODE 3: PULL & BRIDGE (--pull)
-# ==========================================
-if [ "$PULL_MODE" = true ]; then
-    step "PULL MODE: Pulling ${IMAGE_NAME}:${IMAGE_TAG} to local machine..."
-    docker pull "${IMAGE_NAME}:${IMAGE_TAG}" || error "Docker pull failed."
-
-    step "Exporting Image to ${ARCHIVE_NAME}..."
-    docker save -o "${ARCHIVE_NAME}" "${IMAGE_NAME}:${IMAGE_TAG}"
-
-    connect_to_jetson
-    
-    step "Transferring Payload to ${TARGET}:${REMOTE_DIR}..."
-    if [ ! -d "src" ]; then error "No 'src' directory found in the repository root."; fi
-    rsync -avz --delete -e "ssh -q -o StrictHostKeyChecking=accept-new" src/ "${TARGET}:${REMOTE_DIR}/src/"
-    scp "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
-    scp "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
-
-    step "Loading Image on Jetson Nano..."
-    ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && docker load -i \"${ARCHIVE_NAME}\" && rm \"${ARCHIVE_NAME}\""
-    
-    step "Restarting Container on Jetson..."
-    ssh -q "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose up -d"
-    
-    echo -e "\n\e[32m[DONE]\e[0m Pull & Deploy Complete!"
-    exit 0
-fi
