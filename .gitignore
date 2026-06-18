@@ -248,3 +248,8 @@ __marimo__/
 COLCON_IGNORE
 *.tar
 colcon_defaults.yaml
+
+
+# Code formating
+.clang-format
+.pre-commit-config.yaml
