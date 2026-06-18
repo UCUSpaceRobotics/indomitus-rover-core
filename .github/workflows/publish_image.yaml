@@ -46,7 +46,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=develop
+            type=raw,value=develop # Temporary tag used for development. This line will be deleted before merging
             type=sha
 
       - name: Set up QEMU
