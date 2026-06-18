@@ -66,6 +66,14 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('traffic_green_button',  13)  # ↑
         self.declare_parameter('traffic_blue_button',   14)  # ↓
 
+        self.declare_parameter('granny_button', 10)
+        self.declare_parameter('granny_speed_scale', 0.1)
+
+        self._granny_button: int = self.get_parameter('granny_button').value
+        self._granny_scale: float = float(self.get_parameter('granny_speed_scale').value)
+        self._granny_mode: bool = False
+        self._prev_granny_button: int = 0
+
         self._vy_toggle_button: int = self.get_parameter('vy_toggle_button').value
         self._motor_toggle_button: int = self.get_parameter('motor_toggle_button').value
         self._vy_enabled: bool = self.get_parameter('vy_enabled_default').value
@@ -183,6 +191,12 @@ class JoystickInterpreterNode(Node):
                 self._toggle_compact_mode()
             self._prev_compact_button = current
         
+        if self._granny_button < len(msg.buttons):
+            current = msg.buttons[self._granny_button]
+            if current == 1 and self._prev_granny_button == 0:
+                self._granny_mode = not self._granny_mode
+            self._prev_granny_button = current
+        
         def _check_btn(buttons, idx, prev):
             cur = buttons[idx] if idx < len(buttons) else 0
             pressed = (cur == 1 and prev == 0)
@@ -235,6 +249,11 @@ class JoystickInterpreterNode(Node):
 
         if not self._vy_enabled:
             wz = self._apply_swerve_wz_correction(vx, vy, wz)
+        
+        if self._granny_mode:
+            vx *= self._granny_scale
+            vy *= self._granny_scale
+            wz *= self._granny_scale
 
         out = Twist()
         out.linear.x = vx
