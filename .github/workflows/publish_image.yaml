@@ -68,9 +68,31 @@ jobs:
           context: .
           file: docker/Dockerfile
           target: prod 
-          platforms: linux/amd64,linux/arm64 
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.metadata-tags.outputs.tags }}
           labels: ${{ steps.metadata-tags.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ github.ref_name }}-prod
+          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-prod
+      
+      - name: Extract Docker metadata for DEV image
+        id: meta-dev
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}
+          flavor: |
+            suffix=-dev
+          tags: |
+            type=ref,event=branch
+
+      - name: Build and Push Multi-Arch DEV Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: dev
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-dev.outputs.tags }}
+          cache-from: type=gha,scope=${{ github.ref_name }}-dev
+          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-dev

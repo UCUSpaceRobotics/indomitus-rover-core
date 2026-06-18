@@ -1,6 +1,6 @@
 services:
   rover_prod:
-    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG}
+    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
     network_mode: host
     restart: unless-stopped
