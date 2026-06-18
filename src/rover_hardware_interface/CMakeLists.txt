@@ -16,9 +16,8 @@ find_package(diagnostic_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(indomitus_interfaces REQUIRED)
 
-# ── 1. Збираємо як спільну бібліотеку (SHARED), а не виконуваний файл ──
 add_library(${PROJECT_NAME} SHARED
-  src/rover_hardware_interface.cpp # Вказуємо новий cpp файл!
+  src/rover_hardware_interface.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -28,7 +27,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
-# ── 2. Додаємо нові залежності ros2_control ──
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_lifecycle
@@ -41,7 +39,6 @@ ament_target_dependencies(${PROJECT_NAME}
   indomitus_interfaces
 )
 
-# ── 3. Експортуємо плагін для controller_manager ──
 pluginlib_export_plugin_description_file(hardware_interface plugins.xml)
 
 ament_export_include_directories(include)
@@ -57,7 +54,6 @@ ament_export_dependencies(
   indomitus_interfaces
 )
 
-# ── 4. Інсталюємо бібліотеку в правильну директорію ──
 install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

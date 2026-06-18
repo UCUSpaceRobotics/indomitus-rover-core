@@ -1,89 +1,57 @@
-# rover_chassis_driver
+# rover_hardware_interface
 
-ROS2 driver for all rover chassis motors:
-- **Steadywin** — steer/rotation motors (V3.06b0 custom CAN protocol)
+ROS2 `hardware_interface::SystemInterface` for all rover chassis motors:
+- **Steadywin** — steer motors (V3.06b0 custom CAN protocol)
 - **Damiao** — drive motors (MIT-style CAN protocol)
+
+Communicates directly with `can0` via SocketCAN.
 
 ## Architecture
 
 ```
-/cmd_vel  →  rover_kinematics_node  →  /wheel_targets
-                                             ↓
-                                    chassis_driver_node
-                                       ↙           ↘
-                              /to_can_bus       /from_can_bus
-                                   ↕                  ↕
-                            ros2_socketcan  ↔  can0 hardware
+ros2_control
+    ↓
+RoverHardware (SystemInterface)
+    ↙               ↘
+Steadywin         Damiao
+steer motors      drive motors
+    ↘               ↙
+        can0
 ```
 
-## Topics
+## State & Command Interfaces
 
-| Topic | Type | Direction | Description |
-|---|---|---|---|
-| `/wheel_targets` | `indomitus_interfaces/WheelTargets` | in | Per-wheel steer angles + drive speeds |
-| `/to_can_bus` | `can_msgs/Frame` | out | CAN frames to hardware |
-| `/from_can_bus` | `can_msgs/Frame` | in | CAN frames from hardware |
-| `/joint_states` | `sensor_msgs/JointState` | out | Motor positions and velocities |
-| `/chassis/motor_states` | `indomitus_interfaces/ChassisStatus` | out | Full motor status (10 Hz) |
-| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | out | Health status (1 Hz) |
+| Joint | Command | State |
+|---|---|---|
+| `*_steer` | `position` | `position` |
+| `*_drive` | `velocity` | `velocity`, `position` |
 
-## Motor IDs (config: `config/chassis_driver.yaml`)
+Joint names follow URDF: `fl_steer`, `fr_steer`, `rl_steer`, `rr_steer`, `fl_drive`, `fr_drive`, `rl_drive`, `rr_drive`.
 
-| Role | Motor type | IDs [FL, FR, RL, RR] |
+## Motor IDs (`config/chassis_driver.yaml`)
+
+| Role | Type | IDs [FL, FR, RL, RR] |
 |---|---|---|
 | Steer | Steadywin | 11, 13, 15, 17 |
 | Drive | Damiao | 10, 12, 14, 16 |
 
-## Running
+## CAN Protocol Notes
 
-```bash
-# On host — set up CAN interface first
-sudo ip link set can0 up type can bitrate 1000000
-sudo ip link set can0 txqueuelen 1000
+- **Steadywin steer** — absolute position via `0xC2` (counts = `angle_rad × 16384 / 2π`). Init: clear fault (`0xAF`) → position=0 (`0xC2`)
+- **Damiao drive** — velocity via `0x200+id` with IEEE 754 float (rad/s). Init: set velocity mode (`0x7FF`, extended frame) → enable (`0xFC`)
+- `0x7FF` must be sent as extended frame due to a ros2_socketcan bug on Humble
 
-# Inside Docker
-bash /work/run_rover.bash
+## Lifecycle
+
+Motors are **disabled by default** on activation. Enable/disable is controlled via:
+
+```
+/controller_manager/set_hardware_component_state
 ```
 
-Motors start disabled. Use the joystick button mapped to `/chassis/set_motors_enabled` to enable or disable them explicitly.
+Called from `joystick_interpreter_node` on button press. On deactivation — zero commands are sent and motors are disabled gracefully.
 
----
+## Known Issues
 
-## Status
-
-### ✅ Working
-
-- **Command translation** — `WheelTargets` → correct CAN frames per motor type
-  - Steadywin steer: absolute position via `0xC2` (counts = angle_rad × 16384 / 2π)
-  - Damiao drive: velocity via `0x200+id` with IEEE 754 float (rad/s)
-- **Motor init sequence**
-  - Steadywin: clear fault (`0xAF`) → position=0 (`0xC2`) to activate
-  - Damiao: setMode velocity mode (`0x7FF`, extended frame workaround) → enable (`0xFC`)
-- **Graceful shutdown** — zero commands → 1.5s settle → disable all motors on Ctrl+C
-- **Steadywin feedback** — `0xAE` status (voltage, current, temp, mode, fault) + `0xA3` position (multi-turn) polled at 1 Hz, all 4 motors confirmed working
-- **Damiao feedback** — all 4 drive motors confirmed: position, velocity, torque, MOS/rotor temp, ERR code via MIT feedback at 1 Hz poll
-  - Motors respond at their own ESC_ID (not MST_ID=0); `onCanFrame` handles both cases
-- **`/diagnostics`** — all 8 motors reporting correctly at 1 Hz
-- **`/joint_states`** — position and velocity publishing for all connected motors
-- **CAN frame routing** — ros2_socketcan bidirectional; feedback dispatched by CAN ID
-- **Operator motor toggle** — `/chassis/set_motors_enabled` service controls enable/disable from joystick button edge
-
-### ⚠️ Needs testing
-
-- **`/chassis/motor_states`** — publishes at 10 Hz, data correct, not validated under motion load
-- **Kinematics accuracy** — Ackermann geometry pipeline works end-to-end; physical accuracy (turning radius, wheel slip) not yet measured
-- **Error recovery** — fault codes reported in diagnostics; no tested re-enable procedure after fault
-
-### ❌ Not yet implemented
-
-- **CAN bus loss detection** — no watchdog; if CAN drops mid-operation, motors keep last command until timeout
-- **Damiao voltage/current** — not available via CAN protocol (UART debug interface only)
-
-### Known issues
-
-- `ros2_socketcan` rejects standard CAN ID `0x7FF` on the installed Humble version 
-  (likely `>=` bug in the sender). **Workaround**: `is_extended = true` on `0x7FF` frames. 
-  Confirmed working — Damiao motors accept extended-flag frames at this address.
-- ~~Damiao motor 16 (decimal) has ESC ID `0x10`...~~ **Resolved** — `onCanFrame` now 
-  routes by full CAN ID before calling `parseFeedback`, so the 4-bit nibble limitation 
-  no longer affects motor 16.
+- Damiao voltage/current not available via CAN (UART debug interface only)
+- No CAN bus loss watchdog — if `can0` drops mid-operation, motors hold last command until hardware timeout
