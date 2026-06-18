@@ -46,12 +46,14 @@ if [ "${1}" = "autolaunch" ]; then
     ros2 launch rover_bringup rover.launch.py &
     PID1=$!
 
-    # echo "[ROVER] Starting launch file 2..."
-    # ros2 launch rover_bringup joy.launch.py &
-    # PID2=$!
+    export LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/tegra:$LD_LIBRARY_PATH
 
-    wait -n $PID1
-    # wait -n $PID1 $PID2
+    echo "[ROVER] Starting launch file 2..."
+    ros2 launch rover_bringup joy.launch.py &
+    PID2=$!
+
+    # wait -n $PID1
+    wait -n $PID1 $PID2
     exit $?
 fi
 

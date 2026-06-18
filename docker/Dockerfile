@@ -70,13 +70,27 @@ RUN mkdir -p ${WS}/src && \
     for pkg in *; do \
         case "$pkg" in \
             rover_sim|rover_viz) ;; \
-            *) cp -r "$pkg" ${WS}/src/ ;; \
+            *) find "$pkg" -name "package.xml" -exec cp --parents {} ${WS}/src/ \; ;; \
         esac; \
     done
 
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && rm -rf /var/lib/apt/lists/*
+# RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+#     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+#     apt-get update && rosdep install --from-paths ${WS}/src --ignore-src --rosdistro ${ROS_DISTRO} -r -y
+
+COPY src/ /tmp/src_packages/src/
+RUN mkdir -p ${WS}/src && \
+    cd /tmp/src_packages/src && \
+    for pkg in *; do \
+        case "$pkg" in \
+            rover_sim|rover_viz) ;; \
+            *) cp -r "$pkg" ${WS}/src/ ;; \
+        esac; \
+    done
+
 
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build"
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && CXXFLAGS='-g0 -O1' colcon build --parallel-workers 1"
 
 CMD ["bash"]

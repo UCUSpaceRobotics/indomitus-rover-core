@@ -22,6 +22,7 @@
   <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>ros2_socketcan</exec_depend>
   <exec_depend>joy</exec_depend>
+  <exec_depend>joy_linux</exec_depend>
   <exec_depend>teleop_twist_joy</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

@@ -49,8 +49,8 @@ class JoystickInterpreterNode(Node):
     def __init__(self):
         super().__init__('joystick_interpreter')
 
-        self.declare_parameter('vy_toggle_button', 4)
-        self.declare_parameter('motor_toggle_button', 6)
+        self.declare_parameter('vy_toggle_button', 8)
+        self.declare_parameter('motor_toggle_button', 9)
         self.declare_parameter('compact_mode_button', 1)
         self.declare_parameter('vy_enabled_default', False)
         self.declare_parameter('cmd_timeout', 0.5)
@@ -58,8 +58,8 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('initial_timed_out', True)
 
         # Lights
-        self.declare_parameter('spotlight_button',      9)   # L1
-        self.declare_parameter('beautiful_button',      10)  # R1
+        self.declare_parameter('spotlight_button',      4)   # L1
+        self.declare_parameter('beautiful_button',      5)  # R1
 
         self.declare_parameter('traffic_red_button',    11)  # ←
         self.declare_parameter('traffic_yellow_button', 12)  # →

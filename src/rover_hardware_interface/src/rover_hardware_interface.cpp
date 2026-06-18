@@ -430,7 +430,7 @@ void RoverHardwareInterface::rx_thread_fn()
 
 // dispatch_can_frame — route one frame to the right motor decoder
 
-void RoverHardwareInterface::dispatch_can_frame(const struct can_frame & frame)
+void RoverHardwareInterface::dispatch_can_frame(const struct can_frame& frame)
 {
     // Build an array compatible with protocol functions
     std::array<uint8_t, 8> data{};
@@ -554,11 +554,11 @@ void RoverHardwareInterface::on_set_steer_zero(
     const std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Request>  req,
     std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Response>       res)
 {
-    if (!motors_enabled_) {
-        res->success = false;
-        res->message = "Motors not enabled — cannot set zero";
-        return;
-    }
+    // if (!motors_enabled_) {
+    //     res->success = false;
+    //     res->message = "Motors not enabled — cannot set zero";
+    //     return;
+    // }
 
     static constexpr std::array<const char *, NUM_WHEELS> kNames = {"FL","FR","RL","RR"};
     const bool zero_all = req->motor_ids.empty();

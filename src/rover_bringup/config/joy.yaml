@@ -18,10 +18,10 @@ teleop_node:
 
 joystick_interpreter:
   ros__parameters:
-    vy_toggle_button: 4 # Share button
-    motor_toggle_button: 6 # Options button
+    vy_toggle_button: 8 # Share button
+    motor_toggle_button: 9 # Options button
     vy_enabled_default: false
     cmd_timeout: 0.5
     timeout_pub_rate: 10.0
     initial_timed_out: true
-    compact_mode_button: 1
+    compact_mode_button: 2
