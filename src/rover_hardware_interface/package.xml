@@ -8,20 +8,24 @@
     Steadywin steer motors and Damiao drive motors.
     Handles motor initialization, control, feedback, and graceful shutdown.
   </description>
-  <maintainer email="r.r006143@gmail.com">indomitus</maintainer>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
-  <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
+
+  <!-- Interfaces -->
   <depend>can_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>diagnostic_msgs</depend>
   <depend>std_srvs</depend>
   <depend>indomitus_interfaces</depend>
+
+  <!-- ROS2 Control -->
+  <depend>hardware_interface</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
 

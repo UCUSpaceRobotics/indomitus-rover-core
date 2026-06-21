@@ -7,23 +7,39 @@
     Bringup package for the Indomitus rover, providing
     launch files and configuration for hardware
   </description>
-  <maintainer email="fito.pn@ucu.edu.ua">yurFitio</maintainer>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- Launch infrastructure -->
   <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- Internal packages -->
   <exec_depend>rover_description</exec_depend>
   <exec_depend>rover_control</exec_depend>
   <exec_depend>rover_hardware_interface</exec_depend>
   <exec_depend>rover_peripherals</exec_depend>
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
-  <exec_depend>lifecycle_msgs</exec_depend>
+
+  <!-- CAN -->
   <exec_depend>ros2_socketcan</exec_depend>
+
+  <!-- Joystick  -->
   <exec_depend>joy</exec_depend>
   <exec_depend>joy_linux</exec_depend>
   <exec_depend>teleop_twist_joy</exec_depend>
+
+  <!-- URDF -->
+  <exec_depend>xacro</exec_depend>
+
+  <!-- ROS2 Control -->
+  <exec_depend>ros2_control</exec_depend>
+  <exec_depend>ros2_controllers</exec_depend>
+
+  <!-- Interfaces -->
+  <exec_depend>lifecycle_msgs</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

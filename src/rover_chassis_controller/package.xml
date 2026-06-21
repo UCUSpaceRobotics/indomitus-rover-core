@@ -9,14 +9,15 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- ros2_control plugin infrastructure -->
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  
+  <!-- ROS2 Control -->
   <depend>controller_interface</depend>
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
-  <depend>rclcpp</depend>
-  <depend>rclcpp_lifecycle</depend>
 
-  <!-- Messages -->
+  <!-- Interfaces -->
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>std_srvs</depend>

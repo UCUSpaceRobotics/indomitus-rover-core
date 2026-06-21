@@ -8,10 +8,12 @@
     Calculates wheel commands based on desired linear
     and angular velocities.
   </description>
-  <maintainer email="fito.pn@ucu.edu.ua">yurifi</maintainer>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
+
+  <!-- Messages types -->
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>geometry_msgs</depend>
@@ -19,6 +21,13 @@
   <depend>indomitus_interfaces</depend>
   <depend>controller_manager_msgs</depend>
   <depend>lifecycle_msgs</depend>
+
+  <!-- URDF Decsription -->
+  <depend>xacro</depend>
+
+  <!-- ROS2 Control -->
+  <depend>ros2_control</depend>
+  <depend>ros2_controllers</depend>
 
   <test_depend>ament_flake8</test_depend>
   <test_depend>python3-pytest</test_depend>
