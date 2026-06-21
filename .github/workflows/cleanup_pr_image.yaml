@@ -10,17 +10,8 @@ jobs:
       packages: write
 
     steps:
-      - name: Lowercase Repository Name for GHCR
-        id: lowercase-repo
-        run: |
-          REPO="${{ github.repository.name }}"
-          echo "name=${REPO,,}" >> $GITHUB_OUTPUT
-
       - name: Delete PR Image from GHCR
-        uses: vlaaaaaaad/action-delete-ghcr-untagged@v1
+        uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          owner: ${{ github.repository_owner }}
-          package_name: ${{ steps.lowercase-repo.outputs.name }}
-          untagged_keep_latest: 0
-          delete_tags: pr-${{ github.event.pull_request.number }}
+          delete-tags: pr-${{ github.event.pull_request.number }}
