@@ -1,0 +1,25 @@
+# rover_bringup/config/twist_mux.yaml
+twist_mux:
+  ros__parameters:
+    topics:
+      joystick:
+        topic:   "cmd_vel_joy"
+        timeout: 0.5
+        priority: 100
+      
+      nav2:
+        topic:   "cmd_vel_nav"
+        timeout: 1.0
+        priority: 50
+
+      external:
+        topic:   "cmd_vel_ext"
+        timeout: 0.5
+        priority: 10 
+
+    # in a case of connection lost, we can publish 0 in this topic
+    locks:
+      e_stop:
+        topic:   "twist_mux/e_stop"
+        timeout: 0.2
+        priority: 255
