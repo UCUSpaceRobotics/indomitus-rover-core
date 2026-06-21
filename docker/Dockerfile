@@ -71,7 +71,13 @@ RUN mkdir -p ${WS}/src && \
         esac; \
     done
 
-RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y \
+    -t build \
+    -t buildtool \
+    -t build_export \
+    -t buildtool_export \
+    -t exec \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
 RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build"
