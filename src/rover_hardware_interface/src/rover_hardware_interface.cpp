@@ -160,7 +160,7 @@ RoverHardwareInterface::export_command_interfaces()
 // ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::CallbackReturn
-RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*prev*/)
+RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
 {
     hw_node_ = std::make_shared<rclcpp::Node>("rover_hardware_node");
     hw_executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
@@ -232,7 +232,7 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*prev*/)
 
 
 hardware_interface::CallbackReturn
-RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State & /*prev*/)
+RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State& /*prev*/)
 {
     if (!open_can_socket()) {
         return hardware_interface::CallbackReturn::ERROR;
@@ -251,12 +251,9 @@ RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State & /*prev*/)
 
 
 hardware_interface::CallbackReturn
-RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State & /*prev*/)
+RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State& /*prev*/)
 {
     send_shutdown_frames();
-
-    hw_executor_->cancel();
-    if (hw_node_thread_.joinable()) hw_node_thread_.join();
 
     // Stop rx thread
     rx_running_.store(false);
@@ -266,6 +263,59 @@ RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State & /*prev*/)
 
     close_can_socket();
     RCLCPP_INFO(logger_, "[RoverHW] Deactivated.");
+    return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+
+hardware_interface::CallbackReturn
+RoverHardwareInterface::on_cleanup(const rclcpp_lifecycle::State& /*prev*/)
+{
+    if (hw_executor_) hw_executor_->cancel();
+
+    if (hw_node_thread_.joinable()) hw_node_thread_.join();
+
+    chassis_status_pub_.reset();
+    diagnostics_pub_.reset();
+    motor_enable_srv_.reset();
+    set_steer_zero_srv_.reset();
+    status_poll_timer_.reset();
+    chassis_status_timer_.reset();
+    diagnostics_timer_.reset();
+    watchdog_timer_.reset();
+
+    RCLCPP_INFO(logger_, "[RoverHW] Cleaned up.");
+    return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+
+hardware_interface::CallbackReturn
+RoverHardwareInterface::on_shutdown(const rclcpp_lifecycle::State& /*prev*/)
+{
+    // just in case
+    if (motors_enabled_) {
+        send_shutdown_frames();
+    }
+
+    // just in case
+    rx_running_.store(false);
+    if (rx_thread_.joinable()) {
+        rx_thread_.join();
+    }
+
+    close_can_socket();
+
+    // just in case
+    if (hw_executor_) {
+        hw_executor_->cancel();
+    }
+    if (hw_node_thread_.joinable()) {
+        hw_node_thread_.join();
+    }
+
+    hw_executor_.reset();
+    hw_node_.reset();
+
+    RCLCPP_INFO(logger_, "[RoverHW] Shutdown.");
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -386,6 +436,7 @@ bool RoverHardwareInterface::send_can_frame(
     frame.can_dlc = dlc;
     std::memcpy(frame.data, data, dlc);
 
+    std::lock_guard<std::mutex> lock(can_tx_mutex_);
     const ssize_t nbytes = ::write(can_fd_, &frame, sizeof(frame));
     if (nbytes != static_cast<ssize_t>(sizeof(frame))) {
         RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,

@@ -59,13 +59,19 @@ public:
         const hardware_interface::HardwareInfo& info) override;
 
     hardware_interface::CallbackReturn on_configure(
-        const rclcpp_lifecycle::State & previous_state) override;
+        const rclcpp_lifecycle::State& previous_state) override;
 
     hardware_interface::CallbackReturn on_activate(
-        const rclcpp_lifecycle::State & previous_state) override;
+        const rclcpp_lifecycle::State& previous_state) override;
 
     hardware_interface::CallbackReturn on_deactivate(
-        const rclcpp_lifecycle::State & previous_state) override;
+        const rclcpp_lifecycle::State& previous_state) override;
+
+    hardware_interface::CallbackReturn on_cleanup(
+        const rclcpp_lifecycle::State& previous_state) override;
+    
+    hardware_interface::CallbackReturn on_shutdown(
+        const rclcpp_lifecycle::State& previous_state) override;
 
     // ── Interface export ───────────────────────────────────────────────────────
 
@@ -90,6 +96,8 @@ private:
     bool open_can_socket();
     void close_can_socket();
     bool send_can_frame(uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended = false);
+
+    std::mutex can_tx_mutex_;
 
     void rx_thread_fn();
     void dispatch_can_frame(const struct can_frame & frame);
