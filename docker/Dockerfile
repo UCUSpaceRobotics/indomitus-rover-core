@@ -71,10 +71,13 @@ RUN mkdir -p ${WS}/src && \
         esac; \
     done
 
-RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && rm -rf /var/lib/apt/lists/*
-# RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-#     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-#     apt-get update && rosdep install --from-paths ${WS}/src --ignore-src --rosdistro ${ROS_DISTRO} -r -y
+RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y \
+    -t build \
+    -t buildtool \
+    -t build_export \
+    -t buildtool_export \
+    -t exec \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY src/ /tmp/src_packages/src/
 RUN mkdir -p ${WS}/src && \
@@ -85,7 +88,6 @@ RUN mkdir -p ${WS}/src && \
             *) cp -r "$pkg" ${WS}/src/ ;; \
         esac; \
     done
-
 
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
 RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && CXXFLAGS='-g0 -O1' colcon build --parallel-workers 1"

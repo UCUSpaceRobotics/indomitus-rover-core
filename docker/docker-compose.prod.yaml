@@ -1,6 +1,6 @@
 services:
   rover_prod:
-    image: indomitus-rover:humble-prod
+    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
     # command: autolaunch
     command: tail -f /dev/null
@@ -18,7 +18,6 @@ services:
       - ROS_DOMAIN_ID=42
       - ROS_LOCALHOST_ONLY=0
       - CAN_INTERFACE=can0
-      - CAN_BITRATE=1000000
       - SDL_VIDEODRIVER=dummy
       - SDL_AUDIODRIVER=dummy
     volumes:
