@@ -7,7 +7,7 @@ chassis_driver:
 
     # Damiao MIT feedback fixed-point decoding ranges (must match motor registers 21/22/23)
     drive_pmax: 12.5    # rad  — register 21 (PMAX)
-    drive_vmax: 50.0    # rad/s — register 22 (VMAX)
+    drive_vmax: 25.0    # rad/s — register 22 (VMAX)
     drive_tmax: 20.0    # Nm   — register 23 (TMAX)
 
     # Damiao MIT feedback CAN ID (MST_ID register 7, default 0x000)
