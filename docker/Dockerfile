@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential python3-pip \
     python3-colcon-common-extensions python3-rosdep \
     iputils-ping pkg-config usbutils iproute2 g++ make cmake \
+    ros-humble-rcpputils \
     can-utils \
     vim \
     && rm -rf /var/lib/apt/lists/*
