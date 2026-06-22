@@ -1,5 +1,12 @@
 services:
   rover_prod:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${BASE_IMAGE_PROD:-stereolabs/zed:5.4-devel-l4t-r36.4} # Image for the ARM64 architecture
+        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
     network_mode: host
@@ -11,7 +18,7 @@ services:
     tty: true
     command: tail -f /dev/null
     environment:
-      - ROS_DOMAIN_ID=42
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
       - ROS_LOCALHOST_ONLY=0
       - CAN_INTERFACE=can0
       - CAN_BITRATE=1000000
