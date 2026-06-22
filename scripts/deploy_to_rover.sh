@@ -9,16 +9,16 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
 # DEFAULT VARIABLES
-JETSON_USER="ros"
+JETSON_USER="indomitus-rover"
 JETSON_IP="10.42.0.1"
-REMOTE_DIR="/home/ros/Indomitus/indomitus-rover-core/"
+REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
 IMAGE_NAME="ghcr.io/ucuspacerobotics/indomitus-rover-core"
 IMAGE_TAG=""
 CONTAINER_NAME="rover_prod"
 DOCKERFILE="docker/Dockerfile"
 COMPOSE_FILE="docker/docker-compose.prod.yaml"
-WIFI_SSID="JetsonRosIndomitus"
-WIFI_PASS="jetson1234"
+WIFI_SSID="IndomitusRover"
+WIFI_PASS="12345678"
 SYNC_MODE=false
 PULL_MODE=false
 

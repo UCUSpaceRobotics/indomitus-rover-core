@@ -1,6 +1,6 @@
 # Container Entry Script (`enter_container.sh`)
 
-The `enter_container.sh` script provides an interface to ensure the required Docker container is running and opens an interactive shell. It supports both local development and remote execution on the Jetson Nano.
+The `enter_container.sh` script provides an interface to ensure the required Docker container is running and opens an interactive shell. It supports both local development and remote execution on the rover computer.
 
 ## Running the Script
 
@@ -15,7 +15,7 @@ Enter the local development container:
 ```
 
 
-Enter the remote production container on the Jetson Nano:
+Enter the remote production container on the rover computer:
 
 ```bash
 ./scripts/enter_container.sh rover
@@ -31,9 +31,9 @@ The script accepts the following flags to override defaults depending on the sub
 | **`-c, --compose`** | `local`, `rover` | Path to Compose file | `docker-compose.yaml` (local), `docker-compose.prod.yaml` (rover) |
 | **`-r, --ros-distro`** | `local` | ROS 2 distribution name | `humble` |
 | **`-w, --workspace`** | `local` | ROS 2 workspace path inside container | `/opt/ws` |
-| **`-u, --user`** | `rover` | Jetson SSH username | `ros` |
+| **`-u, --user`** | `rover` | Jetson SSH username | `indomitus-rover` |
 | **`-i, --ip`** | `rover` | Jetson IP address | `10.42.0.1` |
-| **`-d, --dir`** | `rover` | Remote deployment directory | `/home/ros/Indomitus/indomitus-rover-core/` |
-| **`-w, --ssid`** | `rover` | Wi-Fi SSID of the Jetson hotspot | `JetsonRosIndomitus` |
-| **`-p, --pass`** | `rover` | Wi-Fi password for the hotspot | `jetson1234` |
+| **`-d, --dir`** | `rover` | Remote deployment directory | `/home/indomitus-rover/indomitus-rover-core/` |
+| **`-w, --ssid`** | `rover` | Wi-Fi SSID of the Jetson hotspot | `IndomitusRover` |
+| **`-p, --pass`** | `rover` | Wi-Fi password for the hotspot | `12345678` |
 | **`-h, --help`** | `local`, `rover` | Display the help message and exit | N/A |
