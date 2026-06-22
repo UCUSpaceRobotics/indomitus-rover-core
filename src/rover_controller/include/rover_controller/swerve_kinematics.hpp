@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-namespace rover_chassis_controller {
+namespace rover_controller {
 
 constexpr double VXY_EPS = 1e-3;   ///< m/s  — below this vx/vy is considered zero
 constexpr double WZ_EPS  = 1e-3;   ///< rad/s — below this wz is considered zero

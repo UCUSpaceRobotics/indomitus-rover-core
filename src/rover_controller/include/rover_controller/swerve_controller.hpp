@@ -31,9 +31,9 @@
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 
-#include "rover_chassis_controller/swerve_kinematics.hpp"
+#include "rover_controller/swerve_kinematics.hpp"
 
-namespace rover_chassis_controller {
+namespace rover_controller {
 
 constexpr std::size_t FL = 0;
 constexpr std::size_t FR = 1;
@@ -424,4 +424,4 @@ private:
     std::optional<DriveHandles> drive_handles_;
 };
 
-}  // namespace rover_chassis_controller
+}  // namespace rover_controller

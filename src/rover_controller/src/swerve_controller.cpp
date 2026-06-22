@@ -1,4 +1,4 @@
-#include "rover_chassis_controller/swerve_controller.hpp"
+#include "rover_controller/swerve_controller.hpp"
 
 #include <cmath>
 #include <stdexcept>
@@ -9,10 +9,10 @@
 
 
 PLUGINLIB_EXPORT_CLASS(
-    rover_chassis_controller::RoverSwerveController,
+    rover_controller::RoverSwerveController,
     controller_interface::ControllerInterface)
 
-namespace rover_chassis_controller {
+namespace rover_controller {
 
 
 static constexpr std::array<const char *, NUM_WHEELS> kWheelPrefixes = {
@@ -552,4 +552,4 @@ bool RoverSwerveController::cmd_vel_timed_out(const rclcpp::Time & now) const
     return (now - last_cmd_vel_time_).seconds() > cmd_vel_timeout_;
 }
 
-}  // namespace rover_chassis_controller
+}  // namespace rover_controller

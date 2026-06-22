@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(rover_chassis_controller)
+project(rover_controller)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -25,7 +25,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 )
 
 if("$ENV{ROS_DISTRO}" STREQUAL "jazzy" OR "$ENV{ROS_DISTRO}" STREQUAL "rolling")
-    target_compile_definitions(rover_chassis_controller PRIVATE JAZZY_OR_LATER)
+    target_compile_definitions(rover_controller PRIVATE JAZZY_OR_LATER)
 endif()
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
