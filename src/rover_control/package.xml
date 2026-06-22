@@ -4,11 +4,11 @@
   <name>rover_control</name>
   <version>0.0.0</version>
   <description>
-    Package for controlling the Indomitus rover.
-    Calculates wheel commands based on desired linear
-    and angular velocities.
+    Core control package for the Indomitus rover. Contains nodes for 
+    joystick command interpretation, kinematics calculation, 
+    and wheel-odometry estimation.
   </description>
-  <maintainer email="fito.pn@ucu.edu.ua">yurifi</maintainer>
+  <maintainer email="fito.pn@ucu.edu.ua">yuriifito</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
@@ -16,6 +16,11 @@
   <depend>std_srvs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
+
+  <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>python3-numpy</depend>
+
   <depend>indomitus_interfaces</depend>
 
   <test_depend>ament_flake8</test_depend>
