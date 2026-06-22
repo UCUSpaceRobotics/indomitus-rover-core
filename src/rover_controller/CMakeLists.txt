@@ -14,14 +14,18 @@ find_package(controller_interface REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/swerve_controller.cpp
+  src/odometry_controller.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIRS}
 )
 
 if("$ENV{ROS_DISTRO}" STREQUAL "jazzy" OR "$ENV{ROS_DISTRO}" STREQUAL "rolling")
@@ -39,6 +43,8 @@ ament_target_dependencies(${PROJECT_NAME}
   geometry_msgs
   nav_msgs
   std_srvs
+  Eigen3
+  tf2_ros
 )
 
 pluginlib_export_plugin_description_file(controller_interface plugins.xml)
