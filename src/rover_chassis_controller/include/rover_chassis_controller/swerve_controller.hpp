@@ -424,4 +424,4 @@ private:
     std::optional<DriveHandles> drive_handles_;
 };
 
-}  // namespace rover_swerve_controller
+}  // namespace rover_chassis_controller

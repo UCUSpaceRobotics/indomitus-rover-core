@@ -8,6 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)  
 find_package(hardware_interface REQUIRED)
 find_package(controller_interface REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -31,6 +32,7 @@ target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
+  rclcpp_lifecycle
   hardware_interface
   controller_interface
   pluginlib
@@ -45,11 +47,13 @@ ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(
   rclcpp
+  rclcpp_lifecycle
   hardware_interface
   controller_interface
   pluginlib
   geometry_msgs
   nav_msgs
+  std_srvs
 )
 
 install(TARGETS ${PROJECT_NAME}

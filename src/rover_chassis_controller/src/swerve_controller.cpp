@@ -552,4 +552,4 @@ bool RoverSwerveController::cmd_vel_timed_out(const rclcpp::Time & now) const
     return (now - last_cmd_vel_time_).seconds() > cmd_vel_timeout_;
 }
 
-}  // namespace rover_swerve_controller
+}  // namespace rover_chassis_controller
