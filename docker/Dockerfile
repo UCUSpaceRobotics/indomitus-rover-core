@@ -67,7 +67,7 @@ RUN mkdir -p ${WS}/src && \
     for pkg in *; do \
         case "$pkg" in \
             rover_sim|rover_viz) ;; \
-            *) cp -r "$pkg" ${WS}/src/ ;; \
+            *) find "$pkg" -name "package.xml" -exec cp --parents {} ${WS}/src/ \; ;; \
         esac; \
     done
 
@@ -79,7 +79,17 @@ RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro $
     -t exec \
     && rm -rf /var/lib/apt/lists/*
 
+COPY src/ /tmp/src_packages/src/
+RUN mkdir -p ${WS}/src && \
+    cd /tmp/src_packages/src && \
+    for pkg in *; do \
+        case "$pkg" in \
+            rover_sim|rover_viz) ;; \
+            *) cp -r "$pkg" ${WS}/src/ ;; \
+        esac; \
+    done
+
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build"
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && CXXFLAGS='-g0 -O1' colcon build --parallel-workers 1"
 
 CMD ["bash"]

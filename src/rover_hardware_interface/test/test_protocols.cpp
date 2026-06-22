@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include <cstring>
 #include <cmath>
-#include "rover_chassis_driver/damiao_protocol.hpp"
-#include "rover_chassis_driver/steadywin_protocol.hpp"
+#include "rover_hardware_interface/damiao_protocol.hpp"
+#include "rover_hardware_interface/steadywin_protocol.hpp"
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Damiao protocol — frame builders

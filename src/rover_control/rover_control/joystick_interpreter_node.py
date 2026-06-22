@@ -41,14 +41,16 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
 from std_srvs.srv import SetBool
 from indomitus_interfaces.srv import SetTrafficLight
+from controller_manager_msgs.srv import SetHardwareComponentState, SwitchController
+from lifecycle_msgs.msg import State
 
 class JoystickInterpreterNode(Node):
 
     def __init__(self):
         super().__init__('joystick_interpreter')
 
-        self.declare_parameter('vy_toggle_button', 4)
-        self.declare_parameter('motor_toggle_button', 6)
+        self.declare_parameter('vy_toggle_button', 8)
+        self.declare_parameter('motor_toggle_button', 9)
         self.declare_parameter('compact_mode_button', 1)
         self.declare_parameter('vy_enabled_default', False)
         self.declare_parameter('cmd_timeout', 0.5)
@@ -56,13 +58,21 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('initial_timed_out', True)
 
         # Lights
-        self.declare_parameter('spotlight_button',      9)   # L1
-        self.declare_parameter('beautiful_button',      10)  # R1
+        self.declare_parameter('spotlight_button',      4)   # L1
+        self.declare_parameter('beautiful_button',      5)  # R1
 
         self.declare_parameter('traffic_red_button',    11)  # ←
         self.declare_parameter('traffic_yellow_button', 12)  # →
         self.declare_parameter('traffic_green_button',  13)  # ↑
         self.declare_parameter('traffic_blue_button',   14)  # ↓
+
+        self.declare_parameter('granny_button', 10)
+        self.declare_parameter('granny_speed_scale', 0.1)
+
+        self._granny_button: int = self.get_parameter('granny_button').value
+        self._granny_scale: float = float(self.get_parameter('granny_speed_scale').value)
+        self._granny_mode: bool = False
+        self._prev_granny_button: int = 0
 
         self._vy_toggle_button: int = self.get_parameter('vy_toggle_button').value
         self._motor_toggle_button: int = self.get_parameter('motor_toggle_button').value
@@ -124,12 +134,17 @@ class JoystickInterpreterNode(Node):
         )
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self._motor_enable_client = self.create_client(
-            SetBool,
-            '/chassis/set_motors_enabled',
+            SetHardwareComponentState,
+            '/controller_manager/set_hardware_component_state',
+        )
+
+        self._controller_state_client = self.create_client(
+            SwitchController,
+            '/controller_manager/switch_controller',
         )
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
-        self._compact_mode_client = self.create_client(SetBool, '/set_compact_mode')
+        self._compact_mode_client = self.create_client(SetBool, '/swerve_controller/set_compact_mode')
 
         self._spotlight_client = self.create_client(SetBool, '/lights/spotlight')
         self._beautiful_client = self.create_client(SetBool, '/lights/beautiful')
@@ -175,6 +190,12 @@ class JoystickInterpreterNode(Node):
             if current == 1 and self._prev_compact_button == 0:
                 self._toggle_compact_mode()
             self._prev_compact_button = current
+        
+        if self._granny_button < len(msg.buttons):
+            current = msg.buttons[self._granny_button]
+            if current == 1 and self._prev_granny_button == 0:
+                self._granny_mode = not self._granny_mode
+            self._prev_granny_button = current
         
         def _check_btn(buttons, idx, prev):
             cur = buttons[idx] if idx < len(buttons) else 0
@@ -226,7 +247,13 @@ class JoystickInterpreterNode(Node):
         if not self._vy_enabled:
             vy = 0.0
 
-        # wz = self._apply_swerve_wz_correction(vx, vy, wz)
+        if not self._vy_enabled:
+            wz = self._apply_swerve_wz_correction(vx, vy, wz)
+        
+        if self._granny_mode:
+            vx *= self._granny_scale
+            vy *= self._granny_scale
+            wz *= self._granny_scale
 
         out = Twist()
         out.linear.x = vx
@@ -261,21 +288,22 @@ class JoystickInterpreterNode(Node):
             self.get_logger().warn('Motor toggle request is already in flight')
             return
 
-        target_enabled = not self._motors_enabled
-
         if not self._motor_enable_client.service_is_ready():
             self.get_logger().warn('Motor enable service is not available yet')
             return
 
+        target_enabled = not self._motors_enabled
         self._motor_toggle_pending = True
-        request = SetBool.Request()
-        request.data = target_enabled
+
+        request = SetHardwareComponentState.Request()
+        request.name = 'RoverHardware'
+        request.target_state.id = (
+            State.PRIMARY_STATE_ACTIVE if target_enabled else State.PRIMARY_STATE_INACTIVE
+        )
+
         future = self._motor_enable_client.call_async(request)
         future.add_done_callback(
-            lambda completed_future, desired_state=target_enabled: self._on_motor_toggle_result(
-                completed_future,
-                desired_state,
-            )
+            lambda f, desired=target_enabled: self._on_motor_toggle_result(f, desired)
         )
 
     def _toggle_compact_mode(self):
@@ -301,20 +329,38 @@ class JoystickInterpreterNode(Node):
             f'Compact mode {"ENABLED" if self._compact_mode else "DISABLED"}: {response.message}')
 
     def _on_motor_toggle_result(self, future, desired_state: bool):
+        self._motor_toggle_pending = False
         try:
             response = future.result()
         except Exception as exc:
-            self._motor_toggle_pending = False
-            self.get_logger().error(f'Motor enable service call failed: {exc!r}')
+            self.get_logger().error(f'Motor toggle failed: {exc!r}')
             return
 
-        if response.success:
+        if response.ok:
             self._motors_enabled = desired_state
-
-        self._motor_toggle_pending = False
+            if desired_state:
+                self._set_swerve_controller_state(True)
+            else:
+                self._set_swerve_controller_state(False)
 
         status = 'ENABLED' if self._motors_enabled else 'DISABLED'
-        self.get_logger().info(f'Motors {status}: {response.message}')
+        self.get_logger().info(f'Motors {status}')
+    
+    def _set_swerve_controller_state(self, activate: bool):
+        if not self._controller_state_client.service_is_ready():
+            self.get_logger().warn('switch_controller service not available')
+            return
+        req = SwitchController.Request()
+        if activate:
+            req.activate_controllers = ['swerve_controller']
+            req.deactivate_controllers = []
+        else:
+            req.activate_controllers = []
+            req.deactivate_controllers = ['swerve_controller']
+        req.strictness = SwitchController.Request.BEST_EFFORT
+        self._controller_state_client.call_async(req).add_done_callback(
+            lambda f: self.get_logger().info(
+                f'swerve_controller → {"active" if activate else "inactive"}'))
     
     def _toggle_spotlight(self):
         self.get_logger().info(f'DEBUG _toggle_spotlight called, pending={self._spotlight_pending}, ready={self._spotlight_client.service_is_ready()}')

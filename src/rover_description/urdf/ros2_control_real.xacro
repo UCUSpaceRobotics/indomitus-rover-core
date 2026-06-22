@@ -1,34 +1,32 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <ros2_control name="GazeboSystem" type="system">
+  <ros2_control name="RoverHardware" type="system">
     <hardware>
-      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      <plugin>rover_hardware_interface/RoverHardwareInterface</plugin>
+      <param name="can_interface">$(arg can_interface)</param>
+      <param name="steer_ids">11 13 17 15</param>
+      <param name="drive_ids">10 12 16 14</param>
+      <param name="lifecycle_initial_state">inactive</param>
     </hardware>
 
     <joint name="fl_wheel_mount_joint">
       <command_interface name="position"/>
       <state_interface name="position"/>
-      <state_interface name="velocity"/>
     </joint>
     <joint name="fr_wheel_mount_joint">
       <command_interface name="position"/>
       <state_interface name="position"/>
-      <state_interface name="velocity"/>
     </joint>
     <joint name="bl_wheel_mount_joint">
       <command_interface name="position"/>
       <state_interface name="position"/>
-      <state_interface name="velocity"/>
     </joint>
     <joint name="br_wheel_mount_joint">
       <command_interface name="position"/>
       <state_interface name="position"/>
-      <state_interface name="velocity"/>
     </joint>
 
-
-    <!-- Drive joints — керування швидкістю обертання -->
     <joint name="fl_wheel_joint">
       <command_interface name="velocity"/>
       <state_interface name="position"/>
@@ -50,32 +48,6 @@
       <state_interface name="velocity"/>
     </joint>
 
-
-    <joint name="l_rocker_joint">
-      <!-- <command_interface name="position"/> -->
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-    </joint>
-    <joint name="r_rocker_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-    </joint>
-
   </ros2_control>
-
-  <!-- gz_ros2_control plugin -->
-  <gazebo>
-    <plugin filename="gz_ros2_control-system"
-            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-      <parameters>$(find rover_sim)/parameters/ros2_control.yaml</parameters>
-    </plugin>
-  </gazebo>
-
-  <gazebo>
-    <plugin filename="gz-sim-joint-state-publisher-system"
-            name="gz::sim::systems::JointStatePublisher">
-    </plugin>
-  </gazebo>
 
 </robot>

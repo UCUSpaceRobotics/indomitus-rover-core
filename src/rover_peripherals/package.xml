@@ -12,6 +12,8 @@
   <license>MIT</license>
 
   <depend>rclpy</depend>
+
+  <!-- Interfaces -->
   <depend>can_msgs</depend>
   <depend>std_srvs</depend>
   <depend>indomitus_interfaces</depend>
