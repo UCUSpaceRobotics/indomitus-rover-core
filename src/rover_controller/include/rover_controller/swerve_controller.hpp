@@ -131,7 +131,8 @@ public:
         const WheelData & current_angles,
         rclcpp::Logger *  logger = nullptr)
     {
-        const RoverState desired_dest = desired_state(vx, vy, wz);
+        // const RoverState desired_dest = desired_state(vx, vy, wz);
+        const RoverState desired_dest = RoverState::NORMAL;
 
         if (state_ != RoverState::TRANSIT) {
         if (desired_dest != state_) {

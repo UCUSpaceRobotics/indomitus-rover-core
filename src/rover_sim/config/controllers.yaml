@@ -32,7 +32,7 @@ swerve_controller:
     cmd_vel_timeout_s: 0.5
 
     max_steer_deg: 90.0
-    max_steer_rate_deg: 120.0 
+    max_steer_rate_deg: 90.0 
 
 odometry_controller:
   ros__parameters:

@@ -207,12 +207,12 @@ RoverSwerveController::update(
             break;
         }
 
-        case RoverState::ROTATE: {
-            auto [a, s] = kinematics_->ik_rotate(wz, current_angles_);
-            work_angles = a;
-            work_speeds = s;
-            break;
-        }
+        // case RoverState::ROTATE: {
+        //     auto [a, s] = kinematics_->ik_rotate(wz, current_angles_);
+        //     work_angles = a;
+        //     work_speeds = s;
+        //     break;
+        // }
 
         case RoverState::TRANSIT: {
             if (state_machine_->transit_stopping()) {
@@ -248,8 +248,9 @@ RoverSwerveController::update(
 
     double global_align_scale = 1.0;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const double c = std::cos(work_angles[i] - current_angles_[i]);
-        global_align_scale = std::min(global_align_scale, c * c);
+        // const double c = std::cos(work_angles[i] - current_angles_[i]);
+        const double c8 = std::pow(std::cos(work_angles[i] - current_angles_[i]), 8);
+        global_align_scale = std::min(global_align_scale, c8);
         // cos^2 because it derivative in 0 and pi/2 is 0,
         // so it's smooth acceleation and deceleration
     }
