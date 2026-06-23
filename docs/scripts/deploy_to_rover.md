@@ -4,14 +4,6 @@ The `deploy_to_rover.sh` script automates the offline deployment pipeline for th
 
 The script ensures the `src/` directory is properly synced to the Jetson so the `../src` bind mount inside the production compose file resolves correctly. 
 
-## Adding Execution Rights
-
-Before running the script for the first time, you must grant it execution permissions. Open a terminal at the root of your repository and run:
-
-```bash
-chmod +x scripts/deploy_to_rover.sh
-```
-
 ## Running the Script
 
 Thanks to automatic path resolution, you can run this script from **any folder on your computer**. The script will automatically locate the repository root.
