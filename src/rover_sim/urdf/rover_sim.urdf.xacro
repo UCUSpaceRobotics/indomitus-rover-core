@@ -11,7 +11,7 @@
   <gazebo>
     <plugin filename="gz_ros2_control-system"
             name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-      <parameters>$(find rover_sim)/parameters/ros2_control.yaml</parameters>
+      <parameters>$(find rover_sim)/config/controllers.yaml</parameters>
     </plugin>
   </gazebo>
 

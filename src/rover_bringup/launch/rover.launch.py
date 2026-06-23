@@ -79,7 +79,7 @@ def generate_launch_description():
         executable='ros2_control_node',
         parameters=[
             {'robot_description': robot_description},
-            os.path.join(rover_bringup_dir, 'config', 'rover_controller.yaml'),
+            os.path.join(rover_bringup_dir, 'config', 'controllers.yaml'),
         ],
         output='screen',
     )

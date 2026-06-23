@@ -325,7 +325,7 @@ bool RoverSwerveController::read_parameters()
     // Reset slew limiters with updated accel/decel values.
     limiters_[0] = SlewRateLimiter{max_accel_, max_decel_};
     limiters_[1] = SlewRateLimiter{max_accel_, max_decel_};
-    limiters_[2] = SlewRateLimiter{max_accel_, max_decel_};
+    limiters_[2] = SlewRateLimiter{max_accel_*2, max_decel_*2};
 
     // Joint names — must be exactly NUM_WHEELS entries each.
     const auto steer_names = node->get_parameter("steer_joint_names")

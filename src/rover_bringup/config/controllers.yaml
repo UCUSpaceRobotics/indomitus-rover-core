@@ -35,7 +35,7 @@ swerve_controller:
 
     # Kinematics restriction
     max_steer_deg: 90.0
-    max_steer_rate_deg: 60.0 # degrees/s
+    max_steer_rate_deg: 120.0 # degrees/s
     max_linear_speed:  1.0
     max_angular_speed: 1.0
 
