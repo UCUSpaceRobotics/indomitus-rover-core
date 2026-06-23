@@ -159,7 +159,7 @@ RoverOdometryController::update(
     for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
         double delta_theta = drive_pos[i] - prev_drive_pos_[i];
         delta_theta -= 2.0 * M_PI * std::round(delta_theta / (2.0 * M_PI));
-        const double speed       = kDriveSigns[i] * wheel_radius_ * delta_theta / dt;
+        const double speed       = wheel_radius_ * delta_theta / dt;
         const double angle       = steer_angles[i];
 
         b(2 * i    ) = speed * std::cos(angle);
