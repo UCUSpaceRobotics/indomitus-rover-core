@@ -98,6 +98,13 @@ def generate_launch_description():
         output='screen',
     )
 
+    odometry_controller_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['odometry_controller'],
+        output='screen',
+    )
+
     lighting_node = Node(
         package='rover_peripherals',
         executable='rover_lighting_node',
@@ -117,6 +124,7 @@ def generate_launch_description():
         controller_manager,
         joint_state_broadcaster_spawner,
         swerve_controller_spawner,
+        odometry_controller_spawner,
         # периферія
         lighting_node,
     ])

@@ -13,7 +13,7 @@ controller_manager:
       type: rover_controller/RoverSwerveController
     
     odometry_controller:
-      type: rover_Controller/RoverOdometryController
+      type: rover_controller/RoverOdometryController
 
 swerve_controller:
   ros__parameters:

@@ -19,7 +19,7 @@
 
   <!-- Internal packages -->
   <exec_depend>rover_description</exec_depend>
-  <exec_depend>rover_control</exec_depend>
+  <exec_depend>rover_teleop</exec_depend>
   <exec_depend>rover_hardware_interface</exec_depend>
   <exec_depend>rover_peripherals</exec_depend>
 
@@ -36,7 +36,6 @@
 
   <!-- ROS2 Control -->
   <exec_depend>ros2_control</exec_depend>
-  <exec_depend>ros2_controllers</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>

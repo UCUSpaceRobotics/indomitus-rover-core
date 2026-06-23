@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'joystick_interpreter_node = rover_control.joystick_interpreter_node:main',
+            f'joystick_interpreter_node = {package_name}.joystick_interpreter_node:main',
         ],
     },
 )

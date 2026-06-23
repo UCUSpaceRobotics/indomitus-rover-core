@@ -43,7 +43,7 @@ def generate_launch_description():
     )
 
     joy_interpreter = Node(
-        package='rover_control',
+        package='rover_teleop',
         executable='joystick_interpreter_node',
         output='screen',
         parameters=[default_config],
