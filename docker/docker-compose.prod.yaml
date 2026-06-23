@@ -19,3 +19,4 @@ services:
       - CAN_TRANSMIT_QUEUE_SIZE=1000
     volumes:
       - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
+      - /dev:/dev/:rw
