@@ -14,15 +14,10 @@ PLUGINLIB_EXPORT_CLASS(
 
 namespace rover_controller {
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 RoverOdometryController::RoverOdometryController()
 : controller_interface::ControllerInterface()
 {}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Lifecycle
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::CallbackReturn
 RoverOdometryController::on_init()
@@ -94,9 +89,6 @@ RoverOdometryController::on_deactivate(const rclcpp_lifecycle::State & /*prev*/)
     return controller_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Interface configuration — this controller only reads state interfaces.
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::InterfaceConfiguration
 RoverOdometryController::command_interface_configuration() const
@@ -121,9 +113,6 @@ RoverOdometryController::state_interface_configuration() const
     return cfg;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main control loop
-// ─────────────────────────────────────────────────────────────────────────────
 
 controller_interface::return_type
 RoverOdometryController::update(
@@ -163,18 +152,13 @@ RoverOdometryController::update(
         return controller_interface::return_type::OK;
     }
 
-    // ── 2. Compute per-wheel linear speed from encoder position delta ─────────
-    //
-    //   v_i = r · Δθ_i / dt
-    //
-    // DRIVE_SIGNS corrects for the mirror-symmetric mounting:
-    //   FL, RL: positive encoder → forward
-    //   FR, RR: positive encoder → backward (motor physically reversed)
+    // 2. Compute per-wheel linear speed from encoder position delta
 
     Eigen::VectorXd b(8);   // [vx_0, vy_0, vx_1, vy_1, ...]
 
     for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
-        const double delta_theta = drive_pos[i] - prev_drive_pos_[i];
+        double delta_theta = drive_pos[i] - prev_drive_pos_[i];
+        delta_theta -= 2.0 * M_PI * std::round(delta_theta / (2.0 * M_PI));
         const double speed       = kDriveSigns[i] * wheel_radius_ * delta_theta / dt;
         const double angle       = steer_angles[i];
 
@@ -184,7 +168,7 @@ RoverOdometryController::update(
 
     prev_drive_pos_ = drive_pos;
 
-    // ── 3. Least-squares estimate of chassis velocity ─────────────────────────
+    // 3. Least-squares estimate of chassis velocity
 
     const Eigen::Vector3d vel = A_pinv_ * b;   // [vx, vy, wz]
 
@@ -200,11 +184,7 @@ RoverOdometryController::update(
     if (std::abs(vy) < VEL_EPS) { vy = 0.0; }
     if (std::abs(wz) < WZ_EPS)  { wz = 0.0; }
 
-    // ── 4. Integrate pose using exact exponential map ─────────────────────────
-    //
-    // For wz ≠ 0 we use the closed-form arc integration (no Euler drift).
-    // For wz ≈ 0 we fall back to simple Euler in the body frame.
-
+    // 4. Integrate pose using exact exponential map
     if (std::abs(wz) > 1e-9) {
         const double dx_local =
             ( vx * std::sin(wz * dt) - vy * (1.0 - std::cos(wz * dt))) / wz;
@@ -220,16 +200,13 @@ RoverOdometryController::update(
 
     theta_ += wz * dt;
 
-    // ── 5. Publish ─────────────────────────────────────────────────────────────
+    // 5. Publish
 
     publish_odom(vx, vy, wz, time);
 
     return controller_interface::return_type::OK;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Parameter helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverOdometryController::declare_parameters()
 {
@@ -281,18 +258,9 @@ bool RoverOdometryController::read_parameters()
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Kinematics — build pseudoinverse once at configure time
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverOdometryController::build_kinematics_matrix()
 {
-    // Wheel positions in the base_link frame (same convention as the Python node):
-    //   FL ( hx,  hy)
-    //   FR ( hx, -hy)
-    //   RL (-hx,  hy)
-    //   RR (-hx, -hy)
-
     const double hx = wheelbase_  / 2.0;
     const double hy = track_width_ / 2.0;
 
@@ -302,19 +270,6 @@ void RoverOdometryController::build_kinematics_matrix()
         {-hx,  hy},   // RL
         {-hx, -hy},   // RR
     }};
-
-    // Build 8×3 kinematic matrix A.
-    //
-    // For each wheel i at (px_i, py_i) with steering angle α_i the velocity
-    // constraint is:
-    //
-    //   [vx_i]   [1   0   -py_i] [vx ]
-    //   [vy_i] = [0   1    px_i] [vy ]
-    //                             [wz ]
-    //
-    // This gives two rows per wheel, independent of α — the steering angle only
-    // enters when we project the measured wheel speed onto the Cartesian axes in
-    // update().  Here we build the rigid-body constraint matrix only.
 
     Eigen::MatrixXd A(8, 3);
     for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
@@ -338,10 +293,6 @@ void RoverOdometryController::build_kinematics_matrix()
         A_pinv_.rows(), A_pinv_.cols());
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Interface name builders
-// ─────────────────────────────────────────────────────────────────────────────
-
 std::vector<std::string>
 RoverOdometryController::steer_state_interface_names() const
 {
@@ -364,9 +315,6 @@ RoverOdometryController::drive_state_interface_names() const
     return names;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Interface assignment
-// ─────────────────────────────────────────────────────────────────────────────
 
 bool RoverOdometryController::assign_interfaces()
 {
@@ -413,9 +361,6 @@ bool RoverOdometryController::assign_interfaces()
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Publishing
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverOdometryController::publish_odom(
     double vx, double vy, double wz,
@@ -424,7 +369,7 @@ void RoverOdometryController::publish_odom(
     const double qz = std::sin(theta_ / 2.0);
     const double qw = std::cos(theta_ / 2.0);
 
-    // ── Odometry message ──────────────────────────────────────────────────────
+    // Odometry message
 
     nav_msgs::msg::Odometry odom;
     odom.header.stamp            = stamp;
@@ -442,7 +387,7 @@ void RoverOdometryController::publish_odom(
 
     odom_pub_->publish(odom);
 
-    // ── TF broadcast ──────────────────────────────────────────────────────────
+    // TF broadcast
 
     geometry_msgs::msg::TransformStamped tf;
     tf.header.stamp            = stamp;
