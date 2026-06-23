@@ -27,7 +27,6 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'rover_kinematics_node = rover_control.rover_kinematics_node:main',
             'joystick_interpreter_node = rover_control.joystick_interpreter_node:main',
             'rover_odometry_node = rover_control.rover_odometry_node:main',
         ],

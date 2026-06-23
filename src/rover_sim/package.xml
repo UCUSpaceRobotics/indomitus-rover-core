@@ -8,30 +8,41 @@
     including Gazebo world, URDF, controllers 
     and ROS-Gazebo bridge configuration.
   </description>
-  <maintainer email="fito.pn@ucu.edu.ua">yurFitio</maintainer>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
-
-  <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
-  <exec_depend>controller_manager</exec_depend>
-  <exec_depend>rover_bringup</exec_depend>
-  <exec_depend>rover_description</exec_depend>
-
-  <depend>robot_state_publisher</depend>
-  <depend>indomitus_interfaces</depend>
-  <depend>xacro</depend>
-  <depend>ros_gz_sim</depend>
-  <depend>ros_gz_bridge</depend>
   <depend>rclcpp</depend>
+
+  <!-- Interfaces -->
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>indomitus_interfaces</depend>
+
+  <!-- Launch infrastructure -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- Internal packages -->
+  <exec_depend>rover_bringup</exec_depend>
+  <exec_depend>rover_description</exec_depend>
+
+  <!-- State publisher -->
+  <depend>xacro</depend>
+  <depend>robot_state_publisher</depend>
+  
+  <!-- ROS2 Control -->
+  <exec_depend>controller_manager</exec_depend>
+  
+  <!-- Simulation -->
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
