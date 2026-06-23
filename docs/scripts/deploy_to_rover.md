@@ -1,6 +1,6 @@
-# Jetson Nano Deployment Script (`deploy_to_jetson.sh`)
+# Deployment Script (`deploy_to_rover.sh`)
 
-The `deploy_to_jetson.sh` script automates the offline deployment pipeline for the Indomitus Rover. Because the Jetson Nano is often operated offline via a hotspot, this script bridges the gap by handling the heavy lifting on your local laptop, transferring the payload over the Wi-Fi hotspot, and spinning up the production container.
+The `deploy_to_rover.sh` script automates the offline deployment pipeline for the Indomitus Rover. Because the Jetson is operated offline via a hotspot, this script bridges the gap by handling the heavy lifting on your local laptop, transferring the payload over the Wi-Fi hotspot, and spinning up the production container.
 
 The script ensures the `src/` directory is properly synced to the Jetson so the `../src` bind mount inside the production compose file resolves correctly. 
 
@@ -9,7 +9,7 @@ The script ensures the `src/` directory is properly synced to the Jetson so the 
 Before running the script for the first time, you must grant it execution permissions. Open a terminal at the root of your repository and run:
 
 ```bash
-chmod +x scripts/deploy_to_jetson.sh
+chmod +x scripts/deploy_to_rover.sh
 ```
 
 ## Running the Script
@@ -21,7 +21,7 @@ Ensure your laptop is connected to a Wi-Fi network with internet access to build
 To run the script using the default configuration (Full Build Mode):
 
 ```bash
-./scripts/deploy_to_jetson.sh
+./scripts/deploy_to_rover.sh
 ```
 
 ## Configuration Flags
@@ -32,15 +32,15 @@ The script is pre-configured with default values matching the standard repositor
 
 * `-S, --sync` : **SYNC MODE**: Skips the Docker build. Syncs the `src` folder and auto-compiles on the Jetson.
 * `-P, --pull` : **PULL MODE**: Laptop pulls the pre-built image from GHCR, transfers it via archive, and loads it on the Jetson.
-* `-i, --ip IP` : The Jetson Nano IP address over the hotspot. (Default: `10.42.0.1`)
-* `-u, --user USER` : The Jetson Nano SSH username. (Default: `ros`)
-* `-d, --dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/ros/Indomitus/indomitus-rover-core/`)
+* `-i, --ip IP` : The Jetson IP address over the hotspot. (Default: `10.42.0.1`)
+* `-u, --user USER` : The Jetson SSH username. (Default: `indomitus-rover`)
+* `-d, --dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/indomitus-rover/indomitus-rover-core/`)
 * `-n, --name NAME` : The base Docker image name. (Default: `ghcr.io/ucuspacerobotics/indomitus-rover-core`)
 * `-t, --tag TAG` : The Docker image tag. (Default: `local-prod` for full builds, `develop-prod` for sync/pull modes).
 * `-f, --file FILE` : Path to the Dockerfile. (Default: `docker/Dockerfile`)
 * `-c, --compose FILE` : Path to the Production Compose file. (Default: `docker/docker-compose.prod.yaml`)
-* `-w, --ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `JetsonRosIndomitus`)
-* `-p, --pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `jetson1234`)
+* `-w, --ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `IndomitusRover`)
+* `-p, --pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `12345678`)
 * `-h, --help` : Display the help message and exit.
 
 ---
