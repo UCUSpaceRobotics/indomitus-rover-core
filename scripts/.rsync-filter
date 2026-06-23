@@ -1,0 +1,24 @@
+# This file defines which files are ignored when copying ./src/ directory to the Jetson with deploy script
+
+# Python
+- __pycache__/
+- *.pyc
+- *.pyo
+- .pytest_cache/
+- *.egg-info/
+
+# Build artifacts (colcon builds on Jetson, not laptop)
+- build/
+- install/
+- log/
+
+# Editor / OS noise
+- .DS_Store
+- *.swp
+- *~
+- .idea/
+- .vscode/
+
+# Git
+- .git/
+- .gitignore

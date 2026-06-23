@@ -15,6 +15,12 @@ services:
     #   - "c 13:* rmw"
     stdin_open: true
     tty: true
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "ros2"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     environment:
       - ROS_DOMAIN_ID=42
       - ROS_LOCALHOST_ONLY=0
