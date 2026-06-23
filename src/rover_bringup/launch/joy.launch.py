@@ -17,12 +17,6 @@ def generate_launch_description():
         'joy.yaml',
     ])
 
-    twist_mux_config = PathJoinSubstitution([
-        FindPackageShare('rover_bringup'),
-        'config',
-        'twist_mux.yaml',
-    ])
-
     joy_node = Node(
         package='joy_linux',
         executable='joy_linux_node',
