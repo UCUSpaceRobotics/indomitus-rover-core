@@ -1,5 +1,32 @@
 # Rover Quickstart
 
+## Table of Contents
+
+**Rover Usage**
+* [Starting the Jetson-Controlled Rover](#starting-the-jetson-controlled-rover)
+* [Starting the Laptop-Controlled Rover](#starting-the-laptop-controlled-rover)
+* [Turning Off the Rover](#turning-off-the-rover)
+
+**Docker**
+* [Getting the Docker Image and Starting the Container](#getting-the-docker-image-and-starting-the-container)
+* [Start the Container and Build the Workspace](#start-the-container-and-build-the-workspace)
+* [Image Tags Architecture](#image-tags-architecture)
+
+**Scripts**
+* [Deployment Script](#deployment-script)
+* [Script to Enter Containers](#script-to-enter-containers)
+
+**Testing**
+* [Testing](#testing)
+
+**Project Structure**
+* [ROS2 Packages Overview](#ros2-packages-overview)
+
+**Important ROS 2 and Colcon Commands**
+* [Workspace Management (`colcon`)](#workspace-management-colcon)
+* [Execution](#execution)
+* [Network Introspection & Debugging](#network-introspection--debugging)
+
 ## Rover Usage
 
 ### Starting the Jetson-Controlled Rover
@@ -40,7 +67,7 @@ ip link show can0
 
 > **Note:** If you have multiple CAN adapters connected, you may need to replace `can0` in these commands with the correct interface name (e.g., `can1`).
 
-3. **Build and start the container:** Please refer to the Docker setup section to complete this step.
+3. **Build and start the container:** Please refer to the [Docker setup section](#docker) to complete this step.
 
 4. **Run the rover launch file:** From the bash terminal inside your Docker container, run the launch file to start all the necessary rover control nodes:
 ```bash
