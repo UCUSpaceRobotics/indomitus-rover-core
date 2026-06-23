@@ -2,6 +2,7 @@ services:
   rover_prod:
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
+    runtime: nvidia
     network_mode: host
     restart: unless-stopped
     cap_add:
@@ -17,11 +18,4 @@ services:
       - CAN_BITRATE=1000000
       - CAN_TRANSMIT_QUEUE_SIZE=1000
     volumes:
-    - /home/ros/Indomitus/indomitus-rover-core/src:/opt/ws/src:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw

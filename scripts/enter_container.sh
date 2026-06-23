@@ -105,7 +105,7 @@ EOF
 # ===========================================================================
 run_rover() {
   # Defaults
-  local JETSON_USER="IndomitusRover"
+  local JETSON_USER="indomitus-rover"
   local JETSON_IP="10.42.0.1"
   local REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
   local CONTAINER_NAME="rover_prod"
