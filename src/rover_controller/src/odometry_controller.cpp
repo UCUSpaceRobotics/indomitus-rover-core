@@ -177,8 +177,8 @@ RoverOdometryController::update(
     double wz = vel(2);
 
     // Dead-zones — suppress noise when rover is stationary
-    constexpr double VEL_EPS = 0.05;    // m/s
-    constexpr double WZ_EPS  = 0.001;   // rad/s
+    constexpr double VEL_EPS = 0.001;    // m/s
+    constexpr double WZ_EPS  = 0.0001;   // rad/s
 
     if (std::abs(vx) < VEL_EPS) { vx = 0.0; }
     if (std::abs(vy) < VEL_EPS) { vy = 0.0; }
