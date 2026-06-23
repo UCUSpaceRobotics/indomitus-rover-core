@@ -207,7 +207,7 @@ Enter the **remote** rover container:
 ./scripts/enter_container.sh rover
 ```
 
-> **Note:** For further details, refer to [enter_container.md](https://www.google.com/search?q=./scripts/enter_container.md).
+> **Note:** For further details, refer to [enter_container.md](./scripts/enter_container.md).
 
 
 ---
