@@ -3,16 +3,15 @@ services:
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
     runtime: nvidia
-    # command: autolaunch
-    command: tail -f /dev/null
+    command: tail -f /dev/null # command: autolaunch
     network_mode: host
     privileged: true
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    # device_cgroup_rules:
-    #   - "c 13:* rmw"
+    device_cgroup_rules:
+      - "c 13:* rmw"
     stdin_open: true
     tty: true
     environment:
@@ -23,4 +22,3 @@ services:
       - SDL_AUDIODRIVER=dummy
     volumes:
       - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
-      - /dev:/dev/:rw
