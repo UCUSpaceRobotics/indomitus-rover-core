@@ -179,8 +179,8 @@ RoverSwerveController::update(
     const double vy = vy_smoothed_;
     const double wz = wz_smoothed_;
 
-    // // Step 2: Read current hardware steering positions
-    // read_current_angles(); --- IGNORE --- (already read in on_activate and updated in step_angle)
+    // // Step 2: Read measured hardware steering positions
+    read_measured_angles();
 
     // Step 3: Compute desired target angles for transition detection
     const auto [desired_angles, desired_speeds_unused] =
@@ -249,10 +249,44 @@ RoverSwerveController::update(
     double global_align_scale = 1.0;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         // const double c = std::cos(work_angles[i] - current_angles_[i]);
-        const double c8 = std::pow(std::cos(work_angles[i] - current_angles_[i]), 8);
-        global_align_scale = std::min(global_align_scale, c8);
+        const double c4 = std::pow(std::cos(work_angles[i] - measured_angles_[i]), 4);
+        global_align_scale = std::min(global_align_scale, c4);
         // cos^2 because it derivative in 0 and pi/2 is 0,
         // so it's smooth acceleation and deceleration
+    }
+
+    // constexpr double kHardStopAngle = M_PI * 3.0 / 8.0;  // 45°
+
+    // double global_align_scale = 1.0;
+    // bool any_wheel_misaligned = false;
+
+    // for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+    //     const double err = std::abs(work_angles[i] - current_angles_[i]);
+
+    //     double wheel_scale;
+    //     if (err >= kHardStopAngle) {
+    //         wheel_scale = 0.0;
+    //         any_wheel_misaligned = true;
+    //     } else {
+    //         // cos² normalized over [0, kHardStopAngle]:
+    //         // err=0       → scale=1
+    //         // err=π/4     → scale=0  (continuous, no jerk)
+    //         const double t = err / kHardStopAngle;       // [0, 1]
+    //         const double c4 = std::pow(std::cos(t * M_PI / 2.0), 4);  // cos(0)=1, cos(π/2)=0
+    //         wheel_scale = c4;
+    //     }
+
+    //     global_align_scale = std::min(global_align_scale, wheel_scale);
+    // }
+
+
+    constexpr double kTransitTriggerScale = 0.005;  // tune this
+
+    if (global_align_scale < kTransitTriggerScale && 
+        state_machine_->state() == RoverState::NORMAL) {
+        state_machine_->force_transit(
+            kinematics_->ik_full(vx, vy, wz, current_angles_).angles,
+            &logger);
     }
 
     const double state_scale = state_machine_->update_scale(
@@ -457,6 +491,18 @@ void RoverSwerveController::read_current_angles()
    }
 }
 
+void RoverSwerveController::read_measured_angles()
+{
+   if (!steer_handles_) { return; }
+   for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+#if defined(JAZZY_OR_LATER)
+        measured_angles_[i] = steer_handles_->position_state[i].get().get_optional().value_or(0.0);
+#else
+        measured_angles_[i] = steer_handles_->position_state[i].get().get_value();
+#endif
+   }
+}
+
 void RoverSwerveController::write_steer_commands(const WheelData & angles)
 {
     if (!steer_handles_) { return; }
@@ -539,7 +585,7 @@ void RoverSwerveController::on_set_compact_mode(
     // Re-enter transit so wheels pivot to new compact/normal position safely.
     state_machine_->update_transitions(
         vx_smoothed_, vy_smoothed_, wz_smoothed_,
-        target, current_angles_,
+        target, measured_angles_,
         &logger);
 
     response->success = true;

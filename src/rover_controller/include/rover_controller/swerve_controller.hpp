@@ -44,7 +44,7 @@ constexpr std::size_t NUM_WHEELS = 4;
 
 enum class RoverState : uint8_t {
     NORMAL,   ///< Combined translation + rotation
-    ROTATE,   ///< rotate-in-place (vx, vy ~ 0, wz≠0)
+    // ROTATE,   ///< rotate-in-place (vx, vy ~ 0, wz≠0)
     TRANSIT,  ///< Wheels re-aligning; drive output suppressed
 };
 
@@ -146,7 +146,7 @@ public:
         if (!transit_stopping_ && transit_complete(current_angles)) {
             state_ = transit_dest_;
             if (logger) {
-            RCLCPP_INFO(*logger, "[SwerveController] Aligned → %s", state_name(state_));
+                RCLCPP_INFO(*logger, "[SwerveController] Aligned → %s", state_name(state_));
             }
         }
         }
@@ -171,9 +171,9 @@ public:
         if (state_ == RoverState::TRANSIT) {
         if (transit_stopping_) {
             current_scale_ = std::max(0.0, current_scale_ - scale_down_rate_ * dt);
-            if (current_scale_ < 0.02) {
-            current_scale_    = 0.0;
-            transit_stopping_ = false;   // allow wheels to pivot now
+            if (current_scale_ < 0.005) {
+                current_scale_    = 0.0;
+                transit_stopping_ = false;   // allow wheels to pivot now
             }
         } else {
             current_scale_ = 0.0;
@@ -209,6 +209,16 @@ public:
         current_scale_    = 0.0;
     }
 
+    void force_transit(const WheelData & target, rclcpp::Logger * logger = nullptr)
+    {
+        if (state_ != RoverState::TRANSIT) {
+            enter_transit(target, RoverState::NORMAL, logger);
+        } else {
+            // Already in transit — just update target
+            transit_target_ = target;
+        }
+    }
+
 private:
     void enter_transit(
         const WheelData & target,
@@ -221,7 +231,7 @@ private:
         transit_stopping_ = true;
 
         if (logger) {
-        RCLCPP_INFO(*logger, "[SwerveController] TRANSIT → %s", state_name(dest));
+            RCLCPP_INFO(*logger, "[SwerveController] TRANSIT → %s", state_name(dest));
         }
     }
 
@@ -237,10 +247,10 @@ private:
 
     static RoverState desired_state(double vx, double vy, double wz)
     {
-        const bool has_translation = (std::abs(vx) > VXY_EPS) || (std::abs(vy) > VXY_EPS);
-        const bool has_rotation    = std::abs(wz) > WZ_EPS;
+        // const bool has_translation = (std::abs(vx) > VXY_EPS) || (std::abs(vy) > VXY_EPS);
+        // const bool has_rotation    = std::abs(wz) > WZ_EPS;
 
-        if (!has_translation && has_rotation) { return RoverState::ROTATE; }
+        // if (!has_translation && has_rotation) { return RoverState::ROTATE; }
         return RoverState::NORMAL;
     }
 
@@ -248,7 +258,7 @@ private:
     {
         switch (s) {
         case RoverState::NORMAL:  return "NORMAL";
-        case RoverState::ROTATE:  return "ROTATE";
+        // case RoverState::ROTATE:  return "ROTATE";
         case RoverState::TRANSIT: return "TRANSIT";
         }
         return "UNKNOWN";
@@ -346,6 +356,7 @@ private:
 
     /// Read current steering positions from state interfaces → current_angles_.
     void read_current_angles();
+    void read_measured_angles();
 
     /// Write position commands to steer command interfaces.
     void write_steer_commands(const WheelData & angles);
@@ -388,6 +399,7 @@ private:
     // Runtime state
 
     WheelData current_angles_{WheelData::filled(0.0)};
+    WheelData measured_angles_{WheelData::filled(0.0)};
     WheelData last_work_speeds_{WheelData::filled(0.0)};
 
     double vx_smoothed_{0.0};
@@ -412,7 +424,7 @@ private:
     double max_decel_{0.5};
     double control_frequency_{20.0};      // Hz
     double cmd_vel_timeout_{2.0};         // s
-    double align_threshold_{0.0873};      // rad ≈ 5°
+    double align_threshold_{0.0073};      // rad ≈ 5°
     double scale_up_rate_{1.0};
     double scale_down_rate_{2.0};
 
