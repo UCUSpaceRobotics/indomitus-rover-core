@@ -52,16 +52,6 @@ def generate_bridge_config(context) -> list[Node]:
         output='screen',
     )]
 
-
-def controller_spawner(name: str, remappings: list = []) -> Node:
-    return Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=[name],
-        output='screen',
-    )
-
-
 def make_robot_description(rover_sim_share: str) -> str:
     path = os.path.join(rover_sim_share, 'urdf', 'rover_sim.urdf.xacro')
     return xacro.process_file(path).toxml()
@@ -147,6 +137,4 @@ def generate_launch_description() -> LaunchDescription:
             arguments=['odometry_controller', '--param-file', controllers_yaml],
             output='screen',
         ),
-
-        Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),
     ])
