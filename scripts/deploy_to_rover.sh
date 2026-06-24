@@ -193,9 +193,10 @@ run_sync_all_mode() {
     
     rsync -avz --delete \
         --filter="merge ${FILTER_FILE}" \
+        --info=progress2 \
         -e "ssh -q ${SSH_OPTS[*]}" \
         src/ "${TARGET}:${REMOTE_DIR}/src/"
-    rsync -az -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
+    rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
     
     step "Restarting Container with new Compose config (waiting for readiness)..."
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && \
@@ -223,7 +224,7 @@ run_sync_src_mode() {
     step "SYNC SRC: Syncing local 'src' directory via rsync..."
     if [ ! -d "src" ]; then error "No 'src' directory found in the repository root."; fi
     
-    rsync -avz --delete \
+    rsync -avz --delete --info=progress2 \
         --filter="merge ${FILTER_FILE}" \
         -e "ssh -q ${SSH_OPTS[*]}" \
         src/ "${TARGET}:${REMOTE_DIR}/src/"
@@ -251,7 +252,7 @@ run_sync_compose_mode() {
     step "SYNC COMPOSE: Transferring local compose file..."
     if [ ! -f "$COMPOSE_FILE" ]; then error "Local compose file not found: $COMPOSE_FILE"; fi
     
-    rsync -az -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
+    rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
     
     step "Restarting Container on Jetson (waiting for readiness)..."
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && \
@@ -303,21 +304,26 @@ for m in manifests:
 
     [ -z "$ARM64_DIGEST" ] && error "Could not resolve arm64 digest for ${IMAGE_NAME}:${IMAGE_TAG}"
     
-    docker pull "${IMAGE_NAME}@${ARM64_DIGEST}" >/dev/null || error "Docker pull failed."
+    docker pull "${IMAGE_NAME}@${ARM64_DIGEST}" || error "Docker pull failed."
     docker tag "${IMAGE_NAME}@${ARM64_DIGEST}" "${IMAGE_NAME}:${IMAGE_TAG}"
 
     step "Exporting Image to ${ARCHIVE_NAME}..."
-    docker save -o "${ARCHIVE_NAME}" "${IMAGE_NAME}:${IMAGE_TAG}"
+    echo -n "Exporting archive..."
+    (docker save -o "${ARCHIVE_NAME}" "${IMAGE_NAME}:${IMAGE_TAG}") &
+    pid=$!
+    spinner $pid
+    wait $pid || error "Failed to export the Docker image."
+    echo ""
 
     connect_to_jetson
 
     step "Transferring Clean Payload to ${TARGET}:${REMOTE_DIR}..."
-    rsync -avz --delete \
+    rsync -avz --delete --info=progress2 \
         --filter="merge ${FILTER_FILE}" \
         -e "ssh -q ${SSH_OPTS[*]}" \
         "${TEMP_REPO_DIR}/src/" "${TARGET}:${REMOTE_DIR}/src/"
-    rsync -az -e "ssh -q ${SSH_OPTS[*]}" "${TEMP_REPO_DIR}/docker/docker-compose.prod.yaml" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
-    rsync -az -e "ssh -q ${SSH_OPTS[*]}" "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
+    rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${TEMP_REPO_DIR}/docker/docker-compose.prod.yaml" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
+    rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
 
     step "Loading Image on Jetson..."
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && docker load -i \"${ARCHIVE_NAME}\" && rm \"${ARCHIVE_NAME}\""
@@ -364,12 +370,12 @@ run_full_deploy_mode() {
 
     step "Transferring Payload to ${TARGET}:${REMOTE_DIR}..."
     if [ ! -d "src" ]; then error "No 'src' directory found in the repository root."; fi
-    rsync -avz --delete \
+    rsync -avz --delete --info=progress2 \
         --filter="merge ${FILTER_FILE}" \
         -e "ssh -q ${SSH_OPTS[*]}" \
         src/ "${TARGET}:${REMOTE_DIR}/src/"
-    rsync -az -e "ssh -q ${SSH_OPTS[*]}" "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
-    rsync -az -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
+    rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
+    rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
 
     step "Loading Image on Jetson..."
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && docker load -i \"${ARCHIVE_NAME}\" && rm \"${ARCHIVE_NAME}\""

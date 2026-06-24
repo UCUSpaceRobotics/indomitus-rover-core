@@ -18,11 +18,11 @@ services:
     stdin_open: true
     tty: true
     healthcheck:
-      test: ["CMD", "pgrep", "-f", "ros2"]
-      interval: 2s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
+          test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+          interval: 10s
+          timeout: 5s
+          retries: 3
+          start_period: 5s
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1

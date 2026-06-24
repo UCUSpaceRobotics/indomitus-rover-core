@@ -1,5 +1,9 @@
 # This file defines which files are ignored when copying ./src/ directory to the Jetson with deploy script
 
+# Unneccessary simulation and visualization packages
+- rover_viz/
+- rover_sim/
+
 # Python
 - __pycache__/
 - *.pyc
