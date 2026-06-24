@@ -48,7 +48,7 @@ def generate_launch_description():
         output='screen',
         parameters=[default_config],
         remappings=[
-            ('/cmd_vel', '/cmd_vel/teleop'),
+            ('/cmd_vel', '/cmd_vel_joy'),
         ]
     )
 

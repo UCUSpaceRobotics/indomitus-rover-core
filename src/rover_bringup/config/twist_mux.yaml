@@ -23,3 +23,5 @@ twist_mux:
         topic:   "twist_mux/e_stop"
         timeout: 0.2
         priority: 255
+        # NOTE: expects std_msgs/Bool (true = locked / e-stop active).
+        # No publisher for this topic yet — reserved for future e-stop integration.
