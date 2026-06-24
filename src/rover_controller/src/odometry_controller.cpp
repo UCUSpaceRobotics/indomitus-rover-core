@@ -119,7 +119,7 @@ RoverOdometryController::update(
         return controller_interface::return_type::OK;
     }
 
-    // ── 1. Read current encoder and steering values ───────────────────────────
+    // 1. Read current encoder and steering values
 
     std::array<double, ODOM_NUM_WHEELS> steer_angles{};
     std::array<double, ODOM_NUM_WHEELS> drive_pos{};
