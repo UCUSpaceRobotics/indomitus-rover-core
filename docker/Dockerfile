@@ -135,4 +135,6 @@ RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
       -DCMAKE_C_FLAGS='-O0' \
       -DCMAKE_CXX_FLAGS='-g0 -O1'"
 
+RUN rm -rf ${WS}/log/
+
 CMD ["bash"]
