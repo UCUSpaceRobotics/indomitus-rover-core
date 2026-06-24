@@ -331,10 +331,11 @@ RoverHardwareInterface::read(
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         steer_pos_[i] = steer_state_[i].pos_valid
             ? static_cast<double>(steer_state_[i].pos_rad) : 0.0;
-        drive_pos_[i] = drive_state_[i].valid
-            ? static_cast<double>(drive_state_[i].pos) * kDriveSigns[i] : 0.0;
-        drive_vel_[i] = drive_state_[i].valid
-            ? static_cast<double>(drive_state_[i].vel) * kDriveSigns[i] : 0.0;
+        
+        if (drive_state_[i].valid) {
+            drive_pos_[i] = static_cast<double>(drive_state_[i].pos) * kDriveSigns[i];
+            drive_vel_[i] = static_cast<double>(drive_state_[i].vel) * kDriveSigns[i];
+        }
     }
 
     return hardware_interface::return_type::OK;

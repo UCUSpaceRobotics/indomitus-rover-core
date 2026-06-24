@@ -62,15 +62,6 @@ RoverOdometryController::on_activate(const rclcpp_lifecycle::State & /*prev*/)
         return controller_interface::CallbackReturn::ERROR;
     }
 
-    // Snapshot initial encoder positions so the first diff is zero.
-    for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
-#if defined(JAZZY_OR_LATER)
-        prev_drive_pos_[i] = drive_handles_->position[i].get().get_optional().value_or(0.0);
-#else
-        prev_drive_pos_[i] = drive_handles_->position[i].get().get_value();
-#endif
-    }
-
     first_update_ = true;
     x_ = y_ = theta_ = 0.0;
 
@@ -145,10 +136,18 @@ RoverOdometryController::update(
 
     // Skip integration on the very first cycle — we only have one snapshot.
     if (first_update_) {
+        bool any_nonzero = false;
+        for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
+            if (std::abs(drive_pos[i]) > 1e-6) { any_nonzero = true; break; }
+        }
+
         for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
             prev_drive_pos_[i] = drive_pos[i];
         }
-        first_update_ = false;
+
+        if (any_nonzero) {
+            first_update_ = false;
+        }
         return controller_interface::return_type::OK;
     }
 
