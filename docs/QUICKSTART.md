@@ -6,6 +6,8 @@
 * [Starting the Jetson-Controlled Rover](#starting-the-jetson-controlled-rover)
 * [Starting the Laptop-Controlled Rover](#starting-the-laptop-controlled-rover)
 * [Turning Off the Rover](#turning-off-the-rover)
+* [Current System Credentials and Network Info](#current-system-credentials-and-network-info)
+* [SSH Access to the Jetson](#ssh-access-to-the-jetson)
 
 **Docker**
 * [Getting the Docker Image and Starting the Container](#getting-the-docker-image-and-starting-the-container)
@@ -96,12 +98,40 @@ To power down the rover, perform **one** of the following actions:
 > **Attention:** Currently, only the **left** red button on top of the rover is connected. The right red button is inactive and will not stop the rover. Always use the left button for an emergency stop.
 
 
+### Current System Credentials and Network Info
+
+| Property | Value |
+| --- | --- |
+| **Jetson Username** | `indomitus-rover` |
+| **Jetson Password** | `1` |
+| **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
+| **Wi-Fi Password** | `12345678` |
+| **Jetson Static IP** | `10.42.0.1` |
+
+
+### SSH Access to the Jetson
+
+You can SSH into the Jetson to access its bash shell for debugging or configuration.
+
+1. **Connect to the network:** Connect your computer to the Jetson's Wi-Fi hotspot (`IndomitusRover`) using the password `12345678`.
+2. **Initiate the connection:** Open your terminal and run the following command:
+```bash
+ssh indomitus-rover@10.42.0.1
+```
+
+1. **Authenticate:** If prompted with a security fingerprint warning, type `yes` to continue. When asked for the password, enter `1`.
+
+> **Note:** For further details on the network configuration, refer to [hotspot.md](./networking/hotspot.md).
+
+> **Pro Tip (ROS2 Debugging):** Because our architecture utilizes ROS2 networking, you do not always need to SSH into the Jetson to debug. As long as you are connected to the Jetson's hotspot, you can simply open your local Docker container and use standard ROS2 commands (e.g., `ros2 node list`, `ros2 topic echo /topic_name`) to see what is happening on the rover directly from your laptop.
+
+
 ---
 
 
 ## Docker
 
-### Getting the Docker Image and Starting the Container
+### Getting the Docker Image
 
 Before doing anything, you need to prepare your local environment:
 
@@ -177,7 +207,7 @@ source install/setup.bash
 You must either manually install the missing dependencies inside your running Docker container or rebuild the entire Docker image with the simulation tools enabled.
 
 
-### Image Tags Architecture
+### Image Tags
 
 Understanding the tag naming convention will help you easily identify the correct Docker image for your hardware and environment.
 
@@ -185,7 +215,6 @@ The `Dockerfile` is split into two primary targets: **`dev`** and **`prod`**. Th
 
 Images built locally or by GitHub workflows will use the following tags:
 
-* **`local-dev`**: Development image built locally.
 * **`local-prod`**: Production image built locally.
 * **`develop-dev`** (or `main-dev`): Development image built continuously by GitHub workflows.
   * *Architecture:* **AMD64**
@@ -264,6 +293,8 @@ The results of each test run are compiled into an interactive dashboard. To acce
 ## Project structure
 
 ### ROS2 Packages Overview
+
+**(This overview currently is deprecated and need to be updated)**
 
 - `indomitus_interfaces` - package with all custom messages, services, actions
 - `rover_bringup` - package with main launch files and configs
