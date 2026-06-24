@@ -23,7 +23,7 @@ Connects to a Docker container interactively, depending on the environment.
 
 Commands:
   local       Ensures the local container is running and opens an interactive terminal.
-  rover       Connects to the Jetson Nano, starts the container, and opens a terminal.
+  rover       Connects to the rover computer, starts the container, and opens a terminal.
 
 Use '$0 local --help' or '$0 rover --help' for command-specific options.
 EOF
@@ -105,19 +105,19 @@ EOF
 # ===========================================================================
 run_rover() {
   # Defaults
-  local JETSON_USER="ros"
+  local JETSON_USER="indomitus-rover"
   local JETSON_IP="10.42.0.1"
-  local REMOTE_DIR="/home/ros/Indomitus/indomitus-rover-core/"
+  local REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
   local CONTAINER_NAME="rover_prod"
   local COMPOSE_FILE="docker-compose.prod.yaml"
-  local WIFI_SSID="JetsonRosIndomitus"
-  local WIFI_PASS="jetson1234"
+  local WIFI_SSID="IndomitusRover"
+  local WIFI_PASS="12345678"
 
   show_rover_help() {
     cat << EOF
 Usage: $0 rover [OPTIONS]
 
-Connects to the Jetson Nano, starts the production Docker container (if needed),
+Connects to the rover computer, starts the production Docker container (if needed),
 and opens an interactive terminal inside the remote container.
 
 Options:
@@ -151,7 +151,6 @@ EOF
 
   step "Running Pre-Flight Checks (Rover)..."
   if ! command -v ssh >/dev/null 2>&1; then error "SSH client is not installed."; fi
-  # if [ ! -f "$COMPOSE_FILE" ]; then error "Compose file not found locally: $COMPOSE_FILE"; fi
 
   step "Verifying Network Connection..."
   if [ -n "$WIFI_SSID" ]; then
@@ -188,7 +187,7 @@ EOF
       echo -e "\e[33m[WARNING]\e[0m OS not supported for auto-connect. Please switch to '${WIFI_SSID}' manually."
     fi
   else
-    echo -e "Please switch your Wi-Fi network to the Jetson Nano hotspot now."
+    echo -e "Please switch your Wi-Fi network to the rover computer hotspot now."
   fi
 
   echo -n "Waiting for SSH connection to ${TARGET}..."
@@ -200,13 +199,13 @@ EOF
     RETRY_COUNT=$((RETRY_COUNT+1))
     if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
       echo ""
-      error "Timeout: Could not connect to Jetson Nano at ${TARGET} after 2 minutes."
+      error "Timeout: Could not connect to rover computer at ${TARGET} after 2 minutes."
     fi
   done
   echo ""
   success "Connection established."
 
-  step "Starting Docker Container on Jetson Nano..."
+  step "Starting Docker Container on rover computer..."
   ssh -q "${TARGET}" \
     "REMOTE_DIR='${REMOTE_DIR}' REMOTE_COMPOSE_FILE='${REMOTE_COMPOSE_FILE}' CONTAINER_NAME='${CONTAINER_NAME}' bash -s" << 'EOF'
   set -euo pipefail

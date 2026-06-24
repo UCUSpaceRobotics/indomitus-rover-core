@@ -1,4 +1,0 @@
-rover_controller:
-  ros__parameters:
-    max_steer_deg: 90.0   # max allowed steering deviation from the current drive-mode reference position (deg)
-    max_steer_rate_deg: 45.0

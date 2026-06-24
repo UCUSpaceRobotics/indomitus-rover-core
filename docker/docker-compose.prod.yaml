@@ -2,26 +2,25 @@ services:
   rover_prod:
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
+    runtime: nvidia
+    # command: autolaunch
+    command: tail -f /dev/null
     network_mode: host
+    privileged: true
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    # device_cgroup_rules:
+    #   - "c 13:* rmw"
     stdin_open: true
     tty: true
-    command: tail -f /dev/null
     environment:
       - ROS_DOMAIN_ID=42
       - ROS_LOCALHOST_ONLY=0
       - CAN_INTERFACE=can0
-      - CAN_BITRATE=1000000
-      - CAN_TRANSMIT_QUEUE_SIZE=1000
+      - SDL_VIDEODRIVER=dummy
+      - SDL_AUDIODRIVER=dummy
     volumes:
-    - /home/ros/Indomitus/indomitus-rover-core/src:/opt/ws/src:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
+      - /dev:/dev/:rw

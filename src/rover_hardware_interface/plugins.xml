@@ -1,0 +1,7 @@
+<library path="rover_hardware_interface">
+  <class name="rover_hardware_interface/RoverHardwareInterface"
+         type="rover_hardware_interface::RoverHardwareInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>4-wheel swerve rover hardware interface via CAN</description>
+  </class>
+</library>
