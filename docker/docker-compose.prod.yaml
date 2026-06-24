@@ -14,6 +14,12 @@ services:
       - "c 13:* rmw"
     stdin_open: true
     tty: true
+    healthcheck:
+          test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+          interval: 10s
+          timeout: 5s
+          retries: 3
+          start_period: 5s
     environment:
       - ROS_DOMAIN_ID=42
       - ROS_LOCALHOST_ONLY=0
