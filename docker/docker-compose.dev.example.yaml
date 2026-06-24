@@ -7,7 +7,7 @@ services:
       args:
         ROS_DISTRO: humble
         INSTALL_SIM_TOOLS: "false"
-    image: indomitus-rover:humble-dev
+    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
     container_name: rover_dev
     network_mode: host
     cap_add:
