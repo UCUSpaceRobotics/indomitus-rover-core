@@ -28,9 +28,6 @@ services:
       - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=42
       - ROS_LOCALHOST_ONLY=0
-      - CAN_INTERFACE=can0
-      - CAN_BITRATE=1000000
-      - CAN_TRANSMIT_QUEUE_SIZE=1000
       - SDL_VIDEODRIVER=dummy
       - SDL_AUDIODRIVER=dummy
     volumes:
