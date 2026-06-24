@@ -1,6 +1,7 @@
 # rover_bringup/config/twist_mux.yaml
 twist_mux:
   ros__parameters:
+    use_stamped: false
     topics:
       joystick:
         topic:   "cmd_vel_joy"
@@ -16,12 +17,3 @@ twist_mux:
         topic:   "cmd_vel_ext"
         timeout: 0.5
         priority: 10 
-
-    # in a case of connection lost, we can publish 0 in this topic
-    locks:
-      e_stop:
-        topic:   "twist_mux/e_stop"
-        timeout: 0.2
-        priority: 255
-        # NOTE: expects std_msgs/Bool (true = locked / e-stop active).
-        # No publisher for this topic yet — reserved for future e-stop integration.
