@@ -1,9 +1,9 @@
 ### Quick Deployment Guide
 
-To deploy code to the Jetson Nano, ensure your laptop is connected to Wi-Fi with internet access, the Jetson is turned on, and its hotspot is active. Open a terminal and run the deployment script from the root of the repository:
+To deploy code to the rover computer, ensure your laptop is connected to Wi-Fi with internet access, the Jetson is turned on, and its hotspot is active. Open a terminal and run the deployment script from the root of the repository:
 
 ```bash
-./scripts/deploy_to_jetson.sh [OPTIONS]
+./scripts/deploy_to_rover.sh [OPTIONS]
 ```
 
 #### Available Deployment Modes

@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential python3-pip \
     python3-colcon-common-extensions python3-rosdep \
     iputils-ping pkg-config usbutils iproute2 g++ make cmake \
+    ros-${ROS_DISTRO}-rcpputils \
+    ros-${ROS_DISTRO}-class-loader \
     can-utils \
     vim \
     && rm -rf /var/lib/apt/lists/*
@@ -67,7 +69,7 @@ RUN mkdir -p ${WS}/src && \
     for pkg in *; do \
         case "$pkg" in \
             rover_sim|rover_viz) ;; \
-            *) cp -r "$pkg" ${WS}/src/ ;; \
+            *) find "$pkg" -name "package.xml" -exec cp --parents {} ${WS}/src/ \; ;; \
         esac; \
     done
 
@@ -79,7 +81,36 @@ RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro $
     -t exec \
     && rm -rf /var/lib/apt/lists/*
 
+COPY src/ /tmp/src_packages/src/
+RUN mkdir -p ${WS}/src && \
+    cd /tmp/src_packages/src && \
+    for pkg in *; do \
+        case "$pkg" in \
+            rover_sim|rover_viz) ;; \
+            *) cp -r "$pkg" ${WS}/src/ ;; \
+        esac; \
+    done
+
+# IMPORTANT: we had really a lot of troubles with segmentation fault
+# evething below is done to prevent this fault. DONT TOUCH IT!
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build"
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    colcon build \
+    --parallel-workers 1 \
+    --packages-select indomitus_interfaces \
+    --cmake-args \
+      -DCMAKE_BUILD_PARALLEL_LEVEL=1 \
+      -DCMAKE_C_FLAGS='-O0' \
+      -DCMAKE_CXX_FLAGS='-O0'"
+
+# Then build the rest normally
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    colcon build \
+    --parallel-workers 1 \
+    --packages-skip indomitus_interfaces \
+    --cmake-args \
+      -DCMAKE_BUILD_PARALLEL_LEVEL=1 \
+      -DCMAKE_C_FLAGS='-O0' \
+      -DCMAKE_CXX_FLAGS='-g0 -O1'"
 
 CMD ["bash"]
