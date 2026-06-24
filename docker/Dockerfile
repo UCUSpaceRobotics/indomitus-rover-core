@@ -22,7 +22,7 @@ ENV HW_WS=/opt/hw_ws
 RUN mkdir -p ${HW_WS}/src
 WORKDIR ${HW_WS}
 
-# Clone here repositories with packages for the moduless like LiDAR or stereo camera
+# Clone here repositories with packages for the modules like LiDAR or stereo camera
 
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
