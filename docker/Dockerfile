@@ -27,6 +27,10 @@ WORKDIR ${HW_WS}
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
 
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build --cmake-args=-DCMAKE_BUILD_TYPE=Release" && \
+    rm -rf build/ log/
+
+
 ENV WS=/opt/ws
 RUN mkdir -p ${WS}/src
 WORKDIR ${WS}
