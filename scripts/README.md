@@ -2,6 +2,11 @@
 
 This directory contains executable utility and automation scripts for the Indomitus Rover project. To keep this folder organized, it should strictly house the execution files (e.g., `.sh`, `.py`); all long-form documentation, guides, and tutorials belong in the [`docs/scripts/`](../docs/scripts/) directory.
 
+Before running any scripts you need to give execution rights to it:
+```bash
+chmod +x ./script/your_script
+```
+
 ## Available Scripts
 
 | Script | Description | Documentation |

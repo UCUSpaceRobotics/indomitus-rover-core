@@ -8,14 +8,6 @@ The script ensures the `src/` directory is properly synced to the Jetson so the 
 
 The script relies on an `.rsync-filter` file located in the same directory as the script. This file tells `rsync` which local folders and files (like `__pycache__/`, `.git/`, or `log/`) to ignore so they aren't accidentally transferred to the Jetson. The script will throw an error if this file is missing.
 
-## Adding Execution Rights
-
-Before running the script for the first time, you must grant it execution permissions. Open a terminal at the root of your repository and run:
-
-```bash
-chmod +x scripts/deploy_to_rover.sh
-```
-
 ## Running the Script
 
 Thanks to automatic path resolution, you can run this script from **any folder on your computer**. The script will automatically locate the repository root.
