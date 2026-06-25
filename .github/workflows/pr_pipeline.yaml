@@ -2,9 +2,6 @@ name: PR Pipeline
 
 on:
   pull_request:
-    branches:
-      - main
-      - develop
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -50,7 +47,17 @@ jobs:
           if [ "${{ steps.filter.outputs.docker }}" == "true" ]; then
             echo "tag=pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
           else
-            echo "tag=${{ github.base_ref }}-dev" >> $GITHUB_OUTPUT
+            # Sanitize base_ref: replace slashes with hyphens
+            BASE_REF="${{ github.base_ref }}"
+            SAFE_BASE=$(echo "$BASE_REF" | sed 's/\//-/g')
+
+            # Only main and develop have published images.
+            # For any other base branch, fall back to develop-dev.
+            if [[ "$SAFE_BASE" == "main-dev" || "$SAFE_BASE" == "develop-dev" ]]; then
+              echo "tag=${SAFE_BASE}" >> $GITHUB_OUTPUT
+            else
+              echo "tag=develop-dev" >> $GITHUB_OUTPUT
+            fi
           fi
 
   build-temp-image:

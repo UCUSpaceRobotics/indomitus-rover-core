@@ -43,7 +43,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.65 0.05"/>
+        <box size="0.1 0.68 0.05"/>
       </geometry>
     </collision>
   </link>
@@ -84,7 +84,7 @@
 
 
   <!-- ===================== CAMERA ===================== -->
-  <xacro:include filename="$(find rover_description)/urdf/camera.urdf.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/camera.xacro"/>
   <xacro:camera/>
 
   <!-- ===================== LEFT ROCKER ===================== -->
@@ -112,7 +112,7 @@
   <joint name="l_rocker_joint" type="revolute">
     <parent link="suspension_base_axii_link"/>
     <child link="l_rocker_link"/>
-    <origin xyz="0 0.305 0" rpy="0 0 0"/>
+    <origin xyz="0 0.34 0" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-0.5" upper="0.5" effort="100" velocity="1.0"/>
     <dynamics damping="0.5" friction="0.1"/>
@@ -143,7 +143,7 @@
   <joint name="r_rocker_joint" type="revolute">
     <parent link="suspension_base_axii_link"/>
     <child link="r_rocker_link"/>
-    <origin xyz="0 -0.305 0" rpy="0 0 0"/>
+    <origin xyz="0 -0.34 0" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-0.5" upper="0.5" effort="100" velocity="1.0"/>
     <dynamics damping="0.5" friction="0.1"/>
@@ -174,7 +174,7 @@
   <joint name="fl_wheel_mount_joint" type="revolute">
     <parent link="l_rocker_link"/>
     <child link="fl_wheel_mount_link"/>
-    <origin xyz="0.53 0 0" rpy="0 0 0"/>
+    <origin xyz="0.421 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
     <dynamics damping="0.5" friction="0.3"/>
@@ -235,7 +235,7 @@
   <joint name="fr_wheel_mount_joint" type="revolute">
     <parent link="r_rocker_link"/>
     <child link="fr_wheel_mount_link"/>
-    <origin xyz="0.53 0 0" rpy="0 0 0"/>
+    <origin xyz="0.421 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
     <dynamics damping="0.5" friction="0.3"/>
@@ -296,7 +296,7 @@
   <joint name="bl_wheel_mount_joint" type="revolute">
     <parent link="l_rocker_link"/>
     <child link="bl_wheel_mount_link"/>
-    <origin xyz="-0.53 0 0" rpy="0 0 0"/>
+    <origin xyz="-0.421 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
     <dynamics damping="0.5" friction="0.3"/>
@@ -357,7 +357,7 @@
   <joint name="br_wheel_mount_joint" type="revolute">
     <parent link="r_rocker_link"/>
     <child link="br_wheel_mount_link"/>
-    <origin xyz="-0.53 0 0" rpy="0 0 0"/>
+    <origin xyz="-0.421 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
     <dynamics damping="0.5" friction="0.3"/>

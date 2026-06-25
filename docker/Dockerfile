@@ -1,8 +1,32 @@
+ARG UBUNTU_VERSION=22.04
+ARG TARGET_ROS_DISTRO=humble
 ARG BASE_IMAGE=stereolabs/zed:5.4-gl-devel-cuda12.8-ubuntu22.04
+ARG SIMULATION_PKGS="rover_sim rover_viz"
 
+
+####################
+# CACHER
+####################
+FROM ubuntu:${UBUNTU_VERSION} AS cacher
+ARG INSTALL_SIM_TOOLS=false
+ARG SIMULATION_PKGS
+
+COPY src/ /tmp/src/
+
+RUN cd /tmp/src && \
+    if [ "$INSTALL_SIM_TOOLS" != "true" ]; then \
+        for pkg in ${SIMULATION_PKGS}; do find . -name "$pkg" -type d -exec rm -rf {} + ; done; \
+    fi && \
+    mkdir -p /extracted_xmls && \
+    find . -name "package.xml" -exec cp --parents {} /extracted_xmls/ \;
+
+
+####################
+# BASE
+####################
 FROM ${BASE_IMAGE} AS base
 
-ARG TARGET_ROS_DISTRO=humble
+ARG TARGET_ROS_DISTRO
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TARGET_ROS_DISTRO=${TARGET_ROS_DISTRO}
@@ -19,8 +43,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential python3-pip \
     python3-colcon-common-extensions python3-rosdep \
     iputils-ping pkg-config usbutils iproute2 g++ make cmake \
-    can-utils vim \
-    && rm -rf /var/lib/apt/lists/*
+    ros-${TARGET_ROS_DISTRO}-rcpputils \
+    ros-${TARGET_ROS_DISTRO}-class-loader \
+    can-utils \
+    vim && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
@@ -28,9 +55,12 @@ ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 RUN rosdep init || true && rosdep update
 
 
+
 ENV HW_WS=/opt/hw_ws
 RUN mkdir -p ${HW_WS}/src
 WORKDIR ${HW_WS}
+
+# Clone here repositories with packages for the modules like LiDAR or stereo camera
 
 RUN git clone --recursive https://github.com/stereolabs/zed-ros2-wrapper.git ${HW_WS}/src/zed-ros2-wrapper \
     && find ${HW_WS}/src -name ".git" -type d -prune -exec rm -rf '{}' + \
@@ -54,13 +84,15 @@ RUN /bin/bash -c "export LD_LIBRARY_PATH=/tmp/fake_gpu:\${LD_LIBRARY_PATH} && \
     && rm -rf build/ log/ \
     && rm -rf /tmp/fake_gpu
 
+
+
 ENV WS=/opt/ws
 RUN mkdir -p ${WS}/src
 WORKDIR ${WS}
 
 RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then source /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f ${HW_WS}/install/setup.bash ]; then source ${HW_WS}/install/setup.bash; fi" >> /root/.bashrc && \
     echo "if [ -f /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash; fi" >> /root/.bashrc && \
+    echo "if [ -f ${HW_WS}/install/setup.bash ]; then source ${HW_WS}/install/setup.bash; fi" >> /root/.bashrc && \
     echo "if [ -f ${WS}/install/setup.bash ]; then source ${WS}/install/setup.bash; fi" >> /root/.bashrc
 
 COPY docker/entrypoint.bash /entrypoint.bash
@@ -68,41 +100,34 @@ RUN chmod +x /entrypoint.bash
 ENTRYPOINT ["/entrypoint.bash"]
 
 
-# ==========================================
-# DEV STAGE
-# ==========================================
+####################
+# DEV
+####################
 FROM base AS dev
-
 ARG INSTALL_SIM_TOOLS=false
-COPY src/ /tmp/src_packages/src/
-RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
-        cp -r /tmp/src_packages/src/* ${WS}/src/; \
-    else \
-        cd /tmp/src_packages/src && \
-        for pkg in *; do \
-            case "$pkg" in rover_sim|rover_viz) ;; *) cp -r "$pkg" ${WS}/src/ ;; esac; \
-        done; \
-    fi
 
-RUN apt-get update && rosdep install --from-paths ${WS}/src ${HW_WS}/src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y && rm -rf /var/lib/apt/lists/*
+COPY --from=cacher /extracted_xmls/ ${WS}/src/
+
+RUN apt-get update && \ 
+    rosdep install --from-paths ${WS}/src/ ${HW_WS}/src/ --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*; \
+        apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 && \
+        rm -rf /var/lib/apt/lists/*; \
     fi
 
 CMD ["bash"]
 
 
-# ==========================================
-# PROD STAGE
-# ==========================================
+####################
+# PROD
+####################
 FROM base AS prod
+ARG SIMULATION_PKGS
 
-COPY src/ /tmp/src_packages/src/
-RUN cd /tmp/src_packages/src && \
-    for pkg in *; do \
-        case "$pkg" in rover_sim|rover_viz) ;; *) cp -r "$pkg" ${WS}/src/ ;; esac; \
-    done
+COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
 RUN apt-get update && rosdep install --from-paths ${WS}/src ${HW_WS}/src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
     -t build \
@@ -112,9 +137,36 @@ RUN apt-get update && rosdep install --from-paths ${WS}/src ${HW_WS}/src --ignor
     -t exec \
     && rm -rf /var/lib/apt/lists/*
 
-COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
+COPY src/ ${WS}/src/
 
-RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && source ${HW_WS}/install/setup.bash && colcon build" \
-    && rm -rf build/ log/
+RUN cd ${WS}/src && \
+    for pkg in ${SIMULATION_PKGS}; do find . -name "$pkg" -type d -exec rm -rf {} + ; done
+
+COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
+ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
+
+# IMPORTANT: we had really a lot of troubles with segmentation fault
+# evething below is done to prevent this fault. DONT TOUCH IT!
+RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && \
+    colcon build \
+    --parallel-workers 1 \
+    --packages-select indomitus_interfaces \
+    --cmake-args \
+      -DCMAKE_BUILD_PARALLEL_LEVEL=1 \
+      -DCMAKE_C_FLAGS='-O0' \
+      -DCMAKE_CXX_FLAGS='-O0'"
+
+# Then build the rest normally
+RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && \
+    source ${HW_WS}/install/setup.bash && \
+    colcon build \
+    --parallel-workers 1 \
+    --packages-skip indomitus_interfaces ${SIMULATION_PKGS} \
+    --cmake-args \
+      -DCMAKE_BUILD_PARALLEL_LEVEL=1 \
+      -DCMAKE_C_FLAGS='-O0' \
+      -DCMAKE_CXX_FLAGS='-g0 -O1'"
+
+RUN rm -rf ${WS}/log/
 
 CMD ["bash"]

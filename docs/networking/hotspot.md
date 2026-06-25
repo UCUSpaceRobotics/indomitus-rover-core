@@ -4,14 +4,14 @@
 
 * wifi module installed on Jetson
 * Jetson creates wifi-hotspot and connects to it on boot up
-* your laptop is connected to that same network (`JetsonRosIndomitus` password `jetson1234`)
+* your laptop is connected to that same network (`IndomitusRover` password `12345678`)
 * (probably optional) Jetson is setup to have static ipv4 on its network
 
  > **Important:** If at any stage you are asked for the password for the user on the jetson, the current password is `1`
 
 ## Connect over ssh
 
-1. Connect to `JetsonRosIndomitus` Wi-Fi network with password `jetson1234`
+1. Connect to `IndomitusRover` Wi-Fi network with password `12345678`
 
 2. Run the command to ssh into the Jetson
    
@@ -19,10 +19,10 @@
    ssh <username>@10.42.0.1
    ```
 
-   Change username to appropriate username on Jetson, currently the username is `ros` and the actual command is
+   Change username to appropriate username on Jetson, currently the username is `indomitus-rover` and the actual command is
 
    ```bash
-   ssh ros@10.42.0.1
+   ssh indomitus-rover@10.42.0.1
    ```
 
 
@@ -31,9 +31,10 @@
 
 For convenience the passwordless ssh connection may be set up. To do it run these commands on your laptop terminal:
 
-1. Connect to `JetsonRosIndomitus` Wi-Fi network with password `jetson1234`
+1. Connect to `IndomitusRover` Wi-Fi network with password `12345678`
 
 2. Generate an SSH key pair (press Enter at all prompts to accept the defaults):
+   > This step may be skipped, if you previously generated ssh key (very likely) 
 
    ```bash
    ssh-keygen -t ed25519
@@ -54,10 +55,10 @@ Now you can run `ssh <username>@10.42.0.1` and connect automatically without a p
 
 > **Note:** Follow this only if migrating to new Jetson
 
-1. create hotspot `JetsonRosIndomitus` with password `jetson1234`
+1. create hotspot `IndomitusRover` with password `12345678`
 
    ```bash
-   sudo nmcli dev wifi hotspot ifname wlan0 ssid "JetsonRosIndomitus" password "jetson1234"
+   sudo nmcli dev wifi hotspot ifname wlan0 ssid "IndomitusRover" password "12345678"
    ```
 
 2. Check the hotspot connection name:
@@ -78,5 +79,5 @@ Now you can run `ssh <username>@10.42.0.1` and connect automatically without a p
 4. Now your SSH command should always be:
 
    ```bash
-   ssh ros@10.42.0.1
+   ssh indomitus-rover@10.42.0.1
    ```
