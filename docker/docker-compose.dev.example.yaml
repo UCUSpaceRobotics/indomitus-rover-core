@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
       args:
-        BASE_IMAGE: ${BASE_IMAGE_DEV:-stereolabs/zed:5.4-gl-devel-cuda12.1-ubuntu22.04} # Image for the x86-64 architecture
+        BASE_IMAGE: ${BASE_IMAGE_DEV:-stereolabs/zed:5.4-gl-devel-cuda12.8-ubuntu22.04} # Image for the x86-64 architecture
         UBUNTU_VERISON: ${UBUNTU_VERISON:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
         INSTALL_SIM_TOOLS: "false"
