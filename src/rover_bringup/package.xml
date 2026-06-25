@@ -31,6 +31,9 @@
   <exec_depend>joy_linux</exec_depend>
   <exec_depend>teleop_twist_joy</exec_depend>
 
+  <!-- cmd_vel multiplexer -->
+  <exec_depend>twist_mux</exec_depend>
+
   <!-- URDF -->
   <exec_depend>xacro</exec_depend>
 

@@ -47,6 +47,9 @@ def generate_launch_description():
         executable='joystick_interpreter_node',
         output='screen',
         parameters=[default_config],
+        remappings=[
+            ('/cmd_vel', '/cmd_vel_joy'),
+        ]
     )
 
     return LaunchDescription([
