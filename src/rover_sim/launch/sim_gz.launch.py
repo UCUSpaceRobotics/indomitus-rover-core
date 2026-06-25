@@ -35,7 +35,7 @@ def generate_bridge_config(context) -> list[Node]:
     template_path = os.path.join(
         get_package_share_directory('rover_sim'),
         'config',
-        'bridge_parameters_urdf.yaml'
+        'bridge_gz.yaml'
     )
     with open(template_path) as f:
         template = Template(f.read())
