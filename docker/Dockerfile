@@ -1,6 +1,7 @@
 ARG UBUNTU_VERSION=22.04
 ARG TARGET_ROS_DISTRO=humble
-ARG BASE_IMAGE=stereolabs/zed:5.4-gl-devel-cuda12.8-ubuntu22.04
+ARG BASE_IMAGE_DEVEL
+ARG BASE_IMAGE_RUNTIME
 ARG SIMULATION_PKGS="rover_sim rover_viz"
 
 
@@ -22,10 +23,57 @@ RUN cd /tmp/src && \
 
 
 ####################
+# HW-BUILDER
+####################
+FROM ${BASE_IMAGE_DEVEL} AS hw-builder
+ARG TARGET_ROS_DISTRO
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ROS_PYTHON_VERSION=3
+
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common curl \
+    && add-apt-repository universe \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${TARGET_ROS_DISTRO}-ros-base \
+    build-essential python3-colcon-common-extensions python3-rosdep git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN rosdep init || true && rosdep update
+
+ENV HW_WS=/opt/hw_ws
+RUN mkdir -p ${HW_WS}/src
+WORKDIR ${HW_WS}
+
+RUN git clone --recursive https://github.com/stereolabs/zed-ros2-wrapper.git ${HW_WS}/src/zed-ros2-wrapper \
+    && find ${HW_WS}/src -name ".git" -type d -prune -exec rm -rf '{}' + \
+    && find ${HW_WS}/src -name ".gitignore" -type f -delete \
+    && find ${HW_WS}/src -name ".gitmodules" -type f -delete
+
+RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /tmp/fake_gpu \
+    && cp /usr/local/cuda/lib64/stubs/libcuda.so /tmp/fake_gpu/libcuda.so.1 \
+    && cp /usr/local/cuda/lib64/stubs/libcuda.so /tmp/fake_gpu/libnvcuvid.so.1 \
+    && cp /usr/local/cuda/lib64/stubs/libcuda.so /tmp/fake_gpu/libnvidia-encode.so.1
+
+RUN /bin/bash -c "export LD_LIBRARY_PATH=/tmp/fake_gpu:\${LD_LIBRARY_PATH} && \
+    source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && \
+    colcon build --cmake-args \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SHARED_LINKER_FLAGS='-Wl,--allow-shlib-undefined' \
+    -DCMAKE_EXE_LINKER_FLAGS='-Wl,--allow-shlib-undefined'" \
+    && rm -rf build/ log/ \
+    && rm -rf /tmp/fake_gpu
+
+
+####################
 # BASE
 ####################
-FROM ${BASE_IMAGE} AS base
-
+FROM ${BASE_IMAGE_RUNTIME} AS base
 ARG TARGET_ROS_DISTRO
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -57,37 +105,10 @@ ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN rosdep init || true && rosdep update
 
-
-
 ENV HW_WS=/opt/hw_ws
-RUN mkdir -p ${HW_WS}/src
-WORKDIR ${HW_WS}
 
-# Clone here repositories with packages for the modules like LiDAR or stereo camera
-
-RUN git clone --recursive https://github.com/stereolabs/zed-ros2-wrapper.git ${HW_WS}/src/zed-ros2-wrapper \
-    && find ${HW_WS}/src -name ".git" -type d -prune -exec rm -rf '{}' + \
-    && find ${HW_WS}/src -name ".gitignore" -type f -delete \
-    && find ${HW_WS}/src -name ".gitmodules" -type f -delete
-
-RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /tmp/fake_gpu \
-    && cp /usr/local/cuda/lib64/stubs/libcuda.so /tmp/fake_gpu/libcuda.so.1 \
-    && cp /usr/local/cuda/lib64/stubs/libcuda.so /tmp/fake_gpu/libnvcuvid.so.1 \
-    && cp /usr/local/cuda/lib64/stubs/libcuda.so /tmp/fake_gpu/libnvidia-encode.so.1
-
-RUN /bin/bash -c "export LD_LIBRARY_PATH=/tmp/fake_gpu:\${LD_LIBRARY_PATH} && \
-    source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && \
-    colcon build --cmake-args \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_SHARED_LINKER_FLAGS='-Wl,--allow-shlib-undefined' \
-    -DCMAKE_EXE_LINKER_FLAGS='-Wl,--allow-shlib-undefined'" \
-    && rm -rf build/ log/ \
-    && rm -rf /tmp/fake_gpu
-
-
+COPY --from=hw-builder ${HW_WS}/install ${HW_WS}/install
+COPY --from=hw-builder ${HW_WS}/src ${HW_WS}/src
 
 ENV WS=/opt/ws
 RUN mkdir -p ${WS}/src

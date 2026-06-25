@@ -5,7 +5,8 @@ services:
       dockerfile: docker/Dockerfile
       target: prod
       args:
-        BASE_IMAGE: ${BASE_IMAGE_PROD:-stereolabs/zed:5.4-devel-l4t-r36.4} # Image for the ARM64 architecture
+        BASE_IMAGE_DEVEL: ${BASE_IMAGE_DEVEL:-stereolabs/zed:stereolabs/zed:5.4-devel-l4t-r36.4}
+        BASE_IMAGE_RUNTIME: ${BASE_IMAGE_RUNTIME:-stereolabs/zed:stereolabs/zed:5.4-runtime-l4t-r36.4}
         UBUNTU_VERISON: ${UBUNTU_VERISON:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
 
