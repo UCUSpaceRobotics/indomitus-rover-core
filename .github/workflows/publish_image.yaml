@@ -47,6 +47,8 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha
+          labels: |
+            org.opencontainers.image.description=Production Image (ARM64) for Indomitus Rover
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -83,6 +85,8 @@ jobs:
             suffix=-dev
           tags: |
             type=ref,event=branch
+          labels: |
+            org.opencontainers.image.description=Development Image (AMD64) for Indomitus Rover with Simulation Tools
 
       - name: Build and Push DEV Image (AMD64)
         uses: docker/build-push-action@v5
