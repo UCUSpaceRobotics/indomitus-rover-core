@@ -131,6 +131,7 @@ public:
         const WheelData & current_angles,
         rclcpp::Logger *  logger = nullptr)
     {
+        (void)vx; (void)vy; (void)wz;
         // const RoverState desired_dest = desired_state(vx, vy, wz);
         const RoverState desired_dest = RoverState::NORMAL;
 
@@ -247,6 +248,7 @@ private:
 
     static RoverState desired_state(double vx, double vy, double wz)
     {
+        (void)vx; (void)vy; (void)wz;
         // const bool has_translation = (std::abs(vx) > VXY_EPS) || (std::abs(vy) > VXY_EPS);
         // const bool has_rotation    = std::abs(wz) > WZ_EPS;
 
