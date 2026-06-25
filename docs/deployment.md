@@ -1,28 +1,38 @@
 ### Quick Deployment Guide
 
-To deploy code to the Jetson Nano, ensure your laptop is connected to Wi-Fi with internet access, the Jetson is turned on, and its hotspot is active. Open a terminal and run the deployment script from the root of the repository:
+To deploy code to the rover computer, ensure your laptop is connected to Wi-Fi with internet access, the Jetson is turned on, and its hotspot is active. Open a terminal and run the deployment script from the root of the repository:
 
 ```bash
-./scripts/deploy_to_jetson.sh [OPTIONS]
+./scripts/deploy_to_rover.sh [OPTIONS]
 ```
 
 #### Available Deployment Modes
 
 Choose your deployment strategy based on the type of changes you just made:
 
-**Rapid Code Sync (`-S` or `--sync`)**
-* **When to use:** You modified Python scripts, C++ nodes, or launch files and did not change the Docker configuration or dependencies in the `package.xml` files.
-* **What it does:** Bypasses Docker entirely. It syncs the `src/` folder to the Jetson and directly triggers a `colcon build` inside the running container. Fastest mode.
+**Rapid Source Sync (`--sync-src`)**
+* **When to use:** You only modified code (Python, C++, launch files).
+* **What it does:** Syncs the local `src/` folder and triggers a compile inside the *already running* container. Fastest mode.
 
 
-**Pull & Bridge (`-P` or `--pull`)**
-* **When to use:** You want to deploy an image built by GitHub workflows with stable code from the `develop` or `main` branch.
-* **What it does:** Uses your laptop's internet to pull the pre-built image from GHCR, packages it, transfers it over the hotspot, and restarts the container.
+**Infrastructure Sync (`--sync-docker-compose`)**
+* **When to use:** You only modified the `docker-compose.prod.yaml` file.
+* **What it does:** Transfers the compose file and cleanly restarts the container infrastructure.
+
+
+**Full Sync (`--sync`)**
+* **When to use:** You modified *both* your code and the compose file.
+* **What it does:** Syncs code and config, restarts the container, and compiles inside the fresh environment.
+
+
+**Pull & Bridge (`--pull`)**
+* **When to use:** You want to deploy a pre-built stable image and clean code directly from GitHub.
+* **What it does:** Pulls the image from GHCR, clones a clean codebase, transfers everything over the hotspot, and restarts the container.
 
 
 **Full Image Build (Default: no flags)**
-* **When to use:** You modified dependencies or Docker configuration and want to deploy code which is not yet present on GitHub for testing.
-* **What it does:** Cross-compiles a brand new ARM64 Docker image on your laptop, transfers the heavy payload to the Jetson, and spins it up. Slowest mode.
+* **When to use:** You modified the `Dockerfile` or system dependencies and need to test locally unpushed changes.
+* **What it does:** Cross-compiles a brand new ARM64 image on your laptop, transfers the heavy payload, and spins it up. Slowest mode.
 
 
 

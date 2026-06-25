@@ -3,7 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler, EmitEvent
-from launch.substitutions import LaunchConfiguration, Command
+from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution, FindPackageShare
 from launch.events import matches_action
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.event_handlers import OnStateTransition
@@ -32,6 +32,12 @@ def generate_launch_description():
 
     rover_description_dir = get_package_share_directory('rover_description')
     rover_bringup_dir     = get_package_share_directory('rover_bringup')
+
+    twist_mux_config = PathJoinSubstitution([
+        FindPackageShare('rover_bringup'),
+        'config',
+        'twist_mux.yaml',
+    ])
 
     interface_arg = DeclareLaunchArgument(
         'interface', default_value='can0',
@@ -112,6 +118,17 @@ def generate_launch_description():
         output='screen',
     )
 
+    twist_mux_node = Node(
+        package='twist_mux',
+        executable='twist_mux',
+        name='twist_mux',
+        output='screen',
+        parameters=[twist_mux_config],
+        remappings=[
+            ('/cmd_vel_out', '/cmd_vel'),
+        ]
+    )
+
     return LaunchDescription([
         interface_arg,
         # socketcan
@@ -125,6 +142,7 @@ def generate_launch_description():
         joint_state_broadcaster_spawner,
         swerve_controller_spawner,
         odometry_controller_spawner,
-        # периферія
+        # peripherals
+        twist_mux_node,
         lighting_node,
     ])

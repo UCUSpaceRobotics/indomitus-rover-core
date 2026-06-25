@@ -10,7 +10,8 @@ from launch.actions import (
     OpaqueFunction, SetEnvironmentVariable
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
 
 
@@ -92,6 +93,12 @@ def generate_launch_description() -> LaunchDescription:
 
     robot_description = make_robot_description(rover_sim_share)
 
+    twist_mux_config = PathJoinSubstitution([
+        FindPackageShare('rover_bringup'),
+        'config',
+        'twist_mux.yaml',
+    ])
+
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value=cfg.world_name),
         DeclareLaunchArgument('model_name', default_value=cfg.model_name),
@@ -137,4 +144,16 @@ def generate_launch_description() -> LaunchDescription:
             arguments=['odometry_controller', '--param-file', controllers_yaml],
             output='screen',
         ),
+        Node(
+            package='twist_mux',
+            executable='twist_mux',
+            name='twist_mux',
+            output='screen',
+            parameters=[twist_mux_config],
+            remappings=[
+                ('/cmd_vel_out', '/cmd_vel'),
+            ]
+        ),
+
+        Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),
     ])
