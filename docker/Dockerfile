@@ -32,6 +32,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TARGET_ROS_DISTRO=${TARGET_ROS_DISTRO}
 ENV ROS_PYTHON_VERSION=3
 
+ENV TZ=Etc/UTC
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common curl \
     && add-apt-repository universe \
     && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
