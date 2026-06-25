@@ -5,9 +5,9 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
       args:
-        BASE_IMAGE_DEVEL: ${BASE_IMAGE_DEVEL:-stereolabs/zed:5.4-gl-runtime-cuda12.8-ubuntu22.04}
-        BASE_IMAGE_RUNTIME: ${BASE_IMAGE_RUNTIME:-stereolabs/zed:5.4-gl-runtime-cuda12.8-ubuntu22.04}
-        UBUNTU_VERISON: ${UBUNTU_VERISON:-22.04}
+        BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04}
+        BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
         INSTALL_SIM_TOOLS: "false"
 

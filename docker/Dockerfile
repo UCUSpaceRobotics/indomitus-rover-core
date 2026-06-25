@@ -1,7 +1,7 @@
 ARG UBUNTU_VERSION=22.04
 ARG TARGET_ROS_DISTRO=humble
-ARG BASE_IMAGE_DEVEL
-ARG BASE_IMAGE_RUNTIME
+ARG BASE_IMAGE_HW_BUILDER
+ARG BASE_IMAGE
 ARG SIMULATION_PKGS="rover_sim rover_viz"
 
 
@@ -25,7 +25,7 @@ RUN cd /tmp/src && \
 ####################
 # HW-BUILDER
 ####################
-FROM ${BASE_IMAGE_DEVEL} AS hw-builder
+FROM ${BASE_IMAGE_HW_BUILDER} AS hw-builder
 ARG TARGET_ROS_DISTRO
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -73,7 +73,7 @@ RUN /bin/bash -c "export LD_LIBRARY_PATH=/tmp/fake_gpu:\${LD_LIBRARY_PATH} && \
 ####################
 # BASE
 ####################
-FROM ${BASE_IMAGE_RUNTIME} AS base
+FROM ${BASE_IMAGE} AS base
 ARG TARGET_ROS_DISTRO
 
 ENV DEBIAN_FRONTEND=noninteractive
