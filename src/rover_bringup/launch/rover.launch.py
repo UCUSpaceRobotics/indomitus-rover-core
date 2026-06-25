@@ -85,7 +85,7 @@ def generate_launch_description():
         executable='ros2_control_node',
         parameters=[
             {'robot_description': robot_description},
-            os.path.join(rover_bringup_dir, 'config', 'rover_controller.yaml'),
+            os.path.join(rover_bringup_dir, 'config', 'controllers.yaml'),
         ],
         output='screen',
     )
@@ -101,6 +101,13 @@ def generate_launch_description():
         package='controller_manager',
         executable='spawner',
         arguments=['swerve_controller', '--inactive'],
+        output='screen',
+    )
+
+    odometry_controller_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['odometry_controller'],
         output='screen',
     )
 
@@ -134,6 +141,7 @@ def generate_launch_description():
         controller_manager,
         joint_state_broadcaster_spawner,
         swerve_controller_spawner,
+        odometry_controller_spawner,
         # peripherals
         twist_mux_node,
         lighting_node,

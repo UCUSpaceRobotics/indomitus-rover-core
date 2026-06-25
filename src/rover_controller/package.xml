@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>rover_chassis_controller</name>
+  <name>rover_controller</name>
   <version>0.0.0</version>
   <description>4-wheel swerve drive ros2_control controller plugin</description>
   <maintainer email="fito.pn@ucu.edu.ua">yurifi</maintainer>
@@ -21,6 +21,10 @@
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>std_srvs</depend>
+
+  <!-- Wheels odometry -->
+  <depend>tf2_ros</depend>
+  <depend>eigen3_cmake_module</depend> 
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

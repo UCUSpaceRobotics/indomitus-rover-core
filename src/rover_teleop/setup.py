@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'rover_control'
+package_name = 'rover_teleop'
 
 setup(
     name=package_name,
@@ -15,10 +15,7 @@ setup(
     zip_safe=True,
     maintainer='yurifi',
     maintainer_email='fito.pn@ucu.edu.ua',
-    description='''
-        Core control package for the Indomitus rover. Contains nodes for 
-        joystick command interpretation, kinematics calculation, 
-        and wheel-odometry estimation.''',
+    description='Teleometry package.',
     license='MIT',
     extras_require={
         'test': [
@@ -27,8 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'joystick_interpreter_node = rover_control.joystick_interpreter_node:main',
-            'rover_odometry_node = rover_control.rover_odometry_node:main',
+            f'joystick_interpreter_node = {package_name}.joystick_interpreter_node:main',
         ],
     },
 )
