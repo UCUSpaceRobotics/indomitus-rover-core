@@ -41,14 +41,14 @@ Modes:
                                     develop-prod      Pull latest develop branch image (default)
                                     main-prod         Pull latest main branch image
                                     <commit-sha>      Pull a specific commit's image; pass 7+ hex chars
-                                                      (e.g. a1b2c3d or a1b2c3d4e5f6) — sha- is added automatically
+                                                        (e.g. a1b2c3d or a1b2c3d4e5f6)
 
 Options:
     -i, --ip IP                 Jetson IP address (Default: ${JETSON_IP})
     -u, --user USER             Jetson SSH username (Default: ${JETSON_USER})
     -d, --dir DIR               Remote deployment directory on the Jetson. (Default: ${REMOTE_DIR})
     --image-name NAME           Docker image name (Default: ${IMAGE_NAME})
-    -t, --tag TAG               Docker image tag; for --pull: develop-prod, main-prod, or a commit SHA
+    -t, --tag TAG               Docker image tag; for --pull: develop-prod, main-prod, or a commit SHA (Default: local-prod or develop-prod)
     --container-name            Docker container name (Default: ${CONTAINER_NAME})
     -f, --file FILE             Path to the Dockerfile (Default: ${DOCKERFILE})
     -c, --compose FILE          Path to the Production Compose file (Default: ${COMPOSE_FILE})
