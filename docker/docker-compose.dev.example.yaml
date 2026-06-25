@@ -6,8 +6,10 @@ services:
       target: dev
       args:
         BASE_IMAGE: ${BASE_IMAGE_DEV:-stereolabs/zed:5.4-gl-devel-cuda12.1-ubuntu22.04} # Image for the x86-64 architecture
+        UBUNTU_VERISON: ${UBUNTU_VERISON:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
         INSTALL_SIM_TOOLS: "false"
+
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
     container_name: rover_dev
     network_mode: host
@@ -19,19 +21,16 @@ services:
     stdin_open: true
     tty: true
     healthcheck:
-          test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
-          interval: 10s
-          timeout: 5s
-          retries: 3
-          start_period: 5s
+      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
       - ROS_LOCALHOST_ONLY=0
-      - CAN_INTERFACE=can0
-      - CAN_BITRATE=1000000
-      - CAN_TRANSMIT_QUEUE_SIZE=1000
       - SDL_VIDEODRIVER=dummy
       - SDL_AUDIODRIVER=dummy
     volumes:

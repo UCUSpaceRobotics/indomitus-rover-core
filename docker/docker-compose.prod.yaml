@@ -6,7 +6,9 @@ services:
       target: prod
       args:
         BASE_IMAGE: ${BASE_IMAGE_PROD:-stereolabs/zed:5.4-devel-l4t-r36.4} # Image for the ARM64 architecture
+        UBUNTU_VERISON: ${UBUNTU_VERISON:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
+
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
     runtime: nvidia
