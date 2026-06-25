@@ -1,26 +1,25 @@
-# rover_sim/parameters/ros2_control.yaml
+# rover_sim/parameters/controller.yaml
 controller_manager:
   ros__parameters:
     update_rate: 100
-
-    # hardware_components_initial_state:
-    #   inactive:
-    #     - GazeboSystem
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
     swerve_controller:
       type: rover_controller/RoverSwerveController
+    
+    odometry_controller:
+      type: rover_controller/RoverOdometryController
 
 swerve_controller:
   ros__parameters:
-    drive_joints:
+    drive_joint_names:
       - fl_wheel_joint
       - fr_wheel_joint
       - bl_wheel_joint
       - br_wheel_joint
-    steering_joints:
+    steer_joint_names:
       - fl_wheel_mount_joint
       - fr_wheel_mount_joint
       - bl_wheel_mount_joint
@@ -33,4 +32,20 @@ swerve_controller:
     cmd_vel_timeout_s: 0.5
 
     max_steer_deg: 90.0
-    max_steer_rate_deg: 45.0 
+    max_steer_rate_deg: 90.0 
+
+odometry_controller:
+  ros__parameters:
+    wheelbase: 0.842
+    track_width: 0.689
+    wheel_radius: 0.15
+    steer_joint_names:
+      - fl_wheel_mount_joint
+      - fr_wheel_mount_joint
+      - bl_wheel_mount_joint
+      - br_wheel_mount_joint
+    drive_joint_names:
+      - fl_wheel_joint
+      - fr_wheel_joint
+      - bl_wheel_joint
+      - br_wheel_joint

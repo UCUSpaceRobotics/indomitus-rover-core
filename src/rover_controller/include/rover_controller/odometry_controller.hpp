@@ -22,11 +22,6 @@ constexpr std::size_t ODOM_FR = 1;
 constexpr std::size_t ODOM_RL = 2;
 constexpr std::size_t ODOM_RR = 3;
 
-// Sign convention: left wheels spin forward-positive, right wheels are mirrored.
-// FL=+1, FR=-1, RL=+1, RR=-1
-constexpr std::array<double, ODOM_NUM_WHEELS> kDriveSigns = {1.0, -1.0, 1.0, -1.0};
-
-
 class RoverOdometryController : public controller_interface::ControllerInterface
 {
 public:

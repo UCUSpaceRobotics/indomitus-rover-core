@@ -331,10 +331,11 @@ RoverHardwareInterface::read(
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         steer_pos_[i] = steer_state_[i].pos_valid
             ? static_cast<double>(steer_state_[i].pos_rad) : 0.0;
-        drive_pos_[i] = drive_state_[i].valid
-            ? static_cast<double>(drive_state_[i].pos)     : 0.0;
-        drive_vel_[i] = drive_state_[i].valid
-            ? static_cast<double>(drive_state_[i].vel)     : 0.0;
+        
+        if (drive_state_[i].valid) {
+            drive_pos_[i] = static_cast<double>(drive_state_[i].pos) * kDriveSigns[i];
+            drive_vel_[i] = static_cast<double>(drive_state_[i].vel) * kDriveSigns[i];
+        }
     }
 
     return hardware_interface::return_type::OK;
@@ -356,15 +357,13 @@ RoverHardwareInterface::write(
 
     if (!motors_enabled_) return hardware_interface::return_type::OK;
 
-    static constexpr std::array<float, NUM_WHEELS> kDriveSign = {-1.0f, 1.0f, -1.0f, 1.0f};
-
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto steer_f = steadywin_protocol::buildAbsPositionFrame(
             steer_ids_[i], static_cast<float>(steer_cmd_[i]));
 
         auto drive_f = damiao_protocol::buildVelocityFrame(
             drive_ids_[i],
-            static_cast<float>(drive_cmd_[i]) * kDriveSign[i]);
+            static_cast<float>(drive_cmd_[i]) * kDriveSigns[i]);
 
         send_can_frame(steer_f.id, steer_f.data.data(), steer_f.dlc);
         send_can_frame(drive_f.id, drive_f.data.data(), drive_f.dlc);
