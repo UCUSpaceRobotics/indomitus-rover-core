@@ -92,6 +92,8 @@ jobs:
           push: true
           build-args: |
             INSTALL_SIM_TOOLS=true
+            BASE_IMAGE_HW_BUILDER: stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04
+            BASE_IMAGE: stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04
           tags: ${{ env.REGISTRY }}/${{ needs.detect-changes.outputs.image_name }}:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
