@@ -1,26 +1,30 @@
 services:
   rover_prod:
-    image: indomitus-rover:humble-prod
+    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
+    runtime: nvidia
+    command: tail -f /dev/null # command: autolaunch
     network_mode: host
+    privileged: true
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    device_cgroup_rules:
+      - "c 13:* rmw"
     stdin_open: true
     tty: true
-    command: tail -f /dev/null
+    healthcheck:
+          test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+          interval: 10s
+          timeout: 5s
+          retries: 3
+          start_period: 5s
     environment:
       - ROS_DOMAIN_ID=42
       - ROS_LOCALHOST_ONLY=0
       - CAN_INTERFACE=can0
-      - CAN_BITRATE=1000000
+      - SDL_VIDEODRIVER=dummy
+      - SDL_AUDIODRIVER=dummy
     volumes:
-    - /home/ros/Indomitus/indomitus-rover-core/src:/opt/ws/src:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw

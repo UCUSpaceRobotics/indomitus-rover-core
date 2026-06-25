@@ -6,7 +6,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    joy_dev = LaunchConfiguration('joy_dev')
+    device_path = LaunchConfiguration('device_path')
     deadzone = LaunchConfiguration('deadzone')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
@@ -18,15 +18,17 @@ def generate_launch_description():
     ])
 
     joy_node = Node(
-        package='joy',
-        executable='game_controller_node',
+        package='joy_linux',
+        executable='joy_linux_node',
         name='joy_node',
         output='screen',
         parameters=[{
-            'device_name': joy_dev,
+            'device_path': device_path,
             'deadzone': deadzone,
             'autorepeat_rate': autorepeat_rate,
-        }]
+        }],
+        respawn=True,
+        respawn_delay=10.0
     )
 
     teleop_node = Node(
@@ -41,17 +43,20 @@ def generate_launch_description():
     )
 
     joy_interpreter = Node(
-        package='rover_control',
+        package='rover_teleop',
         executable='joystick_interpreter_node',
         output='screen',
         parameters=[default_config],
+        remappings=[
+            ('/cmd_vel', '/cmd_vel_joy'),
+        ]
     )
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'joy_dev',
-            default_value='Wireless Controller',
-            description='Joystick device name as reported by joy_enumerate_devices'
+            'device_path',
+            default_value='/dev/input/js0',
+            description='Joystick device pathy'
         ),
         DeclareLaunchArgument(
             'deadzone',
