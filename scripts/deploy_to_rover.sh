@@ -6,7 +6,7 @@ set -o pipefail
 # PATH RESOLUTION
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-FILTER_FILE="${SCRIPT_DIR}/.rsync-filter"
+FILTER_FILE="${SCRIPT_DIR}/.rsync-filter-deploy"
 
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
