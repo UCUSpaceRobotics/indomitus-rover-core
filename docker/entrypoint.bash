@@ -14,6 +14,7 @@ source_if_exists() {
 # -------------------- ROS2 Workspace Setup --------------------
 
 source_if_exists "/opt/ros/${ROS_DISTRO}/setup.bash"
+source_if_exists "/opt/hw_ws/install/setup.bash"
 source_if_exists "/opt/ws/install/setup.bash"
 
 echo "[ROS] SUCCESS: Environment ready (${ROS_DISTRO})."

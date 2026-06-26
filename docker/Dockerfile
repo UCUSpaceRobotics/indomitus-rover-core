@@ -23,8 +23,8 @@ RUN mkdir -p ${HW_WS}/src
 WORKDIR ${HW_WS}
 
 # Clone here repositories with packages for the modules like LiDAR or stereo camera
-ARG RPLIDAR_REPO=https://github.com/Slamtec/rplidar_sdk
-ARG RPLIDAR_COMMIT=99478e5fb90de3b4a6db0080acacd373f8b36869
+ARG RPLIDAR_REPO=https://github.com/Slamtec/sllidar_ros2
+ARG RPLIDAR_COMMIT=34300099fadfc772965962dec837bf436706188f
 
 RUN git clone ${RPLIDAR_REPO} src/sllidar_ros2 && \
     cd src/sllidar_ros2 && \

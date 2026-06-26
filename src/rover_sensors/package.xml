@@ -14,12 +14,8 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>rclpy</depend>
-  <depend>ros2launch</depend>
-  <depend>std_msgs</depend>
-  <depend>sensor_msgs</depend>
-  <depend>std_srvs</depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>sllidar_ros2</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
