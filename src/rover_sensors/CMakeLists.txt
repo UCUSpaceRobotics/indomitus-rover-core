@@ -15,7 +15,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-set(SLLIDAR_SDK_PATH "./sdk/")
+set(SLLIDAR_SDK_PATH "/opt/hw_ws/src/sllidar_ros2/sdk/")
 
 FILE(GLOB SLLIDAR_SDK_SRC
   "${SLLIDAR_SDK_PATH}/src/arch/linux/*.cpp"

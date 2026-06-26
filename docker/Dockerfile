@@ -23,6 +23,14 @@ RUN mkdir -p ${HW_WS}/src
 WORKDIR ${HW_WS}
 
 # Clone here repositories with packages for the modules like LiDAR or stereo camera
+ARG RPLIDAR_REPO=https://github.com/Slamtec/rplidar_sdk
+ARG RPLIDAR_COMMIT=99478e5fb90de3b4a6db0080acacd373f8b36869
+
+RUN git clone ${RPLIDAR_REPO} src/sllidar_ros2 && \
+    cd src/sllidar_ros2 && \
+    git checkout ${RPLIDAR_COMMIT}
+
+
 
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
@@ -63,7 +71,7 @@ RUN mkdir -p ${WS}/src && \
         done; \
     fi
 
-RUN apt-get update && \ 
+RUN apt-get update && \
     rosdep install --from-paths ${WS}/src ${HW_WS}/src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
 
