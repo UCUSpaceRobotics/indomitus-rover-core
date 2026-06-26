@@ -1,3 +1,9 @@
+# Graph
+
+> *not full, needs improvements*
+
+![Graph of nodes](../assets/ros2_graph.png)
+
 # Packages
 
 ## 1. `indomitus_interfaces`
