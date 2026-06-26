@@ -1,37 +1,6 @@
 #!/usr/bin/env python3
 """
 Joystick Interpreter Node.
-
-Sits between teleop_twist_joy and the rest of the stack.
-Subscribes to raw cmd_vel from teleop and /joy for button events,
-applies swerve-aware wz inversion and vy toggle, then publishes to /cmd_vel.
-
-Timeout/watchdog behavior:
-    - The watchdog is based on /joy freshness (not /joy_raw_cmd_vel).
-    - If no /joy message is received for longer than cmd_timeout,
-      forwarding from /joy_raw_cmd_vel is blocked and zero Twist is published.
-    - While timed out, zero Twist continues to be published at timeout_pub_rate.
-    - On the next /joy message, timeout state is cleared and forwarding resumes.
-
-Subscriptions:
-    /joy_raw_cmd_vel  (geometry_msgs/Twist)  — raw output from teleop_twist_joy
-    /joy              (sensor_msgs/Joy)       — raw joystick for button handling
-
-Publications:
-    /cmd_vel          (geometry_msgs/Twist)   — processed output
-
-Parameters:
-    vy_toggle_button      (int, default: 8)  — button index to toggle vy mode
-    motor_toggle_button   (int, default: 9)  — button index to toggle chassis motors
-    compact_mode_button   (int, default: 1)  — button index to toggle compact mode
-    vy_enabled_default (bool, default: false) — initial state of vy mode
-    cmd_timeout        (float, default: 0.5)  — /joy staleness threshold in seconds
-    timeout_pub_rate   (float, default: 10.0) — zero-command publish/check rate while timed out (Hz)
-    initial_timed_out  (bool, default: true)  — startup state; safe if true
-
-Services used:
-    /chassis/set_motors_enabled (std_srvs/SetBool) — explicit chassis motor enable/disable
-    /set_compact_mode           (std_srvs/SetBool) — compact mode toggle
 """
 
 import rclpy
