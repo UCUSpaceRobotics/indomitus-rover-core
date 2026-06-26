@@ -47,7 +47,18 @@ ENV HW_WS=/opt/hw_ws
 RUN mkdir -p ${HW_WS}/src
 WORKDIR ${HW_WS}
 
-RUN git clone --recursive https://github.com/stereolabs/zed-ros2-wrapper.git ${HW_WS}/src/zed-ros2-wrapper \
+########### Stereo Camera Setup ###########
+ARG ZED_WRAPPER_REPOSITORY="https://github.com/stereolabs/zed-ros2-wrapper.git"
+ARG ZED_WRAPPER_COMMIT="6545933af94d70922881654e6fb29d95e3a8f14f"
+
+RUN mkdir -p ${HW_WS}/src/zed-ros2-wrapper \
+    && cd ${HW_WS}/src/zed-ros2-wrapper \
+    && git init \
+    && git remote add origin ${ZED_WRAPPER_REPOSITORY} \
+    && git fetch --depth 1 origin ${ZED_WRAPPER_COMMIT} \
+    && git checkout FETCH_HEAD \
+    && git submodule update --init --recursive \
+    && cd ${HW_WS} \
     && find ${HW_WS}/src -name ".git" -type d -prune -exec rm -rf '{}' + \
     && find ${HW_WS}/src -name ".gitignore" -type f -delete \
     && find ${HW_WS}/src -name ".gitmodules" -type f -delete
