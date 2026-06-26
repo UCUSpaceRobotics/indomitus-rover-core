@@ -12,7 +12,8 @@ teleop_node:
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise). 3 for ubuntu 22.04, 2 for ubuntu 24.04
+      yaw: 3 # Right stick horizontal (rotation clockwise/counterclockwise). 3 for ubuntu 22.04, 2 for ubuntu 24.04
+      # 2 for jetson
     scale_angular:
       yaw: 1.0
 

@@ -10,7 +10,8 @@ from launch.actions import (
     OpaqueFunction, SetEnvironmentVariable
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
 
 
@@ -33,8 +34,8 @@ def generate_bridge_config(context) -> list[Node]:
 
     template_path = os.path.join(
         get_package_share_directory('rover_sim'),
-        'parameters',
-        'bridge_parameters_urdf.yaml'
+        'config',
+        'bridge_gz.yaml'
     )
     with open(template_path) as f:
         template = Template(f.read())
@@ -52,16 +53,6 @@ def generate_bridge_config(context) -> list[Node]:
         output='screen',
     )]
 
-
-def controller_spawner(name: str, remappings: list = []) -> Node:
-    return Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=[name],
-        output='screen',
-    )
-
-
 def make_robot_description(rover_sim_share: str) -> str:
     path = os.path.join(rover_sim_share, 'urdf', 'rover_sim.urdf.xacro')
     return xacro.process_file(path).toxml()
@@ -73,7 +64,7 @@ def make_gazebo_launch(rover_sim_share: str, cfg: RoverConfig) -> IncludeLaunchD
         os.path.join(get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')
     )
     return IncludeLaunchDescription(source, launch_arguments={
-        'gz_args': f'-r -v4 {world_file}',
+        'gz_args': f'-r {world_file}',
         'on_exit_shutdown': 'True',
     }.items())
 
@@ -98,8 +89,15 @@ def generate_launch_description() -> LaunchDescription:
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share         = get_package_share_directory('rover_sim')
     rover_bringup_share     = get_package_share_directory('rover_bringup')
+    controllers_yaml = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     robot_description = make_robot_description(rover_sim_share)
+
+    twist_mux_config = PathJoinSubstitution([
+        FindPackageShare('rover_bringup'),
+        'config',
+        'twist_mux.yaml',
+    ])
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value=cfg.world_name),
@@ -137,8 +135,24 @@ def generate_launch_description() -> LaunchDescription:
         Node(
             package='controller_manager',
             executable='spawner',
-            arguments=['swerve_controller'],
+            arguments=['swerve_controller', '--param-file', controllers_yaml],
             output='screen',
+        ),
+        Node(
+            package='controller_manager',
+            executable='spawner',
+            arguments=['odometry_controller', '--param-file', controllers_yaml],
+            output='screen',
+        ),
+        Node(
+            package='twist_mux',
+            executable='twist_mux',
+            name='twist_mux',
+            output='screen',
+            parameters=[twist_mux_config],
+            remappings=[
+                ('/cmd_vel_out', '/cmd_vel'),
+            ]
         ),
 
         Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),

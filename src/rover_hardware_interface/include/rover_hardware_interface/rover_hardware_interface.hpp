@@ -147,6 +147,8 @@ private:
     std::array<std::string, NUM_WHEELS> steer_joint_names_;
     std::array<std::string, NUM_WHEELS> drive_joint_names_;
 
+    static constexpr std::array<double, 4> kDriveSigns = {-1.0f, 1.0f, -1.0f, 1.0f};
+
     // ─────────────────────────────────────────────────────────────────────────
     // State interface backing storage
     // (ros2_control binds pointers to these — never reallocate after export)
