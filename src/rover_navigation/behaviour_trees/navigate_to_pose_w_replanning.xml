@@ -1,53 +1,59 @@
+<?xml version="1.0"?>
 <root main_tree_to_execute="MainTree">
-    <BehaviorTree ID="MainTree">
+  <BehaviorTree ID="MainTree">
 
-        <Fallback name="NavigateRecovery">
+    <RetryUntilSuccessful num_attempts="6">
+      <Fallback name="NavigateRecovery">
 
-            <!-- Normal navigation with periodic replanning -->
-            <Sequence name="NavigateWithReplanning">
+        <!-- Replan path periodically while controller runs continuously. -->
+        <Sequence name="NavigateWithReplanning">
 
-                <RateController hz="0.5">
+          <RateController hz="1.0">
+            <Fallback name="PlanOrClearGlobal">
 
-                    <!-- Recompute path or clear global costmap on failure -->
-                    <Fallback name="ComputePathRecovery">
+              <ComputePathToPose
+                goal="{goal}"
+                path="{path}"
+                planner_id="GridBased"/>
 
-                        <ComputePathToPose
-                            goal="{goal}"
-                            path="{path}"
-                            planner_id="GridBased"/>
-
-                        <ClearEntireCostmap
-                            name="ClearGlobalCostmap-Context"
-                            service_name="global_costmap/clear_entirely_global_costmap"/>
-
-                    </Fallback>
-
-                </RateController>
-
-                <FollowPath
-                    path="{path}"
-                    controller_id="FollowPath"/>
-
-            </Sequence>
-
-            <!-- Recovery behavior -->
-            <Sequence name="RecoveryActions">
-
+              <!-- Clear global costmap and retry if planning fails. -->
+              <Sequence name="ClearGlobalAndReplan">
                 <ClearEntireCostmap
-                    name="ClearLocalCostmap-Recovery"
-                    service_name="local_costmap/clear_entirely_local_costmap"/>
+                  name="ClearGlobalCostmap-Replan"
+                  service_name="global_costmap/clear_entirely_global_costmap"/>
+                <ComputePathToPose
+                  goal="{goal}"
+                  path="{path}"
+                  planner_id="GridBased"/>
+              </Sequence>
 
-                <ClearEntireCostmap
-                    name="ClearGlobalCostmap-Recovery"
-                    service_name="global_costmap/clear_entirely_global_costmap"/>
+            </Fallback>
+          </RateController>
 
-                <Spin spin_dist="1.57"/>
+          <FollowPath
+            path="{path}"
+            controller_id="FollowPath"/>
 
-                <Wait wait_duration="2.0"/>
+        </Sequence>
 
-            </Sequence>
+        <!-- Recovery sequence: runs when navigation fails. -->
+        <Sequence name="RecoveryActions">
+          <!-- Clear stale obstacle readings from both costmaps. -->
+          <ClearEntireCostmap
+            name="ClearLocalCostmap-Recovery"
+            service_name="local_costmap/clear_entirely_local_costmap"/>
+          <ClearEntireCostmap
+            name="ClearGlobalCostmap-Recovery"
+            service_name="global_costmap/clear_entirely_global_costmap"/>
+          <!-- Back away from the obstacle, then sweep lidar 180 degrees. -->
+          <BackUp backup_dist="0.5" backup_speed="0.15"/>
+          <Spin spin_dist="3.14159"/>
+          <!-- Allow costmaps to incorporate new scan data before replanning. -->
+          <Wait wait_duration="1.5"/>
+        </Sequence>
 
-        </Fallback>
+      </Fallback>
+    </RetryUntilSuccessful>
 
-    </BehaviorTree>
+  </BehaviorTree>
 </root>
