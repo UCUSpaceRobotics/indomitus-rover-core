@@ -1,10 +1,24 @@
 ### Quick Deployment Guide
 
+
 To deploy code to the rover computer, ensure your laptop is connected to Wi-Fi with internet access, the Jetson is turned on, and its hotspot is active. Open a terminal and run the deployment script from the root of the repository:
 
 ```bash
 ./scripts/deploy_to_rover.sh [OPTIONS]
 ```
+
+> ⚠️ ATTENTION! ⚠️
+> There is high chance of having segmentation fault. It's related to qemu bug inside that is still not solved. So temporary fix is to turn off virtual space randomization while you are build ding image using emulator
+
+> Run this before image build for arm64 arch:
+> ```sh
+> sudo sysctl kernel.randomize_va_space=0
+> ```
+
+> **Return after:**
+> ```sh
+> sudo sysctl kernel.randomize_va_space=2
+> ```
 
 #### Available Deployment Modes
 
