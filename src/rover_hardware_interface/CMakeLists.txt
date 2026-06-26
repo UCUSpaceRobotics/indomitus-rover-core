@@ -27,6 +27,10 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
+if($ENV{ROS_DISTRO} STREQUAL "jazzy")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE JAZZY_OR_LATER)
+endif()
+
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_lifecycle
