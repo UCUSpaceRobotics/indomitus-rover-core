@@ -3,14 +3,12 @@
 set -e
 set -o pipefail
 
-# PATH RESOLUTION
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 FILTER_FILE="${SCRIPT_DIR}/.rsync-filter-deploy"
 
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
-# DEFAULT VARIABLES
 JETSON_USER="indomitus-rover"
 JETSON_IP="10.42.0.1"
 REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
@@ -58,7 +56,6 @@ Options:
 EOF
 }
 
-# HELPER FUNCTIONS
 success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }
 error()   { echo -e "\e[31m[ERROR]\e[0m $1"; exit 1; }
 step()    { echo -e "\n\e[33m>>> $1\e[0m"; }
@@ -77,7 +74,6 @@ spinner() {
     printf "\b\b \b\b"
 }
 
-# PARSE TERMINAL ARGUMENTS
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --sync) SYNC_MODE=true; shift 1;;
@@ -99,12 +95,10 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-# ENSURE FILTER FILE EXISTS AFTER HELP PARSING
 if [ ! -f "$FILTER_FILE" ] && [ "$SYNC_COMPOSE_MODE" = false ]; then 
     error "rsync filter file not found: $FILTER_FILE"
 fi
 
-# DYNAMIC TAG LOGIC
 if [ -z "$IMAGE_TAG" ]; then
     if [ "$SYNC_MODE" = true ] || [ "$SYNC_SRC_MODE" = true ] || [ "$SYNC_COMPOSE_MODE" = true ] || [ "$PULL_MODE" = true ]; then
         IMAGE_TAG="develop-prod"
@@ -116,7 +110,6 @@ fi
 TARGET="${JETSON_USER}@${JETSON_IP}"
 ARCHIVE_NAME="deploy_temp_archive.tar"
 
-# SSH MULTIPLEXING FLAGS
 SSH_OPTS=(
     -o ControlMaster=auto
     -o "ControlPath=/tmp/ssh_mux_%h_%p_%r"
@@ -124,7 +117,6 @@ SSH_OPTS=(
     -o StrictHostKeyChecking=accept-new
 )
 
-# GLOBAL CLEANUP IN CASE OF FAILURES
 CLEANUP_FILES=()
 
 cleanup() {
@@ -189,6 +181,47 @@ ensure_container_running() {
     fi
 }
 
+restart_with_rollback() {
+    local remote_dir="$1"
+    local image_name="$2"
+    local image_tag="$3"
+
+    ssh -q "${SSH_OPTS[@]}" "${TARGET}" bash -s -- \
+        "$remote_dir" "$image_name" "$image_tag" << 'REMOTE_EOF'
+set -euo pipefail
+REMOTE_DIR="$1"
+IMAGE_NAME="$2"
+IMAGE_TAG="$3"
+
+cd "$REMOTE_DIR"
+
+PREV_TAG=$(
+    docker inspect --format='{{index .Config.Image}}' \
+        "$(docker compose ps -q 2>/dev/null | head -1)" 2>/dev/null \
+    | sed 's/.*://' \
+) || PREV_TAG=""
+
+rollback() {
+    echo "[ROLLBACK] Startup failed. Attempting to restore previous container..." >&2
+    if [ -n "$PREV_TAG" ]; then
+        IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$PREV_TAG" docker compose up -d --wait \
+            && echo "[ROLLBACK] Restored to image tag: ${PREV_TAG}" >&2 \
+            || echo "[ROLLBACK] Restore also failed — manual intervention required." >&2
+    else
+        echo "[ROLLBACK] No previous tag recorded — cannot auto-restore." >&2
+    fi
+}
+
+trap rollback ERR
+
+IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" docker compose down
+IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" docker compose up -d --wait
+
+trap - ERR
+echo "[OK] Container is up on tag: ${IMAGE_TAG}"
+REMOTE_EOF
+}
+
 run_sync_all_mode() {
     connect_to_jetson
     
@@ -204,9 +237,7 @@ run_sync_all_mode() {
     rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
     
     step "Restarting Container with new Compose config (waiting for readiness)..."
-    ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && \
-        IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose down && \
-        IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose up -d --wait"
+    restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
     
     step "Compiling code on Jetson (Inside Docker)..."
     echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
@@ -260,14 +291,11 @@ run_sync_compose_mode() {
     rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
     
     step "Restarting Container on Jetson (waiting for readiness)..."
-    ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && \
-        IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose down && \
-        IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose up -d --wait"
+    restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
     
     echo -e "\n\e[32m[DONE]\e[0m Compose Sync Complete!"
     exit 0
 }
-
 
 
 resolve_pull_ref() {
@@ -385,10 +413,8 @@ Make sure a CI run completed successfully for this commit."
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker image prune -f"
 
     step "Restarting Container on Jetson (waiting for readiness)..."
-    ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && \
-        IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${PULL_IMAGE_TAG}\" docker compose down && \
-        IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${PULL_IMAGE_TAG}\" docker compose up -d --wait"
-    
+    restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${PULL_IMAGE_TAG}"
+
     echo -e "\n\e[32m[DONE]\e[0m Pull & Deploy Complete! (ref: ${PULL_GIT_REF}, image: ${PULL_IMAGE_TAG})"
     exit 0
 }
@@ -437,9 +463,7 @@ run_full_deploy_mode() {
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker image prune -f"
 
     step "Restarting Container on Jetson (waiting for readiness)..."
-    ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && \
-        IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose down && \
-        IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose up -d --wait"
+    restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
 
     echo -e "\n\e[32m[DONE]\e[0m Deployment complete!"
     exit 0
