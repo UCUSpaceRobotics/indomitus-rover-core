@@ -7,6 +7,8 @@ services:
       args:
         BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-stereolabs/zed:5.4-devel-l4t-r36.4}
         BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-runtime-l4t-r36.4}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
+        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-develop-prod}
     container_name: rover_prod
