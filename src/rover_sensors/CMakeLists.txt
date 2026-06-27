@@ -14,6 +14,11 @@ install(
 )
 
 install(
+  DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(
   DIRECTORY resource
   DESTINATION share/${PROJECT_NAME}
 )

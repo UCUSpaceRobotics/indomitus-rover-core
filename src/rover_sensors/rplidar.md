@@ -16,25 +16,14 @@ It publishes laser scan data to the `/scan` topic that can be used for:
 
 ### RPLIDAR node notes
 
-The current `RPLIDAR S2` implementation is based on the original Slamtec/SLLIDAR repository.
-
-For this node, the public executable and launch file were renamed to use `rplidar_*` naming:
+The driver executable comes from the upstream Slamtec `sllidar_ros2` package, which is built in the Docker hardware workspace. The rover package keeps the rover-specific launch file and default parameter file:
 
 ```text
-rplidar_node
-rplidar_s2_launch.py
+src/rover_sensors/launch/rplidar_s2_launch.py
+src/rover_sensors/config/rplidar_s2.yaml
 ```
 
-However, some files inside the `./sdk/` folder may still use `sllidar` naming.
-This is expected because they come from the original SDK used by the node.
-
-Do not rename SDK files unless you are ready to fully refactor and test the driver.
-
-The node is launched using:
-
-```bash
-ros2 launch rover_sensors rplidar_s2_launch.py
-```
+The launched executable is `sllidar_node`, but the node is named `rplidar_node` in our launch file so the YAML parameter namespace matches rover naming.
 
 ---
 
@@ -46,50 +35,34 @@ ros2 launch rover_sensors rplidar_s2_launch.py
 ros2 launch rover_sensors rplidar_s2_launch.py
 ```
 
-By default, the launch file uses:
+By default, the launch file reads:
 
 ```text
-serial_port:=/dev/ttyUSB0
-serial_baudrate:=1000000
-frame_id:=laser
-scan_mode:=DenseBoost
+share/rover_sensors/config/rplidar_s2.yaml
+```
+
+The tracked source file is:
+
+```text
+src/rover_sensors/config/rplidar_s2.yaml
+```
+
+Current rover defaults:
+
+```text
+serial_port: /dev/ttyUSB0
+serial_baudrate: 1000000
+frame_id: laser_link
+scan_mode: DenseBoost
 ```
 
 ---
 
-### Run with custom serial port
+### Change frame ID or scan mode
 
-Use this if the LiDAR is not connected as `/dev/ttyUSB0`.
+Edit `frame_id` or `scan_mode` in `src/rover_sensors/config/rplidar_s2.yaml`.
 
-```bash
-ros2 launch rover_sensors rplidar_s2_launch.py serial_port:=/dev/ttyUSB1
-```
-
-Check connected USB devices with:
-
-```bash
-ls /dev/ttyUSB*
-```
-
----
-
-### Run with custom frame ID
-
-```bash
-ros2 launch rover_sensors rplidar_s2_launch.py frame_id:=lidar_link
-```
-
-Use this when the robot URDF has a different LiDAR frame name.
-
----
-
-### Run with custom scan mode
-
-```bash
-ros2 launch rover_sensors rplidar_s2_launch.py scan_mode:=DenseBoost
-```
-
-For `RPLIDAR S2`, the current default is:
+For `RPLIDAR S2`, the current default scan mode is:
 
 ```text
 DenseBoost
@@ -104,17 +77,22 @@ Use only these modes, as they are the ones supported by the sensor and driver.
 
 ---
 
-## RPLIDAR S2 launch parameters
+## RPLIDAR S2 parameters
 
-| Parameter          | Default value  | Description                                                                                 |
-| ------------------ | -------------- | ------------------------------------------------------------------------------------------- |
-| `channel_type`     | `serial`       | Communication type. For USB connection, keep this as `serial`.                              |
-| `serial_port`      | `/dev/ttyUSB0` | Device path of the connected LiDAR.                                                         |
-| `serial_baudrate`  | `1000000`      | Serial baudrate. For RPLIDAR S2, this is usually `1000000`.                                 |
-| `frame_id`         | `laser`        | Frame name used in the published laser scan message.                                        |
-| `inverted`         | `false`        | Inverts scan data direction if set to `true`. Usually keep `false`.                         |
-| `angle_compensate` | `true`         | Enables angle compensation for scan data. Usually keep `true`.                              |
-| `scan_mode`        | `DenseBoost`   | LiDAR scan mode. Supported modes are `DenseBoost` (up to ~30m) and `Standart` (up to ~16m). |
+| Parameter          | Default value     | Description                                                    |
+| ------------------ | ----------------- | -------------------------------------------------------------- |
+| `channel_type`     | `serial`          | Communication type. For USB connection, keep this as `serial`. |
+| `serial_port`      | `/dev/ttyUSB0`    | Device path of the connected LiDAR.                            |
+| `serial_baudrate`  | `1000000`         | Serial baudrate. For RPLIDAR S2, this is usually `1000000`.    |
+| `frame_id`         | `laser_linkg`     | Frame name used in the published laser scan message.           |
+| `inverted`         | `false`           | Inverts scan data direction if set to `true`.                  |
+| `angle_compensate` | `true`            | Enables angle compensation for scan data.                      |
+| `scan_mode`        | `DenseBoost`      | LiDAR scan mode.                                               |
+| `scan_frequency`   | `10.0`            | Requested scan frequency used by the upstream driver.          |
+| `tcp_ip`           | `192.168.0.7`     | Upstream TCP mode default. Usually unused for USB S2.           |
+| `tcp_port`         | `20108`           | Upstream TCP mode default. Usually unused for USB S2.           |
+| `udp_ip`           | `192.168.11.2`    | Upstream UDP mode default. Usually unused for USB S2.           |
+| `udp_port`         | `8089`            | Upstream UDP mode default. Usually unused for USB S2.           |
 
 ---
 
@@ -188,11 +166,7 @@ If `/dev/ttyUSB0` does not exist, check available ports:
 ls /dev/ttyUSB*
 ```
 
-Then launch with the correct one:
-
-```bash
-ros2 launch rover_sensors rplidar_s2_launch.py serial_port:=/dev/ttyUSB1
-```
+Then update `serial_port` in `src/rover_sensors/config/rplidar_s2.yaml` or launch with another `params_file`.
 
 ---
 
