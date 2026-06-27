@@ -38,4 +38,4 @@ Choose your deployment strategy based on the type of changes you just made:
 
 ---
 
-> For further details, read the [documentation](./scripts/deploy_to_jetson.md) for the deployment script.
+> For further details, read the [documentation](./scripts/deploy_to_rover.md) for the deployment script.
