@@ -4,12 +4,6 @@
   gz_type_name: gz.msgs.Clock
   direction: GZ_TO_ROS
 
-- ros_topic_name: /joint_states
-  gz_topic_name: /world/${world}/model/${model}/joint_state
-  ros_type_name: sensor_msgs/msg/JointState
-  gz_type_name: gz.msgs.Model
-  direction: GZ_TO_ROS
-
 - ros_topic_name: /camera/front_rgb/image_raw
   gz_topic_name: /camera/front_rgb/image_raw
   ros_type_name: sensor_msgs/msg/Image
@@ -20,4 +14,25 @@
   gz_topic_name: /camera/camera_info
   ros_type_name: sensor_msgs/msg/CameraInfo
   gz_type_name: gz.msgs.CameraInfo
+  direction: GZ_TO_ROS
+
+# Nav2: odometry and TF published by gz-sim-odometry-publisher-system.
+- ros_topic_name: "/odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/tf"
+  gz_topic_name: "/tf"
+  ros_type_name: "tf2_msgs/msg/TFMessage"
+  gz_type_name: "gz.msgs.Pose_V"
+  direction: GZ_TO_ROS
+
+# Nav2: 2-D laser scan used by AMCL and costmaps.
+# NOTE: placeholder lidar for simulation only; replace with real sensor bridge on hardware.
+- ros_topic_name: "/scan"
+  gz_topic_name: "/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
