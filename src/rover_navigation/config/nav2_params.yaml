@@ -1,5 +1,9 @@
 # rover_navigation/config/nav2_params.yaml
 
+# ============================================================
+# LOCALISATION
+# ============================================================
+
 amcl:
   ros__parameters:
     use_sim_time: true
@@ -16,6 +20,10 @@ amcl:
     initial_pose_z: 0.0
     initial_pose_yaw: 0.0
 
+# ============================================================
+# BT NAVIGATOR
+# ============================================================
+
 bt_navigator:
   ros__parameters:
     use_sim_time: true
@@ -25,7 +33,7 @@ bt_navigator:
     bt_loop_duration: 20
     default_server_timeout: 20
     transform_tolerance: 1.0
-    # BT XML paths are injected at launch time
+    # BT XML paths are injected at launch time.
     default_nav_to_pose_bt_xml: ""
     default_nav_through_poses_bt_xml: ""
     navigators:
@@ -50,6 +58,10 @@ bt_navigator:
       - compute_path_error_code
       - follow_path_error_code
 
+# ============================================================
+# CONTROLLER SERVER
+# ============================================================
+
 controller_server:
   ros__parameters:
     use_sim_time: true
@@ -57,23 +69,28 @@ controller_server:
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 1.0
+    failure_tolerance: 0.3
     transform_tolerance: 1.0
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "general_goal_checker"
-    controller_plugin: "FollowPath"
+    controller_plugins:
+      - FollowPath
 
+    # --- Progress checker ---
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.3
-      movement_time_allowance: 15.0
+      movement_time_allowance: 8.0
 
+    # --- Goal checker ---
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.25
 
+    # --- MPPI controller ---
+    # Configured for omnidirectional (4WIS swerve) drive at 1.0 m/s cruise.
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 56
@@ -83,16 +100,18 @@ controller_server:
       vx_std: 0.2
       vy_std: 0.05
       wz_std: 0.2
-      vx_max:  0.5
-      vx_min: -0.1
+      # Velocity limits.
+      vx_max:  1.0 
+      vx_min: -0.2
       vy_max:  0.1
       vy_min: -0.1
       wz_max:  0.8
+      # Acceleration limits.
       ax_max:  1.5
       ax_min: -1.5
       ay_max:  0.5
       az_max:  2.0
-      prune_distance: 1.7
+      prune_distance: 2.5
       transform_tolerance: 1.0
       temperature: 0.3
       gamma: 0.015
@@ -107,69 +126,86 @@ controller_server:
         - PathFollowCritic
         - PathAngleCritic
         - PreferForwardCritic
+
+      # --- Critics ---
       ConstraintCritic:
         enabled: true
         cost_power: 1
         cost_weight: 4.0
+
       GoalCritic:
         enabled: true
         cost_power: 1
         cost_weight: 5.0
-        threshold_to_consider: 1.4
+        threshold_to_consider: 2.0
+
       GoalAngleCritic:
         enabled: true
         cost_power: 1
         cost_weight: 5.0
         threshold_to_consider: 0.5
+
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 15.0
+        cost_weight: 10.0
         threshold_to_consider: 0.5
+
       CostCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 6.0
-        critical_cost: 300.0
+        cost_weight: 12.0
+        critical_cost: 200.0
         consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 1.0
+
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 12.0
+        cost_weight: 6.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 3
         threshold_to_consider: 0.5
-        offset_from_furthest: 20
+        offset_from_furthest: 30
         use_path_orientations: false
+
       PathFollowCritic:
         enabled: true
         cost_power: 1
         cost_weight: 5.0
-        offset_from_furthest: 5
-        threshold_to_consider: 1.4
+        offset_from_furthest: 8
+        threshold_to_consider: 2.0
+
       PathAngleCritic:
         enabled: true
         cost_power: 1
         cost_weight: 6.0
-        offset_from_furthest: 4
+        offset_from_furthest: 6
         threshold_to_consider: 0.5
-        max_angle_to_furthest: 0.75
+        max_angle_to_furthest: 1.0
         forward_preference: true
+
+# ============================================================
+# PLANNER SERVER
+# ============================================================
 
 planner_server:
   ros__parameters:
     use_sim_time: true
-    expected_planner_frequency: 20.0
+    expected_planner_frequency: 1.0
     transform_tolerance: 1.0
     planner_plugins:
       - GridBased
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
-      use_astar: false
+      use_astar: true
       allow_unknown: true
+
+# ============================================================
+# WAYPOINT FOLLOWER
+# ============================================================
 
 waypoint_follower:
   ros__parameters:
@@ -180,6 +216,10 @@ waypoint_follower:
     wait_at_waypoint:
       plugin: "nav2_waypoint_follower::WaitAtWaypoint"
       time_to_wait: 1.0
+
+# ============================================================
+# BEHAVIOUR SERVER
+# ============================================================
 
 behavior_server:
   ros__parameters:
@@ -205,17 +245,21 @@ behavior_server:
     min_rotational_vel: 0.4
     rotational_acc_lim: 2.0
 
+# ============================================================
+# COSTMAPS
+# ============================================================
+
 local_costmap:
   local_costmap:
     ros__parameters:
       use_sim_time: true
-      update_frequency: 5.0
-      publish_frequency: 2.0
+      update_frequency: 10.0
+      publish_frequency: 5.0
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      width: 5
-      height: 5
+      width: 8
+      height: 8
       resolution: 0.05
       transform_tolerance: 1.0
       footprint: "[[0.46, 0.45], [0.46, -0.45], [-0.46, -0.45], [-0.46, 0.45]]"
@@ -241,7 +285,7 @@ local_costmap:
           data_type: "LaserScan"
           raytrace_max_range: 4.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 3.0
+          obstacle_max_range: 3.5
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -253,8 +297,8 @@ global_costmap:
   global_costmap:
     ros__parameters:
       use_sim_time: true
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      update_frequency: 5.0
+      publish_frequency: 2.0
       global_frame: map
       robot_base_frame: base_link
       transform_tolerance: 1.0
@@ -281,13 +325,17 @@ global_costmap:
           data_type: "LaserScan"
           raytrace_max_range: 4.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 3.0
+          obstacle_max_range: 3.5
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 2.0
         inflation_radius: 0.75
       always_send_full_costmap: true
+
+# ============================================================
+# LIFECYCLE MANAGERS
+# ============================================================
 
 lifecycle_manager_navigation:
   ros__parameters:
@@ -302,5 +350,5 @@ lifecycle_manager_navigation:
       - local_costmap
       - global_costmap
       # NOTE: Remove amcl from here and manage it under a separate
-      # lifecycle_manager_localization node
+      # lifecycle_manager_localization node when localization is decoupled.
       - amcl
