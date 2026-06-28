@@ -9,6 +9,8 @@ FILTER_FILE="${SCRIPT_DIR}/.rsync-filter-deploy"
 
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
+# DEFAULT VARIABLES
+ROS_DISTRO="humble"
 JETSON_USER="indomitus-rover"
 JETSON_IP="10.42.0.1"
 REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
@@ -242,7 +244,7 @@ run_sync_all_mode() {
     step "Compiling code on Jetson (Inside Docker)..."
     echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
     echo ""
-    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/\$ROS_DISTRO/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
+    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/${ROS_DISTRO}/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
         success "Code successfully compiled on the Jetson!"
     else
         echo -e "\e[31m[ERROR]\e[0m Compilation failed."
@@ -270,7 +272,7 @@ run_sync_src_mode() {
     
     echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
     echo ""
-    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/\$ROS_DISTRO/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
+    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/${ROS_DISTRO}/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
         success "Code successfully compiled on the Jetson!"
     else
         echo -e "\e[31m[ERROR]\e[0m Compilation failed."
