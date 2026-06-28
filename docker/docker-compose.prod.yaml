@@ -1,5 +1,6 @@
 services:
   rover_prod:
+    runtime: nvidia
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -32,15 +33,11 @@ services:
     environment:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
       - ROS_LOCALHOST_ONLY=0
-      - CAN_INTERFACE=can0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
       - SDL_VIDEODRIVER=dummy
       - SDL_AUDIODRIVER=dummy
     volumes:
       - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
+      - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
