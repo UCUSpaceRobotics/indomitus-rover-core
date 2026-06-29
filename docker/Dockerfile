@@ -25,6 +25,9 @@ RUN cd /tmp/src && \
 ####################
 FROM ros:${ROS_DISTRO}-ros-base AS base
 
+RUN dpkg-divert --local --rename --add /sbin/ldconfig && \
+    ln -s /bin/true /sbin/ldconfig
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales git curl wget ca-certificates \
     build-essential python3-pip \
