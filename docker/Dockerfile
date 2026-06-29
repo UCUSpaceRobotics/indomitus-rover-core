@@ -79,8 +79,6 @@ RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro $
     -t exec \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update
-
 COPY src/ /tmp/src_packages/src/
 RUN mkdir -p ${WS}/src && \
     cd /tmp/src_packages/src && \
