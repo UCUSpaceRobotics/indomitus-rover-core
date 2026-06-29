@@ -25,9 +25,6 @@ RUN cd /tmp/src && \
 ####################
 FROM ros:${ROS_DISTRO}-ros-base AS base
 
-RUN dpkg-divert --local --rename --add /sbin/ldconfig && \
-    ln -s /bin/true /sbin/ldconfig
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales git curl wget ca-certificates \
     build-essential python3-pip \
@@ -52,6 +49,13 @@ WORKDIR ${HW_WS}
 
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
+
+RUN bash -c 'shopt -s nullglob; for dir in /opt/ros/${ROS_DISTRO}/lib /usr/lib/aarch64-linux-gnu; do \
+        for lib in "$dir"/lib*.so.*; do \
+            link="${lib%%.so.*}.so"; \
+            if [ ! -e "$link" ]; then ln -s "$(basename "$lib")" "$link"; fi; \
+        done; \
+    done'
 
 RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build --cmake-args=-DCMAKE_BUILD_TYPE=Release" && \
     rm -rf build/ log/
@@ -107,6 +111,13 @@ RUN apt-get update && rosdep install --from-paths ${WS}/src ${HW_WS}/src --ignor
     -t buildtool_export \
     -t exec \
     && rm -rf /var/lib/apt/lists/*
+
+RUN bash -c 'shopt -s nullglob; for dir in /opt/ros/${ROS_DISTRO}/lib /usr/lib/aarch64-linux-gnu; do \
+        for lib in "$dir"/lib*.so.*; do \
+            link="${lib%%.so.*}.so"; \
+            if [ ! -e "$link" ]; then ln -s "$(basename "$lib")" "$link"; fi; \
+        done; \
+    done'
 
 COPY src/ ${WS}/src/
 
