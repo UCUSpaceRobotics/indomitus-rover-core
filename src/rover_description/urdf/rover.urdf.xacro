@@ -90,7 +90,7 @@
 
   <!-- NOTE: Simulation-only lidar for nav2 testing. Replace with real sensor
      description and bridge when deploying on hardware. -->
-  <link name="lidar_link">
+  <link name="laser_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <mass value="0.2"/>
@@ -111,17 +111,17 @@
     </collision>
   </link>
 
-  <joint name="lidar_joint" type="fixed">
+  <joint name="laser_joint" type="fixed">
     <parent link="main_body_link"/>
-    <child link="lidar_link"/>
+    <child link="laser_link"/>
     <origin xyz="0.2 0 0.12" rpy="0 0 0"/>
   </joint>
 
-  <gazebo reference="lidar_link">
+  <gazebo reference="laser_link">
     <sensor type="gpu_lidar" name="generic_laser">
       <update_rate>10.0</update_rate>
       <topic>/scan</topic>
-      <gz_frame_id>lidar_link</gz_frame_id>
+      <gz_frame_id>laser_link</gz_frame_id>
       <lidar>
         <scan>
           <horizontal>
