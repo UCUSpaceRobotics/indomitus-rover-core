@@ -113,7 +113,7 @@ def generate_bridge_config(context) -> list[Node]:
 
 
 def make_robot_description(rover_sim_share: str) -> str:
-    path = os.path.join(rover_sim_share, 'urdf', 'rover_sim.urdf.xacro')
+    path = os.path.join(rover_sim_share, 'urdf', 'rover_sim_nav2.urdf.xacro')
     return xacro.process_file(path).toxml()
 
 
