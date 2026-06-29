@@ -8,6 +8,10 @@ The script ensures the `src/` directory is properly synced to the Jetson so the 
 
 The script relies on an `.rsync-filter` file located in the same directory as the script. This file tells `rsync` which local folders and files (like `__pycache__/`, `.git/`, or `log/`) to ignore so they aren't accidentally transferred to the Jetson. The script will throw an error if this file is missing.
 
+## Requirements
+
+The script relies on an `.rsync-filter` file located in the same directory as the script. This file tells `rsync` which local folders and files (like `__pycache__/`, `.git/`, or `log/`) to ignore so they aren't accidentally transferred to the Jetson. The script will throw an error if this file is missing.
+
 ## Running the Script
 
 Thanks to automatic path resolution, you can run this script from **any folder on your computer**. The script will automatically locate the repository root.

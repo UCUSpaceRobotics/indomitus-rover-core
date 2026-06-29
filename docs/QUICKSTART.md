@@ -312,6 +312,9 @@ The results of each test run are compiled into an interactive dashboard. To acce
     - `sim_chassis_driver_node` - takes data from /wheel_targets topic and moves wheels via ros2_control
     - `sim_diff_bar_node` - nodes that simulates differential bar work
 - `rover_viz` - package with all stuff that is related to visualizations and rviz
+- `rover_navigation` - package with launch file and configs for the nodes utilized by Nav2 framework
+- `rover_lokalization` - package with launch files and configs for the nodes used for localization
+- `rover_sensors` - package with everything for the sensors (cameras, LiDAR, low level sensors)
 
 
 ---
