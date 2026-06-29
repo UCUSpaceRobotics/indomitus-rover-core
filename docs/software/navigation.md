@@ -56,7 +56,7 @@ ros2 launch rover_navigation navigation.launch.py
 
 **Terminal 3 -- Visualisation**
 ```bash
-ros2 launch rover_viz rviz.launch.py use_sim:=true
+ros2 launch rover_viz rviz.launch.py use_sim:=true use_nav:=true
 ```
 
 ---

@@ -28,6 +28,7 @@ def launch_nodes(context: LaunchContext,
     kwargs = {k: perform_substitutions(context, [v]) for k, v in substitutions.items()}
 
     use_sim   = kwargs.get('use_sim',   'false').lower() == 'true'
+    use_nav   = kwargs.get('use_nav',   'false').lower() == 'true'
     use_rviz  = kwargs.get('use_rviz',  'true').lower()  == 'true'
     use_joint_gui = kwargs.get('use_joint_state_publisher_gui', 'true').lower() == 'true'
 
@@ -55,9 +56,9 @@ def launch_nodes(context: LaunchContext,
         ))
 
     if use_rviz:
-        rviz_config_file = os.path.join(
-            get_package_share_directory('rover_viz'), 'rviz', 'robot.rviz'
-        )
+        rviz_dir = os.path.join(get_package_share_directory('rover_viz'), 'rviz')
+        config_name = 'navigation.rviz' if use_nav else 'robot.rviz'
+        rviz_config_file = os.path.join(rviz_dir, config_name)
         rviz_args = ['-d', rviz_config_file] if os.path.exists(rviz_config_file) else []
         nodes.append(Node(
             package='rviz2',
@@ -77,6 +78,10 @@ def generate_launch_description():
             description='Skip robot_state_publisher and joint_state_publisher when running with the simulator.',
         ),
         launch.actions.DeclareLaunchArgument(
+            'use_nav', default_value='false',
+            description='Load navigation.rviz (fixed frame: map) instead of robot.rviz (fixed frame: base_link).',
+        ),
+        launch.actions.DeclareLaunchArgument(
             'use_rviz', default_value='true',
             description='Launch RViz2.',
         ),
@@ -88,6 +93,7 @@ def generate_launch_description():
             function=launch_nodes,
             kwargs={
                 'use_sim':   launch.substitutions.LaunchConfiguration('use_sim'),
+                'use_nav':   launch.substitutions.LaunchConfiguration('use_nav'),
                 'use_rviz':  launch.substitutions.LaunchConfiguration('use_rviz'),
                 'use_joint_state_publisher_gui': launch.substitutions.LaunchConfiguration(
                     'use_joint_state_publisher_gui'),
