@@ -12,7 +12,9 @@ cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repositor
 # DEFAULT VARIABLES
 ROS_DISTRO="humble"
 JETSON_USER="indomitus-rover"
-JETSON_IP="10.42.0.1"
+JETSON_HOTSPOT_IP="10.42.0.1"
+JETSON_ETHERNET_IP="indomitus-rover-computer.local"
+JETSON_IP="${JETSON_HOTSPOT_IP}"
 REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
 IMAGE_NAME="ghcr.io/ucuspacerobotics/indomitus-rover-core"
 IMAGE_TAG=""
@@ -25,6 +27,7 @@ SYNC_MODE=false
 SYNC_SRC_MODE=false
 SYNC_COMPOSE_MODE=false
 PULL_MODE=false
+USE_ETH=false
 
 show_help() {
     cat << EOF
@@ -44,6 +47,7 @@ Modes:
                                                         (e.g. a1b2c3d or a1b2c3d4e5f6)
 
 Options:
+    --eth                       Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
     -i, --ip IP                 Jetson IP address (Default: ${JETSON_IP})
     -u, --user USER             Jetson SSH username (Default: ${JETSON_USER})
     -d, --dir DIR               Remote deployment directory on the Jetson. (Default: ${REMOTE_DIR})
@@ -82,6 +86,7 @@ while [[ "$#" -gt 0 ]]; do
         --sync-src) SYNC_SRC_MODE=true; shift 1;;
         --sync-docker-compose) SYNC_COMPOSE_MODE=true; shift 1;;
         --pull) PULL_MODE=true; shift 1;;
+        --eth) USE_ETH=true; JETSON_IP="${JETSON_ETHERNET_IP}"; shift 1;;
         -u|--user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
         -i|--ip) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
         -d|--dir) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; REMOTE_DIR="$2"; shift 2;;
@@ -137,7 +142,8 @@ CLEANUP_FILES+=("${ARCHIVE_NAME}")
 connect_to_jetson() {
     step "Verifying Jetson Connection..."
 
-    if [ -n "$WIFI_SSID" ]; then
+    # Skip automatic Wi-Fi connection if we are using Ethernet
+    if [ -n "$WIFI_SSID" ] && [ "$USE_ETH" = false ]; then
         echo "Attempting to automatically connect to Wi-Fi network: ${WIFI_SSID}..."
         if command -v nmcli >/dev/null 2>&1; then
             if [ -n "$WIFI_PASS" ]; then
