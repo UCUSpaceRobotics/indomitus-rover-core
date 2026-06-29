@@ -22,39 +22,31 @@
 
     <license>MIT</license>
 
-    <!-- Build tools -->
     <buildtool_depend>ament_cmake</buildtool_depend>
 
-    <!-- Core ROS 2 -->
-    <depend>rclcpp</depend>
-    <depend>rclpy</depend>
-    <depend>ros2launch</depend>
-
-    <!-- Messages -->
-    <depend>std_msgs</depend>
-    <depend>geometry_msgs</depend>
-    <depend>nav_msgs</depend>
-    <depend>nav2_msgs</depend>
-
-    <!-- Navigation stack -->
-    <depend>nav2_bringup</depend>
-    <depend>nav2_behaviors</depend>
-    <depend>nav2_bt_navigator</depend>
-
-    <!-- TF -->
-    <depend>tf2_ros</depend>
-
-    <!-- Navigation servers -->
+    <!-- Runtime: Nav2 servers -->
+    <exec_depend>nav2_lifecycle_manager</exec_depend>
     <exec_depend>nav2_planner</exec_depend>
     <exec_depend>nav2_controller</exec_depend>
-    <exec_depend>nav2_lifecycle_manager</exec_depend>
+    <exec_depend>nav2_behaviors</exec_depend>
+    <exec_depend>nav2_bt_navigator</exec_depend>
     <exec_depend>nav2_waypoint_follower</exec_depend>
 
-    <!-- Navigation plugins -->
-    <exec_depend>nav2_navfn_planner</exec_depend>
-    <exec_depend>nav2_regulated_pure_pursuit_controller</exec_depend>
+    <!-- Runtime: Localisation -->
+    <exec_depend>nav2_map_server</exec_depend>
+    <exec_depend>nav2_amcl</exec_depend>
 
-    <!-- Testing -->
+    <!-- Runtime: Planner plugins -->
+    <exec_depend>nav2_navfn_planner</exec_depend>
+
+    <!-- Runtime: Controller plugins -->
+    <exec_depend>nav2_mppi_controller</exec_depend>
+
+    <!-- Runtime: Messages -->
+    <exec_depend>nav2_msgs</exec_depend>
+    <exec_depend>nav_msgs</exec_depend>
+    <exec_depend>geometry_msgs</exec_depend>
+
     <test_depend>ament_lint_auto</test_depend>
     <test_depend>ament_lint_common</test_depend>
 
