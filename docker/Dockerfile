@@ -127,10 +127,10 @@ RUN git clone ${RPLIDAR_REPO} src/sllidar_ros2 && \
     cd src/sllidar_ros2 && \
     git checkout ${RPLIDAR_COMMIT}
 
-RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && \
+RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
 
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build --cmake-args=-DCMAKE_BUILD_TYPE=Release" && \
+RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && colcon build --cmake-args=-DCMAKE_BUILD_TYPE=Release" && \
     rm -rf build/ log/
 
 COPY --from=hw-builder ${HW_WS}/install ${HW_WS}/install
@@ -195,7 +195,7 @@ RUN cd ${WS}/src && \
 COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
 ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
 
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
+RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && \
     colcon build"
 
 RUN rm -rf ${WS}/log/

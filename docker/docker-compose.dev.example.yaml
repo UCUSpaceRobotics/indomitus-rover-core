@@ -1,5 +1,6 @@
 services:
   rover_dev:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: docker/Dockerfile

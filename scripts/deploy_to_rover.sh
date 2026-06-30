@@ -33,13 +33,6 @@ LOCAL_BUILD_MODE=false
 
 USE_ETH=false
 
-BUILD_ARGS=(
-    --build-arg BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-l4t-r36.4
-    --build-arg BASE_IMAGE=stereolabs/zed:5.4-runtime-l4t-r36.4
-    --build-arg UBUNTU_VERSION=22.04
-    --build-arg TARGET_ROS_DISTRO=humble
-)
-
 show_help() {
     cat << EOF
 Usage: $0 [MODE] [OPTIONS]
@@ -286,10 +279,10 @@ run_remote_build_mode() {
 
     step "Building Docker Image natively on Jetson (${IMAGE_NAME}:${IMAGE_TAG})..."
 
-    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && docker build --target prod -t \"${IMAGE_NAME}:${IMAGE_TAG}\" -f \"${DOCKERFILE}\" ."; then
+    if ssh -t -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose --progress=tty build"; then
         success "Image successfully built on the Jetson."
     else
-        error "Remote Docker build failed."
+        error "Remote Docker Compose build failed."
     fi
 
     step "Restarting Container on Jetson (Safe Mode with Rollback)..."
@@ -487,11 +480,7 @@ run_local_build_mode() {
     if wait $pid; then echo "" && success "QEMU emulators configured."; else echo "" && echo -e "\e[33m[WARNING]\e[0m QEMU setup failed."; fi
 
     step "Building ARM64 Image (${IMAGE_NAME}:${IMAGE_TAG})..."
-    docker buildx build --platform linux/arm64 --target prod \
-        -t "${IMAGE_NAME}:${IMAGE_TAG}" \
-        -f "${DOCKERFILE}" \
-        "${BUILD_ARGS[@]}" \
-        .
+    IMAGE_NAME="${IMAGE_NAME}" IMAGE_TAG="${IMAGE_TAG}" docker compose -f "${COMPOSE_FILE}" build
 
     step "Exporting Image to ${ARCHIVE_NAME}..."
     echo -n "Exporting archive..."
