@@ -3,6 +3,8 @@ ARG TARGET_ROS_DISTRO=humble
 ARG BASE_IMAGE_HW_BUILDER
 ARG BASE_IMAGE
 ARG SIMULATION_PKGS="rover_sim rover_viz"
+ARG HW_WS="/opt/hw_ws"
+ARG WS="/opt/ws"
 
 
 ####################
@@ -12,10 +14,10 @@ FROM ubuntu:${UBUNTU_VERSION} AS cacher
 ARG INSTALL_SIM_TOOLS=false
 ARG SIMULATION_PKGS
 
-COPY src/ /tmp/src/
+WORKDIR /tmp/src
+COPY src/ .
 
-RUN cd /tmp/src && \
-    if [ "$INSTALL_SIM_TOOLS" != "true" ]; then \
+RUN if [ "$INSTALL_SIM_TOOLS" != "true" ]; then \
         for pkg in ${SIMULATION_PKGS}; do find . -name "$pkg" -type d -exec rm -rf {} + ; done; \
     fi && \
     mkdir -p /extracted_xmls && \
@@ -27,6 +29,7 @@ RUN cd /tmp/src && \
 ####################
 FROM ${BASE_IMAGE_HW_BUILDER} AS hw-builder
 ARG TARGET_ROS_DISTRO
+ARG HW_WS
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_PYTHON_VERSION=3
@@ -43,7 +46,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN rosdep init || true && rosdep update
 
-ENV HW_WS=/opt/hw_ws
 RUN mkdir -p ${HW_WS}/src
 WORKDIR ${HW_WS}
 
@@ -70,7 +72,8 @@ RUN mkdir -p src/zed-ros2-wrapper \
 
 RUN find src -name ".git" -type d -prune -exec rm -rf '{}' + \
     && find src -name ".gitignore" -type f -delete \
-    && find src -name ".gitmodules" -type f -delete
+    && find src -name ".gitmodules" -type f -delete \
+    && find src -name ".github" -type f -delete
 
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
     && rm -rf /var/lib/apt/lists/*
@@ -95,6 +98,11 @@ RUN /bin/bash -c "export LD_LIBRARY_PATH=/tmp/fake_gpu:\${LD_LIBRARY_PATH} && \
 ####################
 FROM ${BASE_IMAGE} AS base
 ARG TARGET_ROS_DISTRO
+ARG HW_WS
+ARG WS
+
+ENV HW_WS=${HW_WS}
+ENV WS=${WS}
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TARGET_ROS_DISTRO=${TARGET_ROS_DISTRO}
@@ -123,10 +131,9 @@ ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN rosdep init || true && rosdep update
 
-COPY --from=hw-builder ${HW_WS}/install ${HW_WS}/install
-COPY --from=hw-builder ${HW_WS}/src ${HW_WS}/src
+COPY --from=hw-builder ${HW_WS}/install/ ${HW_WS}/install/
+COPY --from=hw-builder ${HW_WS}/src/ ${HW_WS}/src/
 
-ENV WS=/opt/ws
 RUN mkdir -p ${WS}/src
 WORKDIR ${WS}
 

@@ -40,7 +40,7 @@
 - .pre-commit-config.yml
 - .github/
 
-# Documentation (Jetson doesn't need to build docs)
+# Documentation
 - docs/
 - doc/
 - Doxyfile
