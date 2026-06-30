@@ -27,15 +27,11 @@ using namespace std::chrono_literals;
 
 namespace rover_hardware_interface {
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
 namespace {
 
 std::string required_param(
-    const hardware_interface::HardwareInfo & info,
-    const std::string & key)
+    const hardware_interface::HardwareInfo& info,
+    const std::string& key)
 {
     auto it = info.hardware_parameters.find(key);
     if (it == info.hardware_parameters.end()) {
@@ -56,20 +52,26 @@ std::string optional_param(
 }  // namespace
 
 
-hardware_interface::CallbackReturn
-RoverHardwareInterface::on_init(const hardware_interface::HardwareInfo& info)
+hardware_interface::CallbackReturn RoverHardwareInterface::on_init(
+#ifdef JAZZY_OR_LATER
+    const hardware_interface::HardwareComponentInterfaceParams & params)
+{
+    const auto & info = params.hardware_info;
+    if (hardware_interface::SystemInterface::on_init(params) !=
+#else
+    const hardware_interface::HardwareInfo & info)
 {
     if (hardware_interface::SystemInterface::on_init(info) !=
+#endif
         hardware_interface::CallbackReturn::SUCCESS)
     {
         return hardware_interface::CallbackReturn::ERROR;
     }
 
-    // ── CAN interface name ─────────────────────────────────────────────────────
     can_interface_ = optional_param(info, "can_interface", "can0");
 
-    // ── Motor IDs ──────────────────────────────────────────────────────────────
-    auto parse_ids = [](const std::string & s, std::array<uint8_t, NUM_WHEELS> & out) {
+    // Motor IDs
+    auto parse_ids = [](const std::string& s, std::array<uint8_t, NUM_WHEELS>& out) {
         std::istringstream ss(s);
         for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
             int v;
@@ -126,9 +128,7 @@ RoverHardwareInterface::on_init(const hardware_interface::HardwareInfo& info)
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // export_state_interfaces / export_command_interfaces
-// ─────────────────────────────────────────────────────────────────────────────
 
 std::vector<hardware_interface::StateInterface>
 RoverHardwareInterface::export_state_interfaces()
@@ -155,9 +155,7 @@ RoverHardwareInterface::export_command_interfaces()
     return ifaces;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // on_configure — ROS services, status timers.  No CAN socket yet.
-// ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::CallbackReturn
 RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
@@ -331,10 +329,11 @@ RoverHardwareInterface::read(
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         steer_pos_[i] = steer_state_[i].pos_valid
             ? static_cast<double>(steer_state_[i].pos_rad) : 0.0;
-        drive_pos_[i] = drive_state_[i].valid
-            ? static_cast<double>(drive_state_[i].pos)     : 0.0;
-        drive_vel_[i] = drive_state_[i].valid
-            ? static_cast<double>(drive_state_[i].vel)     : 0.0;
+        
+        if (drive_state_[i].valid) {
+            drive_pos_[i] = static_cast<double>(drive_state_[i].pos) * kDriveSigns[i];
+            drive_vel_[i] = static_cast<double>(drive_state_[i].vel) * kDriveSigns[i];
+        }
     }
 
     return hardware_interface::return_type::OK;
@@ -356,15 +355,13 @@ RoverHardwareInterface::write(
 
     if (!motors_enabled_) return hardware_interface::return_type::OK;
 
-    static constexpr std::array<float, NUM_WHEELS> kDriveSign = {-1.0f, 1.0f, -1.0f, 1.0f};
-
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto steer_f = steadywin_protocol::buildAbsPositionFrame(
             steer_ids_[i], static_cast<float>(steer_cmd_[i]));
 
         auto drive_f = damiao_protocol::buildVelocityFrame(
             drive_ids_[i],
-            static_cast<float>(drive_cmd_[i]) * kDriveSign[i]);
+            static_cast<float>(drive_cmd_[i]) * kDriveSigns[i]);
 
         send_can_frame(steer_f.id, steer_f.data.data(), steer_f.dlc);
         send_can_frame(drive_f.id, drive_f.data.data(), drive_f.dlc);
@@ -446,12 +443,10 @@ bool RoverHardwareInterface::send_can_frame(
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // rx_thread_fn — blocking receive loop
 //
 // Runs in a dedicated thread so it doesn't block the control loop.
 // Writes decoded state into steer_state_/drive_state_ under feedback_mutex_.
-// ─────────────────────────────────────────────────────────────────────────────
 
 void RoverHardwareInterface::rx_thread_fn()
 {
@@ -500,7 +495,7 @@ void RoverHardwareInterface::dispatch_can_frame(const struct can_frame& frame)
         }
     }
 
-    // ── Damiao drive: broadcast feedback at MST_ID ────────────────────────────
+    // Damiao drive: broadcast feedback at MST_ID
     if (frame.can_id == mst_id_) {
         for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
             if (damiao_protocol::parseFeedback(
@@ -522,7 +517,7 @@ void RoverHardwareInterface::dispatch_can_frame(const struct can_frame& frame)
         return;
     }
 
-    // ── Steadywin steer: response at esc_id or 0x100|esc_id ───────────────────
+    // Steadywin steer: response at esc_id or 0x100|esc_id
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         if (frame.can_id == steer_ids_[i] ||
             frame.can_id == (0x100u | steer_ids_[i]))
@@ -605,12 +600,6 @@ void RoverHardwareInterface::on_set_steer_zero(
     const std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Request>  req,
     std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Response>       res)
 {
-    // if (!motors_enabled_) {
-    //     res->success = false;
-    //     res->message = "Motors not enabled — cannot set zero";
-    //     return;
-    // }
-
     static constexpr std::array<const char *, NUM_WHEELS> kNames = {"FL","FR","RL","RR"};
     const bool zero_all = req->motor_ids.empty();
     std::string zeroed, unknown;

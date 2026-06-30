@@ -25,15 +25,10 @@ if(BUILD_TESTING)
     ament_lint_auto_find_test_dependencies()
 endif()
 
-
 install(
-    DIRECTORY launch worlds parameters urdf
+    DIRECTORY launch worlds config urdf
     DESTINATION share/${PROJECT_NAME}
 )
-
-add_executable(sim_chassis_driver_node src/sim_chassis_driver_node.cpp)
-ament_target_dependencies(sim_chassis_driver_node rclcpp geometry_msgs std_msgs indomitus_interfaces)
-install(TARGETS sim_chassis_driver_node DESTINATION lib/${PROJECT_NAME})
 
 add_executable(sim_diff_bar_node src/sim_diff_bar_node.cpp)
 ament_target_dependencies(sim_diff_bar_node rclcpp sensor_msgs std_msgs)

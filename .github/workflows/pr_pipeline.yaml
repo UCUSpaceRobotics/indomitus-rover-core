@@ -53,8 +53,8 @@ jobs:
 
             # Only main and develop have published images.
             # For any other base branch, fall back to develop-dev.
-            if [[ "$SAFE_BASE" == "main-dev" || "$SAFE_BASE" == "develop-dev" ]]; then
-              echo "tag=${SAFE_BASE}" >> $GITHUB_OUTPUT
+            if [[ "$SAFE_BASE" == "main" || "$SAFE_BASE" == "develop" ]]; then
+              echo "tag=${SAFE_BASE}-dev" >> $GITHUB_OUTPUT
             else
               echo "tag=develop-dev" >> $GITHUB_OUTPUT
             fi

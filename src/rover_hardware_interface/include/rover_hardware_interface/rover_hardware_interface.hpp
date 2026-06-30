@@ -1,27 +1,5 @@
 #pragma once
 
-// ─────────────────────────────────────────────────────────────────────────────
-// rover_hardware_interface.hpp
-//
-// ros2_control SystemInterface plugin for 4-wheel swerve rover.
-//
-// Claimed interfaces:
-//   StateInterfaces:
-//     fl/fr/rl/rr  wheel_mount_joint  — position [rad]   (Steadywin feedback)
-//     fl/fr/rl/rr  wheel_joint        — position [rad]   (Damiao MIT feedback)
-//     fl/fr/rl/rr  wheel_joint        — velocity [rad/s] (Damiao MIT feedback)
-//
-//   CommandInterfaces:
-//     fl/fr/rl/rr  wheel_mount_joint  — position [rad]   → Steadywin 0xC2
-//     fl/fr/rl/rr  wheel_joint        — velocity [rad/s] → Damiao 0x200
-//
-// Direct POSIX SocketCAN I/O (no ROS topics on the hot path).
-//
-// Services:
-//   ~/set_motors_enabled  [std_srvs/SetBool]
-//   ~/set_steer_zero      [indomitus_interfaces/SetSteerZero]
-// ─────────────────────────────────────────────────────────────────────────────
-
 #include <array>
 #include <atomic>
 #include <memory>
@@ -30,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-#include <linux/can.h> // For struct can_frame
+#include <linux/can.h>
 
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
@@ -53,10 +31,13 @@ constexpr std::size_t NUM_WHEELS = 4;
 class RoverHardwareInterface : public hardware_interface::SystemInterface
 {
 public:
-    // ── SystemInterface lifecycle ──────────────────────────────────────────────
-
+#ifdef JAZZY_OR_LATER
     hardware_interface::CallbackReturn on_init(
-        const hardware_interface::HardwareInfo& info) override;
+        const hardware_interface::HardwareComponentInterfaceParams & params) override;
+#else
+    hardware_interface::CallbackReturn on_init(
+        const hardware_interface::HardwareInfo & info) override;
+#endif
 
     hardware_interface::CallbackReturn on_configure(
         const rclcpp_lifecycle::State& previous_state) override;
@@ -73,12 +54,12 @@ public:
     hardware_interface::CallbackReturn on_shutdown(
         const rclcpp_lifecycle::State& previous_state) override;
 
-    // ── Interface export ───────────────────────────────────────────────────────
+    // Interface export
 
     std::vector<hardware_interface::StateInterface>   export_state_interfaces()   override;
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
 
-    // ── Control loop ───────────────────────────────────────────────────────────
+    // Control loop
 
     /// Called by controller_manager: decode latest CAN feedback → state interfaces
     hardware_interface::return_type read(
@@ -91,7 +72,7 @@ public:
         const rclcpp::Duration & period) override;
 
 private:
-    // ── SocketCAN internals ────────────────────────────────────────────────────
+    // SocketCAN
 
     bool open_can_socket();
     void close_can_socket();
@@ -102,13 +83,11 @@ private:
     void rx_thread_fn();
     void dispatch_can_frame(const struct can_frame & frame);
 
-    // ── Motor lifecycle helpers ────────────────────────────────────────────────
-
     void send_enable_frames();
     void send_disable_frames();
     void send_shutdown_frames();   ///< zero → settle → disable (called from on_deactivate)
 
-    // ── Service callbacks ──────────────────────────────────────────────────────
+    // Service callbacks
 
     void on_set_motors_enabled(
         const std::shared_ptr<std_srvs::srv::SetBool::Request>          req,
@@ -118,7 +97,7 @@ private:
         const std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Request>  req,
         std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Response>       res);
 
-    // ── Diagnostic / status publishers ────────────────────────────────────────
+    // Diagnostic / status publishers
 
     void publish_chassis_status();
     void publish_diagnostics();
@@ -130,9 +109,7 @@ private:
     rclcpp::executors::SingleThreadedExecutor::SharedPtr hw_executor_;
     std::thread hw_node_thread_;
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Parameters (populated in on_init from HardwareInfo::hardware_parameters)
-    // ─────────────────────────────────────────────────────────────────────────
 
     std::string can_interface_{"can0"};
 
@@ -147,33 +124,27 @@ private:
     std::array<std::string, NUM_WHEELS> steer_joint_names_;
     std::array<std::string, NUM_WHEELS> drive_joint_names_;
 
-    // ─────────────────────────────────────────────────────────────────────────
+    static constexpr std::array<double, 4> kDriveSigns = {-1.0f, 1.0f, -1.0f, 1.0f};
+
     // State interface backing storage
-    // (ros2_control binds pointers to these — never reallocate after export)
-    // ─────────────────────────────────────────────────────────────────────────
+    // (ros2_control binds pointers to these — never reallocate after export
 
     std::array<double, NUM_WHEELS> steer_pos_{};    ///< steering joint position [rad]
     std::array<double, NUM_WHEELS> drive_pos_{};    ///< drive wheel position     [rad]
     std::array<double, NUM_WHEELS> drive_vel_{};    ///< drive wheel velocity     [rad/s]
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Command interface backing storage
-    // ─────────────────────────────────────────────────────────────────────────
 
     std::array<double, NUM_WHEELS> steer_cmd_{};    ///< target steering position [rad]
     std::array<double, NUM_WHEELS> drive_cmd_{};    ///< target drive velocity    [rad/s]
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Raw motor feedback (filled by rx_thread, read by read())
-    // ─────────────────────────────────────────────────────────────────────────
 
     std::mutex feedback_mutex_;
     std::array<steadywin_protocol::MotorState, NUM_WHEELS> steer_state_{};
     std::array<damiao_protocol::MotorState,    NUM_WHEELS> drive_state_{};
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Concurrency & Hardware
-    // ─────────────────────────────────────────────────────────────────────────
 
     int can_fd_{-1};
     std::atomic<bool> rx_running_{false};
@@ -195,9 +166,7 @@ private:
     rclcpp::TimerBase::SharedPtr diagnostics_timer_;      ///< 1 Hz  — /diagnostics
     rclcpp::TimerBase::SharedPtr watchdog_timer_;         ///< 10 Hz — cmd_vel timeout guard
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Runtime state
-    // ─────────────────────────────────────────────────────────────────────────
 
     bool         motors_enabled_{false};
     rclcpp::Time last_write_time_;

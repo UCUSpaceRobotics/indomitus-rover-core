@@ -4,20 +4,19 @@
   <name>rover_sensors</name>
   <version>0.0.0</version>
   <description>
-    Perception interface and hardware bringup for the Indomitus Rover. This package 
-    handles the configuration, calibration, and data stream management for the 
-    rover's suite of environmental sensors and perception hardware.
+    Perception interface and hardware bringup for the Indomitus Rover. This package
+    provides rover-specific launch files, configuration, and documentation for sensor drivers.
   </description>
   <maintainer email="bohdan.zasymovych@gmail.com">BohdanZasymovych</maintainer>
+  <maintainer email="yagodanr@gmail.com">YahodaMykyta</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>rclpy</depend>
-  <depend>ros2launch</depend>
-  <depend>std_msgs</depend>
-  <depend>sensor_msgs</depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>sllidar_ros2</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

@@ -10,12 +10,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # DEFAULT VARIABLES
-JETSON_USER="ros"
+JETSON_USER="indomitus-rover"
 JETSON_IP="10.42.0.1"
-REMOTE_DIR="/home/ros/Indomitus/indomitus-rover-core"
-WIFI_SSID="JetsonRosIndomitus"
-WIFI_PASS="jetson1234"
-HOST_CONFIG_DIR="$REPO_ROOT/docker/host_config"
+REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core"
+WIFI_SSID="IndomitusRover"
+WIFI_PASS="12345678"
+HOST_CONFIG_DIR="$REPO_ROOT/host_config"
 
 # HELPER FUNCTIONS
 success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }
