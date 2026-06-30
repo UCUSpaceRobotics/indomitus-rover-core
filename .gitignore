@@ -253,4 +253,5 @@ colcon_defaults.yaml
 .clang-format
 .pre-commit-config.yaml
 
-setup_udev_rules.sh # temporary
+# temporary
+setup_udev_rules.sh
