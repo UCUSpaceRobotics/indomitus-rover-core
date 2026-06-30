@@ -1,4 +1,4 @@
-# This file defines which files are ignored when copying ./src/ directory to the Jetson with deploy script
+# This file defines which files are ignored by the sync modes of the deployment script
 
 # Unneccessary simulation and visualization packages
 - rover_viz/
@@ -23,6 +23,11 @@
 - .idea/
 - .vscode/
 
-# Git
+# Protect Jetson's local repository state
 - .git/
-- .gitignore
+
+# Protect Compose files and backups from being wiped by root sync
+- docker-compose*.yaml
+- docker-compose*.yaml.bak
+- docker-compose*.yml
+- docker-compose*.yml.bak

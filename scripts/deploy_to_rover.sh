@@ -23,10 +23,14 @@ DOCKERFILE="docker/Dockerfile"
 COMPOSE_FILE="docker/docker-compose.prod.yaml"
 WIFI_SSID="IndomitusRover"
 WIFI_PASS="12345678"
-SYNC_MODE=false
+
+# ACTION MODES
+REMOTE_BUILD_MODE=false
 SYNC_SRC_MODE=false
 SYNC_COMPOSE_MODE=false
 PULL_MODE=false
+LOCAL_BUILD_MODE=false
+
 USE_ETH=false
 
 BUILD_ARGS=(
@@ -38,40 +42,44 @@ BUILD_ARGS=(
 
 show_help() {
     cat << EOF
-Usage: $0 [OPTIONS]
+Usage: $0 [MODE] [OPTIONS]
 
 Deploys code to the Jetson. 
 
-Modes:
-    --sync                      SYNC ALL: Syncs both 'src' and compose file, restarts container, then compiles.
-    --sync-src                  SYNC SRC: Syncs ONLY 'src' and auto-compiles inside the running container.
-    --sync-docker-compose       SYNC COMPOSE: Syncs ONLY the compose file and restarts the container.
-    --pull                      PULL MODE: Pulls a published image from GHCR and deploys it.
-                                  Valid --tag values:
+Modes (REQUIRED - You must specify exactly one):
+    remote-build                REMOTE BUILD: Syncs the entire local repository to the Jetson, builds the image natively, and restarts.
+    sync-src                    SYNC SRC: Syncs ONLY 'src' and auto-compiles inside the running container.
+    sync-docker-compose         SYNC COMPOSE: Syncs ONLY the compose file and restarts the container.
+    pull                        PULL MODE: Pulls a published image from GHCR and deploys it.
+                                Valid --tag values:
                                     develop-prod      Pull latest develop branch image (default)
                                     main-prod         Pull latest main branch image
                                     <commit-sha>      Pull a specific commit's image; pass 7+ hex chars
-                                                        (e.g. a1b2c3d or a1b2c3d4e5f6)
+    local-build                 LOCAL BUILD: Cross-compiles a new ARM64 image locally, then deploys it.
+                                    ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, 
+                                    turn off address space randomization with command "sudo sysctl kernel.randomize_va_space=0". 
+                                    After deployment, turn it back on with "sudo sysctl kernel.randomize_va_space=2".
 
 Options:
     --eth                       Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
-    -i, --ip IP                 Jetson IP address (Default: ${JETSON_IP})
-    -u, --user USER             Jetson SSH username (Default: ${JETSON_USER})
-    -d, --dir DIR               Remote deployment directory on the Jetson. (Default: ${REMOTE_DIR})
+    --ip IP                     Jetson IP address (Default: ${JETSON_IP})
+    --user USER                 Jetson SSH username (Default: ${JETSON_USER})
+    --dir DIR                   Remote deployment directory on the Jetson. (Default: ${REMOTE_DIR})
     --image-name NAME           Docker image name (Default: ${IMAGE_NAME})
-    -t, --tag TAG               Docker image tag; for --pull: develop-prod, main-prod, or a commit SHA (Default: local-prod or develop-prod)
+    --tag TAG                   Docker image tag. Default varies by mode (local-prod for builds, develop-prod for syncs/pulls).
     --container-name            Docker container name (Default: ${CONTAINER_NAME})
-    -f, --file FILE             Path to the Dockerfile (Default: ${DOCKERFILE})
-    -c, --compose FILE          Path to the Production Compose file (Default: ${COMPOSE_FILE})
-    -w, --ssid SSID             Wi-Fi SSID of the Jetson hotspot (Default: ${WIFI_SSID})
-    -p, --pass PASS             Wi-Fi password for the Jetson hotspot (Default: ${WIFI_PASS})
+    --dockerfile FILE           Path to the Dockerfile (Default: ${DOCKERFILE})
+    --compose FILE              Path to the Production Compose file (Default: ${COMPOSE_FILE})
+    --ssid SSID                 Wi-Fi SSID of the Jetson hotspot (Default: ${WIFI_SSID})
+    --pass PASS                 Wi-Fi password for the Jetson hotspot (Default: ${WIFI_PASS})
     -h, --help                  Display this help message and exit
 EOF
 }
 
 success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }
 error()   { echo -e "\e[31m[ERROR]\e[0m $1"; exit 1; }
-step()    { echo -e "\n\e[33m>>> $1\e[0m"; }
+warning() { echo -e "\n\e[33m>>> $1\e[0m"; }
+step()    { echo -e "\n\e[34m>>> $1\e[0m"; }
 
 spinner() {
     local pid=$1
@@ -89,35 +97,60 @@ spinner() {
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --sync) SYNC_MODE=true; shift 1;;
-        --sync-src) SYNC_SRC_MODE=true; shift 1;;
-        --sync-docker-compose) SYNC_COMPOSE_MODE=true; shift 1;;
-        --pull) PULL_MODE=true; shift 1;;
+        remote-build) REMOTE_BUILD_MODE=true; shift 1;;
+        sync-src) SYNC_SRC_MODE=true; shift 1;;
+        sync-docker-compose) SYNC_COMPOSE_MODE=true; shift 1;;
+        pull) PULL_MODE=true; shift 1;;
+        local-build) LOCAL_BUILD_MODE=true; shift 1;;
         --eth) USE_ETH=true; JETSON_IP="${JETSON_ETHERNET_IP}"; shift 1;;
-        -u|--user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
-        -i|--ip) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
-        -d|--dir) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; REMOTE_DIR="$2"; shift 2;;
+        --user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
+        --ip) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
+        --dir) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; REMOTE_DIR="$2"; shift 2;;
         --image-name) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; IMAGE_NAME="$2"; shift 2;;
-        -t|--tag) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; IMAGE_TAG="$2"; shift 2;;
+        --tag) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; IMAGE_TAG="$2"; shift 2;;
         --container-name) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; CONTAINER_NAME="$2"; shift 2;;
-        -f|--file) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; DOCKERFILE="$2"; shift 2;;
-        -c|--compose) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
-        -w|--ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
-        -p|--pass) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
+        --dockerfile) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; DOCKERFILE="$2"; shift 2;;
+        --compose) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
+        --ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
+        --pass) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
         -h|--help) show_help; exit 0;;
-        *) show_help; exit 1;;
+        *) error "Unknown command or option: $1\nRun '$0 --help' for usage." ;;
     esac
 done
+
+
+# ==========================================
+# MODE VALIDATION
+# ==========================================
+
+MODE_COUNT=0
+for mode in "$REMOTE_BUILD_MODE" "$SYNC_SRC_MODE" "$SYNC_COMPOSE_MODE" "$PULL_MODE" "$LOCAL_BUILD_MODE"; do
+    if [ "$mode" = true ]; then
+        MODE_COUNT=$((MODE_COUNT + 1))
+    fi
+done
+
+if [ "$MODE_COUNT" -eq 0 ]; then
+    error "No deployment mode specified. You must explicitly select a command (e.g., remote-build, pull).\nRun '$0 --help' for options."
+elif [ "$MODE_COUNT" -gt 1 ]; then
+    error "Multiple deployment modes specified. Please select only one command."
+fi
+
+
+# ==========================================
+# PRE-FLIGHT CHECKS & VARS
+# ==========================================
 
 if [ ! -f "$FILTER_FILE" ] && [ "$SYNC_COMPOSE_MODE" = false ]; then 
     error "rsync filter file not found: $FILTER_FILE"
 fi
 
 if [ -z "$IMAGE_TAG" ]; then
-    if [ "$SYNC_MODE" = true ] || [ "$SYNC_SRC_MODE" = true ] || [ "$SYNC_COMPOSE_MODE" = true ] || [ "$PULL_MODE" = true ]; then
-        IMAGE_TAG="develop-prod"
-    else
+    # Local and Remote builds get the 'local-prod' tag. Sync/Pull modes get 'develop-prod'.
+    if [ "$LOCAL_BUILD_MODE" = true ] || [ "$REMOTE_BUILD_MODE" = true ]; then
         IMAGE_TAG="local-prod"
+    else
+        IMAGE_TAG="develop-prod"
     fi
 fi
 
@@ -237,34 +270,36 @@ echo "[OK] Container is up on tag: ${IMAGE_TAG}"
 REMOTE_EOF
 }
 
-run_sync_all_mode() {
+run_remote_build_mode() {
     connect_to_jetson
-    
-    step "SYNC ALL: Transferring local 'src' and compose file..."
-    if [ ! -d "src" ]; then error "No 'src' directory found in the repository root."; fi
-    if [ ! -f "$COMPOSE_FILE" ]; then error "Local compose file not found: $COMPOSE_FILE"; fi
-    
+
+    step "SYNC ALL: Transferring entire local repository to Jetson..."
+
     rsync -avz --delete \
         --filter="merge ${FILTER_FILE}" \
         --info=progress2 \
         -e "ssh -q ${SSH_OPTS[*]}" \
-        src/ "${TARGET}:${REMOTE_DIR}/src/"
+        ./ "${TARGET}:${REMOTE_DIR}/"
+
+    # Explicitly map the chosen compose file to the standard name used by docker compose
     rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
-    
-    step "Restarting Container with new Compose config (waiting for readiness)..."
-    restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
-    
-    step "Compiling code on Jetson (Inside Docker)..."
-    echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
-    echo ""
-    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/${ROS_DISTRO}/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
-        success "Code successfully compiled on the Jetson!"
+
+    step "Building Docker Image natively on Jetson (${IMAGE_NAME}:${IMAGE_TAG})..."
+
+    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && docker build --target prod -t \"${IMAGE_NAME}:${IMAGE_TAG}\" -f \"${DOCKERFILE}\" ."; then
+        success "Image successfully built on the Jetson."
     else
-        echo -e "\e[31m[ERROR]\e[0m Compilation failed."
-        exit 1
+        error "Remote Docker build failed."
     fi
-    
-    echo -e "\n\e[32m[DONE]\e[0m Full Sync Complete!"
+
+    step "Restarting Container on Jetson (Safe Mode with Rollback)..."
+
+    restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
+
+    step "Pruning dangling images on Jetson..."
+    ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker image prune -f"
+
+    echo -e "\n\e[32m[DONE]\e[0m Full Repo Sync & Native Build Complete!"
     exit 0
 }
 
@@ -435,7 +470,9 @@ Make sure a CI run completed successfully for this commit."
 }
 
 
-run_full_deploy_mode() {
+run_local_build_mode() {
+    warning "ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, turn off address space randomization with command 'sudo sysctl kernel.randomize_va_space=0'. After deployment, turn it back on with 'sudo sysctl kernel.randomize_va_space=2'."
+
     step "Running Pre-Flight Checks for Full Build..."
     if ! docker info > /dev/null 2>&1; then error "Docker is not running."; fi
     if ! docker buildx version > /dev/null 2>&1; then error "Docker Buildx is missing."; fi
@@ -493,14 +530,14 @@ run_full_deploy_mode() {
 # MAIN EXECUTION ROUTER
 # ==========================================
 
-if [ "$SYNC_MODE" = true ]; then
-    run_sync_all_mode
+if [ "$REMOTE_BUILD_MODE" = true ]; then
+    run_remote_build_mode
+elif [ "$LOCAL_BUILD_MODE" = true ]; then
+    run_local_build_mode
 elif [ "$SYNC_SRC_MODE" = true ]; then
     run_sync_src_mode
 elif [ "$SYNC_COMPOSE_MODE" = true ]; then
     run_sync_compose_mode
 elif [ "$PULL_MODE" = true ]; then
     run_pull_mode
-else
-    run_full_deploy_mode
 fi
