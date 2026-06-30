@@ -47,21 +47,30 @@ ENV HW_WS=/opt/hw_ws
 RUN mkdir -p ${HW_WS}/src
 WORKDIR ${HW_WS}
 
-########### Stereo Camera Setup ###########
+ARG RPLIDAR_REPOSITORY="https://github.com/Slamtec/sllidar_ros2.git"
+ARG RPLIDAR_COMMIT="34300099fadfc772965962dec837bf436706188f"
+
 ARG ZED_WRAPPER_REPOSITORY="https://github.com/stereolabs/zed-ros2-wrapper.git"
 ARG ZED_WRAPPER_COMMIT="6545933af94d70922881654e6fb29d95e3a8f14f"
 
-RUN mkdir -p ${HW_WS}/src/zed-ros2-wrapper \
-    && cd ${HW_WS}/src/zed-ros2-wrapper \
+RUN mkdir -p src/sllidar_ros2 \
+    && cd src/sllidar_ros2 \
+    && git init \
+    && git remote add origin ${RPLIDAR_REPOSITORY} \
+    && git fetch --depth 1 origin ${RPLIDAR_COMMIT} \
+    && git checkout FETCH_HEAD
+
+RUN mkdir -p src/zed-ros2-wrapper \
+    && cd src/zed-ros2-wrapper \
     && git init \
     && git remote add origin ${ZED_WRAPPER_REPOSITORY} \
     && git fetch --depth 1 origin ${ZED_WRAPPER_COMMIT} \
     && git checkout FETCH_HEAD \
-    && git submodule update --init --recursive \
-    && cd ${HW_WS} \
-    && find ${HW_WS}/src -name ".git" -type d -prune -exec rm -rf '{}' + \
-    && find ${HW_WS}/src -name ".gitignore" -type f -delete \
-    && find ${HW_WS}/src -name ".gitmodules" -type f -delete
+    && git submodule update --init --recursive
+
+RUN find src -name ".git" -type d -prune -exec rm -rf '{}' + \
+    && find src -name ".gitignore" -type f -delete \
+    && find src -name ".gitmodules" -type f -delete
 
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
     && rm -rf /var/lib/apt/lists/*
@@ -113,25 +122,6 @@ RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN rosdep init || true && rosdep update
-
-ENV HW_WS=/opt/hw_ws
-RUN mkdir -p ${HW_WS}/src
-WORKDIR ${HW_WS}
-
-# Clone here repositories with packages for the modules like LiDAR or stereo camera
-
-ARG RPLIDAR_REPO=https://github.com/Slamtec/sllidar_ros2
-ARG RPLIDAR_COMMIT=34300099fadfc772965962dec837bf436706188f
-
-RUN git clone ${RPLIDAR_REPO} src/sllidar_ros2 && \
-    cd src/sllidar_ros2 && \
-    git checkout ${RPLIDAR_COMMIT}
-
-RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && colcon build --cmake-args=-DCMAKE_BUILD_TYPE=Release" && \
-    rm -rf build/ log/
 
 COPY --from=hw-builder ${HW_WS}/install ${HW_WS}/install
 COPY --from=hw-builder ${HW_WS}/src ${HW_WS}/src
