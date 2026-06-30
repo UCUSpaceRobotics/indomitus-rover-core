@@ -235,7 +235,7 @@ To build the image locally and transfer it, along with your local `src/` directo
 
 To pull the latest image built by the CI pipeline on the `develop` branch, and transfer it along with the `src/` directory and `docker-compose.prod.yaml` file to the Jetson:
 ```bash
-./scripts/deploy_to_rover.sh
+./scripts/deploy_to_rover.sh --pull
 ```
 
 > **Note:** For further details on available deploy modes, refer to [deployment.md](./deployment.md). For full documentation refer to [deploy_to_rover.md](./scripts/deploy_to_rover.md).
