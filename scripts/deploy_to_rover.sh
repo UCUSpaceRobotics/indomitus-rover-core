@@ -49,9 +49,9 @@ Modes (REQUIRED - You must specify exactly one):
                                     main-prod         Pull latest main branch image
                                     <commit-sha>      Pull a specific commit's image; pass 7+ hex chars
     local-build                 LOCAL BUILD: Cross-compiles a new ARM64 image locally, then deploys it.
-                                    ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, 
-                                    turn off address space randomization with command "sudo sysctl kernel.randomize_va_space=0". 
-                                    After deployment, turn it back on with "sudo sysctl kernel.randomize_va_space=2".
+                                ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, 
+                                turn off address space randomization before deployment with command "sudo sysctl kernel.randomize_va_space=0". 
+                                After deployment, turn it back on with "sudo sysctl kernel.randomize_va_space=2".
 
 Options:
     --eth                       Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
