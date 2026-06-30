@@ -26,7 +26,7 @@ Choose your deployment strategy based on the type of changes you just made:
 
 
 **Pull & Bridge (`--pull`)**
-* **When to use:** You want to deploy a pre-built stable image and clean code directly from GitHub.
+* **When to use:** You want to deploy a pre-built stable image (either latest or from specific commit) and clean code directly from GitHub.
 * **What it does:** Pulls the image from GHCR, clones a clean codebase, transfers everything over the hotspot, and restarts the container.
 
 
@@ -38,4 +38,4 @@ Choose your deployment strategy based on the type of changes you just made:
 
 ---
 
-> For further details, read the [documentation](./scripts/deploy_to_jetson.md) for the deployment script.
+> For further details, read the [documentation](./scripts/deploy_to_rover.md) for the deployment script.
