@@ -278,6 +278,7 @@ The results of each test run are compiled into an interactive dashboard. To acce
 
 > **Note:** For further details on how to run tests locally or write your own test suites, refer to [testing.md](./testing.md).
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 
 ---
@@ -353,3 +354,5 @@ Because ROS 2 is a distributed system, these tools are critical for verifying th
 | `ros2 param get <node> <param>` | Retrieves the current value of a specific parameter on a specific node. |
 =======
 >>>>>>> 83fb700 (Bugfix/shared/segmentation fault (#477))
+=======
+>>>>>>> develop

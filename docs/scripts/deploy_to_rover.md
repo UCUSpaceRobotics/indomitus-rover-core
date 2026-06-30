@@ -8,10 +8,6 @@ The script ensures the `src/` directory is properly synced to the Jetson so the 
 
 The script relies on an `.rsync-filter` file located in the same directory as the script. This file tells `rsync` which local folders and files (like `__pycache__/`, `.git/`, or `log/`) to ignore so they aren't accidentally transferred to the Jetson. The script will throw an error if this file is missing.
 
-## Requirements
-
-The script relies on an `.rsync-filter` file located in the same directory as the script. This file tells `rsync` which local folders and files (like `__pycache__/`, `.git/`, or `log/`) to ignore so they aren't accidentally transferred to the Jetson. The script will throw an error if this file is missing.
-
 ## Running the Script
 
 Ensure your laptop is connected to a Wi-Fi network with internet access to build or download the image (for pull/build modes). Once the image is ready, the script will automatically attempt to connect to the Jetson hotspot for the transfer.
