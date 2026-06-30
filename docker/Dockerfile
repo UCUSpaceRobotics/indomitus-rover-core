@@ -30,8 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential python3-pip \
     python3-colcon-common-extensions python3-rosdep \
     iputils-ping pkg-config usbutils iproute2 g++ make cmake \
-    ros-${ROS_DISTRO}-rcpputils \
-    ros-${ROS_DISTRO}-class-loader \
     can-utils \
     vim && \
     rm -rf /var/lib/apt/lists/*
@@ -46,14 +44,13 @@ RUN mkdir -p ${HW_WS}/src
 WORKDIR ${HW_WS}
 
 # Clone here repositories with packages for the modules like LiDAR or stereo camera
+
 ARG RPLIDAR_REPO=https://github.com/Slamtec/sllidar_ros2
 ARG RPLIDAR_COMMIT=34300099fadfc772965962dec837bf436706188f
 
 RUN git clone ${RPLIDAR_REPO} src/sllidar_ros2 && \
     cd src/sllidar_ros2 && \
     git checkout ${RPLIDAR_COMMIT}
-
-
 
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
@@ -121,27 +118,9 @@ RUN cd ${WS}/src && \
 COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
 ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
 
-# IMPORTANT: we had really a lot of troubles with segmentation fault
-# evething below is done to prevent this fault. DONT TOUCH IT!
+COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
 RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
-    colcon build \
-    --parallel-workers 1 \
-    --packages-select indomitus_interfaces \
-    --cmake-args \
-      -DCMAKE_BUILD_PARALLEL_LEVEL=1 \
-      -DCMAKE_C_FLAGS='-O0' \
-      -DCMAKE_CXX_FLAGS='-O0'"
-
-# Then build the rest normally
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
-    source ${HW_WS}/install/setup.bash && \
-    colcon build \
-    --parallel-workers 1 \
-    --packages-skip indomitus_interfaces ${SIMULATION_PKGS} \
-    --cmake-args \
-      -DCMAKE_BUILD_PARALLEL_LEVEL=1 \
-      -DCMAKE_C_FLAGS='-O0' \
-      -DCMAKE_CXX_FLAGS='-g0 -O1'"
+    colcon build"
 
 RUN rm -rf ${WS}/log/
 

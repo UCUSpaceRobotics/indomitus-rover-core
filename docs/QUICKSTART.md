@@ -21,14 +21,6 @@
 **Testing**
 * [Testing](#testing)
 
-**Project Structure**
-* [ROS2 Packages Overview](#ros2-packages-overview)
-
-**Important ROS 2 and Colcon Commands**
-* [Workspace Management (`colcon`)](#workspace-management-colcon)
-* [Execution](#execution)
-* [Network Introspection & Debugging](#network-introspection--debugging)
-
 ## Rover Usage
 
 ### Starting the Jetson-Controlled Rover
@@ -243,7 +235,7 @@ To build the image locally and transfer it, along with your local `src/` directo
 
 To pull the latest image built by the CI pipeline on the `develop` branch, and transfer it along with the `src/` directory and `docker-compose.prod.yaml` file to the Jetson:
 ```bash
-./scripts/deploy_to_rover.sh
+./scripts/deploy_to_rover.sh --pull
 ```
 
 > **Note:** For further details on available deploy modes, refer to [deployment.md](./deployment.md). For full documentation refer to [deploy_to_rover.md](./scripts/deploy_to_rover.md).
@@ -285,6 +277,8 @@ The results of each test run are compiled into an interactive dashboard. To acce
 6. **Scroll down** to view the complete test results and identify any specific failures.
 
 > **Note:** For further details on how to run tests locally or write your own test suites, refer to [testing.md](./testing.md).
+<<<<<<< HEAD
+<<<<<<< HEAD
 
 
 ---
@@ -358,3 +352,7 @@ Because ROS 2 is a distributed system, these tools are critical for verifying th
 | `ros2 interface show <type>` | Displays the internal structure and fields of a specific message, service, or action type. |
 | `ros2 param list` | Lists all configuration parameters available across the currently running nodes. |
 | `ros2 param get <node> <param>` | Retrieves the current value of a specific parameter on a specific node. |
+=======
+>>>>>>> 83fb700 (Bugfix/shared/segmentation fault (#477))
+=======
+>>>>>>> develop

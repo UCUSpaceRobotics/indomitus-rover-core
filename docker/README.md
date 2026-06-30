@@ -5,7 +5,7 @@
 
 > ⚠️ Each user must set up `docker-compose` individually — drivers and dependencies vary by platform.
 
-> Copy `docker/docker-compose.dev.example.yml` to the project root and rename it to `docker-compose.yml`.
+> Copy `docker/docker-compose.dev.example.yaml` to the project root and rename it to `docker-compose.yaml`.
 
 ### Dependencies
 ```bash

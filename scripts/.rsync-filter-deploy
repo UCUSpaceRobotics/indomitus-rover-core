@@ -11,7 +11,7 @@
 - .pytest_cache/
 - *.egg-info/
 
-# Build artifacts (colcon builds on Jetson, not laptop)
+# Build artifacts
 - build/
 - install/
 - log/
