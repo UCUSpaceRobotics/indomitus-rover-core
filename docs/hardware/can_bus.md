@@ -14,35 +14,32 @@
 | CAN HIGH | RED   |
 | CAN LOW  | BLACK |
 
-## ROS 2 SocketCAN Bridge
+## On-Rover Setup (Jetson)
 
-CAN interface is configured automatically when the Docker container boots via `entrypoint.sh`.
-Launch file runs a pre-flight check to verify the interface is active before starting nodes.
+CAN interface configuration and container startup are fully automated on the Jetson via udev rules and a systemd service.
 
-### Docker Configuration
+### udev Rule
 
-```yaml
-network_mode: host
-cap_add:
-  - NET_ADMIN
-  - NET_RAW
-environment:
-  - CAN_INTERFACE=can0
-  - CAN_BITRATE=1000000
-```
+Located at [`/etc/udev/rules.d/can.rules`](../system/rules.d/can.rules).
 
-> **Note:** Linux-only, will not work on macOS or Windows.
+Automatically configures and brings up `can0` when the CAN adapter is detected.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CAN_INTERFACE` | `can0` | Physical or virtual CAN interface name |
-| `CAN_BITRATE` | `1000000` | Baud rate applied to the interface |
+### systemd Service
 
-### Launch
+Located at [`/etc/systemd/system/rover.service`](../system/systemd/rover.service).
+
+Starts the production Docker container once both Docker and `can0` are available.
+
+## Manual / Laptop Setup
+
+When running from a laptop with a CAN-to-USB adapter, the interface must be configured manually:
 
 ```bash
 sudo ip link set can0 up type can bitrate 1000000
+sudo ip link set can0 txqueuelen 1000
 ```
+
+Then launch the CAN bridge:
 
 ```bash
 ros2 launch rover_bringup can.launch.py interface:=can0
@@ -53,3 +50,5 @@ ros2 launch rover_bringup can.launch.py interface:=can0
 | `interface` | `can0` | SocketCAN interface for ROS nodes |
 | `sender_timeout_sec` | `0.01` | Hardware timeout before retry |
 | `receiver_interval_sec` | `0.01` | Polling interval for receiver socket |
+
+> **Note:** SocketCAN is Linux-only — will not work on macOS or Windows.

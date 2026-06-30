@@ -16,6 +16,8 @@
   <depend>controller_interface</depend>
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
+  <build_export_depend>rcpputils</build_export_depend>
+  <build_export_depend>class_loader</build_export_depend>
 
   <!-- Interfaces -->
   <depend>geometry_msgs</depend>

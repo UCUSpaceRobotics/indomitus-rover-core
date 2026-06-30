@@ -3,7 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler, EmitEvent
-from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution, FindPackageShare
+from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution
 from launch.events import matches_action
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.event_handlers import OnStateTransition
@@ -34,7 +34,7 @@ def generate_launch_description():
     rover_bringup_dir     = get_package_share_directory('rover_bringup')
 
     twist_mux_config = PathJoinSubstitution([
-        FindPackageShare('rover_bringup'),
+        rover_bringup_dir,
         'config',
         'twist_mux.yaml',
     ])
