@@ -70,9 +70,9 @@ EOF
 }
 
 success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }
-error()   { echo -e "\e[31m[ERROR]\e[0m $1"; exit 1; }
-warning() { echo -e "\n\e[33m>>> $1\e[0m"; }
-step()    { echo -e "\n\e[34m>>> $1\e[0m"; }
+warning() { echo -e "\e[33m[WARNING]\e[0m $1"; }
+error() { echo -e "\e[31m[ERROR]\e[0m $1"; exit 1; }
+step() { echo -e "\n\e[34m>>> $1\e[0m"; }
 
 spinner() {
     local pid=$1
@@ -245,7 +245,7 @@ PREV_TAG=$(
 rollback() {
     echo "[ROLLBACK] Startup failed. Attempting to restore previous container..." >&2
     if [ -n "$PREV_TAG" ]; then
-        IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$PREV_TAG" docker compose up -d --wait \
+        IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$PREV_TAG" docker compose up -d --wait --no-build --pull never \
             && echo "[ROLLBACK] Restored to image tag: ${PREV_TAG}" >&2 \
             || echo "[ROLLBACK] Restore also failed — manual intervention required." >&2
     else
@@ -256,7 +256,7 @@ rollback() {
 trap rollback ERR
 
 IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" docker compose down
-IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" docker compose up -d --wait
+IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" docker compose up -d --wait --no-build --pull never
 
 trap - ERR
 echo "[OK] Container is up on tag: ${IMAGE_TAG}"
@@ -274,7 +274,6 @@ run_remote_build_mode() {
         -e "ssh -q ${SSH_OPTS[*]}" \
         ./ "${TARGET}:${REMOTE_DIR}/"
 
-    # Explicitly map the chosen compose file to the standard name used by docker compose
     rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
 
     step "Building Docker Image natively on Jetson (${IMAGE_NAME}:${IMAGE_TAG})..."
@@ -464,7 +463,7 @@ Make sure a CI run completed successfully for this commit."
 
 
 run_local_build_mode() {
-    warning "ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, turn off address space randomization with command 'sudo sysctl kernel.randomize_va_space=0'. After deployment, turn it back on with 'sudo sysctl kernel.randomize_va_space=2'."
+    warning "ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, turn off address space randomization before script usage with command 'sudo sysctl kernel.randomize_va_space=0'. After deployment, turn it back on with 'sudo sysctl kernel.randomize_va_space=2'."
 
     step "Running Pre-Flight Checks for Full Build..."
     if ! docker info > /dev/null 2>&1; then error "Docker is not running."; fi
