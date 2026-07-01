@@ -18,6 +18,19 @@
 * [Deployment Script](#deployment-script)
 * [Script to Enter Containers](#script-to-enter-containers)
 
+**Arm Usage**
+* [Starting the Arm in Simulation (Laptop)](#starting-the-arm-in-simulation-laptop)
+  * [Standalone Visualization](#standalone-visualization)
+  * [MoveIt Planning Simulation](#moveit-planning-simulation)
+  * [Fake Hardware vs. Real Hardware](#fake-hardware-vs-real-hardware)
+* [Starting the Arm on the Jetson](#starting-the-arm-on-the-jetson)
+* [Turning Off the Arm](#turning-off-the-arm)
+
+**Important ROS 2 and Colcon Commands**
+* [Workspace Management (`colcon`)](#workspace-management-colcon)
+* [ROS 2 Execution](#ros-2-execution)
+* [Network Introspection & Debugging](#network-introspection--debugging)
+
 **Testing**
 * [Testing](#testing)
 
@@ -256,6 +269,136 @@ Enter the **remote** rover container:
 ```
 
 > **Note:** For further details, refer to [enter_container.md](./scripts/enter_container.md).
+
+
+---
+
+
+## Arm Usage
+
+> **Note:** Arm packages are located in `src/arm/`. To build only the arm subsystem:
+> ```bash
+> colcon build --symlink-install --packages-select-regex "^arm_"
+> ```
+
+### Starting the Arm in Simulation (Laptop)
+
+There are two simulation modes available locally. Choose based on what you need:
+
+| Mode | Launch file | Use case |
+|---|---|---|
+| Standalone visualization | `arm_bringup/arm_standalone.launch.py` | Quick URDF/mesh checks, manual joint testing via GUI, no planning needed |
+| MoveIt planning simulation | `arm_moveit_config/demo.launch.py` | Testing trajectories, kinematics, motion planning, task development |
+
+#### Standalone Visualization
+
+Starts RViz with the Joint State Publisher GUI but no motion planning stack. Useful for quickly
+inspecting the URDF model, meshes, and TF tree without loading ros2_control or the full MoveIt overhead.
+
+1. **Allow GUI access:** Run the following command on your **host machine** terminal (not inside Docker) before launching:
+```bash
+xhost +local:docker
+```
+2. **Build and start the container:** Please refer to the [Docker setup section](#docker) to complete this step.
+3. **Run the standalone launch file:** From the bash terminal inside your Docker container:
+```bash
+ros2 launch arm_bringup arm_standalone.launch.py
+```
+
+By default this runs with `use_fake_hardware:=true`, which loads `mock_components/GenericSystem`
+(see [Fake Hardware vs. Real Hardware](#fake-hardware-vs-real-hardware) below). To attempt loading
+the real CAN hardware interface instead:
+```bash
+ros2 launch arm_bringup arm_standalone.launch.py use_fake_hardware:=false
+```
+
+#### MoveIt Planning Simulation
+
+Starts the full MoveIt 2 stack with motion planning, collision checking, and trajectory
+execution using Fake Hardware. This is the primary mode for developing and testing arm
+movements locally.
+
+1. **Allow GUI access:** Run the following command on your **host machine** terminal (not inside Docker) before launching:
+```bash
+xhost +local:docker
+```
+2. **Build and start the container:** Please refer to the [Docker setup section](#docker) to complete this step.
+3. **Run the MoveIt demo launch file:** From the bash terminal inside your Docker container:
+```bash
+ros2 launch arm_moveit_config demo.launch.py
+```
+
+In RViz, use the **MotionPlanning** panel to set a goal pose for the end-effector and click
+**Plan & Execute** to run a full plan-and-execute cycle.
+
+#### Fake Hardware vs. Real Hardware
+
+The `arm_macro.xacro` model exposes a `use_fake_hardware` xacro argument that controls which
+`ros2_control` hardware plugin gets loaded:
+
+| Value | Plugin | Behavior |
+|---|---|---|
+| `true` (default) | `mock_components/GenericSystem` | Joint commands are written directly into the joint state and read back immediately — no physics, no motor, no delay. Useful for testing planning logic, SRDF groups, and the MoveIt API without any physical or simulated dynamics. |
+| `false` | `arm_hardware_interface/ArmCanSystem` | Sends commands over the real CAN bus to the physical actuators. Requires the Jetson and a working `arm_hardware_interface` build. |
+
+Because `mock_components/GenericSystem` reports back whatever position it was just told to move
+to, it does **not** validate motor dynamics, CAN latency, encoder noise, or mechanical limits like
+backlash or sag — only the kinematic/geometric correctness of a trajectory is verified.
+
+### Starting the Arm on the Jetson
+
+Follow these steps to power on and operate the robotic arm:
+
+1. **Power on the system:** Turn on the main power switch for the rover/arm payload.
+2. **Launch the core nodes:** Connect to the Jetson and start the hardware interface to enable CAN communication with the joint actuators.
+3. **Control the arm:** Launch the MoveIt Servo node or the custom Python control panel to send trajectory commands to the manipulator.
+
+### Turning Off the Arm
+
+To power down the arm safely, trigger the Emergency Stop (E-Stop) on the rover to immediately cut power to the actuators, or use the main power switch to turn off the Jetson and CAN bus network.
+
+
+---
+
+
+## Important ROS 2 and Colcon Commands
+
+When developing and debugging, these are the most common commands you will use inside the Docker container.
+
+### Workspace Management (`colcon`)
+
+| Command | Description |
+|---|---|
+| `colcon build --symlink-install` | Builds the entire workspace. The symlink flag ensures changes to Python scripts take effect immediately. |
+| `colcon build --packages-select <package>` | Builds only the specifically named package, saving time. |
+| `colcon build --packages-select-regex "^arm_"` | Builds only arm packages. |
+| `colcon build --packages-select-regex "^rover_"` | Builds only rover packages. |
+| `rm -rf build/ install/ log/` | Completely cleans the workspace cache. |
+
+### ROS 2 Execution
+
+| Command | Description |
+|---|---|
+| `ros2 run <package> <executable>` | Starts a single, isolated node. |
+| `ros2 launch <package> <launch_file.py>` | Starts a complete subsystem. |
+| `ros2 launch rover_bringup rover.launch.py` | Starts the full rover control stack. |
+| `ros2 launch arm_bringup arm_standalone.launch.py` | Standalone RViz visualization of the arm with GUI sliders, no ros2_control or planning. |
+| `ros2 launch arm_moveit_config demo.launch.py` | Full MoveIt simulation of the arm with motion planning and RViz. |
+
+### Network Introspection & Debugging
+
+| Command | Description |
+|---|---|
+| `ros2 node list` | Lists all currently active nodes. |
+| `ros2 topic list` | Lists all active topics. |
+| `ros2 topic echo <topic>` | Streams live messages from a topic. |
+| `ros2 control list_controllers` | Displays active trajectory and hardware controllers. |
+| `ros2 topic echo /joint_states` | Shows the live angular positions and velocities of the arm joints. |
+| `ros2 topic hz /joint_states` | Calculates the publishing rate of the joint encoders. |
+| `ros2 param list` | Lists all configuration parameters available across the currently running nodes. |
+| `ros2 action list` | Lists active action servers, including MoveIt's `/move_action`. |
+| `ros2 action info /move_action` | Shows goal, result, and feedback types for the MoveIt planning action. |
+| `ros2 topic echo /display_planned_path` | Streams the planned trajectory as it is computed by `move_group`. |
 
 
 ---
