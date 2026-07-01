@@ -64,7 +64,7 @@ def generate_launch_description():
             name="behavior_server",
             output="screen",
             parameters=[config_path, {"use_sim_time": use_sim_time}],
-            remappings=[("/cmd_vel", "/cmd_ver_recovery")],
+            remappings=[("/cmd_vel", "/cmd_vel_recovery")],
         ),
 
         Node(
