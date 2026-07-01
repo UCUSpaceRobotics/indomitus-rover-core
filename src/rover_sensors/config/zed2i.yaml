@@ -1,6 +1,3 @@
-# config/common_stereo.yaml
-# Common parameters to Stereolabs ZED Stereo cameras
-
 ---
 /**:
     ros__parameters:
