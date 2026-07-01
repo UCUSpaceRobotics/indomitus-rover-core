@@ -42,7 +42,7 @@ def generate_launch_description():
         launch_description_source=PythonLaunchDescriptionSource(navigation_launch_file_path),
         launch_arguments={
             "use_sim_time": "false",
-            "config_path": LaunchConfiguration("zed2i_config"),
+            "config_path": LaunchConfiguration("nav2_config"),
         }.items()
     )
 

@@ -142,7 +142,7 @@ def generate_launch_description():
         controller_manager,
         joint_state_broadcaster_spawner,
         swerve_controller_spawner,
-        odometry_controller_spawner,
+        # odometry_controller_spawner,
         # peripherals
         twist_mux_node,
         lighting_node,
