@@ -8,6 +8,11 @@ twist_mux:
         timeout: 0.5
         priority: 100
       
+      recovery:
+        topic:   "cmd_vel_recovery"
+        timeout: 1.0
+        priority: 75
+      
       nav2:
         topic:   "cmd_vel_nav"
         timeout: 1.0

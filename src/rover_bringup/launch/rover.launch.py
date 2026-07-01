@@ -104,12 +104,13 @@ def generate_launch_description():
         output='screen',
     )
 
-    odometry_controller_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['odometry_controller'],
-        output='screen',
-    )
+    # odometry_controller_spawner = Node(
+    #     package='controller_manager',
+    #     executable='spawner',
+    #     arguments=['odometry_controller'],
+    #     namespace='wheels',
+    #     output='screen',
+    # )
 
     lighting_node = Node(
         package='rover_peripherals',

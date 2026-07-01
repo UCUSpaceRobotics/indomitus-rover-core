@@ -82,11 +82,11 @@
     <origin xyz="-0.04 0 0.05" rpy="0 0 0"/>
   </joint>
 
-
-  <!-- ===================== CAMERA ===================== -->
-  <xacro:include filename="$(find rover_description)/urdf/camera.xacro"/>
-  <xacro:camera/>
-
+  <!-- ===================== ZED2i STEREO CAMERA ===================== -->
+  <xacro:include filename="$(find zed_wrapper)/urdf/zed_macro.urdf.xacro" />
+  <xacro:zed_camera name="zed2i" model="zed2i" parent="main_body_link">
+    <origin xyz="0.65 0 0.50" rpy="0 ${pi/12} 0"/>
+  </xacro:zed_camera>
 
   <!-- ===================== LEFT ROCKER ===================== -->
   <link name="l_rocker_link">
