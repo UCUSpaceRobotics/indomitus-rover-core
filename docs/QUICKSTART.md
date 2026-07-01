@@ -277,8 +277,6 @@ The results of each test run are compiled into an interactive dashboard. To acce
 6. **Scroll down** to view the complete test results and identify any specific failures.
 
 > **Note:** For further details on how to run tests locally or write your own test suites, refer to [testing.md](./testing.md).
-<<<<<<< HEAD
-<<<<<<< HEAD
 
 
 ---
@@ -352,7 +350,3 @@ Because ROS 2 is a distributed system, these tools are critical for verifying th
 | `ros2 interface show <type>` | Displays the internal structure and fields of a specific message, service, or action type. |
 | `ros2 param list` | Lists all configuration parameters available across the currently running nodes. |
 | `ros2 param get <node> <param>` | Retrieves the current value of a specific parameter on a specific node. |
-=======
->>>>>>> 83fb700 (Bugfix/shared/segmentation fault (#477))
-=======
->>>>>>> develop
