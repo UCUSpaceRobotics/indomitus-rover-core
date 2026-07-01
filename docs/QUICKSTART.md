@@ -2,27 +2,27 @@
 
 ## Table of Contents
 
-**Rover Usage**
-* [Starting the Jetson-Controlled Rover](#starting-the-jetson-controlled-rover)
-* [Starting the Laptop-Controlled Rover](#starting-the-laptop-controlled-rover)
-* [Turning Off the Rover](#turning-off-the-rover)
-* [Current System Credentials and Network Info](#current-system-credentials-and-network-info)
-* [SSH Access to the Jetson](#ssh-access-to-the-jetson)
-
-**Docker**
-* [Getting the Docker Image and Starting the Container](#getting-the-docker-image-and-starting-the-container)
-* [Start the Container and Build the Workspace](#start-the-container-and-build-the-workspace)
-* [Image Tags Architecture](#image-tags-architecture)
-
-**Scripts**
-* [Deployment Script](#deployment-script)
-* [Script to Enter Containers](#script-to-enter-containers)
-
-**Arm Usage**
-* [Starting the Arm in Simulation (Laptop)](#starting-the-arm-in-simulation-laptop)
-  * [Standalone Visualization](#standalone-visualization)
-  * [MoveIt Planning Simulation](#moveit-planning-simulation)
-  * [Fake Hardware vs. Real Hardware](#fake-hardware-vs-real-hardware)
+- [Rover Quickstart](#rover-quickstart)
+  - [Table of Contents](#table-of-contents)
+  - [Rover Usage](#rover-usage)
+    - [Starting the Jetson-Controlled Rover](#starting-the-jetson-controlled-rover)
+    - [Starting the Laptop-Controlled Rover](#starting-the-laptop-controlled-rover)
+    - [Turning Off the Rover](#turning-off-the-rover)
+    - [Current System Credentials and Network Info](#current-system-credentials-and-network-info)
+    - [SSH Access to the Jetson](#ssh-access-to-the-jetson)
+  - [Docker](#docker)
+    - [Getting the Docker Image](#getting-the-docker-image)
+    - [Start the Container and Build the Workspace](#start-the-container-and-build-the-workspace)
+    - [Image Tags](#image-tags)
+  - [Scripts](#scripts)
+    - [Deployment Script](#deployment-script)
+    - [Script to Enter Containers](#script-to-enter-containers)
+  - [Testing](#testing)
+  - [Arm Usage](#arm-usage)
+    - [Starting the Arm in Simulation (Laptop)](#starting-the-arm-in-simulation-laptop)
+      - [Standalone Visualization](#standalone-visualization)
+      - [MoveIt Planning Simulation](#moveit-planning-simulation)
+      - [Fake Hardware vs. Real Hardware](#fake-hardware-vs-real-hardware)
 
 
 ## Rover Usage
@@ -260,6 +260,26 @@ Enter the **remote** rover container:
 ```
 
 > **Note:** For further details, refer to [enter_container.md](./scripts/enter_container.md).
+
+
+---
+
+## Testing
+
+Currently, testing is fully automated via GitHub Actions.
+
+Tests run automatically whenever you open or update a Pull Request. To merge your PR into the `develop` or `main` branches, you must ensure that all functional tests have passed successfully.
+
+The results of each test run are compiled into an interactive dashboard. To access it, follow these steps:
+
+1. **Open your Pull Request** in GitHub.
+2. **Scroll down** to the workflow checks section at the bottom of the "Conversation" page.
+3. **Locate the job** named `PR Pipeline / run-tests (pull_request)`.
+4. **Click the three dots (`...`)** next to the job name, then select **View details**.
+5. **Select "Summary"** from the left-hand sidebar.
+6. **Scroll down** to view the complete test results and identify any specific failures.
+
+> **Note:** For further details on how to run tests locally or write your own test suites, refer to [testing.md](./testing.md).
 
 
 ---
