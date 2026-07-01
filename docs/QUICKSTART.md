@@ -23,16 +23,7 @@
   * [Standalone Visualization](#standalone-visualization)
   * [MoveIt Planning Simulation](#moveit-planning-simulation)
   * [Fake Hardware vs. Real Hardware](#fake-hardware-vs-real-hardware)
-* [Starting the Arm on the Jetson](#starting-the-arm-on-the-jetson)
-* [Turning Off the Arm](#turning-off-the-arm)
 
-**Important ROS 2 and Colcon Commands**
-* [Workspace Management (`colcon`)](#workspace-management-colcon)
-* [ROS 2 Execution](#ros-2-execution)
-* [Network Introspection & Debugging](#network-introspection--debugging)
-
-**Testing**
-* [Testing](#testing)
 
 ## Rover Usage
 
@@ -344,79 +335,3 @@ The `arm_macro.xacro` model exposes a `use_fake_hardware` xacro argument that co
 Because `mock_components/GenericSystem` reports back whatever position it was just told to move
 to, it does **not** validate motor dynamics, CAN latency, encoder noise, or mechanical limits like
 backlash or sag — only the kinematic/geometric correctness of a trajectory is verified.
-
-### Starting the Arm on the Jetson
-
-Follow these steps to power on and operate the robotic arm:
-
-1. **Power on the system:** Turn on the main power switch for the rover/arm payload.
-2. **Launch the core nodes:** Connect to the Jetson and start the hardware interface to enable CAN communication with the joint actuators.
-3. **Control the arm:** Launch the MoveIt Servo node or the custom Python control panel to send trajectory commands to the manipulator.
-
-### Turning Off the Arm
-
-To power down the arm safely, trigger the Emergency Stop (E-Stop) on the rover to immediately cut power to the actuators, or use the main power switch to turn off the Jetson and CAN bus network.
-
-
----
-
-
-## Important ROS 2 and Colcon Commands
-
-When developing and debugging, these are the most common commands you will use inside the Docker container.
-
-### Workspace Management (`colcon`)
-
-| Command | Description |
-|---|---|
-| `colcon build --symlink-install` | Builds the entire workspace. The symlink flag ensures changes to Python scripts take effect immediately. |
-| `colcon build --packages-select <package>` | Builds only the specifically named package, saving time. |
-| `colcon build --packages-select-regex "^arm_"` | Builds only arm packages. |
-| `colcon build --packages-select-regex "^rover_"` | Builds only rover packages. |
-| `rm -rf build/ install/ log/` | Completely cleans the workspace cache. |
-
-### ROS 2 Execution
-
-| Command | Description |
-|---|---|
-| `ros2 run <package> <executable>` | Starts a single, isolated node. |
-| `ros2 launch <package> <launch_file.py>` | Starts a complete subsystem. |
-| `ros2 launch rover_bringup rover.launch.py` | Starts the full rover control stack. |
-| `ros2 launch arm_bringup arm_standalone.launch.py` | Standalone RViz visualization of the arm with GUI sliders, no ros2_control or planning. |
-| `ros2 launch arm_moveit_config demo.launch.py` | Full MoveIt simulation of the arm with motion planning and RViz. |
-
-### Network Introspection & Debugging
-
-| Command | Description |
-|---|---|
-| `ros2 node list` | Lists all currently active nodes. |
-| `ros2 topic list` | Lists all active topics. |
-| `ros2 topic echo <topic>` | Streams live messages from a topic. |
-| `ros2 control list_controllers` | Displays active trajectory and hardware controllers. |
-| `ros2 topic echo /joint_states` | Shows the live angular positions and velocities of the arm joints. |
-| `ros2 topic hz /joint_states` | Calculates the publishing rate of the joint encoders. |
-| `ros2 param list` | Lists all configuration parameters available across the currently running nodes. |
-| `ros2 action list` | Lists active action servers, including MoveIt's `/move_action`. |
-| `ros2 action info /move_action` | Shows goal, result, and feedback types for the MoveIt planning action. |
-| `ros2 topic echo /display_planned_path` | Streams the planned trajectory as it is computed by `move_group`. |
-
-
----
-
-
-## Testing
-
-Currently, testing is fully automated via GitHub Actions.
-
-Tests run automatically whenever you open or update a Pull Request. To merge your PR into the `develop` or `main` branches, you must ensure that all functional tests have passed successfully.
-
-The results of each test run are compiled into an interactive dashboard. To access it, follow these steps:
-
-1. **Open your Pull Request** in GitHub.
-2. **Scroll down** to the workflow checks section at the bottom of the "Conversation" page.
-3. **Locate the job** named `PR Pipeline / run-tests (pull_request)`.
-4. **Click the three dots (`...`)** next to the job name, then select **View details**.
-5. **Select "Summary"** from the left-hand sidebar.
-6. **Scroll down** to view the complete test results and identify any specific failures.
-
-> **Note:** For further details on how to run tests locally or write your own test suites, refer to [testing.md](./testing.md).
