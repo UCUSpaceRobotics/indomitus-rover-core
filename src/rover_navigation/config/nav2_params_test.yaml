@@ -279,6 +279,8 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       transform_tolerance: 1.0
+      width: 30
+      height: 30
       footprint: "[[0.46, 0.45], [0.46, -0.45], [-0.46, -0.45], [-0.46, 0.45]]"
       resolution: 0.05
       track_unknown_space: true
