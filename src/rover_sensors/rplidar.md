@@ -84,15 +84,15 @@ Use only these modes, as they are the ones supported by the sensor and driver.
 | `channel_type`     | `serial`          | Communication type. For USB connection, keep this as `serial`. |
 | `serial_port`      | `/dev/ttyUSB0`    | Device path of the connected LiDAR.                            |
 | `serial_baudrate`  | `1000000`         | Serial baudrate. For RPLIDAR S2, this is usually `1000000`.    |
-| `frame_id`         | `laser_linkg`     | Frame name used in the published laser scan message.           |
+| `frame_id`         | `laser_link`      | Frame name used in the published laser scan message.           |
 | `inverted`         | `false`           | Inverts scan data direction if set to `true`.                  |
 | `angle_compensate` | `true`            | Enables angle compensation for scan data.                      |
 | `scan_mode`        | `DenseBoost`      | LiDAR scan mode.                                               |
 | `scan_frequency`   | `10.0`            | Requested scan frequency used by the upstream driver.          |
-| `tcp_ip`           | `192.168.0.7`     | Upstream TCP mode default. Usually unused for USB S2.           |
-| `tcp_port`         | `20108`           | Upstream TCP mode default. Usually unused for USB S2.           |
-| `udp_ip`           | `192.168.11.2`    | Upstream UDP mode default. Usually unused for USB S2.           |
-| `udp_port`         | `8089`            | Upstream UDP mode default. Usually unused for USB S2.           |
+| `tcp_ip`           | `192.168.0.7`     | Upstream TCP mode default. Usually unused for USB S2.          |
+| `tcp_port`         | `20108`           | Upstream TCP mode default. Usually unused for USB S2.          |
+| `udp_ip`           | `192.168.11.2`    | Upstream UDP mode default. Usually unused for USB S2.          |
+| `udp_port`         | `8089`            | Upstream UDP mode default. Usually unused for USB S2.          |
 
 ---
 

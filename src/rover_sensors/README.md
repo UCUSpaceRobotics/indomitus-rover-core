@@ -13,7 +13,7 @@ Currently supported sensors:
 
 | Sensor     | Node           | Launch file            | Status      |
 | ---------- | -------------- | ---------------------- | ----------- |
-| RPLIDAR S2 | `rplidar_node` | `rplidar_s2_launch.py` | Implemented |
+| RPLIDAR S2 | `rplidar_node` | `rplidar_s2.launch.py` | Implemented |
 
 ---
 
@@ -22,14 +22,6 @@ Currently supported sensors:
 From the ROS 2 workspace root:
 
 ```bash
-colcon build --packages-select rover_sensors
-source install/setup.bash
-```
-
-Example:
-
-```bash
-cd /workspace
 colcon build --packages-select rover_sensors
 source install/setup.bash
 ```
