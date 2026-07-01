@@ -1,6 +1,8 @@
 ARG UBUNTU_VERSION=22.04
 ARG ROS_DISTRO=humble
-ARG SIMULATION_PKGS="rover_sim rover_viz"
+
+# arm temporary added here to be ignored until the arm team fizes issue with the simulation and visualization dependencies
+ARG SIMULATION_PKGS="rover_sim rover_viz arm" 
 
 
 ####################
