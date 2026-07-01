@@ -20,18 +20,6 @@
     - [Script to Enter Containers](#script-to-enter-containers)
   - [Testing](#testing)
 
-**Docker**
-* [Getting the Docker Image and Starting the Container](#getting-the-docker-image-and-starting-the-container)
-* [Start the Container and Build the Workspace](#start-the-container-and-build-the-workspace)
-* [Image Tags Architecture](#image-tags-architecture)
-
-**Scripts**
-* [Deployment Script](#deployment-script)
-* [Script to Enter Containers](#script-to-enter-containers)
-
-**Testing**
-* [Testing](#testing)
-
 ## Rover Usage
 
 ### Starting the Jetson-Controlled Rover

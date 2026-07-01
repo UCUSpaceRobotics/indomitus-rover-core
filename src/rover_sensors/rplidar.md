@@ -130,6 +130,33 @@ sensor_msgs/msg/LaserScan
 
 ---
 
+# Setting up udev rules
+
+```bash
+sudo nano /etc/udev/rules.d/99-rplidar-s2.rules
+```
+
+```
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", SYMLINK+="rplidar-s2"
+```
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+4. Verify the Connection
+
+Check if the symlink was created successfully by running:
+
+```bash
+ls -l /dev/rplidar-s2
+```
+
+You should see an output showing that /dev/rplidar-s2 points to your actual USB port (e.g., -> ttyUSB0). The permissions string on the left should look like lrwxrwxrwx.
+
+---
+
 ## Common problems
 
 ### Permission denied for `/dev/ttyUSB0`
