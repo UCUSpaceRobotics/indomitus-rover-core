@@ -3,11 +3,22 @@
 ## Table of Contents
 
 **Rover Usage**
-* [Starting the Jetson-Controlled Rover](#starting-the-jetson-controlled-rover)
-* [Starting the Laptop-Controlled Rover](#starting-the-laptop-controlled-rover)
-* [Turning Off the Rover](#turning-off-the-rover)
-* [Current System Credentials and Network Info](#current-system-credentials-and-network-info)
-* [SSH Access to the Jetson](#ssh-access-to-the-jetson)
+- [Rover Quickstart](#rover-quickstart)
+  - [Table of Contents](#table-of-contents)
+  - [Rover Usage](#rover-usage)
+    - [Starting the Jetson-Controlled Rover](#starting-the-jetson-controlled-rover)
+    - [Starting the Laptop-Controlled Rover](#starting-the-laptop-controlled-rover)
+    - [Turning Off the Rover](#turning-off-the-rover)
+    - [Current System Credentials and Network Info](#current-system-credentials-and-network-info)
+    - [SSH Access to the Jetson](#ssh-access-to-the-jetson)
+  - [Docker](#docker)
+    - [Getting the Docker Image](#getting-the-docker-image)
+    - [Start the Container and Build the Workspace](#start-the-container-and-build-the-workspace)
+    - [Image Tags](#image-tags)
+  - [Scripts](#scripts)
+    - [Deployment Script](#deployment-script)
+    - [Script to Enter Containers](#script-to-enter-containers)
+  - [Testing](#testing)
 
 **Docker**
 * [Getting the Docker Image and Starting the Container](#getting-the-docker-image-and-starting-the-container)
@@ -277,76 +288,3 @@ The results of each test run are compiled into an interactive dashboard. To acce
 6. **Scroll down** to view the complete test results and identify any specific failures.
 
 > **Note:** For further details on how to run tests locally or write your own test suites, refer to [testing.md](./testing.md).
-
-
----
-
-
-## Project structure
-
-### ROS2 Packages Overview
-
-**(This overview currently is deprecated and need to be updated)**
-
-- `indomitus_interfaces` - package with all custom messages, services, actions
-- `rover_bringup` - package with main launch files and configs
-- `rover_description` - packages with meshes and everythin related to rover geometry, form, so on
-- `rover_chassis_driver` - package with nodes resposible for communication with motors via CAN bus
-    - `chassis_driver_node` - transforms WheelTargets msg into CAN bus frames for motors. Also it collects data from each motor about voltage, current, tempreture, so on.
-- `rover_control` - package with kinematics_node and everything that is related to movement control
-    - `rover_kinematics_node`
-    - `joystick_interpreter_node`
-    - `rover_odometry_node` (TODO)
-- `rover_peripherals` - package with nodes communicating with devices mounted to rover body
-    - `rover_container_node`
-    - `rover_lighting_node`
-- `rover_sim` - package with all stuff that is related to simulation
-    - `sim_chassis_driver_node` - takes data from /wheel_targets topic and moves wheels via ros2_control
-    - `sim_diff_bar_node` - nodes that simulates differential bar work
-- `rover_viz` - package with all stuff that is related to visualizations and rviz
-- `rover_navigation` - package with launch file and configs for the nodes utilized by Nav2 framework
-- `rover_lokalization` - package with launch files and configs for the nodes used for localization
-- `rover_sensors` - package with everything for the sensors (cameras, LiDAR, low level sensors)
-
-
----
-
-
-## Important ROS 2 and Colcon Commands
-
-When developing, testing, and debugging the rover, these are the most common and essential Command Line Interface (CLI) tools you will use inside the Docker container.
-
-### Workspace Management (`colcon`)
-
-These commands govern how the C++ and Python code in the `src/` directory is compiled and linked into the `install/` directory.
-
-| Command | Description |
-| --- | --- |
-| `colcon build --symlink-install` | Builds the entire workspace. The symlink flag ensures changes to Python scripts and launch files take effect immediately without requiring a rebuild. |
-| `colcon build --packages-select <package>` | Builds only the specifically named package (and ignores the rest), saving significant compilation time. |
-| `colcon test` | Executes all tests in the workspace. Add `--packages-select <package>` to test an isolated package. |
-| `rm -rf build/ install/ log/` | The standard, foolproof method to completely clean the workspace. Do this if you encounter strange cache or linking errors. |
-
-### Execution
-
-These commands start your actual robot logic. Always ensure you have run `source install/setup.bash` in your terminal before using them.
-
-| Command | Description |
-| --- | --- |
-| `ros2 run <package> <executable>` | Starts a single, isolated node. |
-| `ros2 launch <package> <launch_file.py>` | Starts a complete subsystem. Launch files automatically spin up multiple nodes, load parameters, and configure the network. |
-
-### Network Introspection & Debugging
-
-Because ROS 2 is a distributed system, these tools are critical for verifying that nodes are actually communicating with each other correctly.
-
-| Command | Description |
-| --- | --- |
-| `ros2 node list` | Displays all currently active nodes on the ROS 2 network. |
-| `ros2 node info <node_name>` | Shows the publishers, subscribers, services, and actions associated with a specific node. |
-| `ros2 topic list -t` | Displays all active topics along with their corresponding message types. |
-| `ros2 topic echo <topic_name>` | Prints the live data stream of a specific topic directly to your terminal. |
-| `ros2 topic hz <topic_name>` | Calculates and displays the publishing rate (frequency in Hertz) of a topic. |
-| `ros2 interface show <type>` | Displays the internal structure and fields of a specific message, service, or action type. |
-| `ros2 param list` | Lists all configuration parameters available across the currently running nodes. |
-| `ros2 param get <node> <param>` | Retrieves the current value of a specific parameter on a specific node. |
