@@ -1,21 +1,19 @@
 # Deployment Script (`deploy_to_rover.sh`)
 
-The `deploy_to_rover.sh` script automates the offline deployment pipeline for the Indomitus Rover. Because the Jetson is operated offline via a hotspot, this script bridges the gap by handling the heavy lifting on your local laptop, transferring the payload over the Wi-Fi hotspot, and spinning up the production container.
-
-The script ensures the `src/` directory is properly synced to the Jetson so the `../src` bind mount inside the production compose file resolves correctly.
+The `deploy_to_rover.sh` script automates the deployment pipeline for the Indomitus Rover. It bridges the gap between your local development environment and the Jetson, handling code synchronization, remote or local image building, and container orchestration over a local Wi-Fi hotspot or wired Ethernet connection.
 
 ## Requirements
 
-The script relies on an `.rsync-filter` file located in the same directory as the script. This file tells `rsync` which local folders and files (like `__pycache__/`, `.git/`, or `log/`) to ignore so they aren't accidentally transferred to the Jetson. The script will throw an error if this file is missing.
+The script relies on an `.rsync-filter-deploy` file located in the same directory as the script. This file tells `rsync` which local folders and files (like `__pycache__/`, `.git/`, or `log/`) to ignore so they aren't accidentally transferred to the Jetson. The script will throw an error if this file is missing.
 
 ## Running the Script
 
-Ensure your laptop is connected to a Wi-Fi network with internet access to build or download the image (for pull/build modes). Once the image is ready, the script will automatically attempt to connect to the Jetson hotspot for the transfer.
+Ensure your laptop is connected to Wi-Fi with internet access, the Jetson is turned on, and either its hotspot is active or you are connected to it via Ethernet.
 
-To run the script using the default configuration (Full Build Mode):
+To run the script, you must specify exactly one deployment mode:
 
 ```bash
-./scripts/deploy_to_rover.sh
+./scripts/deploy_to_rover.sh [MODE] [OPTIONS]
 ```
 
 ## Configuration Flags
@@ -24,65 +22,74 @@ The script is pre-configured with default values matching the standard repositor
 
 **Important:** All local file paths provided via flags **MUST** be relative to the root of the repository.
 
-### Action Modes
+### Action Modes (Required)
 
-* `--sync` : **SYNC ALL**: Syncs both local `src` and the compose file, safely restarts the container, and auto-compiles on the Jetson.
-* `--sync-src` : **SYNC SRC**: Syncs ONLY the local `src` directory and auto-compiles inside the *already running* container.
-* `--sync-docker-compose` : **SYNC COMPOSE**: Syncs ONLY the compose file and cleanly restarts the container.
-* `--pull` : **PULL MODE**: Pulls a pre-built image from GHCR (by branch or specific commit hash), clones clean code directly from GitHub, and transfers everything to the Jetson.
+* `remote-build` : **REMOTE BUILD**: Syncs the entire local repository to the Jetson, builds the image natively using Compose, and restarts the container.
+* `pull` : **PULL MODE**: Pulls a pre-built image from GHCR, intelligently extracts the exact commit SHA, clones clean code directly from GitHub, and transfers everything to the Jetson.
+* `sync-src` : **SYNC SRC**: Syncs ONLY the local `src/` directory and auto-compiles inside the *already running* container.
+* `sync-docker-compose` : **SYNC COMPOSE**: Syncs ONLY the compose file and cleanly restarts the container.
+* `local-build` : **LOCAL BUILD (Deprecated)**: Cross-compiles a new ARM64 image locally using QEMU emulators, packages it, transfers the payload, and spins it up.
 
 ### Options
 
-* `-i, --ip IP` : The Jetson IP address over the hotspot. (Default: `10.42.0.1`)
-* `-u, --user USER` : The Jetson SSH username. (Default: `indomitus-rover`)
-* `-d, --dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/indomitus-rover/indomitus-rover-core/`)
+* `--eth` : Use a wired Ethernet connection instead of the Wi-Fi hotspot.
+* `--ip IP` : The Jetson IP address. (Default: `10.42.0.1`)
+* `--user USER` : The Jetson SSH username. (Default: `indomitus-rover`)
+* `--dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/indomitus-rover/indomitus-rover-core/`)
 * `--image-name NAME` : The base Docker image name. (Default: `ghcr.io/ucuspacerobotics/indomitus-rover-core`)
-* `-t, --tag TAG` : The Docker image tag. For `--pull` mode, accepts `develop-prod`, `main-prod`, or a **commit SHA hash**. Otherwise, defaults to `local-prod` or `develop-prod` depending on the mode.
+* `--tag TAG` : The Docker image tag (e.g., `develop-prod`, `feature-shared-branch-prod`). The script automatically derives the GitHub branch and exact commit from this tag.
+* `--commit SHA` : Git commit SHA (7+ hex characters) to pull. Overrides `--tag` in `pull` mode.
 * `--container-name NAME`: The name of the Docker container on the Jetson. (Default: `rover_prod`)
-* `-f, --file FILE` : Path to the local Dockerfile. (Default: `docker/Dockerfile`)
-* `-c, --compose FILE` : Path to the Production Compose file. (Default: `docker/docker-compose.prod.yaml`)
-* `-w, --ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `IndomitusRover`)
-* `-p, --pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `12345678`)
+* `--dockerfile FILE` : Path to the local Dockerfile. (Default: `docker/Dockerfile`)
+* `--compose FILE` : Path to the Production Compose file. (Default: `docker/docker-compose.prod.yaml`)
+* `--ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `IndomitusRover`)
+* `--pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `12345678`)
 * `-h, --help` : Display the help message and exit.
 
-
 ---
-
 
 ## Deployment Strategies
 
 The script supports five distinct deployment strategies depending on your current development needs:
 
+### 1. Native Remote Build (`remote-build`)
 
-### 1. Rapid Source Sync (`--sync-src`)
+* **When to use:** You modified the `Dockerfile`, system dependencies, or want to test unpushed system-level changes safely.
+* **What it does:** Syncs your entire local repository to the Jetson, and natively builds the ARM64 image directly on the rover's hardware using Compose. This completely bypasses all local emulator bugs.
+* **Prerequisites:** The Jetson must have internet access. It must either be connected to a router via Ethernet cable, or your laptop must be connected to the Jetson via Ethernet with internet connection sharing/forwarding enabled.
 
-* **When to use:** You modified Python scripts, C++ nodes, or launch files and did *not* change the Docker configuration or the dependencies in `package.xml` files. Ideal for iterative, day-to-day testing of code logic.
+### 2. Pull & Bridge (`pull`)
+
+* **When to use:** You want to deploy a pre-built stable image and clean code directly from GitHub.
+* **What it does:** Uses your laptop's internet to pull the ARM64 image manifest from GHCR. It extracts the exact Git commit SHA from the image metadata, clones a fresh, clean copy of the `src/` code directly from the repository matching that commit, bypassing your local files entirely. It exports the image to an archive, securely transfers the clean codebase and infrastructure to the Jetson, and loads it.
+* **Pro-Tip: Offload Builds to GitHub Actions**
+You can build your images in the cloud instead of locally by utilizing GitHub Actions. First, push your branch to GitHub, navigate to the **Actions** tab, and select the **Publish Production And Development Images** workflow on the left. Click the **Run workflow** dropdown, choose your branch, and click the green button to trigger the cloud build. Once the build is successfully finished, you can deploy the new image to the Jetson using the script's pull mode. For example, use `--tag <branch-name>-prod` (ensuring any slashes in your branch name are replaced with dashes, like `--tag feature-shared-some-feature-prod`) to automatically deploy the image and the exact code commit on which that image was built.
+
+### 3. Rapid Source Sync (`sync-src`)
+
+* **When to use:** You only modified code (Python, C++, launch files) and did *not* change the Docker configuration or the dependencies in `package.xml` files. Ideal for iterative, day-to-day testing of code logic.
 * **What it does:** Bypasses Docker builds and restarts entirely. It transfers only your modified source code and triggers a `colcon build --symlink-install` directly inside the running container. Fastest mode.
 
-
-### 2. Infrastructure Sync (`--sync-docker-compose`)
+### 4. Infrastructure Sync (`sync-docker-compose`)
 
 * **When to use:** You only changed the `docker-compose.prod.yaml` file (e.g., adding a new volume mount, changing an environment variable, or updating device privileges) and do not need to sync source code or rebuild the container image.
 * **What it does:** Transfers the updated compose file to the Jetson and executes a safe `docker compose down` followed by `docker compose up -d --wait`.
 
+### 5. Local Cross-Compile (`local-build`) — ⚠️ DEPRECATED
 
-### 3. Full Sync (`--sync`)
+* **When to use:** There is no internet access on the Jetson and you cannot pull the image from GitHub for some reason.
+* **What it does:** Cross-compiles a brand new ARM64 image on your laptop using QEMU emulators, packages it into a `.tar` archive, syncs your local repository, transfers the heavy payload to the Jetson, and spins it up. Slowest mode.
 
-* **When to use:** You modified both your source code and your `docker-compose` configurations, but still don't need a heavy, from-scratch image rebuild.
-* **What it does:** Combines the two steps above. It syncs the `src` folder, syncs the compose file, tears down and safely restarts the container infrastructure, and finally executes the compilation step inside the fresh container.
-
-
-### 4. Pull & Bridge (`--pull`)
-
-* **When to use:** You want to deploy a pre-built image generated by GitHub workflows with stable code from a specific branch or commit, *without* deploying your laptop's dirty local workspace.
-* **What it does:** Uses your laptop's internet to resolve and pull the ARM64 image manifest from GHCR. It clones a fresh, clean copy of the `src/` code directly from the repository matching the requested tag, bypassing your local files entirely. It exports the image to a `.tar` archive, securely transfers the clean codebase, compose file, and archive to the Jetson, and loads the fresh infrastructure.
-* **Tag Options (`-t` or `--tag`):**
-  * `develop-prod` *(Default)*: Pulls the latest stable build from the `develop` branch.
-  * `main-prod`: Pulls the latest stable build from the `main` branch.
-  * `<commit-sha>`: Pulls the exact Docker image and source code for a specific commit. You must provide at least the first 7 characters of the hex hash (e.g., `a1b2c3d`).
-
-
-### 5. Full Image Build (Default: no flags)
-
-* **When to use:** You modified system dependencies, `package.xml` requirements, or the `Dockerfile` itself locally, and need a completely fresh system environment to test code that is not yet pushed to GitHub.
-* **What it does:** It cross-compiles a brand new ARM64 Docker image on the laptop. Then it packages the image, syncs your local `src/` folder and compose file, transfers the payload to the Jetson, loads the newly built image, prunes old dangling images, and spins up the new container infrastructure. Slowest mode.
+> ⚠️ **ATTENTION: QEMU SEGMENTATION FAULTS** ⚠️
+> When using `local-build`, you are highly likely to experience a segmentation fault during C++ compilation. This is an unresolved bug with QEMU memory translation.
+> To temporarily fix this, you **must** turn off virtual space randomization on your laptop before using `local-build`:
+> ```bash
+> sudo sysctl kernel.randomize_va_space=0
+> ```
+> 
+> **Turn it back on immediately after deployment:**
+> ```bash
+> sudo sysctl kernel.randomize_va_space=2
+> ```
+> 
+> *Note: You only need to do this only for the `local-build` mode.*
