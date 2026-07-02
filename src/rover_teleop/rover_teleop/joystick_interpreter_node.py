@@ -38,6 +38,49 @@ class ButtonToggle:
         self._prev_state = 0
 
 
+class GuardedCall:
+    def __init__(self, client):
+        self._client = client
+        self.pending = False
+
+    def call(self, request, on_done) -> bool:
+        if self.pending or not self._client.service_is_ready():
+            return False
+
+        self.pending = True
+
+        def _wrapped(future):
+            self.pending = False
+            on_done(future)
+
+        self._client.call_async(request).add_done_callback(_wrapped)
+        return True
+
+
+class BoolLight:
+    def __init__(self, node: Node, client, name: str):
+        self._node = node
+        self._guard = GuardedCall(client)
+        self.name = name
+        self.on = False
+
+    def toggle(self):
+        desired = not self.on
+        req = SetBool.Request()
+        req.data = desired
+        if self._guard.call(req, lambda f: self._on_result(f, desired)):
+            self.on = desired
+
+    def _on_result(self, future, desired: bool):
+        try:
+            response = future.result()
+        except Exception as exc:
+            self._node.get_logger().error(f'{self.name} service call failed: {exc!r}')
+            return
+        state = 'ON' if desired else 'OFF'
+        self._node.get_logger().info(f'{self.name} {state}: {response.message}')
+
+
 class JoystickInterpreterNode(Node):
 
     def __init__(self):
@@ -68,7 +111,6 @@ class JoystickInterpreterNode(Node):
 
         self._vy_enabled: bool = self.get_parameter('vy_enabled_default').value
         self._motors_enabled: bool = False
-        self._motor_toggle_pending: bool = False
 
         self._cmd_timeout: float = float(self.get_parameter('cmd_timeout').value)
         self._timeout_pub_rate: float = float(self.get_parameter('timeout_pub_rate').value)
@@ -78,30 +120,10 @@ class JoystickInterpreterNode(Node):
 
         self._compact_mode: bool = False
 
-        # Lights
-        self._spotlight_on  = False
-        self._beautiful_on  = False
-        self._traffic_red   = False
+        self._traffic_red    = False
         self._traffic_yellow = False
-        self._traffic_green = False
-        self._traffic_blue  = False
-
-        self._spotlight_pending = False
-        self._beautiful_pending = False
-        self._traffic_pending   = False
-
-        self._toggles = [
-            ButtonToggle(self.get_parameter('vy_toggle_button').value, self._on_vy_toggle_pressed),
-            ButtonToggle(self.get_parameter('motor_toggle_button').value, self._toggle_motors),
-            ButtonToggle(self.get_parameter('compact_mode_button').value, self._toggle_compact_mode),
-            ButtonToggle(self.get_parameter('granny_button').value, self._on_granny_toggle_pressed),
-            ButtonToggle(self.get_parameter('spotlight_button').value, self._toggle_spotlight),
-            ButtonToggle(self.get_parameter('beautiful_button').value, self._toggle_beautiful),
-            ButtonToggle(self.get_parameter('traffic_red_button').value, lambda: self._toggle_traffic('red')),
-            ButtonToggle(self.get_parameter('traffic_yellow_button').value, lambda: self._toggle_traffic('yellow')),
-            ButtonToggle(self.get_parameter('traffic_green_button').value, lambda: self._toggle_traffic('green')),
-            ButtonToggle(self.get_parameter('traffic_blue_button').value, lambda: self._toggle_traffic('blue')),
-        ]
+        self._traffic_green  = False
+        self._traffic_blue   = False
 
         self._raw_sub = self.create_subscription(
             Twist,
@@ -129,9 +151,29 @@ class JoystickInterpreterNode(Node):
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
         self._compact_mode_client = self.create_client(SetBool, '/swerve_controller/set_compact_mode')
 
-        self._spotlight_client = self.create_client(SetBool, '/lights/spotlight')
-        self._beautiful_client = self.create_client(SetBool, '/lights/beautiful')
-        self._traffic_client   = self.create_client(SetTrafficLight, '/lights/traffic_light')
+        self._spotlight = BoolLight(self, self.create_client(SetBool, '/lights/spotlight'), 'spotlight')
+        self._beautiful = BoolLight(self, self.create_client(SetBool, '/lights/beautiful'), 'beautiful')
+        self._traffic_client = self.create_client(SetTrafficLight, '/lights/traffic_light')
+
+        # GuardedCall gives every service-backed toggle the same
+        # in-flight/service-ready protection that used to be a hand-rolled
+        # `_*_pending` flag + `if pending or not ready: return` in each method.
+        self._motor_guard = GuardedCall(self._motor_enable_client)
+        self._compact_mode_guard = GuardedCall(self._compact_mode_client)
+        self._traffic_guard = GuardedCall(self._traffic_client)
+
+        self._toggles = [
+            ButtonToggle(self.get_parameter('vy_toggle_button').value, self._on_vy_toggle_pressed),
+            ButtonToggle(self.get_parameter('motor_toggle_button').value, self._toggle_motors),
+            ButtonToggle(self.get_parameter('compact_mode_button').value, self._toggle_compact_mode),
+            ButtonToggle(self.get_parameter('granny_button').value, self._on_granny_toggle_pressed),
+            ButtonToggle(self.get_parameter('spotlight_button').value, self._spotlight.toggle),
+            ButtonToggle(self.get_parameter('beautiful_button').value, self._beautiful.toggle),
+            ButtonToggle(self.get_parameter('traffic_red_button').value, lambda: self._toggle_traffic('red')),
+            ButtonToggle(self.get_parameter('traffic_yellow_button').value, lambda: self._toggle_traffic('yellow')),
+            ButtonToggle(self.get_parameter('traffic_green_button').value, lambda: self._toggle_traffic('green')),
+            ButtonToggle(self.get_parameter('traffic_blue_button').value, lambda: self._toggle_traffic('blue')),
+        ]
 
         self.get_logger().info(
             f'JoystickInterpreter started — '
@@ -215,16 +257,7 @@ class JoystickInterpreterNode(Node):
         return float(self.get_clock().now().nanoseconds) * 1e-9
 
     def _toggle_motors(self):
-        if self._motor_toggle_pending:
-            self.get_logger().warn('Motor toggle request is already in flight')
-            return
-
-        if not self._motor_enable_client.service_is_ready():
-            self.get_logger().warn('Motor enable service is not available yet')
-            return
-
         target_enabled = not self._motors_enabled
-        self._motor_toggle_pending = True
 
         request = SetHardwareComponentState.Request()
         request.name = 'RoverHardware'
@@ -232,21 +265,19 @@ class JoystickInterpreterNode(Node):
             State.PRIMARY_STATE_ACTIVE if target_enabled else State.PRIMARY_STATE_INACTIVE
         )
 
-        future = self._motor_enable_client.call_async(request)
-        future.add_done_callback(
-            lambda f, desired=target_enabled: self._on_motor_toggle_result(f, desired)
-        )
+        started = self._motor_guard.call(
+            request, lambda f: self._on_motor_toggle_result(f, target_enabled))
+        if not started:
+            self.get_logger().warn('Motor enable service busy or not available yet')
 
     def _toggle_compact_mode(self):
         target = not self._compact_mode
-        if not self._compact_mode_client.service_is_ready():
-            self.get_logger().warn('/set_compact_mode service not available')
-            return
         req = SetBool.Request()
         req.data = target
-        future = self._compact_mode_client.call_async(req)
-        future.add_done_callback(
-            lambda f, desired=target: self._on_compact_mode_result(f, desired))
+        started = self._compact_mode_guard.call(
+            req, lambda f: self._on_compact_mode_result(f, target))
+        if not started:
+            self.get_logger().warn('/set_compact_mode service busy or not available')
 
     def _on_compact_mode_result(self, future, desired: bool):
         try:
@@ -260,7 +291,6 @@ class JoystickInterpreterNode(Node):
             f'Compact mode {"ENABLED" if self._compact_mode else "DISABLED"}: {response.message}')
 
     def _on_motor_toggle_result(self, future, desired_state: bool):
-        self._motor_toggle_pending = False
         try:
             response = future.result()
         except Exception as exc:
@@ -293,51 +323,15 @@ class JoystickInterpreterNode(Node):
             lambda f: self.get_logger().info(
                 f'swerve_controller → {"active" if activate else "inactive"}'))
 
-    def _toggle_spotlight(self):
-        if self._spotlight_pending or not self._spotlight_client.service_is_ready():
-            return
-        self._spotlight_on = not self._spotlight_on
-        self._spotlight_pending = True
-        req = SetBool.Request()
-        req.data = self._spotlight_on
-        self._spotlight_client.call_async(req).add_done_callback(
-            lambda f: self._on_light_result(f, 'spotlight', self._spotlight_on,
-                                            '_spotlight_pending'))
-
-    def _toggle_beautiful(self):
-        if self._beautiful_pending or not self._beautiful_client.service_is_ready():
-            return
-        self._beautiful_on = not self._beautiful_on
-        self._beautiful_pending = True
-        req = SetBool.Request()
-        req.data = self._beautiful_on
-        self._beautiful_client.call_async(req).add_done_callback(
-            lambda f: self._on_light_result(f, 'beautiful', self._beautiful_on,
-                                            '_beautiful_pending'))
-
     def _send_traffic(self):
-        if self._traffic_pending or not self._traffic_client.service_is_ready():
-            return
-        self._traffic_pending = True
         req = SetTrafficLight.Request()
         req.red    = self._traffic_red
         req.yellow = self._traffic_yellow
         req.green  = self._traffic_green
         req.blue   = self._traffic_blue
-        self._traffic_client.call_async(req).add_done_callback(
-            lambda f: self._on_traffic_result(f))
-
-    def _on_light_result(self, future, name: str, desired: bool, pending_attr: str):
-        setattr(self, pending_attr, False)
-        try:
-            response = future.result()
-            state = 'ON' if desired else 'OFF'
-            self.get_logger().info(f'{name} {state}: {response.message}')
-        except Exception as exc:
-            self.get_logger().error(f'{name} service call failed: {exc!r}')
+        self._traffic_guard.call(req, self._on_traffic_result)
 
     def _on_traffic_result(self, future):
-        self._traffic_pending = False
         try:
             response = future.result()
             self.get_logger().info(f'traffic_light: {response.message}')
