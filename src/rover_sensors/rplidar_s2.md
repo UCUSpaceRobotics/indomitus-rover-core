@@ -32,7 +32,7 @@ The launched executable is `sllidar_node`, but the node is named `rplidar_node` 
 ### Default launch
 
 ```bash
-ros2 launch rover_sensors rplidar_s2_launch.py
+ros2 launch rover_sensors rplidar_s2.launch.py
 ```
 
 By default, the launch file reads:
