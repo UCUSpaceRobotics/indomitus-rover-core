@@ -84,9 +84,14 @@
 
   <!-- ===================== ZED2i STEREO CAMERA ===================== -->
   <xacro:include filename="$(find zed_wrapper)/urdf/zed_macro.urdf.xacro" />
-  <xacro:zed_camera name="zed2i" model="zed2i" parent="main_body_link">
-    <origin xyz="0.65 0 0.50" rpy="0 ${pi/12} 0"/>
-  </xacro:zed_camera>
+  <xacro:zed_camera name="zed2i" model="zed2i"/>
+
+  <joint name="zed2i_base_joint" type="fixed">
+    <parent link="main_body_link"/>
+    <child link="zed2i_camera_link"/>
+    
+    <origin xyz="0.65 0 0.08" rpy="0 ${pi/12} 0"/>
+  </joint>
 
   <!-- ===================== LEFT ROCKER ===================== -->
   <link name="l_rocker_link">
