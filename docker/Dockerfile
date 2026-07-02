@@ -73,7 +73,7 @@ RUN mkdir -p src/zed-ros2-wrapper \
 RUN find src -name ".git" -type d -prune -exec rm -rf '{}' + \
     && find src -name ".gitignore" -type f -delete \
     && find src -name ".gitmodules" -type f -delete \
-    && find src -name ".github" -type f -delete
+    && find src -name ".github" -type d -prune -exec rm -rf '{}' +
 
 RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
     && rm -rf /var/lib/apt/lists/*
@@ -193,7 +193,7 @@ COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
 ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
 
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build"
+RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && colcon build"
 
 RUN rm -rf ${WS}/log/
 
