@@ -43,7 +43,7 @@ For convenience the passwordless ssh connection may be set up. To do it run thes
 3. Copy the public key to the Jetson (you will be prompted for the Jetson password one last time):
 
    ```bash
-   ssh-copy-id ros@10.42.0.1
+   ssh-copy-id indomitus-rover@10.42.0.1
    ```
 
 Now you can run `ssh <username>@10.42.0.1` and connect automatically without a password.
