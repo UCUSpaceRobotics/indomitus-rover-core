@@ -35,6 +35,7 @@
   <depend>robot_state_publisher</depend>
   
   <!-- ROS2 Control -->
+  <exec_depend>gz_ros2_control</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   
   <!-- Simulation -->
