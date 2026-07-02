@@ -77,7 +77,7 @@ RUN mkdir -p src/zed-ros2-description \
     && cd src/zed-ros2-description \
     && git init \
     && git remote add origin ${ZED_DESCRIPTION_REPOSITORY} \
-    && git fetch --depth 1 origin ${ZED_DESCRIPTION_REPOSITORY} \
+    && git fetch --depth 1 origin ${ZED_DESCRIPTION_COMMIT} \
     && git checkout FETCH_HEAD \
     && git submodule update --init --recursive
 
