@@ -14,10 +14,10 @@ def generate_launch_description():
     ])
 
     zed2i_config_path = PathJoinSubstitution([
-        FindPackageShare("rover_sensors", "config", "zed2i_test.yaml")
+        FindPackageShare("rover_sensors"), "config", "zed2i_test.yaml"
     ])
     nav2_config_path = PathJoinSubstitution([
-        FindPackageShare("rover_navigation", "config", "nav2_params_test.yaml")
+        FindPackageShare("rover_navigation"), "config", "nav2_params_test.yaml"
     ])
 
     zed2i_config_argument = DeclareLaunchArgument(
