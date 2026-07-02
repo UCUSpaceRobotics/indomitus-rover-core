@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
@@ -7,10 +7,10 @@ from launch.actions import DeclareLaunchArgument
 
 def generate_launch_description():
     zed2i_launch_file_path = PathJoinSubstitution([
-        FindPackageShare("rover_sensors", "launch", "zed2i.launch.py")
+        FindPackageShare("rover_sensors"), "launch", "zed2i.launch.py"
     ])
     navigation_launch_file_path = PathJoinSubstitution([
-        FindPackageShare("rover_navigation", "launch", "navigation_test.launch.py")
+        FindPackageShare("rover_navigation"), "launch", "navigation_test.launch.py"
     ])
 
     zed2i_config_path = PathJoinSubstitution([
@@ -46,9 +46,14 @@ def generate_launch_description():
         }.items()
     )
 
+    delayed_nav2_launch = TimerAction(
+        period=15.0,
+        actions=[nav2_launch_file]
+    )
+
     return LaunchDescription([
         zed2i_config_argument,
         nav2_config_argument,
         zed2i_launch_file,
-        nav2_launch_file,
+        delayed_nav2_launch,
     ])

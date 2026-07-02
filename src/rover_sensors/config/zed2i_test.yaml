@@ -37,7 +37,7 @@
             optional_opencv_calibration_file: '' # Optional path where the ZED SDK can find a file containing the calibration information of the camera computed by OpenCV. Read the ZED SDK documentation for more information: https://www.stereolabs.com/docs/api/structsl_1_1InitParameters.html#a9eab2753374ef3baec1d31960859ba19
             async_image_retrieval: false # If set to true will camera image retrieve at a framerate different from \ref grab() application framerate. This is useful for recording SVO or sending camera stream at different rate than application.
             publish_status: true # Advertise the status topics that are published only if a node subscribes to them
-            sdk_use_monotonic_clock: false # [SDK >= 5.3] Use sl::TIMESTAMP_CLOCK::MONOTONIC_CLOCK so SDK timestamps are immune to host clock steps (NTP/PTP). Process-wide; first node in a composition wins. When true and 'use_pub_timestamps' is false, an offset captured at camera open keeps Header.stamp ROS-epoch-shaped while inter-frame deltas remain monotonic across system clock steps that happen after open.
+            sdk_use_monotonic_clock: true # [SDK >= 5.3] Use sl::TIMESTAMP_CLOCK::MONOTONIC_CLOCK so SDK timestamps are immune to host clock steps (NTP/PTP). Process-wide; first node in a composition wins. When true and 'use_pub_timestamps' is false, an offset captured at camera open keeps Header.stamp ROS-epoch-shaped while inter-frame deltas remain monotonic across system clock steps that happen after open.
 
         video:
             brightness: 4 # [DYNAMIC] Image brightness. Range: 0-8
@@ -196,7 +196,7 @@
         debug:
             sdk_verbose: 1 # Set the verbose level of the ZED SDK
             sdk_verbose_log_file: '' # Path to the file where the ZED SDK will log its messages. If empty, no file will be created. The log level can be set using the `sdk_verbose` parameter.
-            use_pub_timestamps: false # Use the current ROS time for the message timestamp instead of the camera timestamp. This is useful to test data communication latency.
+            use_pub_timestamps: true # Use the current ROS time for the message timestamp instead of the camera timestamp. This is useful to test data communication latency.
             debug_common: false # Enable/Disable the printing of debug messages related to the common parameters and functionalities
             debug_dyn_params: false # Enable/Disable the printing of debug messages related to dynamic parameters updates
             debug_grab: false # Enable/Disable the printing of debug messages related to the grab function and thread

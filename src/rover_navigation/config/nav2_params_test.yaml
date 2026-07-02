@@ -9,7 +9,7 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
-    odom_topic: /zed/zed_node/odom
+    odom_topic: /zed2i/zed_node/odom
     bt_loop_duration: 20
     default_server_timeout: 20
     transform_tolerance: 1.0
@@ -45,7 +45,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 20.0
+    controller_frequency: 10.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
@@ -74,9 +74,9 @@ controller_server:
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 56
-      model_dt: 0.05
-      batch_size: 2000
-      iteration_count: 2
+      model_dt: 0.1
+      batch_size: 1000
+      iteration_count: 1
       vx_std: 0.2
       vy_std: 0.05
       wz_std: 0.2
@@ -255,8 +255,8 @@ local_costmap:
         mark_threshold: 0
         observation_sources: zed_pointcloud
         zed_pointcloud:
-          topic: /zed/zed_node/point_cloud/cloud_registered
-          sensor_frame: zed_left_camera_frame
+          topic: /zed2i/zed_node/point_cloud/cloud_registered
+          sensor_frame: zed2i_left_camera_frame
           data_type: "PointCloud2"
           max_obstacle_height: 2.0
           min_obstacle_height: 0.0
@@ -294,8 +294,8 @@ global_costmap:
         enabled: true
         observation_sources: zed_pointcloud
         zed_pointcloud:
-          topic: /zed/zed_node/point_cloud/cloud_registered
-          sensor_frame: zed_left_camera_frame
+          topic: /zed2i/zed_node/point_cloud/cloud_registered
+          sensor_frame: zed2i_left_camera_frame
           max_obstacle_height: 2.0
           min_obstacle_height: 0.0
           clearing: true

@@ -27,6 +27,8 @@ def generate_launch_description():
         launch_description_source=PythonLaunchDescriptionSource(child_launch_file_path),
         launch_arguments={
             "camera_model": CAMERA_MODEL,
+            "camera_name": CAMERA_MODEL,
+            "publish_urdf": "false",
             "ros_params_override_path": LaunchConfiguration("config_path"),
         }.items()
     )
