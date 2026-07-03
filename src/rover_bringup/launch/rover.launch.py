@@ -82,7 +82,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=[{
             'interface': LaunchConfiguration('interface'),
             'interval_sec': 0.01,
-            # candump-синтаксис: id:mask (hex, without 0x).
+            # candump-syntax: id:mask (hex, without 0x).
             # Pass only 0x300-0x3FF (ESP),
             # all other ids are filtered out.
             # example: 'filters': '300:700,400:700',
