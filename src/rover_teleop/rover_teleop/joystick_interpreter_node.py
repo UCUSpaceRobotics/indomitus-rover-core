@@ -3,6 +3,8 @@
 Joystick Interpreter Node.
 """
 
+from urllib import response
+
 import rclpy
 from rclpy.node import Node
 
@@ -68,8 +70,8 @@ class BoolLight:
         desired = not self.on
         req = SetBool.Request()
         req.data = desired
-        if self._guard.call(req, lambda f: self._on_result(f, desired)):
-            self.on = desired
+        if not self._guard.call(req, lambda f: self._on_result(f, desired)):
+            self._node.get_logger().warn(f'{self.name} service busy or not available')
 
     def _on_result(self, future, desired: bool):
         try:
@@ -77,6 +79,10 @@ class BoolLight:
         except Exception as exc:
             self._node.get_logger().error(f'{self.name} service call failed: {exc!r}')
             return
+        
+        if response.success:
+            self.on = desired
+
         state = 'ON' if desired else 'OFF'
         self._node.get_logger().info(f'{self.name} {state}: {response.message}')
 
@@ -203,9 +209,23 @@ class JoystickInterpreterNode(Node):
         self._granny_mode = not self._granny_mode
 
     def _toggle_traffic(self, color: str):
-        attr = f'_traffic_{color}'
-        setattr(self, attr, not getattr(self, attr))
-        self._send_traffic()
+        desired = not getattr(self, f'_traffic_{color}')
+
+        req = SetTrafficLight.Request()
+        req.red = self._traffic_red
+        req.yellow = self._traffic_yellow
+        req.green = self._traffic_green
+        req.blue = self._traffic_blue
+
+        setattr(req, color, desired)
+
+        started = self._traffic_guard.call(
+            req,
+            lambda f: self._on_traffic_result(f, color, desired),
+        )
+
+        if not started:
+            self.get_logger().warn('traffic_light service busy or not available')
 
     def _on_raw_cmd_vel(self, msg: Twist):
         self._last_twist_time = self._now_seconds()
@@ -323,20 +343,17 @@ class JoystickInterpreterNode(Node):
             lambda f: self.get_logger().info(
                 f'swerve_controller → {"active" if activate else "inactive"}'))
 
-    def _send_traffic(self):
-        req = SetTrafficLight.Request()
-        req.red    = self._traffic_red
-        req.yellow = self._traffic_yellow
-        req.green  = self._traffic_green
-        req.blue   = self._traffic_blue
-        self._traffic_guard.call(req, self._on_traffic_result)
-
-    def _on_traffic_result(self, future):
+    def _on_traffic_result(self, future, color: str, desired: bool):
         try:
             response = future.result()
-            self.get_logger().info(f'traffic_light: {response.message}')
         except Exception as exc:
             self.get_logger().error(f'traffic_light service call failed: {exc!r}')
+            return
+
+        if response.success:
+            setattr(self, f'_traffic_{color}', desired)
+
+        self.get_logger().info(f'traffic_light: {response.message}')
 
     def _apply_swerve_wz_correction(
         self, vx: float, vy: float, wz: float

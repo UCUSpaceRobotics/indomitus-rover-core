@@ -85,7 +85,8 @@ def launch_setup(context, *args, **kwargs):
             # candump-синтаксис: id:mask (hex, without 0x).
             # Pass only 0x300-0x3FF (ESP),
             # all other ids are filtered out.
-            'filters': '300:700,400:700',
+            # example: 'filters': '300:700,400:700',
+            'filters': '300:700',
         }],
         output='screen',
     )
