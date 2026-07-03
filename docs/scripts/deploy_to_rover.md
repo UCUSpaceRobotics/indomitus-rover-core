@@ -101,4 +101,4 @@ You can build your images in the cloud instead of locally by utilizing GitHub Ac
 
 For faster file transfers, we recommend connecting your laptop to the Jetson via Ethernet (if possible). To use this method, connect the cable and append the `--eth` flag when running the script.
 
-> Note: Your laptop requires additional setup before you can use Ethernet mode. To do this, refer to the...
+> Note: Your laptop requires additional setup before you can use Ethernet mode. To do this, refer to the section **Laptop Setup** in the [ssh.md](./networking/ssh.md)
