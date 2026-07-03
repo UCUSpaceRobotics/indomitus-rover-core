@@ -6,7 +6,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    device_path = LaunchConfiguration('device_path')
+    joy_dev = LaunchConfiguration('joy_dev')
     deadzone = LaunchConfiguration('deadzone')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
@@ -18,13 +18,13 @@ def generate_launch_description():
     ])
 
     joy_node = Node(
-        package='joy_linux',
-        executable='joy_linux_node',
+        package='joy',
+        executable='game_controller_node',
         name='joy_node',
         output='screen',
         parameters=[{
-            'device_path': device_path,
-            'deadzone': deadzone,
+            'dev': joy_dev,
+            'deadzone': 0.05,
             'autorepeat_rate': autorepeat_rate,
         }],
         respawn=True,
@@ -54,9 +54,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'device_path',
+            'joy_dev',
             default_value='/dev/input/js0',
-            description='Joystick device pathy'
+            description='Joystick device path'
         ),
         DeclareLaunchArgument(
             'deadzone',

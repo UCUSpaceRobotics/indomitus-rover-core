@@ -12,17 +12,16 @@ teleop_node:
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 3 # Right stick horizontal (rotation clockwise/counterclockwise). 3 for ubuntu 22.04, 2 for ubuntu 24.04
-      # 2 for jetson
+      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise)
     scale_angular:
       yaw: 1.0
 
 joystick_interpreter:
   ros__parameters:
-    vy_toggle_button: 8 # Share button
-    motor_toggle_button: 9 # Options button
+    vy_toggle_button: 4 # Share button
+    motor_toggle_button: 6 # Options button
     vy_enabled_default: false
     cmd_timeout: 0.5
     timeout_pub_rate: 10.0
     initial_timed_out: true
-    compact_mode_button: 2
+    compact_mode_button: 1
