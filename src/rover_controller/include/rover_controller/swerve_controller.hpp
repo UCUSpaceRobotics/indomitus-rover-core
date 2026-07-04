@@ -137,7 +137,8 @@ public:
 
         if (state_ != RoverState::TRANSIT) {
         if (desired_dest != state_) {
-            enter_transit(desired_angles, desired_dest, logger);
+            const RoverState prev = state_;
+            enter_transit(desired_angles, desired_dest, logger, prev);
         }
         } else {
         // Update target continuously while already in transit
@@ -213,7 +214,7 @@ public:
     void force_transit(const WheelData & target, rclcpp::Logger * logger = nullptr)
     {
         if (state_ != RoverState::TRANSIT) {
-            enter_transit(target, RoverState::NORMAL, logger);
+            enter_transit(target, RoverState::NORMAL, logger, state_);
         } else {
             // Already in transit — just update target
             transit_target_ = target;
@@ -224,7 +225,8 @@ private:
     void enter_transit(
         const WheelData & target,
         RoverState dest,
-        rclcpp::Logger * logger)
+        rclcpp::Logger * logger, 
+        RoverState prev)
     {
         state_            = RoverState::TRANSIT;
         transit_dest_     = dest;
@@ -232,7 +234,8 @@ private:
         transit_stopping_ = true;
 
         if (logger) {
-            RCLCPP_INFO(*logger, "[SwerveController] TRANSIT → %s", state_name(dest));
+            RCLCPP_INFO(*logger, "[SwerveController] %s → TRANSIT (target %s)",
+                    state_name(prev), state_name(dest));
         }
     }
 
