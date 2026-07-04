@@ -55,6 +55,9 @@ ARG RPLIDAR_COMMIT="34300099fadfc772965962dec837bf436706188f"
 ARG ZED_WRAPPER_REPOSITORY="https://github.com/stereolabs/zed-ros2-wrapper.git"
 ARG ZED_WRAPPER_COMMIT="6545933af94d70922881654e6fb29d95e3a8f14f"
 
+ARG ZED_DESCRIPTION_REPOSITORY="https://github.com/stereolabs/zed-ros2-description.git"
+ARG ZED_DESCRIPTION_COMMIT="449eef9566a49461cc37d6ac13230fe2886ff2be"
+
 RUN mkdir -p src/sllidar_ros2 \
     && cd src/sllidar_ros2 \
     && git init \
@@ -67,6 +70,14 @@ RUN mkdir -p src/zed-ros2-wrapper \
     && git init \
     && git remote add origin ${ZED_WRAPPER_REPOSITORY} \
     && git fetch --depth 1 origin ${ZED_WRAPPER_COMMIT} \
+    && git checkout FETCH_HEAD \
+    && git submodule update --init --recursive
+
+RUN mkdir -p src/zed-ros2-description \
+    && cd src/zed-ros2-description \
+    && git init \
+    && git remote add origin ${ZED_DESCRIPTION_REPOSITORY} \
+    && git fetch --depth 1 origin ${ZED_DESCRIPTION_COMMIT} \
     && git checkout FETCH_HEAD \
     && git submodule update --init --recursive
 
