@@ -136,18 +136,15 @@ RoverOdometryController::update(
 
     // Skip integration on the very first cycle — we only have one snapshot.
     if (first_update_) {
-        bool any_nonzero = false;
-        for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
-            if (std::abs(drive_pos[i]) > 1e-6) { any_nonzero = true; break; }
-        }
-
         for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
             prev_drive_pos_[i] = drive_pos[i];
         }
+        first_update_ = false;
 
-        if (any_nonzero) {
-            first_update_ = false;
-        }
+        // Publish the initial pose immediately (rover starts at rest at the
+        // origin) so /odom and odom->base_link exist as soon as the controller
+        // activates, before any motion occurs.
+        publish_odom(0.0, 0.0, 0.0, time);
         return controller_interface::return_type::OK;
     }
 
