@@ -40,6 +40,7 @@ services:
       - SDL_AUDIODRIVER=dummy
     volumes:
       - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
+      - /dev:/dev:rw
+      - /run/udev:/run/udev:ro
       - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
       - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
-      - /run/udev:/run/udev:ro
