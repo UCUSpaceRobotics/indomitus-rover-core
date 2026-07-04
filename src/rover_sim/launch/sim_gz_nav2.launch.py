@@ -234,6 +234,12 @@ def generate_launch_description() -> LaunchDescription:
                     arguments=['swerve_controller'],
                     output='screen',
                 ),
+                Node(
+                    package='controller_manager',
+                    executable='spawner',
+                    arguments=['odometry_controller'],
+                    output='screen',
+                ),
             ],
         ),
     ])
