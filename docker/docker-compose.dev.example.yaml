@@ -10,6 +10,7 @@ services:
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
     container_name: rover_dev
+    privileged: true
     network_mode: host
     cap_add:
       - NET_ADMIN
@@ -36,3 +37,4 @@ services:
       - ./src:/opt/ws/src:rw
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /dev/input:/dev/input:rw
+      - /run/udev:/run/udev:ro
