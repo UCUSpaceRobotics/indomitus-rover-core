@@ -48,11 +48,11 @@
     </collision>
   </link>
 
-  <joint name="suspension_base_axii_joint" type="fixed">
-    <parent link="base_link"/>
-    <child link="suspension_base_axii_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-  </joint>
+<joint name="suspension_base_axii_joint" type="fixed">
+  <parent link="suspension_base_axii_link"/>
+  <child link="base_link"/>
+  <origin xyz="0 0 0" rpy="0 0 0"/>
+</joint>
 
   <!-- ===================== MAIN BODY ===================== -->
   <link name="main_body_link">
@@ -77,15 +77,24 @@
   </link>
 
   <joint name="main_body_joint" type="fixed">
-    <parent link="suspension_base_axii_link"/>
-    <child link="main_body_link"/>
-    <origin xyz="-0.04 0 0.05" rpy="0 0 0"/>
+    <parent link="main_body_link"/>
+    <child link="suspension_base_axii_link"/>
+    <origin xyz="0.04 0 -0.05" rpy="0 0 0"/>
   </joint>
 
+  <!-- ===================== ZED2i STEREO CAMERA ===================== -->
+  <xacro:include filename="$(find zed_description)/urdf/zed_macro.urdf.xacro" />
+  <xacro:zed_camera name="zed2i" model="zed2i">
+      <gnss_origin>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+      </gnss_origin>
+  </xacro:zed_camera>
 
-  <!-- ===================== CAMERA ===================== -->
-  <xacro:include filename="$(find rover_description)/urdf/camera.xacro"/>
-  <xacro:camera/>
+  <joint name="zed2i_base_joint" type="fixed">
+    <parent link="zed2i_camera_link"/>
+    <child link="main_body_link"/>
+    <origin xyz="-0.2915 0 -0.2644" rpy="0 ${-pi/12} 0"/>
+  </joint>
 
   <!-- ===================== LEFT ROCKER ===================== -->
   <link name="l_rocker_link">
