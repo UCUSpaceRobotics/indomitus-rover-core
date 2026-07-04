@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'keyboard_servo_node = arm_tasks.keyboard_servo_node:main',
         ],
     },
 )

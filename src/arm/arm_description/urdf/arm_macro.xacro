@@ -143,6 +143,24 @@
     <!-- TCP (Tool Center Point) is a virtual point -->
     <link name="arm_tcp_link"/>
 
+    <!-- Camera mounted on wrist_2 -->
+    <joint name="arm_camera_joint" type="fixed">
+      <parent link="arm_wrist_2_link"/>
+      <child link="arm_camera_link"/>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <link name="arm_camera_link">
+      <visual>
+        <geometry>
+          <box size="0.06 0.06 0.03"/>
+        </geometry>
+        <material name="camera_blue">
+          <color rgba="0.0 0.0 1.0 1.0"/>
+        </material>
+      </visual>
+    </link>
+
     <!-- ROS 2 Control Configuration -->
     <ros2_control name="ArmSystem" type="system">
       <hardware>
