@@ -9,6 +9,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     arm_description_dir = get_package_share_directory('arm_description')
+    arm_viz_dir = get_package_share_directory('arm_viz')
     xacro_file = os.path.join(arm_description_dir, 'urdf', 'arm_standalone.urdf.xacro')
 
     use_fake_hardware_arg = DeclareLaunchArgument(
@@ -39,6 +40,6 @@ def generate_launch_description():
         Node(
             package='rviz2',
             executable='rviz2',
-            arguments=['-d', os.path.join(arm_description_dir, 'rviz', 'arm.rviz')]
+            arguments=['-d', os.path.join(arm_viz_dir, 'rviz', 'arm.rviz')]
         )
     ])
