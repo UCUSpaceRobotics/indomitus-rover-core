@@ -15,7 +15,7 @@ joystick_interpreter:
     
     # --- GRANNY MODE ---
     granny_speed_scale: 0.1
-    granny_button: 10
+    granny_button: 0
 
     # --- VY (strafing) ---
     vy_enabled_default: false
@@ -25,15 +25,18 @@ joystick_interpreter:
     motor_toggle_button: 6   # Options button
     compact_mode_button: 1
 
+    active_toggle_button: 2
+    active_default: true
+
     # --- TIMEOUT / PUBLISH RATE ---
-    cmd_timeout: 0.5
-    timeout_pub_rate: 10.0
+    cmd_timeout: 0.1
+    timeout_pub_rate: 20.0
     initial_timed_out: true
     cmd_pub_rate: 20.0
 
     # --- LIGHTS ---
-    spotlight_button: 4   # L1
-    beautiful_button: 5   # R1
+    spotlight_button: 9   # L1
+    beautiful_button: 10   # R1
 
     # --- TRAFFIC LIGHT ---
     traffic_red_button: 11      # ←

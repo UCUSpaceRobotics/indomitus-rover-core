@@ -112,6 +112,7 @@ class JoystickInterpreterNode(Node):
         self._timed_out = bool(declare_and_get('initial_timed_out', True))
 
         self._cmd_pub_rate = float(declare_and_get('cmd_pub_rate', 20.0))
+        self._active       =  bool(declare_and_get('active_default', True))
 
         self._last_joy_msg_time: float = 0.0
 
@@ -166,6 +167,7 @@ class JoystickInterpreterNode(Node):
             ButtonToggle(declare_and_get('traffic_yellow_button', 12), lambda: self._toggle_traffic('yellow')),
             ButtonToggle(declare_and_get('traffic_green_button',  13), lambda: self._toggle_traffic('green')),
             ButtonToggle(declare_and_get('traffic_blue_button',   14), lambda: self._toggle_traffic('blue')),
+            ButtonToggle(declare_and_get('active_toggle_button', 2), self._on_active_toggle_pressed),
         ]
 
         self.get_logger().info(
@@ -195,7 +197,7 @@ class JoystickInterpreterNode(Node):
         """Publish the latest known command at a fixed rate (default 20 Hz),
         regardless of how often /joy actually fires. Suppressed while timed out —
         _timeout_check takes over publishing zeros in that case."""
-        if self._timed_out:
+        if self._timed_out or not self._active:
             return
 
         vx = self.raw_vx
@@ -219,6 +221,8 @@ class JoystickInterpreterNode(Node):
 
     def _on_granny_toggle_pressed(self):
         self._granny_mode = not self._granny_mode
+        state_str = 'ENABLED' if self._granny_mode else 'DISABLED'
+        self.get_logger().info(f'granny mode: {state_str}')
 
     def _toggle_traffic(self, color: str):
         desired = not getattr(self, f'_traffic_{color}')
@@ -241,6 +245,9 @@ class JoystickInterpreterNode(Node):
 
     def _timeout_check(self):
         """Apply /joy freshness timeout and publish safe zero commands when stale."""
+        if not self._active:
+            return
+
         now = self._now_seconds()
         dt = now - self._last_joy_msg_time if self._last_joy_msg_time > 0.0 else float('inf')
 
@@ -257,6 +264,11 @@ class JoystickInterpreterNode(Node):
         out.linear.y = vy
         out.angular.z = wz
         self._cmd_vel_pub.publish(out)
+
+    def _on_active_toggle_pressed(self):
+        self._active = not self._active
+        state_str = 'ACTIVE (publishing to /cmd_vel)' if self._active else 'INACTIVE (yielding to nav)'
+        self.get_logger().info(f'Joystick control: {state_str}')
 
     def _now_seconds(self) -> float:
         return float(self.get_clock().now().nanoseconds) * 1e-9
