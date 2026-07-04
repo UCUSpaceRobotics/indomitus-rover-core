@@ -15,7 +15,7 @@ JETSON_IP="10.42.0.1"
 REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core"
 WIFI_SSID="IndomitusRover"
 WIFI_PASS="12345678"
-HOST_CONFIG_DIR="$REPO_ROOT/host_config"
+HOST_CONFIG_DIR="$REPO_ROOT/system"
 
 # HELPER FUNCTIONS
 success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }

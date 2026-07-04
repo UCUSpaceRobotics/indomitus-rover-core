@@ -52,3 +52,21 @@ ros2 launch rover_bringup can.launch.py interface:=can0
 | `receiver_interval_sec` | `0.01` | Polling interval for receiver socket |
 
 > **Note:** SocketCAN is Linux-only — will not work on macOS or Windows.
+
+## CAN Address Space
+
+The rover uses the **standard 11-bit CAN identifier** space (`0x000–0x7FF`).
+
+To simplify SocketCAN filtering and avoid ID collisions, CAN identifiers are reserved by prefix whenever possible.
+
+| CAN ID Range | Purpose |
+|--------------|---------|
+| `0x00A–0x011` | Motor ESC IDs |
+| `0x10A–0x111` | Motor position / angle communication |
+| `0x20A–0x210` | Damiao velocity commands |
+| `0x300–0x30F` | ESP32 lighting controller |
+| `0x7FF` | Damiao register read/write service |
+
+### Notes
+
+> ⚠️ Do **not** allocate IDs inside any reserved range!!! ⚠️

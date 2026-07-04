@@ -1,0 +1,17 @@
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - indomitus_arm_controller
+
+  indomitus_arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints:
+    - arm_mount_base_joint
+    - arm_base_shoulder_joint
+    - arm_shoulder_forearm_joint
+    - arm_forearm_wrist_1_joint
+    - arm_wrist_1_wrist_2_joint
+    - arm_wrist_2_end_effector_joint 
