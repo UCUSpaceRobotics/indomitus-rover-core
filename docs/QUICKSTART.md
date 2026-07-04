@@ -104,23 +104,30 @@ To power down the rover, perform **one** of the following actions:
 | **Jetson Password** | `1` |
 | **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
 | **Wi-Fi Password** | `12345678` |
-| **Jetson Static IP** | `10.42.0.1` |
+| **Jetson Static IP for Hotspot** | `10.42.0.1` |
 
 
 ### SSH Access to the Jetson
 
 You can SSH into the Jetson to access its bash shell for debugging or configuration. You can use either the Jetson's hotspot or an Ethernet cable.
 
+> **Note:** If you are prompted with a security fingerprint warning, type `yes` to continue. When asked for the password, enter `1`.
+
 #### SSH via Hotspot
 
 1. **Connect to the network:** Connect your computer to the Jetson's Wi-Fi hotspot (`IndomitusRover`) using the password `12345678`.
 
-2. **Initiate the connection:** Open your terminal and run the following command:
+2. **Initiate the connection:** Open your terminal and run one of the following commands:
+
+Either use ip addres:
 ```bash
 ssh indomitus-rover@10.42.0.1
 ```
 
-3. **Authenticate:** If prompted with a security fingerprint warning, type `yes` to continue. When asked for the password, enter `1`.
+or automatic ip resolution:
+```bash
+ssh indomitus-rover@indomitus-rover-computer.local
+```
 
 #### SSH via Ethernet
 
@@ -131,7 +138,6 @@ ssh indomitus-rover@10.42.0.1
 3. Click the Network icon in your laptop's taskbar and select **Jetson Tether** profile.
 
 4. **Initiate the connection:** Open your terminal and run the following command:
-
 ```bash
 ssh indomitus-rover@indomitus-rover-computer.local
 ```

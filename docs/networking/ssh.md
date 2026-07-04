@@ -26,10 +26,16 @@ SSH is a very useful tool to remotely access the Jetson on the rover, enter the 
 
 1. Connect your laptop to the `IndomitusRover` Wi-Fi network with the password `12345678`.
 
-2. Run the command to SSH into the Jetson:
+2. Run one of the following commands to SSH into the Jetson:
 
+Either use ip addres:
 ```bash
 ssh indomitus-rover@10.42.0.1
+```
+
+or automatic ip resolution:
+```bash
+ssh indomitus-rover@indomitus-rover-computer.local
 ```
 
 
