@@ -24,7 +24,7 @@ services:
     stdin_open: true
     tty: true
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$TARGET_ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
       interval: 10s
       timeout: 5s
       retries: 3
