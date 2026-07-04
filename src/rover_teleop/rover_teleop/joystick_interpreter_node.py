@@ -228,8 +228,6 @@ class JoystickInterpreterNode(Node):
             self.get_logger().warn('traffic_light service busy or not available')
 
     def _on_raw_cmd_vel(self, msg: Twist):
-        self._last_twist_time = self._now_seconds()
-
         if self._timed_out:
             return
 
@@ -248,11 +246,7 @@ class JoystickInterpreterNode(Node):
             vy *= self._granny_scale
             wz *= self._granny_scale
 
-        out = Twist()
-        out.linear.x = vx
-        out.linear.y = vy
-        out.angular.z = wz
-        self._cmd_vel_pub.publish(out)
+        self._publish_cmd(vx, vy, wz)
 
     def _timeout_check(self):
         """Apply /joy freshness timeout and publish safe zero commands when stale."""
@@ -264,13 +258,13 @@ class JoystickInterpreterNode(Node):
                 self._timed_out = True
                 self.get_logger().warn('Joystick input timed out — publishing zeros to /cmd_vel')
 
-            self._publish_zero_cmd()
+            self._publish_cmd(0.0, 0.0, 0.0)
 
-    def _publish_zero_cmd(self):
+    def _publish_cmd(self, vx: float, vy: float, wz: float):
         out = Twist()
-        out.linear.x = 0.0
-        out.linear.y = 0.0
-        out.angular.z = 0.0
+        out.linear.x = vx
+        out.linear.y = vy
+        out.angular.z = wz
         self._cmd_vel_pub.publish(out)
 
     def _now_seconds(self) -> float:
