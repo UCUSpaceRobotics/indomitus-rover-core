@@ -9,26 +9,16 @@ from launch.utilities import perform_substitutions
 from launch_ros.actions import Node
 
 
-args_descriptions = {
-    "name": "Name of the robot used as a tf prefix",
-    "use_rviz": "Launch RViz2 for visualization",
-    "use_joint_state_publisher_gui": "Launch joint_state_publisher_gui for joint control"
-}
-
-
-def urdf(name: str = '') -> str:
+def urdf() -> str:
     urdf_xacro = os.path.join(
         get_package_share_directory('rover_description'),
-        'urdf', 'rover_s1.urdf.xacro',
+        'urdf', 'rover.urdf.xacro',
     )
-    xacro_args = [f'name:={name}']
-
-    opts, input_file_name = xacro.process_args([urdf_xacro] + xacro_args)
     try:
-        doc = xacro.process_file(input_file_name, **vars(opts))
+        doc = xacro.process_file(urdf_xacro)
         return doc.toprettyxml(indent='  ')
     except Exception as e:
-        print(f"Error processing URDF for S1: {e}")
+        print(f"Error processing URDF: {e}")
         return ''
 
 
@@ -37,96 +27,76 @@ def launch_nodes(context: LaunchContext,
                  ) -> List[Node]:
     kwargs = {k: perform_substitutions(context, [v]) for k, v in substitutions.items()}
 
-    use_rviz = kwargs.get('use_rviz', 'true').lower() == 'true'
+    use_sim   = kwargs.get('use_sim',   'false').lower() == 'true'
+    use_nav   = kwargs.get('use_nav',   'false').lower() == 'true'
+    use_rviz  = kwargs.get('use_rviz',  'true').lower()  == 'true'
     use_joint_gui = kwargs.get('use_joint_state_publisher_gui', 'true').lower() == 'true'
-
-    urdf_string = urdf(**{k: v for k, v in kwargs.items()
-                          if k not in ('use_rviz', 'use_joint_state_publisher_gui')})
 
     nodes = []
 
-    robot_state_publisher_node = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        name='robot_state_publisher',
-        parameters=[{'robot_description': urdf_string, 'publish_frequency': 100.0}],
-        output='screen',
-        arguments=["--ros-args", "--log-level", "warn"]
-    )
-    nodes.append(robot_state_publisher_node)
+    # When running alongside the simulator, robot_state_publisher and
+    # joint_state_publisher are already started by the sim launch file.
+    if not use_sim:
+        urdf_string = urdf()
+        nodes.append(Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            name='robot_state_publisher',
+            parameters=[{'robot_description': urdf_string, 'publish_frequency': 100.0}],
+            output='screen',
+            arguments=['--ros-args', '--log-level', 'warn'],
+        ))
 
-    if use_joint_gui:
-        joint_state_publisher_node = Node(
-            package='joint_state_publisher_gui',
-            executable='joint_state_publisher_gui',
-            name='joint_state_publisher_gui',
-            output='screen'
-        )
-    else:
-        joint_state_publisher_node = Node(
-            package='joint_state_publisher',
-            executable='joint_state_publisher',
-            name='joint_state_publisher',
-            output='screen'
-        )
-    nodes.append(joint_state_publisher_node)
+        publisher_pkg = 'joint_state_publisher_gui' if use_joint_gui else 'joint_state_publisher'
+        nodes.append(Node(
+            package=publisher_pkg,
+            executable=publisher_pkg,
+            name=publisher_pkg,
+            output='screen',
+        ))
 
     if use_rviz:
-        rviz_config_file = os.path.join(
-            get_package_share_directory('rover_viz'),
-            'rviz', 'robot.rviz'
-        )
-        if os.path.exists(rviz_config_file):
-            rviz_args = ['-d', rviz_config_file]
-        else:
-            source_rviz_config = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                'rover_viz', 'rviz', 'robot.rviz'
-            )
-            if os.path.exists(source_rviz_config):
-                rviz_args = ['-d', source_rviz_config]
-            else:
-                rviz_args = []
-        rviz_node = Node(
+        rviz_dir = os.path.join(get_package_share_directory('rover_viz'), 'rviz')
+        config_name = 'navigation.rviz' if use_nav else 'robot.rviz'
+        rviz_config_file = os.path.join(rviz_dir, config_name)
+        rviz_args = ['-d', rviz_config_file] if os.path.exists(rviz_config_file) else []
+        nodes.append(Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
             output='screen',
-            arguments=rviz_args
-        )
-        nodes.append(rviz_node)
+            arguments=rviz_args,
+        ))
 
     return nodes
 
 
 def generate_launch_description():
-    urdf_args = [
+    return LaunchDescription([
         launch.actions.DeclareLaunchArgument(
-            k, default_value=str(urdf.__defaults__[i]), description=args_descriptions.get(k, ''))
-        for i, (k, _) in enumerate(urdf.__annotations__.items()) if k != 'return'
-    ]
-
-    additional_args = [
-        launch.actions.DeclareLaunchArgument(
-            'use_rviz',
-            default_value='true',
-            description='Launch RViz2 for visualization'
+            'use_sim', default_value='false',
+            description='Skip robot_state_publisher and joint_state_publisher when running with the simulator.',
         ),
         launch.actions.DeclareLaunchArgument(
-            'use_joint_state_publisher_gui',
-            default_value='true',
-            description='Launch joint_state_publisher_gui for joint control'
-        )
-    ]
-
-    all_kwargs = {k: launch.substitutions.LaunchConfiguration(k)
-                  for (k, _) in urdf.__annotations__.items() if k != 'return'}
-    all_kwargs['use_rviz'] = launch.substitutions.LaunchConfiguration('use_rviz')
-    all_kwargs['use_joint_state_publisher_gui'] = launch.substitutions.LaunchConfiguration('use_joint_state_publisher_gui')
-
-    return LaunchDescription(
-        urdf_args + additional_args + [
-            launch.actions.OpaqueFunction(
-                function=launch_nodes,
-                kwargs=all_kwargs),
-        ])
+            'use_nav', default_value='false',
+            description='Load navigation.rviz (fixed frame: map) instead of robot.rviz (fixed frame: base_link).',
+        ),
+        launch.actions.DeclareLaunchArgument(
+            'use_rviz', default_value='true',
+            description='Launch RViz2.',
+        ),
+        launch.actions.DeclareLaunchArgument(
+            'use_joint_state_publisher_gui', default_value='true',
+            description='Use joint_state_publisher_gui instead of joint_state_publisher.',
+        ),
+        launch.actions.OpaqueFunction(
+            function=launch_nodes,
+            kwargs={
+                'use_sim':   launch.substitutions.LaunchConfiguration('use_sim'),
+                'use_nav':   launch.substitutions.LaunchConfiguration('use_nav'),
+                'use_rviz':  launch.substitutions.LaunchConfiguration('use_rviz'),
+                'use_joint_state_publisher_gui': launch.substitutions.LaunchConfiguration(
+                    'use_joint_state_publisher_gui'),
+            },
+        ),
+    ])
