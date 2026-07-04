@@ -10,6 +10,8 @@
     - [Turning Off the Rover](#turning-off-the-rover)
     - [Current System Credentials and Network Info](#current-system-credentials-and-network-info)
     - [SSH Access to the Jetson](#ssh-access-to-the-jetson)
+      - [SSH via Hotspot](#ssh-via-hotspot)
+      - [SSH via Ethernet](#ssh-via-ethernet)
   - [Docker](#docker)
     - [Getting the Docker Image](#getting-the-docker-image)
     - [Start the Container and Build the Workspace](#start-the-container-and-build-the-workspace)
@@ -102,22 +104,45 @@ To power down the rover, perform **one** of the following actions:
 | **Jetson Password** | `1` |
 | **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
 | **Wi-Fi Password** | `12345678` |
-| **Jetson Static IP** | `10.42.0.1` |
+| **Jetson Static IP for Hotspot** | `10.42.0.1` |
 
 
 ### SSH Access to the Jetson
 
-You can SSH into the Jetson to access its bash shell for debugging or configuration.
+You can SSH into the Jetson to access its bash shell for debugging or configuration. You can use either the Jetson's hotspot or an Ethernet cable.
+
+> **Note:** If you are prompted with a security fingerprint warning, type `yes` to continue. When asked for the password, enter `1`.
+
+#### SSH via Hotspot
 
 1. **Connect to the network:** Connect your computer to the Jetson's Wi-Fi hotspot (`IndomitusRover`) using the password `12345678`.
-2. **Initiate the connection:** Open your terminal and run the following command:
+
+2. **Initiate the connection:** Open your terminal and run one of the following commands:
+
+Either use ip addres:
 ```bash
 ssh indomitus-rover@10.42.0.1
 ```
 
-1. **Authenticate:** If prompted with a security fingerprint warning, type `yes` to continue. When asked for the password, enter `1`.
+or automatic ip resolution:
+```bash
+ssh indomitus-rover@indomitus-rover-computer.local
+```
 
-> **Note:** For further details on the network configuration, refer to [hotspot.md](./networking/hotspot.md).
+#### SSH via Ethernet
+
+1. **Prerequisites:** Ensure the prerequisites are satisfied. Refer to the **Laptop Setup** and **Jetson Setup** sections in [ssh.md](./networking/ssh.md).
+   
+2. Connect the Jetson to the laptop with an Ethernet cable, using the `ETH0` port on the Jetson.
+
+3. Click the Network icon in your laptop's taskbar and select **Jetson Tether** profile.
+
+4. **Initiate the connection:** Open your terminal and run the following command:
+```bash
+ssh indomitus-rover@indomitus-rover-computer.local
+```
+
+> **Note:** For further details on the network configuration, refer to [ssh.md](./networking/ssh.md).
 
 > **Pro Tip (ROS2 Debugging):** Because our architecture utilizes ROS2 networking, you do not always need to SSH into the Jetson to debug. As long as you are connected to the Jetson's hotspot, you can simply open your local Docker container and use standard ROS2 commands (e.g., `ros2 node list`, `ros2 topic echo /topic_name`) to see what is happening on the rover directly from your laptop.
 
@@ -132,30 +157,28 @@ ssh indomitus-rover@10.42.0.1
 Before doing anything, you need to prepare your local environment:
 
 1. Navigate to the root of the **indomitus-rover-core** repository.
+
 2. Copy the example Docker Compose file:
 
 ```bash
 cp ./docker/docker-compose.dev.example.yaml ./docker-compose.yaml
 ```
 
-> In most cases example docker compose file should be suitable for you but still there may be cases where you will need to modify it to be compatible with you machine.
+> In most cases, the example Docker Compose file should work for you, but you may still need to modify it to match your machine.
 
 Next, you need the Docker image. You can either pull a pre-built image or build it locally.
 
 **Option A: Pull the image from GitHub**
-*This saves significant time.* Pull the image corresponding to your target branch:
 
-From `develop`:
+*This saves significant time.*
+
+For example, pull the image from `develop`:
 
 ```bash
 docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:develop-dev
 ```
 
-From `main`:
-
-```bash
-docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:main-dev
-```
+> **Pro Tip:** The images for the `develop` and `main` branches are built automatically, but you can also build an image for any branch. To do so, open the [GitHub Actions page](https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml). Press the gray button on the right, select the branch for which you want to build an image, and click **Run workflow**. When the image is built, you can pull it with the command `docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:<branch-name>-dev` (ensuring any slashes in your branch name are replaced with dashes, like `feature-shared-some-feature-dev`).
 
 **Option B: Build the image locally**
 
@@ -218,7 +241,7 @@ Images built locally or by GitHub workflows will use the following tags:
 * **`develop-prod`** (or `main-prod`): Production image built continuously by GitHub workflows.
   * *Architecture:* **ARM64**
   * *Use Case:* Designed strictly for deployment on the NVIDIA Jetson. Cannot run natively on standard Intel/AMD laptops.
-
+* **`<branch-name>-dev`** and **`<branch-name>-prod`**: Images built by GitHub workflows when you manually trigger **Publish Production and Development Images** for your branch (slashes in the branch name are replaced with dashes).
 
 ---
 
@@ -232,15 +255,21 @@ The repository contains utility scripts to simplify common workflow tasks. All s
 
 Use the dedicated deployment script to transfer your codebase and Docker environment to the Jetson on the rover.
 
-To build the image locally and transfer it, along with your local `src/` directory and `docker-compose.prod.yaml` file, to the Jetson:
+To pull the latest image built by the CI pipeline on the `develop` branch, and transfer it along with the `src/` directory and `docker-compose.prod.yaml` file pulled from the GitHub to the Jetson:
+
 ```bash
-./scripts/deploy_to_rover.sh
+./scripts/deploy_to_rover.sh pull
 ```
 
-To pull the latest image built by the CI pipeline on the `develop` branch, and transfer it along with the `src/` directory and `docker-compose.prod.yaml` file to the Jetson:
+The images for the `develop` and `main` branches are built automatically, but you can also use GitHub Actions to build an image for any other branch. To do so, open the [GitHub Actions page](https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml). Press the gray button on the right, select the branch for which you want to build an image, and click **Run workflow**. When the image is built, you can deploy it with the following command.
+
 ```bash
-./scripts/deploy_to_rover.sh --pull
+./scripts/deploy_to_rover.sh pull --tag <branch-name>-prod
 ```
+
+Replace the branch name with your branch name, with slashes replaced by dashes.
+
+**Building the image on GitHub and then deploying it with the script is the recommended deployment method.**
 
 > **Note:** For further details on available deploy modes, refer to [deployment.md](./deployment.md). For full documentation refer to [deploy_to_rover.md](./scripts/deploy_to_rover.md).
 
