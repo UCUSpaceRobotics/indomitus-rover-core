@@ -2,9 +2,11 @@
 
 The `deploy_to_rover.sh` script automates the deployment pipeline for the Indomitus Rover. It bridges the gap between your local development environment and the Jetson, handling code synchronization, remote or local image building, and container orchestration over a local Wi-Fi hotspot or wired Ethernet connection.
 
+
 ## Requirements
 
 The script relies on an `.rsync-filter-deploy` file located in the same directory as the script. This file tells `rsync` which local folders and files (like `__pycache__/`, `.git/`, or `log/`) to ignore so they aren't accidentally transferred to the Jetson. The script will throw an error if this file is missing.
+
 
 ## Running the Script
 
@@ -15,6 +17,7 @@ To run the script, you must specify exactly one deployment mode:
 ```bash
 ./scripts/deploy_to_rover.sh [MODE] [OPTIONS]
 ```
+
 
 ## Configuration Flags
 
@@ -46,7 +49,6 @@ The script is pre-configured with default values matching the standard repositor
 * `--pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `12345678`)
 * `-h, --help` : Display the help message and exit.
 
----
 
 ## Deployment Strategies
 
@@ -93,3 +95,10 @@ You can build your images in the cloud instead of locally by utilizing GitHub Ac
 > ```
 > 
 > *Note: You only need to do this only for the `local-build` mode.*
+
+
+## Ethernet Connection
+
+For faster file transfers, we recommend connecting your laptop to the Jetson via Ethernet (if possible). To use this method, connect the cable and append the `--eth` flag when running the script.
+
+> Note: Your laptop requires additional setup before you can use Ethernet mode. To do this, refer to the section **Laptop Setup** in the [ssh.md](./networking/ssh.md)

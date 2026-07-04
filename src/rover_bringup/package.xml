@@ -28,7 +28,6 @@
 
   <!-- Joystick  -->
   <exec_depend>joy</exec_depend>
-  <exec_depend>joy_linux</exec_depend>
   <exec_depend>teleop_twist_joy</exec_depend>
 
   <!-- cmd_vel multiplexer -->
