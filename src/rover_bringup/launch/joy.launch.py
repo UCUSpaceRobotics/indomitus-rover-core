@@ -7,7 +7,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
-    cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
+    deadzone = LaunchConfiguration('deadzone')
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
 
     default_config = PathJoinSubstitution([
@@ -23,7 +23,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'dev': joy_dev,
-            'deadzone': 0.05,
+            'deadzone': deadzone,
             'autorepeat_rate': autorepeat_rate,
         }],
         respawn=True,
@@ -36,7 +36,7 @@ def generate_launch_description():
         output='screen',
         parameters=[default_config],
         remappings=[
-            ('/cmd_vel', cmd_vel_topic),
+            ('/cmd_vel', '/cmd_vel_joy'),
         ]
     )
 
@@ -50,11 +50,6 @@ def generate_launch_description():
             'deadzone',
             default_value='0.05',
             description='Joystick deadzone'
-        ),
-        DeclareLaunchArgument(
-            'cmd_vel_topic',
-            default_value='/cmd_vel_joy',
-            description='Output velocity command topic'
         ),
         DeclareLaunchArgument(
             'autorepeat_rate',
