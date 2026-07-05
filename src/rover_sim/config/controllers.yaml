@@ -11,6 +11,9 @@ controller_manager:
     
     odometry_controller:
       type: rover_controller/RoverOdometryController
+    
+    diff_bar_effort_controller:
+      type: forward_command_controller/ForwardCommandController
 
 swerve_controller:
   ros__parameters:
@@ -49,3 +52,10 @@ odometry_controller:
       - fr_wheel_joint
       - bl_wheel_joint
       - br_wheel_joint
+
+diff_bar_effort_controller:
+  ros__parameters:
+    joints:
+      - l_rocker_joint
+      - r_rocker_joint
+    interface_name: effort

@@ -145,6 +145,12 @@ def generate_launch_description() -> LaunchDescription:
             output='screen',
         ),
         Node(
+            package='controller_manager',
+            executable='spawner',
+            arguments=['diff_bar_effort_controller', '--param-file', controllers_yaml],
+            output='screen',
+        ),
+        Node(
             package='twist_mux',
             executable='twist_mux',
             name='twist_mux',
