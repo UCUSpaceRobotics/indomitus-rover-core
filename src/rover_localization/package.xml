@@ -4,8 +4,8 @@
   <name>rover_localization</name>
   <version>0.0.0</version>
   <description>
-    Localization and mapping support for the Indomitus Rover. This package provides 
-    the framework for state estimation, sensor data fusion, and the transformation 
+    Localization and mapping support for the Indomitus Rover. This package provides
+    the framework for state estimation, sensor data fusion, and the transformation
     pipeline required to track the rover's position within its environment.
   </description>
   <maintainer email="bohdan.zasymovych@gmail.com">BohdanZasymovych</maintainer>
@@ -19,6 +19,11 @@
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>tf2_ros</depend>
+
+  <exec_depend>usb_cam</exec_depend>
+  <exec_depend>aruco_opencv</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
