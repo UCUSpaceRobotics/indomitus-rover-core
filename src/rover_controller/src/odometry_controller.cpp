@@ -4,7 +4,6 @@
 #include <stdexcept>
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
-#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "pluginlib/class_list_macros.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 
@@ -43,9 +42,7 @@ RoverOdometryController::on_configure(const rclcpp_lifecycle::State & /*prev*/)
     build_kinematics_matrix();
 
     odom_pub_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
-        "/odom", rclcpp::SystemDefaultsQoS());
-
-    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(get_node());
+        "/odometry/wheels", rclcpp::SystemDefaultsQoS());
 
     RCLCPP_INFO(get_node()->get_logger(),
         "[OdomController] Configured — wheelbase=%.3f m  track=%.3f m  r_wheel=%.4f m",
@@ -385,20 +382,6 @@ void RoverOdometryController::publish_odom(
     odom.twist.twist.angular.z   = wz;
 
     odom_pub_->publish(odom);
-
-    // TF broadcast
-
-    geometry_msgs::msg::TransformStamped tf;
-    tf.header.stamp            = stamp;
-    tf.header.frame_id         = "odom";
-    tf.child_frame_id          = "base_link";
-
-    tf.transform.translation.x = x_;
-    tf.transform.translation.y = y_;
-    tf.transform.rotation.z    = qz;
-    tf.transform.rotation.w    = qw;
-
-    tf_broadcaster_->sendTransform(tf);
 }
 
 }  // namespace rover_controller
