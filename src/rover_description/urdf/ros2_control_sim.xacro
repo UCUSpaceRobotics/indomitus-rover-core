@@ -52,7 +52,7 @@
   </ros2_control>
 
 
-  <ros2_control name="RoverSuspensionHardware" type="system">
+  <ros2_control name="DiffBarHardware" type="system">
     <hardware>
       <plugin>gz_ros2_control/GazeboSimSystem</plugin>
     </hardware>
