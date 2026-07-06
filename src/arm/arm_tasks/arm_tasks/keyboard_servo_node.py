@@ -9,13 +9,13 @@ so switching to gamepad (joy package) requires only replacing the input source.
 Controls:
     Translation (relative to camera_link):
         w / s  — forward / backward  (X axis)
-        a / d  — up / down           (Y axis)
-        q / e  — left / right        (Z axis)
+        d / a  — left / right           (Y axis)
+        e / q  — up / down        (Z axis)
 
     Rotation (relative to camera_link):
-        u / o  — roll CW / CCW
-        i / k  — pitch up / down
-        j / l  — yaw left / right
+        k / i  — roll CW / CCW
+        u / o  — pitch up / down
+        l / j  — yaw left / right
 
     r      — move to safe pose + start servo
     ESC/x  — exit
@@ -220,12 +220,12 @@ HELP = """
 ╠══════════════════════════════════════════════╣
 ║  Translation:                                ║
 ║    w / s  — forward / backward  (X)          ║
-║    a / d  — up / down           (Y)          ║
-║    q / e  — left / right        (Z)          ║
+║    d / a  — left / right        (Y)          ║
+║    e / q  — up / down           (Z)          ║
 ║  Rotation:                                   ║
-║    u / o  — roll CW / CCW                    ║
-║    i / k  — pitch up / down                  ║
-║    j / l  — yaw left / right                 ║
+║    k / i  — roll CW / CCW                    ║
+║    u / o  — pitch up / down                  ║
+║    l / j  — yaw left / right                 ║
 ║  Other:                                      ║
 ║    r      — move to safe pose + start servo  ║
 ║    ESC/x  — exit                             ║
