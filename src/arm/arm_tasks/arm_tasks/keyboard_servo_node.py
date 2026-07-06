@@ -7,24 +7,26 @@ Designed to be modular — core logic is in ServoController class,
 so switching to gamepad (joy package) requires only replacing the input source.
 
 Controls:
-    Translation:
-        w / s  — forward / backward  (X)
-        a / d  — up / down           (Y)
-        q / e  — left / right        (Z)
-    Rotation:
+    Translation (relative to camera_link):
+        w / s  — forward / backward  (X axis)
+        a / d  — up / down           (Y axis)
+        q / e  — left / right        (Z axis)
+
+    Rotation (relative to camera_link):
         u / o  — roll CW / CCW
         i / k  — pitch up / down
         j / l  — yaw left / right
-    Other:
-        r      — move to safe pose + start servo
-        SPACE  — stop
-        ESC/x  — exit
+
+    r      — move to safe pose + start servo
+    ESC/x  — exit
 """
 
 import sys
 import threading
 import tty
 import termios
+import select
+import time
 
 import rclpy
 from rclpy.node import Node
@@ -35,6 +37,7 @@ from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 from std_msgs.msg import Int8
+
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -56,9 +59,16 @@ SAFE_POSE_JOINTS = [
     'arm_wrist_2_end_effector_joint',
 ]
 
-# ── ServoController ───────────────────────────────────────────────────────────
+# ── ServoController — core logic (modular, input-agnostic) ───────────────────
 
 class ServoController(Node):
+    """
+    Core Servo controller.
+    Publishes TwistStamped commands to MoveIt Servo.
+    Input source (keyboard, gamepad) is injected from outside.
+    To switch to gamepad — replace keyboard_loop with gamepad_loop,
+    ServoController stays unchanged.
+    """
 
     def __init__(self):
         super().__init__('keyboard_servo_node')
@@ -111,8 +121,6 @@ class ServoController(Node):
     def move_to_safe_pose(self):
         self.stop()
         self.stop_servo()
-
-        import time
         time.sleep(0.5)
 
         if not self._traj_client.wait_for_server(timeout_sec=3.0):
@@ -189,21 +197,21 @@ class ServoController(Node):
         msg.twist.angular.z = self.wz
         self._pub.publish(msg)
 
-# ── KeyboardInput ─────────────────────────────────────────────────────────────
+# ── KeyboardInput — input source ──────────────────────────────────────────────
 
 KEY_MAP = {
-    'w': ( LINEAR_SPEED,  0.0,          0.0,          0.0,           0.0,           0.0),
-    's': (-LINEAR_SPEED,  0.0,          0.0,          0.0,           0.0,           0.0),
-    'a': ( 0.0,           LINEAR_SPEED, 0.0,          0.0,           0.0,           0.0),
-    'd': ( 0.0,          -LINEAR_SPEED, 0.0,          0.0,           0.0,           0.0),
-    'q': ( 0.0,           0.0,          LINEAR_SPEED, 0.0,           0.0,           0.0),
-    'e': ( 0.0,           0.0,         -LINEAR_SPEED, 0.0,           0.0,           0.0),
-    'u': ( 0.0,           0.0,          0.0,          ANGULAR_SPEED, 0.0,           0.0),
-    'o': ( 0.0,           0.0,          0.0,         -ANGULAR_SPEED, 0.0,           0.0),
-    'i': ( 0.0,           0.0,          0.0,          0.0,           ANGULAR_SPEED, 0.0),
-    'k': ( 0.0,           0.0,          0.0,          0.0,          -ANGULAR_SPEED, 0.0),
-    'j': ( 0.0,           0.0,          0.0,          0.0,           0.0,           ANGULAR_SPEED),
-    'l': ( 0.0,           0.0,          0.0,          0.0,           0.0,          -ANGULAR_SPEED),
+    'w': ( LINEAR_SPEED,  0.0,           0.0,          0.0,           0.0,           0.0),
+    's': (-LINEAR_SPEED,  0.0,           0.0,          0.0,           0.0,           0.0),
+    'a': ( 0.0,           LINEAR_SPEED,  0.0,          0.0,           0.0,           0.0),
+    'd': ( 0.0,          -LINEAR_SPEED,  0.0,          0.0,           0.0,           0.0),
+    'q': ( 0.0,           0.0,           LINEAR_SPEED, 0.0,           0.0,           0.0),
+    'e': ( 0.0,           0.0,          -LINEAR_SPEED, 0.0,           0.0,           0.0),
+    'u': ( 0.0,           0.0,           0.0,          ANGULAR_SPEED, 0.0,           0.0),
+    'o': ( 0.0,           0.0,           0.0,         -ANGULAR_SPEED, 0.0,           0.0),
+    'i': ( 0.0,           0.0,           0.0,          0.0,           ANGULAR_SPEED, 0.0),
+    'k': ( 0.0,           0.0,           0.0,          0.0,          -ANGULAR_SPEED, 0.0),
+    'j': ( 0.0,           0.0,           0.0,          0.0,           0.0,           ANGULAR_SPEED),
+    'l': ( 0.0,           0.0,           0.0,          0.0,           0.0,          -ANGULAR_SPEED),
 }
 
 HELP = """
@@ -220,27 +228,36 @@ HELP = """
 ║    j / l  — yaw left / right                 ║
 ║  Other:                                      ║
 ║    r      — move to safe pose + start servo  ║
-║    SPACE  — stop                             ║
 ║    ESC/x  — exit                             ║
 ╚══════════════════════════════════════════════╝
 """
 
 
-def get_key():
+def get_key(timeout=0.05):
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        return sys.stdin.read(1)
+        r, _, _ = select.select([sys.stdin], [], [], timeout)
+        if r:
+            return sys.stdin.read(1)
+        return None
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 def keyboard_loop(controller: ServoController):
     print(HELP)
+    current_key = None
 
     while rclpy.ok():
-        key = get_key()
+        key = get_key(timeout=0.05)
+
+        if key is None:
+            if current_key is not None:
+                controller.stop()
+                current_key = None
+            continue
 
         if key in ('\x1b', 'x'):
             controller.stop()
@@ -248,23 +265,24 @@ def keyboard_loop(controller: ServoController):
             break
 
         if key == 'r':
+            current_key = None
+            controller.stop()
             print('Moving to safe pose...')
             controller.move_to_safe_pose()
             print('Starting servo...')
             controller.start_servo()
             continue
 
-        if key == ' ':
-            controller.stop()
-            print('STOP')
-            continue
-
         if key in KEY_MAP:
-            vx, vy, vz, wx, wy, wz = KEY_MAP[key]
-            controller.set_velocity(vx, vy, vz, wx, wy, wz)
-            print(f'[{key}] vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
-                  f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
+            if key != current_key:
+                vx, vy, vz, wx, wy, wz = KEY_MAP[key]
+                controller.set_velocity(vx, vy, vz, wx, wy, wz)
+                print(f'[{key}] vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
+                      f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
+                current_key = key
         else:
+            controller.stop()
+            current_key = None
             print(f'Unknown key: {repr(key)}')
 
 # ── Main ──────────────────────────────────────────────────────────────────────
