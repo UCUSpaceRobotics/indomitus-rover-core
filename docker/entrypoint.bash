@@ -18,7 +18,7 @@ HW_WS="/opt/hw_ws"
 WS="/opt/ws"
 
 source_if_exists "/opt/ros/${TARGET_ROS_DISTRO}/setup.bash"
-source_if_exists "${WH_WS}/install/setup.bash"
+source_if_exists "${HW_WS}/install/setup.bash"
 source_if_exists "${WS}/install/setup.bash"
 
 echo "[ROS] SUCCESS: Environment ready (${TARGET_ROS_DISTRO})."
