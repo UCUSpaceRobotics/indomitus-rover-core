@@ -160,6 +160,4 @@ def generate_launch_description() -> LaunchDescription:
                 ('/cmd_vel_out', '/cmd_vel'),
             ]
         ),
-
-        Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),
     ])
