@@ -8,14 +8,14 @@ so switching to gamepad (joy package) requires only replacing the input source.
 
 Controls:
     Translation (relative to camera_link):
-        w / s  — forward / backward  (X axis)
-        d / a  — left / right           (Y axis)
-        e / q  — up / down        (Z axis)
+        w / s  — forward / backward   (X axis)
+        a / d  — left / right         (Y axis)
+        q / e  — up / down            (Z axis)
 
     Rotation (relative to camera_link):
-        k / i  — roll CW / CCW
-        u / o  — pitch up / down
-        l / j  — yaw left / right
+        i / k  — roll CW / CCW
+        u / o  — pitch up / down      (not available)
+        j / l  — yaw left / right
 
     r      — move to safe pose + start servo
     ESC/x  — exit
@@ -206,8 +206,8 @@ KEY_MAP = {
     'd': ( 0.0,          -LINEAR_SPEED,  0.0,          0.0,           0.0,           0.0),
     'q': ( 0.0,           0.0,           LINEAR_SPEED, 0.0,           0.0,           0.0),
     'e': ( 0.0,           0.0,          -LINEAR_SPEED, 0.0,           0.0,           0.0),
-    'u': ( 0.0,           0.0,           0.0,          ANGULAR_SPEED, 0.0,           0.0),
-    'o': ( 0.0,           0.0,           0.0,         -ANGULAR_SPEED, 0.0,           0.0),
+    # 'u': ( 0.0,           0.0,           0.0,          ANGULAR_SPEED, 0.0,           0.0),
+    # 'o': ( 0.0,           0.0,           0.0,         -ANGULAR_SPEED, 0.0,           0.0),
     'i': ( 0.0,           0.0,           0.0,          0.0,           ANGULAR_SPEED, 0.0),
     'k': ( 0.0,           0.0,           0.0,          0.0,          -ANGULAR_SPEED, 0.0),
     'j': ( 0.0,           0.0,           0.0,          0.0,           0.0,           ANGULAR_SPEED),
@@ -220,12 +220,12 @@ HELP = """
 ╠══════════════════════════════════════════════╣
 ║  Translation:                                ║
 ║    w / s  — forward / backward  (X)          ║
-║    d / a  — left / right        (Y)          ║
-║    e / q  — up / down           (Z)          ║
+║    a / d  — left / right        (Y)          ║
+║    q / e  — up / down           (Z)          ║
 ║  Rotation:                                   ║
-║    k / i  — roll CW / CCW                    ║
-║    u / o  — pitch up / down                  ║
-║    l / j  — yaw left / right                 ║
+║    i / k  — roll CW / CCW                    ║
+║    u / o  — pitch up / down (not available)  ║
+║    j / l  — yaw left / right                 ║
 ║  Other:                                      ║
 ║    r      — move to safe pose + start servo  ║
 ║    ESC/x  — exit                             ║
