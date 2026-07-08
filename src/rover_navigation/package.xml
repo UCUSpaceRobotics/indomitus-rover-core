@@ -32,9 +32,8 @@
     <exec_depend>nav2_bt_navigator</exec_depend>
     <exec_depend>nav2_waypoint_follower</exec_depend>
 
-    <!-- Runtime: Localisation -->
-    <exec_depend>nav2_map_server</exec_depend>
-    <exec_depend>nav2_amcl</exec_depend>
+    <!-- Runtime: SLAM -->
+    <exec_depend>slam_toolbox</exec_depend>
 
     <!-- Runtime: Planner plugins -->
     <exec_depend>nav2_navfn_planner</exec_depend>

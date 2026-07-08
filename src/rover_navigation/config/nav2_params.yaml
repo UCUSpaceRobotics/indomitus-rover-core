@@ -1,26 +1,6 @@
 # rover_navigation/config/nav2_params.yaml
 
 # ============================================================
-# LOCALISATION
-# ============================================================
-
-amcl:
-  ros__parameters:
-    use_sim_time: true
-    robot_model_type: "nav2_amcl::OmniMotionModel"
-    base_frame_id: "base_link"
-    global_frame_id: "map"
-    odom_frame_id: "odom"
-    transform_tolerance: 1.0
-    tf_broadcast: true
-    # NOTE: Auto-initialise at map origin; remove when deploying on real hardware.
-    set_initial_pose: true
-    initial_pose_x: 0.0
-    initial_pose_y: 0.0
-    initial_pose_z: 0.0
-    initial_pose_yaw: 0.0
-
-# ============================================================
 # BT NAVIGATOR
 # ============================================================
 
@@ -92,7 +72,6 @@ controller_server:
       yaw_goal_tolerance: 0.25
 
     # --- MPPI controller ---
-    # Configured for omnidirectional (4WIS swerve) drive at 1.0 m/s cruise.
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 56
@@ -103,7 +82,7 @@ controller_server:
       vy_std: 0.05
       wz_std: 0.2
       # Velocity limits.
-      vx_max:  1.0 
+      vx_max:  1.0
       vx_min: -0.2
       vy_max:  0.1
       vy_min: -0.1
@@ -351,6 +330,3 @@ lifecycle_manager_navigation:
       - waypoint_follower
       - local_costmap
       - global_costmap
-      # NOTE: Remove amcl from here and manage it under a separate
-      # lifecycle_manager_localization node when localization is decoupled.
-      - amcl
