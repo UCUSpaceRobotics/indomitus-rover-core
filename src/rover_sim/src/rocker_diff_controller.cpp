@@ -42,18 +42,25 @@ controller_interface::CallbackReturn RockerDiffController::on_configure(const rc
 
 controller_interface::return_type RockerDiffController::update(
     const rclcpp::Time &, const rclcpp::Duration &) {
+#if defined(JAZZY_OR_LATER)
+  double l_pos = state_interfaces_[0].get_optional().value_or(0.0);
+  double l_vel = state_interfaces_[1].get_optional().value_or(0.0);
+  double r_pos = state_interfaces_[2].get_optional().value_or(0.0);
+  double r_vel = state_interfaces_[3].get_optional().value_or(0.0);
+#else
   double l_pos = state_interfaces_[0].get_value();
   double l_vel = state_interfaces_[1].get_value();
   double r_pos = state_interfaces_[2].get_value();
   double r_vel = state_interfaces_[3].get_value();
+#endif
 
   double error = l_pos + r_pos;
   double error_dot = l_vel + r_vel;
 
   double tau = std::clamp(-k_ * error - d_ * error_dot, -effort_limit_, effort_limit_);
 
-  command_interfaces_[0].set_value(tau);
-  command_interfaces_[1].set_value(tau);
+  (void)command_interfaces_[0].set_value(tau);
+  (void)command_interfaces_[1].set_value(tau);
 
   return controller_interface::return_type::OK;
 }

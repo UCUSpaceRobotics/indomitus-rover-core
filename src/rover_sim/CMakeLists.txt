@@ -13,6 +13,8 @@ find_package(robot_state_publisher REQUIRED)
 find_package(xacro REQUIRED)
 find_package(ros_gz_sim REQUIRED)
 find_package(ros_gz_bridge REQUIRED)
+find_package(ros_gz_bridge REQUIRED)
+find_package(gz_msgs_vendor REQUIRED)
 find_package(indomitus_interfaces REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
@@ -43,6 +45,10 @@ target_include_directories(rover_sim_controller PUBLIC
 )
 
 target_compile_features(rover_sim_controller PUBLIC cxx_std_17)
+
+if($ENV{ROS_DISTRO} STREQUAL "jazzy")
+    target_compile_definitions(rover_sim_controller PRIVATE JAZZY_OR_LATER)
+endif()
 
 ament_target_dependencies(rover_sim_controller
   rclcpp_lifecycle

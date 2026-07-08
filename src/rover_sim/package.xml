@@ -40,6 +40,8 @@
   <!-- Simulation -->
   <depend>ros_gz_sim</depend>
   <depend>ros_gz_bridge</depend>
+  <depend>gz_msgs_vendor</depend>
+  <depend>gz_sim_vendor</depend>
 
   <depend>pluginlib</depend>
   <depend>rclcpp_lifecycle</depend>
