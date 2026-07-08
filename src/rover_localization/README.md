@@ -44,3 +44,5 @@ Camera calibration quality affects pose accuracy. The camera image header must
 have a valid `frame_id`.
 
 For local USB camera testing, see `DEBUG_TEST.md`.
+
+Image with bounding boxes is published to `/aruco_tracker/debug`. Use `rviz2` to see  
