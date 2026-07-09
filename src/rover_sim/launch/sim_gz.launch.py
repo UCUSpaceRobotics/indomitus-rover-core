@@ -100,6 +100,7 @@ def generate_launch_description() -> LaunchDescription:
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share         = get_package_share_directory('rover_sim')
     rover_bringup_share     = get_package_share_directory('rover_bringup')
+    rover_localization_share = get_package_share_directory('rover_localization')
     controllers_yaml = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     robot_description = make_robot_description(rover_sim_share)
@@ -135,6 +136,13 @@ def generate_launch_description() -> LaunchDescription:
         make_spawn_node(cfg),
 
         *make_controller_spawners(cfg, controllers_yaml),
+
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(rover_localization_share, 'launch', 'ekf.launch.py')
+            ),
+            launch_arguments={'use_sim_time': 'true'}.items(),
+        ),
 
         Node(
             package='twist_mux',

@@ -381,6 +381,24 @@ void RoverOdometryController::publish_odom(
     odom.twist.twist.linear.y    = vy;
     odom.twist.twist.angular.z   = wz;
 
+    // --- Covariance ---
+    for (auto & c : odom.pose.covariance)  { c = 0.0; }
+    for (auto & c : odom.twist.covariance) { c = 0.0; }
+
+    odom.pose.covariance[0]  = 0.01;   // var(x)
+    odom.pose.covariance[7]  = 0.01;   // var(y)
+    odom.pose.covariance[14] = 1e6;    // var(z)
+    odom.pose.covariance[21] = 1e6;    // var(roll)
+    odom.pose.covariance[28] = 1e6;    // var(pitch)
+    odom.pose.covariance[35] = 0.02;   // var(yaw)
+
+    odom.twist.covariance[0]  = 0.02;  // var(vx)
+    odom.twist.covariance[7]  = 0.02;  // var(vy)
+    odom.twist.covariance[14] = 1e6;   // var(vz)
+    odom.twist.covariance[21] = 1e6;   // var(v_roll)
+    odom.twist.covariance[28] = 1e6;   // var(v_pitch)
+    odom.twist.covariance[35] = 0.03;  // var(wz)
+
     odom_pub_->publish(odom);
 }
 
