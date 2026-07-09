@@ -2,6 +2,7 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="use_fake_hardware" default="true"/>
+  <xacro:arg name="end_effector" default="jaw"/>
 
   <xacro:macro name="indomitus_arm" params="parent_link *origin">
 
@@ -126,22 +127,41 @@
     <joint name="arm_wrist_2_end_effector_joint" type="revolute">
       <parent link="arm_wrist_2_link"/>
       <child link="arm_end_effector_link"/>
-      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <origin xyz="-0.067825 0 0.0353" rpy="${-pi/2} 0 ${-pi/2}"/>
       <axis xyz="0 0 1"/>
       <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_end_effector_link">
+      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+        <visual>
+          <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
+        </visual>
+        <collision>
+          <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
+        </collision>
+      </xacro:if>
+      
+      <xacro:if value="${'$(arg end_effector)' == 'other_tool'}">
+        </xacro:if>
+
       <xacro:dummy_inertia mass="0.2"/>
     </link>
 
     <joint name="arm_tcp_joint" type="fixed">
       <parent link="arm_end_effector_link"/>
       <child link="arm_tcp_link"/>
-      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      
+      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+        <origin xyz="0 -0.23 0" rpy="0 0 0"/> 
+      </xacro:if>
+      
+      <xacro:if value="${'$(arg end_effector)' != 'jaw'}">
+        <origin xyz="0 -0.23 0" rpy="0 0 0"/> 
+      </xacro:if>
     </joint>
-    <!-- TCP (Tool Center Point) is a virtual point -->
-    <link name="arm_tcp_link"/>
+
+    <link name="arm_tcp_link"/> 
 
     <!-- Camera mounted on wrist_2 -->
     <joint name="arm_camera_joint" type="fixed">
