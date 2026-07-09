@@ -84,5 +84,18 @@ inline can_msgs::msg::Frame build_disable_frame(uint8_t motor_id)
     return frame;
 }
 
+/**
+ * @brief Builds the CAN frame to set the current position as zero for Steadywin (Saved in ROM).
+ */
+inline can_msgs::msg::Frame build_set_zero_frame(uint8_t motor_id)
+{
+    can_msgs::msg::Frame frame;
+    // Steadywin uses 0x100 | Dev_addr for control commands
+    frame.id = 0x100 | motor_id;
+    frame.dlc = 1;
+    frame.data[0] = 0xB1; // Command code for "Set Zero"
+    return frame;
+}
+
 } // namespace steadywin_protocol
 } // namespace arm_hardware_interface

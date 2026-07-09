@@ -19,6 +19,7 @@ indomitus_arm_controller:
       - arm_wrist_2_end_effector_joint
     command_interfaces:
       - position
+      - velocity
     state_interfaces:
       - position
       - velocity

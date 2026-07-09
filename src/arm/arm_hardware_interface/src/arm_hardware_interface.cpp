@@ -44,6 +44,15 @@ hardware_interface::CallbackReturn ArmCanSystem::on_init(
         return hardware_interface::CallbackReturn::ERROR;
     }
 
+    // Read can_interface parameter from URDF
+    if (info.hardware_parameters.count("can_interface") > 0) {
+        can_interface_ = info.hardware_parameters.at("can_interface");
+        RCLCPP_INFO(logger_, "Using CAN interface from URDF: %s", can_interface_.c_str());
+    } else {
+        can_interface_ = "can0"; // Fallback
+        RCLCPP_WARN(logger_, "can_interface param missing in URDF, defaulting to can0");
+    }
+
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
         joint_names_[i] = info.joints[i].name;
     }
