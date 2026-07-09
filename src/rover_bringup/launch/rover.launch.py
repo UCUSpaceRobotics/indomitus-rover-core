@@ -169,10 +169,7 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    interface_arg = DeclareLaunchArgument(
-        'interface', default_value='can0',
-        description='SocketCAN network interface name',
-    )
+    interface_arg = DeclareLaunchArgument('interface', default_value='can0')
 
     return LaunchDescription([
         interface_arg,
