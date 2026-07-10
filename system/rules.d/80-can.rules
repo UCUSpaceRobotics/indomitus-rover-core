@@ -1,4 +1,4 @@
 SUBSYSTEM=="net", KERNEL=="can*", ACTION=="add", \
     RUN+="/sbin/ip link set $env{INTERFACE} type can bitrate 1000000 restart-ms 100", \
-    RUN+="/sbin/ip link set $env{INTERFACE} txqueuelen 1000", \
+    RUN+="/sbin/ip link set $env{INTERFACE} txqueuelen 100", \
     RUN+="/sbin/ip link set $env{INTERFACE} up"
