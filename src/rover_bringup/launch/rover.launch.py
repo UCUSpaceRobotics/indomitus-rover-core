@@ -159,8 +159,7 @@ def launch_setup(context, *args, **kwargs):
         PythonLaunchDescriptionSource(
             os.path.join(rover_localization_share, 'launch', 'ekf.launch.py')
         ),
-        launch_arguments={'use_sim_time': 'true'}.items(),
-    ),
+    )
 
     return [
         sender_node,
