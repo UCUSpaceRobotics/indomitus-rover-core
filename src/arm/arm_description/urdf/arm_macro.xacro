@@ -9,7 +9,6 @@
     <xacro:property name="mesh_path" value="package://arm_description/meshes"/>
     <xacro:property name="stl_scale" value="0.001 0.001 0.001"/>
 
-    <!-- Dummy macro for mass and inertia (required for physical simulations) -->
     <xacro:macro name="dummy_inertia" params="mass">
       <inertial>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -143,7 +142,7 @@
       </xacro:if>
       
       <xacro:if value="${'$(arg end_effector)' == 'other_tool'}">
-        </xacro:if>
+      </xacro:if>
 
       <xacro:dummy_inertia mass="0.2"/>
     </link>
@@ -163,11 +162,10 @@
 
     <link name="arm_tcp_link"/> 
 
-    <!-- Camera mounted on wrist_2 -->
     <joint name="arm_camera_joint" type="fixed">
-      <parent link="arm_wrist_2_link"/>
+      <parent link="arm_end_effector_link"/>
       <child link="arm_camera_link"/>
-      <origin xyz="-0.13286 -0.01058 0.00685" rpy="0 ${-pi/2} 0"/>
+      <origin xyz="-0.00110236 -0.0683370 -0.0340064" rpy="${pi} 0 ${-pi/2}"/>
     </joint>
 
     <link name="arm_camera_link">
@@ -179,16 +177,20 @@
           <color rgba="0.0 0.0 1.0 1.0"/>
         </material>
       </visual>
+
+      <collision>
+        <geometry>
+          <box size="0.06 0.06 0.03"/>
+        </geometry>
+      </collision>
     </link>
 
-    <!-- ROS 2 Control Configuration -->
     <ros2_control name="ArmSystem" type="system">
       <hardware>
         <xacro:if value="$(arg use_fake_hardware)">
           <plugin>mock_components/GenericSystem</plugin>
         </xacro:if>
         <xacro:unless value="$(arg use_fake_hardware)">
-          <!-- TODO: replace with the real plugin name once arm_hardware_interface is implemented -->
           <plugin>arm_hardware_interface/ArmCanSystem</plugin>
           <param name="can_interface">can0</param>
         </xacro:unless>

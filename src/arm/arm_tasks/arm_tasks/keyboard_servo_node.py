@@ -14,7 +14,7 @@ Controls:
 
     Rotation (relative to camera_link):
         i / k  — roll CW / CCW
-        u / o  — pitch up / down      (not available: 5 DOF only)
+        u / o  — pitch up / down
         j / l  — yaw left / right
 
     r      — move to safe pose + start servo
@@ -23,20 +23,18 @@ Controls:
 
 import sys
 import threading
-import tty
-import termios
-import select
 import time
 
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import TwistStamped
+from std_msgs.msg import Int8
 from std_srvs.srv import Trigger
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
-from moveit_msgs.msg import ServoStatus
+from pynput import keyboard as pynput_keyboard
 
 
 DEFAULT_LINEAR_SPEED  = 0.1
@@ -54,8 +52,28 @@ SAFE_POSE_JOINTS = [
     'arm_wrist_2_end_effector_joint',
 ]
 
-SERVO_STATUS_HALT_FOR_SINGULARITY = 2
-SERVO_STATUS_OK = 0
+# Mirrors StatusCode from moveit_servo/utils/datatype.hpp
+# (same values moveit_msgs/ServoStatus uses in its `code` field,
+#  but here they arrive as a plain std_msgs/Int8 on Humble).
+SERVO_STATUS_INVALID                              = -1
+SERVO_STATUS_OK                                    = 0
+SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY = 1
+SERVO_STATUS_HALT_FOR_SINGULARITY                  = 2
+SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY    = 3
+SERVO_STATUS_DECELERATE_FOR_COLLISION              = 4
+SERVO_STATUS_HALT_FOR_COLLISION                    = 5
+SERVO_STATUS_JOINT_BOUND                           = 6
+
+SERVO_STATUS_NAMES = {
+    SERVO_STATUS_INVALID: 'INVALID',
+    SERVO_STATUS_OK: 'NO_WARNING',
+    SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY: 'DECELERATE_FOR_APPROACHING_SINGULARITY',
+    SERVO_STATUS_HALT_FOR_SINGULARITY: 'HALT_FOR_SINGULARITY',
+    SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY: 'DECELERATE_FOR_LEAVING_SINGULARITY',
+    SERVO_STATUS_DECELERATE_FOR_COLLISION: 'DECELERATE_FOR_COLLISION',
+    SERVO_STATUS_HALT_FOR_COLLISION: 'HALT_FOR_COLLISION',
+    SERVO_STATUS_JOINT_BOUND: 'JOINT_BOUND',
+}
 
 
 class ServoController(Node):
@@ -101,7 +119,7 @@ class ServoController(Node):
 
         self._servo_status = SERVO_STATUS_OK
         self._status_sub = self.create_subscription(
-            ServoStatus,
+            Int8,
             'servo_node/status',
             self._on_servo_status,
             10
@@ -132,6 +150,14 @@ class ServoController(Node):
         self.wz = wz
 
     def stop(self):
+        """
+        Zero out commanded velocity.
+
+        NOTE: this only publishes a zero TwistStamped — it does NOT pause/disable
+        MoveIt Servo itself. Servo keeps running and will keep processing whatever
+        is published on delta_twist_cmds. Use stop_servo() to actually pause Servo
+        via its service.
+        """
         self.set_velocity()
 
     def stop_servo(self) -> bool:
@@ -156,7 +182,12 @@ class ServoController(Node):
     def move_to_safe_pose(self):
         """Stop Servo and move arm to safe pose."""
         self.stop()
-        self.stop_servo()
+
+        if not self.stop_servo():
+            self.get_logger().error(
+                'Could not confirm Servo stopped — aborting safe pose move.'
+            )
+            return False
 
         if not self._traj_client.wait_for_server(timeout_sec=3.0):
             self.get_logger().error('Trajectory action server not available')
@@ -215,26 +246,24 @@ class ServoController(Node):
         except Exception as e:
             self.get_logger().error(f'Servo start error: {e}')
 
-    def _on_servo_status(self, msg: ServoStatus):
+    def _on_servo_status(self, msg: Int8):
         """
         Handle Servo status updates.
-        Automatically restarts Servo on singularity halt.
-        Other halt states (joint limits, collisions) are logged but not
-        auto-recovered — they require operator action via safe pose (r key).
+
+        Only HALT_FOR_SINGULARITY is auto-recovered: it's a transient, expected
+        condition during normal teleop and safe to just restart Servo for.
+        All other halt states (HALT_FOR_COLLISION, JOINT_BOUND, etc.) are left
+        for the operator to resolve via safe pose (r key) — auto-restarting those
+        could mean continuing to command motion into a collision or a joint limit.
+        No logging is done here — status is tracked silently.
+
+        Note: on this Humble build, moveit_servo publishes status as a plain
+        std_msgs/Int8 (msg.data), not moveit_msgs/ServoStatus (msg.code).
         """
-        code = msg.code
+        code = msg.data
         if code != self._servo_status:
             if code == SERVO_STATUS_HALT_FOR_SINGULARITY:
-                self.get_logger().warn(
-                    'Servo halted: near singularity — restarting. '
-                    'Press r to move to safe pose if arm is stuck.'
-                )
                 self.start_servo()
-            elif code != SERVO_STATUS_OK:
-                self.get_logger().warn(
-                    f'Servo halted with status code {code}. '
-                    'Press r to move to safe pose and restart.'
-                )
         self._servo_status = code
 
     def _publish(self):
@@ -260,7 +289,7 @@ HELP = """
 ║    q / e  — up / down           (Z)          ║
 ║  Rotation:                                   ║
 ║    i / k  — roll CW / CCW                    ║
-║    u / o  — pitch (not available)            ║
+║    u / o  — pitch up / down                  ║
 ║    j / l  — yaw left / right                 ║
 ║  Other:                                      ║
 ║    r      — move to safe pose + start servo  ║
@@ -270,7 +299,14 @@ HELP = """
 
 
 def build_key_map(linear_speed: float, angular_speed: float) -> dict:
-    """Build key → velocity mapping from speed parameters."""
+    """
+    Build key → velocity mapping from speed parameters.
+
+    Kept for backward compatibility / reference only — the running input
+    loop now uses KeyboardInputLoop._DIRECTIONS instead, since it needs
+    per-key unit directions (not pre-scaled full vectors) to combine
+    multiple simultaneously held keys.
+    """
     return {
         'w': ( linear_speed,  0.0,          0.0,           0.0,           0.0,           0.0),
         's': (-linear_speed,  0.0,          0.0,           0.0,           0.0,           0.0),
@@ -278,75 +314,148 @@ def build_key_map(linear_speed: float, angular_speed: float) -> dict:
         'd': ( 0.0,          -linear_speed, 0.0,           0.0,           0.0,           0.0),
         'q': ( 0.0,           0.0,          linear_speed,  0.0,           0.0,           0.0),
         'e': ( 0.0,           0.0,         -linear_speed,  0.0,           0.0,           0.0),
-        'i': ( 0.0,           0.0,          0.0,           0.0,           angular_speed, 0.0),
-        'k': ( 0.0,           0.0,          0.0,           0.0,          -angular_speed, 0.0),
+        'i': ( 0.0,           0.0,          0.0,           angular_speed, 0.0,           0.0),
+        'k': ( 0.0,           0.0,          0.0,          -angular_speed, 0.0,           0.0),
+        'u': ( 0.0,           0.0,          0.0,           0.0,           angular_speed, 0.0),
+        'o': ( 0.0,           0.0,          0.0,           0.0,          -angular_speed, 0.0),
         'j': ( 0.0,           0.0,          0.0,           0.0,           0.0,           angular_speed),
         'l': ( 0.0,           0.0,          0.0,           0.0,           0.0,          -angular_speed),
     }
 
 
-def get_key(timeout: float = 0.05):
+class KeyboardInputLoop:
     """
-    Read one key from stdin with a timeout.
-    Returns None if no key was pressed within timeout.
-    Note: hold-to-move relies on terminal key auto-repeat.
-    For explicit press/release events, a library like pynput is needed.
+    Reads keyboard input using explicit press/release events (pynput),
+    instead of relying on terminal key auto-repeat.
+
+    Movement is tied directly to physical key state: velocity is recomputed
+    from the current set of held-down keys every time a key goes down or up.
+    This also means multiple keys can be held at once for combined motion
+    (e.g. w + q moves forward and up together), which was not reliably
+    possible with the old auto-repeat/timeout approach.
+
+    NOTE: pynput's keyboard listener needs either an X11 display (default
+    backend) or access to /dev/input (evdev backend, usually needs the user
+    to be in the 'input' group or run as root). Plain headless SSH sessions
+    without a display and without input-device permissions will not receive
+    key events — run this on the robot's desktop session, or set up evdev
+    access, if you hit that.
     """
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        r, _, _ = select.select([sys.stdin], [], [], timeout)
-        if r:
-            return sys.stdin.read(1)
-        return None
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
+    # Maps a character key to (vx, vy, vz, wx, wy, wz) *unit* direction.
+    # Actual speed is applied when combining active keys.
+    _DIRECTIONS = {
+        'w': ( 1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        's': (-1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        'a': ( 0.0,  1.0,  0.0,  0.0,  0.0,  0.0),
+        'd': ( 0.0, -1.0,  0.0,  0.0,  0.0,  0.0),
+        'q': ( 0.0,  0.0,  1.0,  0.0,  0.0,  0.0),
+        'e': ( 0.0,  0.0, -1.0,  0.0,  0.0,  0.0),
+        'i': ( 0.0,  0.0,  0.0,  1.0,  0.0,  0.0),
+        'k': ( 0.0,  0.0,  0.0, -1.0,  0.0,  0.0),
+        'u': ( 0.0,  0.0,  0.0,  0.0,  1.0,  0.0),
+        'o': ( 0.0,  0.0,  0.0,  0.0, -1.0,  0.0),
+        'j': ( 0.0,  0.0,  0.0,  0.0,  0.0,  1.0),
+        'l': ( 0.0,  0.0,  0.0,  0.0,  0.0, -1.0),
+    }
 
-def keyboard_loop(controller: ServoController):
-    """
-    Main keyboard input loop.
-    Moves while key is held, stops on release (via auto-repeat timeout).
-    """
-    key_map = build_key_map(controller.linear_speed, controller.angular_speed)
-    print(HELP)
-    current_key = None
+    def __init__(self, controller: 'ServoController'):
+        self._controller = controller
+        self._linear_speed = controller.linear_speed
+        self._angular_speed = controller.angular_speed
+        self._lock = threading.Lock()
+        self._pressed = set()
+        self._exit_event = threading.Event()
+        self._listener = None
 
-    while rclpy.ok():
-        key = get_key(timeout=0.05)
+    @staticmethod
+    def _key_to_char(key):
+        """Normalize a pynput key event to a lowercase character, or None."""
+        try:
+            return key.char.lower()
+        except AttributeError:
+            return None
 
-        if key is None:
-            if current_key is not None:
-                controller.stop()
-                current_key = None
-            continue
+    def _recompute_velocity(self):
+        """Sum unit directions of all currently held movement keys and apply speed."""
+        vx = vy = vz = wx = wy = wz = 0.0
+        with self._lock:
+            active = list(self._pressed)
+        for k in active:
+            d = self._DIRECTIONS.get(k)
+            if d is None:
+                continue
+            vx += d[0]
+            vy += d[1]
+            vz += d[2]
+            wx += d[3]
+            wy += d[4]
+            wz += d[5]
+        self._controller.set_velocity(
+            vx * self._linear_speed, vy * self._linear_speed, vz * self._linear_speed,
+            wx * self._angular_speed, wy * self._angular_speed, wz * self._angular_speed,
+        )
 
-        if key in ('\x1b', 'x'):
-            controller.stop()
+    def _on_press(self, key):
+        if key in (pynput_keyboard.Key.esc,):
+            self._exit_event.set()
+            return False  # stop listener
+
+        char = self._key_to_char(key)
+        if char is None:
+            return
+
+        if char == 'x':
+            self._exit_event.set()
+            return False
+
+        if char == 'r':
+            # Handle safe-pose in a separate thread so we don't block the
+            # listener callback (and therefore other key events) while it runs.
+            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+            return
+
+        if char in self._DIRECTIONS:
+            with self._lock:
+                already_pressed = char in self._pressed
+                self._pressed.add(char)
+            if not already_pressed:
+                self._recompute_velocity()
+                print(f'[{char} down] vx={self._controller.vx:.2f} vy={self._controller.vy:.2f} '
+                      f'vz={self._controller.vz:.2f} wx={self._controller.wx:.2f} '
+                      f'wy={self._controller.wy:.2f} wz={self._controller.wz:.2f}')
+
+    def _on_release(self, key):
+        char = self._key_to_char(key)
+        if char is None or char not in self._DIRECTIONS:
+            return
+        with self._lock:
+            self._pressed.discard(char)
+        self._recompute_velocity()
+
+    def _handle_safe_pose(self):
+        with self._lock:
+            self._pressed.clear()
+        self._controller.stop()
+        print('Moving to safe pose...')
+        self._controller.move_to_safe_pose()
+        print('Starting servo...')
+        self._controller.start_servo()
+
+    def run(self):
+        print(HELP)
+        self._listener = pynput_keyboard.Listener(
+            on_press=self._on_press,
+            on_release=self._on_release,
+        )
+        self._listener.start()
+        try:
+            self._exit_event.wait()
+        finally:
             print('\nExiting...')
-            break
-
-        if key == 'r':
-            current_key = None
-            controller.stop()
-            print('Moving to safe pose...')
-            controller.move_to_safe_pose()
-            print('Starting servo...')
-            controller.start_servo()
-            continue
-
-        if key in key_map:
-            if key != current_key:
-                vx, vy, vz, wx, wy, wz = key_map[key]
-                controller.set_velocity(vx, vy, vz, wx, wy, wz)
-                print(f'[{key}] vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
-                      f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
-                current_key = key
-        else:
-            controller.stop()
-            current_key = None
-            print(f'Unknown key: {repr(key)}')
+            self._controller.stop()
+            if self._listener.running:
+                self._listener.stop()
 
 def main():
     rclpy.init()
@@ -355,13 +464,19 @@ def main():
     spin_thread = threading.Thread(target=rclpy.spin, args=(controller,), daemon=True)
     spin_thread.start()
 
+    input_loop = KeyboardInputLoop(controller)
+
     try:
-        keyboard_loop(controller)
+        input_loop.run()
     except KeyboardInterrupt:
         pass
     finally:
         controller.stop()
-        controller.stop_servo()
+        if not controller.stop_servo():
+            controller.get_logger().warn(
+                'Could not confirm Servo stopped before shutdown — '
+                'it may still be active.'
+            )
         controller.destroy_node()
         rclpy.shutdown()
 

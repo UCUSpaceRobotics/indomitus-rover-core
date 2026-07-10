@@ -34,6 +34,7 @@
     <disable_collisions link1="arm_base_link" link2="arm_shoulder_link" reason="Adjacent"/>
     <disable_collisions link1="arm_base_link" link2="arm_wrist_1_link" reason="Never"/>
     <disable_collisions link1="arm_base_link" link2="arm_wrist_2_link" reason="Never"/>
+    <disable_collisions link1="arm_camera_link" link2="arm_end_effector_link" reason="Adjacent"/>
     <disable_collisions link1="arm_end_effector_link" link2="arm_forearm_link" reason="Never"/>
     <disable_collisions link1="arm_end_effector_link" link2="arm_mount_link" reason="Never"/>
     <disable_collisions link1="arm_end_effector_link" link2="arm_shoulder_link" reason="Never"/>
