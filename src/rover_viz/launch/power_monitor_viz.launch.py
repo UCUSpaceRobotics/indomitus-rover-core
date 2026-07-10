@@ -12,7 +12,7 @@ def generate_launch_description():
         name='power_monitor',
         arguments=['-l', layout_path]
     )
-    
+
     return LaunchDescription([
         plotjuggler
     ])
