@@ -36,7 +36,7 @@
     <exec_depend>slam_toolbox</exec_depend>
 
     <!-- Runtime: Planner plugins -->
-    <exec_depend>nav2_navfn_planner</exec_depend>
+    <exec_depend>nav2_smac_planner</exec_depend>
 
     <!-- Runtime: Controller plugins -->
     <exec_depend>nav2_mppi_controller</exec_depend>
