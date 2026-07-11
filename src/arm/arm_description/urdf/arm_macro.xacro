@@ -54,7 +54,7 @@
     <joint name="arm_base_shoulder_joint" type="revolute">
       <parent link="arm_base_link"/>
       <child link="arm_shoulder_link"/>
-      <origin xyz="0 0.013 0.0945" rpy="0 0 ${-pi/2}"/>
+      <origin xyz="0 0.013 0.0945" rpy="${-pi/2} 0 ${-pi/2}"/>
       <axis xyz="1 0 0"/>
       <limit lower="${-pi/2}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>

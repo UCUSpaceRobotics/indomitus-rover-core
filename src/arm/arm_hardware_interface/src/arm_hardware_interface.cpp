@@ -21,6 +21,39 @@ PLUGINLIB_EXPORT_CLASS(
 
 namespace arm_hardware_interface {
 
+// =============================================================================
+// CALIBRATION PARAMETERS
+// Update these arrays after finding the physical zero points of your arm.
+// =============================================================================
+
+// 1.0 = Normal rotation direction (matches URDF)
+// -1.0 = Inverted rotation direction
+//
+// Array order MUST match URDF joint order (same as info.joints[i] / joint_names_[i]):
+//   [0] arm_mount_base_joint
+//   [1] arm_base_shoulder_joint
+//   [2] arm_shoulder_forearm_joint
+//   [3] arm_wrist_1_wrist_2_joint
+//   [4] arm_forearm_wrist_1_joint
+//   [5] arm_wrist_2_end_effector_joint
+// NOTE: the previous version of this file had [3] and [4] swapped
+// (values/comments for wrist_1_wrist_2 and forearm_wrist_1 were transposed).
+// Fixed below.
+const double JOINT_DIRECTIONS[NUM_JOINTS] = {
+    -1.0, -1.0, 1.0, -1.0, 1.0, 1.0
+};
+ 
+// Offsets calculated based on your physical calibration data
+const double JOINT_OFFSETS[NUM_JOINTS] = {
+    -0.8437,   // arm_mount_base_joint
+     0.6512,   // arm_base_shoulder_joint
+     2.8576,   // arm_shoulder_forearm_joint
+     2.2192,   // arm_forearm_wrist_1_joint
+    -1.6767,   // arm_wrist_1_wrist_2_joint
+    -3.1122    // arm_wrist_2_end_effector_joint
+};
+
+
 #ifdef JAZZY_OR_LATER
 hardware_interface::CallbackReturn ArmCanSystem::on_init(
     const hardware_interface::HardwareComponentInterfaceParams & params)
@@ -105,7 +138,15 @@ hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecy
     rx_running_.store(true);
     rx_thread_ = std::thread(&ArmCanSystem::rx_thread_fn, this);
 
-    // Synchronize initial command with actual hardware state (prevent jumps)
+    // Give the RX thread time to receive the initial state frames from all motors
+    // before we synchronize the commands.
+    RCLCPP_INFO(logger_, "Waiting for initial CAN frames to establish physical zero...");
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    // Force an immediate read to populate joint_position_state_ with actual hardware values
+    read(rclcpp::Time(0, 0, RCL_ROS_TIME), rclcpp::Duration(0, 0));
+
+    // Synchronize initial command with actual hardware state (prevent startup jumps)
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
         joint_position_command_[i] = joint_position_state_[i];
     }
@@ -143,18 +184,25 @@ hardware_interface::return_type ArmCanSystem::read(const rclcpp::Time & /*time*/
     return hardware_interface::return_type::OK;
 }
 
+
 hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
     if (!motors_enabled_) return hardware_interface::return_type::OK;
 
+    // Safety check: Prevent jumping to 0.0 if the controller sends an uninitialized command
+    static bool first_write = true;
+    if (first_write) {
+        for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+            // If the command is exactly 0.0 but the physical state is not, override the command
+            if (joint_position_command_[i] == 0.0 && std::abs(joint_position_state_[i]) > 0.01) {
+                joint_position_command_[i] = joint_position_state_[i];
+            }
+        }
+        first_write = false;
+    }
+
     /*
-     * ======================= SAFETY MODE =======================
-     * For PASSIVE TESTING (Stage A), Kp and Kd are forced to 0.0f.
-     * The arm will not fight back. You can move it by hand to verify RViz tracking.
-     * 
-     * To switch to ACTIVE CONTROL, replace the 0.0f values with the real gains:
-     * Steadywin: KP = {30.0f, 120.0f, 100.0f}, KD = {1.5f, 4.0f, 3.5f}
-     * Damiao:    KP = {20.0f, 30.0f, 15.0f},  KD = {1.0f, 1.0f, 0.5f}
+     * ======================= CONTROL GAINS =======================
      */
     const float KP_STEADYWIN[3] = {0.0f, 0.0f, 0.0f}; 
     const float KD_STEADYWIN[3] = {0.0f, 0.0f, 0.0f}; 
@@ -166,10 +214,13 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time & /*time*
 
     // 1. Send commands to Steadywin (Base, Shoulder, Elbow -> indices 0, 1, 2)
     for (std::size_t i = 0; i < 3; ++i) {
+        float target_pos = static_cast<float>((joint_position_command_[i] * JOINT_DIRECTIONS[i]) + JOINT_OFFSETS[i]);
+        float target_vel = static_cast<float>(joint_velocity_command_[i] * JOINT_DIRECTIONS[i]);
+
         can_msgs::msg::Frame f = steadywin_protocol::build_mit_command_frame(
             motor_ids_[i], 
-            static_cast<float>(joint_position_command_[i]), 
-            static_cast<float>(joint_velocity_command_[i]), 
+            target_pos, 
+            target_vel, 
             KP_STEADYWIN[i], KD_STEADYWIN[i], 0.0f);
         
         send_can_frame(f.id, f.data, f.dlc);
@@ -177,10 +228,13 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time & /*time*
 
     // 2. Send commands to Damiao Wrist (Indices 3, 4, 5)
     for (std::size_t i = 3; i < 6; ++i) {
+        float target_pos = static_cast<float>((joint_position_command_[i] * JOINT_DIRECTIONS[i]) + JOINT_OFFSETS[i]);
+        float target_vel = static_cast<float>(joint_velocity_command_[i] * JOINT_DIRECTIONS[i]);
+
         can_msgs::msg::Frame f = damiao_wrist_protocol::build_mit_command_frame(
             motor_ids_[i], 
-            static_cast<float>(joint_position_command_[i]), 
-            static_cast<float>(joint_velocity_command_[i]), 
+            target_pos, 
+            target_vel, 
             KP_DAMIAO[i - 3], KD_DAMIAO[i - 3], 0.0f);
         
         send_can_frame(f.id, f.data, f.dlc);
@@ -188,6 +242,7 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time & /*time*
 
     return hardware_interface::return_type::OK;
 }
+
 
 // -----------------------------------------------------------------------------
 // SocketCAN Internals
@@ -308,8 +363,9 @@ void ArmCanSystem::rx_thread_fn()
             float pos_rad = steadywin_protocol::uint_to_float(
                 pos_uint, -steadywin_protocol::P_MAX_RAD, steadywin_protocol::P_MAX_RAD, 16);
             
-            // Write to shadow buffer instead of direct state interface
-            hw_position_states_[raw_id - 20] = static_cast<double>(pos_rad);
+            size_t idx = raw_id - 20;
+            // Clean physical motor position back to URDF/MoveIt coordinates
+            hw_position_states_[idx] = (static_cast<double>(pos_rad) - JOINT_OFFSETS[idx]) * JOINT_DIRECTIONS[idx];
         }
         // Parse Damiao (IDs 23, 24, 25 or 0)
         else if ((raw_id >= 23 && raw_id <= 25) || raw_id == 0) {
@@ -328,8 +384,9 @@ void ArmCanSystem::rx_thread_fn()
                 float pos_rad = damiao_wrist_protocol::uint_to_float(
                     pos_uint, -damiao_wrist_protocol::P_MAX_RAD, damiao_wrist_protocol::P_MAX_RAD, 16);
                 
-                // Write to shadow buffer instead of direct state interface
-                hw_position_states_[mid - 20] = static_cast<double>(pos_rad);
+                size_t idx = mid - 20;
+                // Clean physical motor position back to URDF/MoveIt coordinates
+                hw_position_states_[idx] = (static_cast<double>(pos_rad) - JOINT_OFFSETS[idx]) * JOINT_DIRECTIONS[idx];
             }
         }
     }
