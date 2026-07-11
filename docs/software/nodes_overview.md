@@ -105,8 +105,8 @@ Gazebo simulation support.
 **World:**
 - `worlds/world_demo.sdf`
 
-**Nodes:**
-- **`sim_diff_bar_node`** — simulates passive differential bar suspension behaviour (the simulated hardware interface is handled by `ros2_control_sim.xacro` instead of a dedicated driver node)
+**Controllers:**
+- **`rocker_diff_controller`** — simulates passive differential bar suspension behaviour.
 
 ---
 

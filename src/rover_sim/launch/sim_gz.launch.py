@@ -31,15 +31,17 @@ class RoverConfig:
     controllers: list[str] = field(default_factory=lambda: [
         'joint_state_broadcaster',
         'swerve_controller',
+        'odometry_controller',
+        'diff_bar_effort_controller',
     ])
 
 
-def generate_bridge_config(context) -> list[Node]:
+def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
     world = LaunchConfiguration("world_name").perform(context)
     model = LaunchConfiguration("model_name").perform(context)
 
     template_path = os.path.join(
-        get_package_share_directory('rover_sim'),
+        rover_sim_share,
         'config',
         'bridge_gz.yaml'
     )
@@ -89,11 +91,22 @@ def make_spawn_node(cfg: RoverConfig) -> Node:
         output='screen',
     )
 
+def make_controller_spawners(cfg: RoverConfig, controllers_yaml: str) -> list[Node]:
+    return [
+        Node(
+            package='controller_manager',
+            executable='spawner',
+            arguments=[name, '--param-file', controllers_yaml],
+            output='screen',
+        )
+        for name in cfg.controllers
+    ]
 
 def generate_launch_description() -> LaunchDescription:
     cfg = RoverConfig()
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share         = get_package_share_directory('rover_sim')
+
     controllers_yaml = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     robot_description = make_robot_description(rover_sim_share)
@@ -122,28 +135,17 @@ def generate_launch_description() -> LaunchDescription:
                 'use_sim_time': True,
             }],
         ),
-        OpaqueFunction(function=generate_bridge_config),
+        OpaqueFunction(function=generate_bridge_config,
+                       kwargs={'rover_sim_share': rover_sim_share}),
         make_spawn_node(cfg),
 
-        Node(
-            package='controller_manager',
-            executable='spawner',
-            arguments=['joint_state_broadcaster'],
-            output='screen',
-        ),
-        Node(
-            package='controller_manager',
-            executable='spawner',
-            arguments=['swerve_controller', '--param-file', controllers_yaml],
-            output='screen',
-        ),
-        Node(
-            package='controller_manager',
-            executable='spawner',
-            arguments=['odometry_controller', '--param-file', controllers_yaml],
-            output='screen',
+        *make_controller_spawners(cfg, controllers_yaml),
+
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(rover_localization_share, 'launch', 'ekf.launch.py')
+            ),
+            launch_arguments={'use_sim_time': 'true'}.items(),
         ),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
-
-        Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),
     ])

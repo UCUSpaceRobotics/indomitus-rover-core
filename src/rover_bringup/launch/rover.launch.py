@@ -23,7 +23,7 @@ def include_launch(
 
 
 def generate_launch_description():
-    rover_bringup_dir = get_package_share_directory('rover_bringup')
+    rover_bringup_share = get_package_share_directory('rover_bringup')
 
     interface_arg = DeclareLaunchArgument(
         'interface', default_value='can0',
@@ -33,7 +33,7 @@ def generate_launch_description():
 
     robot_description = Command([
         'xacro ',
-        os.path.join(rover_bringup_dir, 'urdf', 'rover_real.urdf.xacro'),
+        os.path.join(rover_bringup_share, 'urdf', 'rover_real.urdf.xacro'),
         ' can_interface:=', LaunchConfiguration('interface'),
     ])
 
@@ -49,7 +49,7 @@ def generate_launch_description():
         executable='ros2_control_node',
         parameters=[
             {'robot_description': robot_description},
-            os.path.join(rover_bringup_dir, 'config', 'controllers.yaml'),
+            os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
         ],
         output='screen',
     )
@@ -87,4 +87,5 @@ def generate_launch_description():
         odometry_controller_spawner,
         include_launch('rover_bringup', 'twist_mux.launch.py'),
         include_launch('rover_peripherals', 'lighting.launch.py'),
+        include_launch('rover_localization', 'ekf.launch.py')
     ])
