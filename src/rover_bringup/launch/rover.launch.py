@@ -69,12 +69,6 @@ def launch_setup(context, *args, **kwargs):
 
     rover_bringup_dir     = get_package_share_directory('rover_bringup')
 
-    twist_mux_config = PathJoinSubstitution([
-        rover_bringup_dir,
-        'config',
-        'twist_mux.yaml',
-    ])
-
     sender_node = LifecycleNode(
         package='ros2_socketcan',
         executable='socket_can_sender_node_exe',
@@ -145,17 +139,6 @@ def launch_setup(context, *args, **kwargs):
         output='screen',
     )
 
-    twist_mux_node = Node(
-        package='twist_mux',
-        executable='twist_mux',
-        name='twist_mux',
-        output='screen',
-        parameters=[twist_mux_config],
-        remappings=[
-            ('/cmd_vel_out', '/cmd_vel'),
-        ]
-    )
-
     return [
         sender_node,
         receiver_node,
@@ -166,7 +149,7 @@ def launch_setup(context, *args, **kwargs):
         joint_state_broadcaster_spawner,
         swerve_controller_spawner,
         odometry_controller_spawner,
-        twist_mux_node,
+        include_launch('rover_bringup', 'twist_mux.launch.py'),
         include_launch('rover_peripherals', 'lighting.launch.py'),
     ]
 

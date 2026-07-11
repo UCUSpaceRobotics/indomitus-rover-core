@@ -15,6 +15,13 @@ from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
 
 
+def include_launch(package: str, launch_file: str) -> IncludeLaunchDescription:
+    return IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory(package), 'launch', launch_file)
+        )
+    )
+
 @dataclass
 class RoverConfig:
     world_name: str = 'world_demo'
@@ -88,16 +95,9 @@ def generate_launch_description() -> LaunchDescription:
     cfg = RoverConfig()
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share         = get_package_share_directory('rover_sim')
-    rover_bringup_share     = get_package_share_directory('rover_bringup')
     controllers_yaml = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     robot_description = make_robot_description(rover_sim_share)
-
-    twist_mux_config = PathJoinSubstitution([
-        FindPackageShare('rover_bringup'),
-        'config',
-        'twist_mux.yaml',
-    ])
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value=cfg.world_name),
@@ -144,16 +144,7 @@ def generate_launch_description() -> LaunchDescription:
             arguments=['odometry_controller', '--param-file', controllers_yaml],
             output='screen',
         ),
-        Node(
-            package='twist_mux',
-            executable='twist_mux',
-            name='twist_mux',
-            output='screen',
-            parameters=[twist_mux_config],
-            remappings=[
-                ('/cmd_vel_out', '/cmd_vel'),
-            ]
-        ),
+        include_launch('rover_bringup', 'twist_mux.launch.py'),
 
         Node(package='rover_sim', executable='sim_diff_bar_node', output='screen'),
     ])
