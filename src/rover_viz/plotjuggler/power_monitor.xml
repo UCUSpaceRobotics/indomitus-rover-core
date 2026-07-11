@@ -6,14 +6,16 @@
     <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
      <DockArea name="Current">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="0.000000" left="0.000000" right="1.000000" top="1.000000"/>
-       <limitY/>
+       <range bottom="0.000000" left="5.024920" right="24.922428" top="2.000000"/>
+       <limitY max="2" min="0"/>
+       <curve color="#d62728" name="/power_monitor/sensor_rover/current"/>
       </plot>
      </DockArea>
      <DockArea name="Voltage">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="0.000000" left="0.000000" right="1.000000" top="1.000000"/>
-       <limitY/>
+       <range bottom="40.000000" left="5.024920" right="24.922428" top="60.000000"/>
+       <limitY max="60" min="40"/>
+       <curve color="#1f77b4" name="/power_monitor/sensor_rover/voltage"/>
       </plot>
      </DockArea>
     </DockSplitter>
@@ -22,7 +24,7 @@
   <currentTabIndex index="0"/>
  </tabbed_widget>
  <use_relative_time_offset enabled="1"/>
- <streaming_buffer_size value="5"/>
+ <streaming_buffer_size value="20"/>
  <!-- - - - - - - - - - - - - - - -->
  <!-- - - - - - - - - - - - - - - -->
  <Plugins>
@@ -55,7 +57,7 @@
    <max_array_size value="100"/>
    <boolean_strings_to_number value="true"/>
    <remove_suffix_from_strings value="true"/>
-   <selected_topics value="/odom"/>
+   <selected_topics value="/power_monitor/sensor_rover"/>
   </plugin>
   <plugin ID="UDP Server"/>
   <plugin ID="WebSocket Server"/>
@@ -148,6 +150,7 @@ end
  </Plugins>
  <!-- - - - - - - - - - - - - - - -->
  <previouslyLoaded_Datafiles/>
+ <previouslyLoaded_Streamer name="ROS2 Topic Subscriber"/>
  <!-- - - - - - - - - - - - - - - -->
  <customMathEquations/>
  <snippets/>
