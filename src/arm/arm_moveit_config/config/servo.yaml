@@ -1,0 +1,53 @@
+moveit_servo:
+  ros__parameters:
+    move_group_name: indomitus_arm
+
+    robot_link_command_frame: arm_camera_link
+
+    ee_frame_name: arm_tcp_link
+
+    planning_frame: arm_mount_link
+
+    cartesian_command_in_topic: /servo_node/delta_twist_cmds
+
+    joint_command_in_topic: /servo_node/delta_joint_cmds
+
+    joint_topic: /joint_states
+
+    status_topic: /servo_node/status
+
+    command_out_topic: /indomitus_arm_controller/joint_trajectory
+
+    scale:
+      linear: 0.2
+      rotational: 0.2
+      joint: 0.2
+
+    override_velocity_scaling_factor: 0.5
+
+    command_in_type: speed_units
+    command_out_type: trajectory_msgs/JointTrajectory
+    publish_period: 0.034
+
+    publish_joint_positions: true
+    publish_joint_velocities: true
+    publish_joint_accelerations: false
+
+    incoming_command_timeout: 0.1
+    num_outgoing_halt_msgs_to_publish: 4
+    halt_all_joints_in_joint_mode: true
+    halt_all_joints_in_cartesian_mode: true
+
+    check_collisions: true
+    collision_check_rate: 10.0
+    self_collision_proximity_threshold: 0.01
+    scene_collision_proximity_threshold: 0.02
+
+    lower_singularity_threshold: 100.0
+    hard_stop_singularity_threshold: 200.0
+    leaving_singularity_threshold_multiplier: 2.0
+
+    joint_limit_margin: 0.02
+
+    is_primary_planning_scene_monitor: false
+    monitored_planning_scene_topic: /monitored_planning_scene
