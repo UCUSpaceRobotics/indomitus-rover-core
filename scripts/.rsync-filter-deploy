@@ -1,0 +1,33 @@
+# This file defines which files are ignored by the sync modes of the deployment script
+
+# Unneccessary simulation and visualization packages
+- rover_viz/
+- rover_sim/
+
+# Python
+- __pycache__/
+- *.pyc
+- *.pyo
+- .pytest_cache/
+- *.egg-info/
+
+# Build artifacts
+- build/
+- install/
+- log/
+
+# Editor / OS noise
+- .DS_Store
+- *.swp
+- *~
+- .idea/
+- .vscode/
+
+# Protect Jetson's local repository state
+- .git/
+
+# Protect Compose files and backups from being wiped by root sync
+- docker-compose*.yaml
+- docker-compose*.yaml.bak
+- docker-compose*.yml
+- docker-compose*.yml.bak

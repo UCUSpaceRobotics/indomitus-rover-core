@@ -1,0 +1,17 @@
+[Unit]
+Description=Rover ROS2 Container
+After=network.target docker.service sys-subsystem-net-devices-can0.device
+Requires=docker.service sys-subsystem-net-devices-can0.device
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=10
+WorkingDirectory=/home/indomitus-rover/indomitus-rover-core
+
+ExecStartPre=-/usr/bin/docker compose down
+ExecStart=/usr/bin/docker compose up rover_prod
+ExecStop=/usr/bin/docker compose down
+
+[Install]
+WantedBy=multi-user.target

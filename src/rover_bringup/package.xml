@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rover_bringup</name>
+  <version>0.0.0</version>
+  <description>
+    Bringup package for the Indomitus rover, providing
+    launch files and configuration for hardware
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Launch infrastructure -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- Internal packages -->
+  <exec_depend>rover_description</exec_depend>
+  <exec_depend>rover_teleop</exec_depend>
+  <exec_depend>rover_hardware_interface</exec_depend>
+  <exec_depend>rover_peripherals</exec_depend>
+
+  <!-- CAN -->
+  <exec_depend>ros2_socketcan</exec_depend>
+
+  <!-- Joystick  -->
+  <exec_depend>joy</exec_depend>
+  <exec_depend>teleop_twist_joy</exec_depend>
+
+  <!-- cmd_vel multiplexer -->
+  <exec_depend>twist_mux</exec_depend>
+
+  <!-- URDF -->
+  <exec_depend>xacro</exec_depend>
+
+  <!-- ROS2 Control -->
+  <exec_depend>ros2_control</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>rover_controller</exec_depend>
+
+  <!-- Interfaces -->
+  <exec_depend>lifecycle_msgs</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

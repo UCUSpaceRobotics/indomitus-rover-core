@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<robot name="indomitus_rover" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Main robot description -->
+  <xacro:include filename="$(find rover_description)/urdf/rover.urdf.xacro"/>
+
+  <!-- Simulation ros2_control -->
+  <xacro:include filename="$(find rover_description)/urdf/ros2_control_sim.xacro"/>
+
+  <!-- gz_ros2_control plugin -->
+  <gazebo>
+    <plugin filename="gz_ros2_control-system"
+            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find rover_sim)/config/controllers.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <gazebo>
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+    </plugin>
+  </gazebo>
+
+</robot>
