@@ -9,7 +9,17 @@ from launch.events import matches_action
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from lifecycle_msgs.msg import Transition
+
+
+def include_launch(package: str, launch_file: str) -> IncludeLaunchDescription:
+    return IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory(package), 'launch', launch_file)
+        )
+    )
 
 
 def lifecycle_sequence(node):
@@ -135,13 +145,6 @@ def launch_setup(context, *args, **kwargs):
         output='screen',
     )
 
-    lighting_node = Node(
-        package='rover_peripherals',
-        executable='rover_lighting_node',
-        name='lights_can_node',
-        output='screen',
-    )
-
     twist_mux_node = Node(
         package='twist_mux',
         executable='twist_mux',
@@ -164,7 +167,7 @@ def launch_setup(context, *args, **kwargs):
         swerve_controller_spawner,
         odometry_controller_spawner,
         twist_mux_node,
-        lighting_node,
+        include_launch('rover_peripherals', 'lighting.launch.py'),
     ]
 
 
