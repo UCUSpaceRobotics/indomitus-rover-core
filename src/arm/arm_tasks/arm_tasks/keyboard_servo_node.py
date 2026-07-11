@@ -316,12 +316,17 @@ class ServoController(Node):
     def _on_servo_status(self, msg: Int8):
         """Handle incoming Servo status updates.
 
-        Automatically restarts Servo if the reported status transitions
-        into ``SERVO_STATUS_HALT_FOR_SINGULARITY``.
-
-        Args:
-            msg: Incoming status message; ``msg.data`` is one of the
-                ``SERVO_STATUS_*`` constants.
+        Automatically restarts Servo only when the status transitions into
+        SERVO_STATUS_HALT_FOR_SINGULARITY, since that halt is typically
+        recoverable by re-issuing start_servo (Servo re-attempts the motion
+        away from the singular configuration). Other halt states — e.g.
+        SERVO_STATUS_HALT_FOR_COLLISION — are intentionally NOT
+        auto-recovered: they represent conditions where continuing motion
+        could be unsafe, so they are left for the operator to resolve
+        manually (e.g. by moving the arm clear via keyboard input, or a
+        workspace/collision object review) rather than being silently
+        retried.
+        ...
         """
         code = msg.data
         if code != self._servo_status:
