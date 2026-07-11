@@ -127,6 +127,12 @@ def generate_launch_description() -> LaunchDescription:
         description="CAN socket polling interval for the receiver (seconds)",
     )
 
+    receiver_filters_arg = DeclareLaunchArgument(
+        "receiver_filters",
+        default_value="300:700",
+        description="candump-syntax CAN id:mask filter (hex, no 0x prefix)",
+    )
+
     sender_node = LifecycleNode(
         package="ros2_socketcan",
         executable="socket_can_sender_node_exe",
@@ -147,6 +153,11 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{
             "interface": LaunchConfiguration("interface"),
             "interval_sec": LaunchConfiguration("receiver_interval_sec"),
+            # candump-syntax: id:mask (hex, without 0x).
+            # Pass only 0x300-0x3FF (ESP),
+            # all other ids are filtered out.
+            # example: 'filters': '300:700,400:700',
+            "filters": LaunchConfiguration("receiver_filters"),
         }],
         arguments=["--ros-args", "--log-level", "socket_can_receiver:=WARN"],
         output="screen",
@@ -164,6 +175,7 @@ def generate_launch_description() -> LaunchDescription:
         interface_arg,
         sender_timeout_arg,
         receiver_interval_arg,
+        receiver_filters_arg,
 
         # Validate CAN interface presence
         OpaqueFunction(function=_validate_can_interface),
