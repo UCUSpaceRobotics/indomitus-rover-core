@@ -326,7 +326,6 @@ class ServoController(Node):
         manually (e.g. by moving the arm clear via keyboard input, or a
         workspace/collision object review) rather than being silently
         retried.
-        ...
         """
         code = msg.data
         if code != self._servo_status:
