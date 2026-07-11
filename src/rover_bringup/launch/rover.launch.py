@@ -10,9 +10,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
 def include_launch(
-    package: str,
-    launch_file: str,
-    launch_arguments: dict | None = None,
+    package: str, launch_file: str, launch_arguments: dict | None = None,
 ) -> IncludeLaunchDescription:
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(

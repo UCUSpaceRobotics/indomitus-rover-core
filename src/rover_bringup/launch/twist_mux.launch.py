@@ -7,11 +7,11 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     rover_bringup_dir = get_package_share_directory('rover_bringup')
 
-    twist_mux_config = os.path.join([
+    twist_mux_config = os.path.join(
         rover_bringup_dir,
         'config',
         'twist_mux.yaml',
-    ])
+    )
 
     twist_mux_node = Node(
         package='twist_mux',

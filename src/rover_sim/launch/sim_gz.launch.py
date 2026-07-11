@@ -14,11 +14,14 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def include_launch(package: str, launch_file: str) -> IncludeLaunchDescription:
+def include_launch(
+    package: str, launch_file: str, launch_arguments: dict | None = None,
+) -> IncludeLaunchDescription:
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory(package), 'launch', launch_file)
-        )
+        ),
+        launch_arguments=(launch_arguments or {}).items(),
     )
 
 @dataclass
@@ -141,11 +144,8 @@ def generate_launch_description() -> LaunchDescription:
 
         *make_controller_spawners(cfg, controllers_yaml),
 
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(rover_localization_share, 'launch', 'ekf.launch.py')
-            ),
-            launch_arguments={'use_sim_time': 'true'}.items(),
-        ),
+        include_launch('rover_localization', 'ekf.launch.py', {
+            'use_sim_time': 'true',
+        }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
     ])
