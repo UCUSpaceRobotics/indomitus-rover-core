@@ -28,7 +28,6 @@
     </joint>
 
 
-    <!-- Drive joints — керування швидкістю обертання -->
     <joint name="fl_wheel_joint">
       <command_interface name="velocity"/>
       <state_interface name="position"/>
@@ -50,14 +49,21 @@
       <state_interface name="velocity"/>
     </joint>
 
+  </ros2_control>
+
+
+  <ros2_control name="DiffBarHardware" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
 
     <joint name="l_rocker_joint">
-      <!-- <command_interface name="position"/> -->
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="r_rocker_joint">
-      <command_interface name="position"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
