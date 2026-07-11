@@ -109,6 +109,64 @@ def _fail_fast(node: LifecycleNode, label: str) -> RegisterEventHandler:
         )
     )
 
+def _launch_can_nodes(context, *args, **kwargs) -> List[Action]:
+    interface_name = LaunchConfiguration("interface").perform(context)
+    logger = launch.logging.get_logger("can_validation")
+
+    # --- validating ---
+    try:
+        result = subprocess.run(
+            ["ip", "-j", "link", "show", interface_name],
+            capture_output=True, text=True, check=True
+        )
+        interface_data = json.loads(result.stdout)
+        flags = interface_data[0].get("flags", [])
+        if "UP" not in flags:
+            logger.error(f"[CAN] ERROR: interface '{interface_name}' exists but is not UP.")
+            raise RuntimeError(f"Interface {interface_name} is down")
+        logger.info(f"[CAN] Interface '{interface_name}' is UP — OK")
+
+    except subprocess.CalledProcessError:
+        raise RuntimeError(f"[CAN] Interface '{interface_name}' does not exist.")
+    except (json.JSONDecodeError, IndexError, KeyError):
+        raise RuntimeError(f"[CAN] Failed to parse state for '{interface_name}'.")
+
+    sender_node = LifecycleNode(
+        package="ros2_socketcan",
+        executable="socket_can_sender_node_exe",
+        name="socket_can_sender",
+        namespace="",
+        parameters=[{
+            "interface": LaunchConfiguration("interface"),
+            "timeout_sec": LaunchConfiguration("sender_timeout_sec"),
+        }],
+        output="screen",
+    )
+
+    receiver_node = LifecycleNode(
+        package="ros2_socketcan",
+        executable="socket_can_receiver_node_exe",
+        name="socket_can_receiver",
+        namespace="",
+        parameters=[{
+            "interface": LaunchConfiguration("interface"),
+            "interval_sec": LaunchConfiguration("receiver_interval_sec"),
+            "filters": LaunchConfiguration("receiver_filters"),
+        }],
+        arguments=["--ros-args", "--log-level", "socket_can_receiver:=WARN"],
+        output="screen",
+    )
+
+    return [
+        sender_node,
+        receiver_node,
+        _auto_configure(sender_node, "socket_can_sender"),
+        _auto_configure(receiver_node, "socket_can_receiver"),
+        _auto_activate(sender_node, "socket_can_sender"),
+        _auto_activate(receiver_node, "socket_can_receiver"),
+        _fail_fast(sender_node, "socket_can_sender"),
+        _fail_fast(receiver_node, "socket_can_receiver"),
+    ]
 
 def generate_launch_description() -> LaunchDescription:
     interface_arg = DeclareLaunchArgument(
@@ -133,42 +191,42 @@ def generate_launch_description() -> LaunchDescription:
         description="candump-syntax CAN id:mask filter (hex, no 0x prefix)",
     )
 
-    sender_node = LifecycleNode(
-        package="ros2_socketcan",
-        executable="socket_can_sender_node_exe",
-        name="socket_can_sender",
-        namespace="",
-        parameters=[{
-            "interface": LaunchConfiguration("interface"),
-            "timeout_sec": LaunchConfiguration("sender_timeout_sec"),
-        }],
-        output="screen",
-    )
+    # sender_node = LifecycleNode(
+    #     package="ros2_socketcan",
+    #     executable="socket_can_sender_node_exe",
+    #     name="socket_can_sender",
+    #     namespace="",
+    #     parameters=[{
+    #         "interface": LaunchConfiguration("interface"),
+    #         "timeout_sec": LaunchConfiguration("sender_timeout_sec"),
+    #     }],
+    #     output="screen",
+    # )
 
-    receiver_node = LifecycleNode(
-        package="ros2_socketcan",
-        executable="socket_can_receiver_node_exe",
-        name="socket_can_receiver",
-        namespace="",
-        parameters=[{
-            "interface": LaunchConfiguration("interface"),
-            "interval_sec": LaunchConfiguration("receiver_interval_sec"),
-            # candump-syntax: id:mask (hex, without 0x).
-            # Pass only 0x300-0x3FF (ESP),
-            # all other ids are filtered out.
-            # example: 'filters': '300:700,400:700',
-            "filters": LaunchConfiguration("receiver_filters"),
-        }],
-        arguments=["--ros-args", "--log-level", "socket_can_receiver:=WARN"],
-        output="screen",
-    )
+    # receiver_node = LifecycleNode(
+    #     package="ros2_socketcan",
+    #     executable="socket_can_receiver_node_exe",
+    #     name="socket_can_receiver",
+    #     namespace="",
+    #     parameters=[{
+    #         "interface": LaunchConfiguration("interface"),
+    #         "interval_sec": LaunchConfiguration("receiver_interval_sec"),
+    #         # candump-syntax: id:mask (hex, without 0x).
+    #         # Pass only 0x300-0x3FF (ESP),
+    #         # all other ids are filtered out.
+    #         # example: 'filters': '300:700,400:700',
+    #         "filters": LaunchConfiguration("receiver_filters"),
+    #     }],
+    #     arguments=["--ros-args", "--log-level", "socket_can_receiver:=WARN"],
+    #     output="screen",
+    # )
 
-    sender_configure_handler = _auto_configure(sender_node, "socket_can_sender")
-    receiver_configure_handler = _auto_configure(receiver_node, "socket_can_receiver")
-    sender_activate_handler = _auto_activate(sender_node, "socket_can_sender")
-    receiver_activate_handler = _auto_activate(receiver_node, "socket_can_receiver")
-    sender_fail_fast_handler = _fail_fast(sender_node, "socket_can_sender")
-    receiver_fail_fast_handler = _fail_fast(receiver_node, "socket_can_receiver")
+    # sender_configure_handler = _auto_configure(sender_node, "socket_can_sender")
+    # receiver_configure_handler = _auto_configure(receiver_node, "socket_can_receiver")
+    # sender_activate_handler = _auto_activate(sender_node, "socket_can_sender")
+    # receiver_activate_handler = _auto_activate(receiver_node, "socket_can_receiver")
+    # sender_fail_fast_handler = _fail_fast(sender_node, "socket_can_sender")
+    # receiver_fail_fast_handler = _fail_fast(receiver_node, "socket_can_receiver")
 
     return LaunchDescription([
         # Arguments
@@ -180,15 +238,17 @@ def generate_launch_description() -> LaunchDescription:
         # Validate CAN interface presence
         OpaqueFunction(function=_validate_can_interface),
 
-        # Event handlers
-        sender_configure_handler,
-        receiver_configure_handler,
-        sender_activate_handler,
-        receiver_activate_handler,
-        sender_fail_fast_handler,
-        receiver_fail_fast_handler,
+        # # Event handlers
+        # sender_configure_handler,
+        # receiver_configure_handler,
+        # sender_activate_handler,
+        # receiver_activate_handler,
+        # sender_fail_fast_handler,
+        # receiver_fail_fast_handler,
 
-        # Nodes
-        sender_node,
-        receiver_node,
+        # # Nodes
+        # sender_node,
+        # receiver_node,
+
+        OpaqueFunction(function=_launch_can_nodes),
     ])
