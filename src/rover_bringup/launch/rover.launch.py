@@ -25,13 +25,6 @@ def generate_launch_description():
         ' can_interface:=', LaunchConfiguration('interface'),
     ])
 
-    robot_state_publisher = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        parameters=[{'robot_description': robot_description}],
-        output='screen',
-    )
-
     controller_manager = Node(
         package='controller_manager',
         executable='ros2_control_node',
@@ -68,7 +61,9 @@ def generate_launch_description():
         include_launch('rover_bringup', 'can.launch.py', {
             'interface': LaunchConfiguration('interface'),
         }),
-        robot_state_publisher,
+        include_launch('rover_description', 'robot_state_publisher.launch.py', {
+            'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+        }),
         controller_manager,
         joint_state_broadcaster_spawner,
         swerve_controller_spawner,

@@ -2,7 +2,6 @@ import os
 from dataclasses import dataclass, field
 from string import Template
 
-import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
@@ -55,10 +54,6 @@ def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
         output='screen',
     )]
 
-def make_robot_description(rover_description_share: str) -> str:
-    path = os.path.join(rover_description_share, 'urdf', 'rover.xacro')
-    return xacro.process_file(path).toxml()
-
 
 def make_gazebo_launch(rover_sim_share: str, cfg: RoverConfig) -> IncludeLaunchDescription:
     world_file = os.path.join(rover_sim_share, 'worlds', f'{cfg.world_name}.sdf')
@@ -103,8 +98,6 @@ def generate_launch_description() -> LaunchDescription:
 
     controllers_yaml = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
-    robot_description = make_robot_description(rover_description_share)
-
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value=cfg.world_name),
         DeclareLaunchArgument('model_name', default_value=cfg.model_name),
@@ -120,15 +113,12 @@ def generate_launch_description() -> LaunchDescription:
 
         make_gazebo_launch(rover_sim_share, cfg),
 
-        Node(
-            package='robot_state_publisher',
-            executable='robot_state_publisher',
-            output='screen',
-            parameters=[{
-                'robot_description': robot_description,
-                'use_sim_time': True,
-            }],
-        ),
+        include_launch('rover_description', 'robot_state_publisher.launch.py', {
+            'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+            'xacro_args': 'use_sim:=true',
+            'use_sim_time': 'true',
+        }),
+
         OpaqueFunction(function=generate_bridge_config,
                        kwargs={'rover_sim_share': rover_sim_share}),
         make_spawn_node(cfg),

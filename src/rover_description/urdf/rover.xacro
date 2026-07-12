@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot name="indomitus_s1" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:arg name="use_sim" default="true"/>
+  <xacro:arg name="use_sim" default="false"/>
   <xacro:arg name="can_interface" default="can0"/>
 
   <!-- Main robot description -->
