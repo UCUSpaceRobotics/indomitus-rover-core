@@ -25,7 +25,7 @@ jobs:
           account: ${{ github.repository_owner }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "sha-*-dev"
-          cut-off: 14 days ago UTC
+          cut-off: 14
           keep-n-most-recent: 5
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -35,7 +35,7 @@ jobs:
           account: ${{ github.repository_owner }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "sha-*-prod"
-          cut-off: 30 days ago UTC
+          cut-off: 30
           keep-n-most-recent: 10
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -45,5 +45,5 @@ jobs:
           account: ${{ github.repository_owner }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "!*"
-          cut-off: 3 days ago UTC 
+          cut-off: 3
           token: ${{ secrets.GITHUB_TOKEN }}
