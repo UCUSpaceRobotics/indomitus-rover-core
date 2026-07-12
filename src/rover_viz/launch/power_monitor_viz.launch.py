@@ -10,7 +10,7 @@ def generate_launch_description():
         package='plotjuggler',
         executable='plotjuggler',
         name='power_monitor',
-        arguments=['-l', layout_path]
+        arguments=['--nosplash', '-l', layout_path]
     )
 
     return LaunchDescription([

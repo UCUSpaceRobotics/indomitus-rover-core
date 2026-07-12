@@ -90,6 +90,13 @@ class PowerMonitorCanNode(Node):
                 f"must have the same length"
             )
 
+        if len(set(ids)) != len(ids):
+            dupes = {i for i in ids if ids.count(i) > 1}
+            raise ValueError(
+                f"sensor_can_ids contains duplicate CAN ids: "
+                f"{[hex(d) for d in dupes]}"
+            )
+
         self._sensor_configs = [
             SensorConfig(name=n, can_id=i) for n, i in zip(names, ids)
         ]
@@ -143,4 +150,5 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
