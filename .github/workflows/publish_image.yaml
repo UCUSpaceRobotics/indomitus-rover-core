@@ -120,6 +120,7 @@ jobs:
             suffix=-dev
           tags: |
             type=ref,event=branch
+            type=sha
           labels: |
             org.opencontainers.image.description=Development Image (AMD64) for Indomitus Rover with Simulation Tools
 

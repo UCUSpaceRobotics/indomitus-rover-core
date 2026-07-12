@@ -46,14 +46,13 @@ jobs:
         id: set-tag
         run: |
           if [ "${{ steps.filter.outputs.docker }}" == "true" ]; then
-            echo "tag=pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+            echo "tag=pr-${{ github.event.pull_request.number }}-dev" >> $GITHUB_OUTPUT
           else
             # Sanitize base_ref: replace slashes with hyphens
             BASE_REF="${{ github.base_ref }}"
             SAFE_BASE=$(echo "$BASE_REF" | sed 's/\//-/g')
 
-            # Only main and develop have published images.
-            # For any other base branch, fall back to develop-dev.
+            # Fallback to base branch image if docker wasn't touched
             if [[ "$SAFE_BASE" == "main" || "$SAFE_BASE" == "develop" ]]; then
               echo "tag=${SAFE_BASE}-dev" >> $GITHUB_OUTPUT
             else
@@ -83,6 +82,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ needs.detect-changes.outputs.image_name }}
+          flavor: |
+            suffix=-dev
+          tags: |
+            # Only generate the floating PR tag. No SHA tags.
+            type=ref,event=pr
+
       - name: Build and Push PR Image (DEV Target)
         uses: docker/build-push-action@v5
         with:
@@ -93,93 +103,94 @@ jobs:
           push: true
           build-args: |
             INSTALL_SIM_TOOLS=true
-          tags: ${{ env.REGISTRY }}/${{ needs.detect-changes.outputs.image_name }}:pr-${{ github.event.pull_request.number }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   run-tests:
-      needs: [detect-changes, build-temp-image]
-      if: always() && !cancelled() && !contains(needs.*.result, 'failure')
-      runs-on: ubuntu-22.04
-      permissions:
-        contents: read
-        checks: write
-        pull-requests: write
-        packages: read
+    needs: [detect-changes, build-temp-image]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      packages: read
 
-      container:
-        image: ghcr.io/${{ needs.detect-changes.outputs.image_name }}:${{ needs.detect-changes.outputs.image_tag }}
-        credentials:
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+    container:
+      image: ghcr.io/${{ needs.detect-changes.outputs.image_name }}:${{ needs.detect-changes.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-      env:
-        ROS_DISTRO: humble
+    env:
+      ROS_DISTRO: humble
 
-      steps:
-        - name: Checkout repository
-          uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-        - name: Install missing dependencies via rosdep
-          if: needs.detect-changes.outputs.dependencies_changed == 'true' && needs.detect-changes.outputs.docker_changed == 'false'
-          shell: bash
-          run: |
-            source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
-            apt-get update -q
-            rosdep update
-            rosdep install --from-paths src --ignore-src --rosdistro ${{ env.ROS_DISTRO }} -r -y
+      - name: Install missing dependencies via rosdep
+        if: needs.detect-changes.outputs.dependencies_changed == 'true' && needs.detect-changes.outputs.docker_changed == 'false'
+        shell: bash
+        run: |
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
+          apt-get update -q
+          rosdep update
+          rosdep install --from-paths src --ignore-src --rosdistro ${{ env.ROS_DISTRO }} -r -y
 
-        - name: Cache ROS 2 Workspace
-          uses: actions/cache@v4
-          with:
-            path: |
-              build
-              install
-            key: ros2-build-${{ github.base_ref }}-${{ hashFiles('src/**/package.xml', 'src/**/CMakeLists.txt') }}
-            restore-keys: |
-              ros2-build-${{ github.base_ref }}-
+      - name: Cache ROS 2 Workspace
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            install
+          key: ros2-build-${{ github.base_ref }}-${{ hashFiles('src/**/package.xml', 'src/**/CMakeLists.txt') }}
+          restore-keys: |
+            ros2-build-${{ github.base_ref }}-
 
-        - name: Build ROS 2 Workspace
-          shell: bash
-          run: |
-            source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
-            colcon build --symlink-install --event-handlers console_cohesion+
+      - name: Build ROS 2 Workspace
+        shell: bash
+        run: |
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
+          colcon build --symlink-install --event-handlers console_cohesion+
 
-        # - name: Code Style & Documentation Warnings
-        #   continue-on-error: true
-        #   shell: bash
-        #   run: |
-        #     source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
-        #     ament_flake8 src/
-        #     ament_pep257 src/
-        #     ament_cpplint src/
+      # - name: Code Style & Documentation Warnings
+      #   continue-on-error: true
+      #   shell: bash
+      #   run: |
+      #     source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
+      #     ament_flake8 src/
+      #     ament_pep257 src/
+      #     ament_cpplint src/
 
-        - name: Run Functional Unit Tests
-          shell: bash
-          run: |
-            source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
-            source install/setup.bash            
-            
-            # Run test with disabled linters for both Python (pytest) AND C++ (CTest)
-            colcon test --event-handlers console_cohesion+ \
-              --pytest-args -m "not linter" \
-              --ctest-args -LE linter
+      - name: Run Functional Unit Tests
+        shell: bash
+        run: |
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
+          source install/setup.bash            
+          
+          # Run test with disabled linters for both Python (pytest) AND C++ (CTest)
+          colcon test --event-handlers console_cohesion+ \
+            --pytest-args -m "not linter" \
+            --ctest-args -LE linter
 
-        - name: Fix Git Ownership
-          if: always()
-          run: git config --global --add safe.directory '*'
+      - name: Fix Git Ownership
+        if: always()
+        run: git config --global --add safe.directory '*'
 
-        - name: Publish Test Report Dashboard
-          uses: dorny/test-reporter@v1
-          if: success() || failure() 
-          with:
-            name: ROS 2 Unit Test Results
-            path: 'build/**/test_results/**/*.xml,build/**/pytest.xml'
-            reporter: java-junit 
+      - name: Publish Test Report Dashboard
+        uses: dorny/test-reporter@v1
+        if: success() || failure() 
+        with:
+          name: ROS 2 Unit Test Results
+          path: 'build/**/test_results/**/*.xml,build/**/pytest.xml'
+          reporter: java-junit 
 
-        - name: Evaluate Results & Block Merge
-          if: success() || failure()
-          shell: bash
-          run: |
-            source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
-            colcon test-result --all
+      - name: Evaluate Results & Block Merge
+        if: success() || failure()
+        shell: bash
+        run: |
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
+          colcon test-result --all
