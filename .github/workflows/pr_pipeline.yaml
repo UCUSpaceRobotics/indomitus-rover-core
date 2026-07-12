@@ -37,7 +37,8 @@ jobs:
         with:
           filters: |
             docker:
-              - 'docker/**'
+              - 'docker/Dockerfile'
+              - 'docker/entrypoint.bash'
             dependencies:
               - 'src/**/package.xml'
 
