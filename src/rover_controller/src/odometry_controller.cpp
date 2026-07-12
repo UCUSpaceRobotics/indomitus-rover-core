@@ -397,6 +397,25 @@ void RoverOdometryController::publish_odom(
     odom.twist.covariance[35] = 0.03;  // var(wz)
 
     odom_pub_->publish(odom);
+
+    // 2. Broadcast the Dynamic TF Transform Frame
+    if (!tf_broadcaster_) {
+        tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(get_node());
+    }
+
+    geometry_msgs::msg::TransformStamped odom_tf;
+    odom_tf.header.stamp            = stamp;
+    odom_tf.header.frame_id         = "odom";
+    odom_tf.child_frame_id          = "base_link";
+
+    odom_tf.transform.translation.x = x_;
+    odom_tf.transform.translation.y = y_;
+    odom_tf.transform.translation.z = 0.0;
+    
+    odom_tf.transform.rotation.z    = qz;
+    odom_tf.transform.rotation.w    = qw;
+
+    tf_broadcaster_->sendTransform(odom_tf);
 }
 
 }  // namespace rover_controller
