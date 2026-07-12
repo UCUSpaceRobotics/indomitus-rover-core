@@ -81,7 +81,9 @@ jobs:
           push: true
           tags: ${{ steps.metadata-tags.outputs.tags }}
           labels: ${{ steps.metadata-tags.outputs.labels }}
-          cache-from: type=gha,scope=${{ github.ref_name }}-prod
+          cache-from: |
+            type=gha,scope=${{ github.ref_name }}-prod
+            type=gha,scope=develop-prod
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-prod
 
   build-and-push-dev-amd64:
@@ -146,5 +148,7 @@ jobs:
             INSTALL_SIM_TOOLS=true
           tags: ${{ steps.meta-dev.outputs.tags }}
           labels: ${{ steps.meta-dev.outputs.labels }}
-          cache-from: type=gha,scope=${{ github.ref_name }}-dev
+          cache-from: |
+            type=gha,scope=${{ github.ref_name }}-dev
+            type=gha,scope=develop-dev
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-dev

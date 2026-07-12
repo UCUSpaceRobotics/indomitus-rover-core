@@ -105,7 +105,10 @@ jobs:
             INSTALL_SIM_TOOLS=true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          cache-from: |
+            type=gha
+            type=gha,scope=${{ github.base_ref }}-dev
+            type=gha,scope=develop-dev
           cache-to: type=gha,mode=max
 
   run-tests:
