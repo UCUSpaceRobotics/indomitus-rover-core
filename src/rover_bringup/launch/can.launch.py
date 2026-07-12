@@ -158,14 +158,17 @@ def _launch_can_nodes(context, *args, **kwargs) -> List[Action]:
     )
 
     return [
-        sender_node,
-        receiver_node,
+        # Event handlers
         _auto_configure(sender_node, "socket_can_sender"),
         _auto_configure(receiver_node, "socket_can_receiver"),
         _auto_activate(sender_node, "socket_can_sender"),
         _auto_activate(receiver_node, "socket_can_receiver"),
         _fail_fast(sender_node, "socket_can_sender"),
         _fail_fast(receiver_node, "socket_can_receiver"),
+        
+        # Nodes
+        sender_node,
+        receiver_node,
     ]
 
 def generate_launch_description() -> LaunchDescription:
@@ -191,43 +194,6 @@ def generate_launch_description() -> LaunchDescription:
         description="candump-syntax CAN id:mask filter (hex, no 0x prefix)",
     )
 
-    # sender_node = LifecycleNode(
-    #     package="ros2_socketcan",
-    #     executable="socket_can_sender_node_exe",
-    #     name="socket_can_sender",
-    #     namespace="",
-    #     parameters=[{
-    #         "interface": LaunchConfiguration("interface"),
-    #         "timeout_sec": LaunchConfiguration("sender_timeout_sec"),
-    #     }],
-    #     output="screen",
-    # )
-
-    # receiver_node = LifecycleNode(
-    #     package="ros2_socketcan",
-    #     executable="socket_can_receiver_node_exe",
-    #     name="socket_can_receiver",
-    #     namespace="",
-    #     parameters=[{
-    #         "interface": LaunchConfiguration("interface"),
-    #         "interval_sec": LaunchConfiguration("receiver_interval_sec"),
-    #         # candump-syntax: id:mask (hex, without 0x).
-    #         # Pass only 0x300-0x3FF (ESP),
-    #         # all other ids are filtered out.
-    #         # example: 'filters': '300:700,400:700',
-    #         "filters": LaunchConfiguration("receiver_filters"),
-    #     }],
-    #     arguments=["--ros-args", "--log-level", "socket_can_receiver:=WARN"],
-    #     output="screen",
-    # )
-
-    # sender_configure_handler = _auto_configure(sender_node, "socket_can_sender")
-    # receiver_configure_handler = _auto_configure(receiver_node, "socket_can_receiver")
-    # sender_activate_handler = _auto_activate(sender_node, "socket_can_sender")
-    # receiver_activate_handler = _auto_activate(receiver_node, "socket_can_receiver")
-    # sender_fail_fast_handler = _fail_fast(sender_node, "socket_can_sender")
-    # receiver_fail_fast_handler = _fail_fast(receiver_node, "socket_can_receiver")
-
     return LaunchDescription([
         # Arguments
         interface_arg,
@@ -237,18 +203,6 @@ def generate_launch_description() -> LaunchDescription:
 
         # Validate CAN interface presence
         OpaqueFunction(function=_validate_can_interface),
-
-        # # Event handlers
-        # sender_configure_handler,
-        # receiver_configure_handler,
-        # sender_activate_handler,
-        # receiver_activate_handler,
-        # sender_fail_fast_handler,
-        # receiver_fail_fast_handler,
-
-        # # Nodes
-        # sender_node,
-        # receiver_node,
 
         OpaqueFunction(function=_launch_can_nodes),
     ])
