@@ -1,0 +1,11 @@
+power_node:
+  ros__parameters:
+    topic_prefix: "power_monitor"
+
+    sensor_names:
+      - "sensor_rover"
+      - "sensor_arm"
+
+    sensor_can_ids:
+      - 770   # 0x302
+      - 771   # 0x303
