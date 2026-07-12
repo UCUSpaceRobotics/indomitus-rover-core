@@ -1,5 +1,4 @@
 import os
-from dataclasses import dataclass, field
 from string import Template
 
 from ament_index_python.packages import get_package_share_directory
@@ -9,39 +8,19 @@ from launch.actions import (
     OpaqueFunction, SetEnvironmentVariable
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from rover_bringup.launch_utils import include_launch
-
-
-@dataclass
-class RoverConfig:
-    world_name: str = 'world_demo'
-    model_name: str = 'indomitus_rover'
-    spawn_x: float = 0.0
-    spawn_y: float = 0.0
-    spawn_z: float = 3.5
-    controllers: list[str] = field(default_factory=lambda: [
-        'joint_state_broadcaster',
-        'swerve_controller',
-        'odometry_controller',
-        'diff_bar_effort_controller',
-    ])
 
 
 def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
     world = LaunchConfiguration("world_name").perform(context)
     model = LaunchConfiguration("model_name").perform(context)
 
-    template_path = os.path.join(
-        rover_sim_share,
-        'config',
-        'bridge_gz.yaml'
-    )
+    template_path = os.path.join(rover_sim_share, 'config', 'bridge_gz.yaml')
     with open(template_path) as f:
-        template = Template(f.read())
+        rendered = Template(f.read()).substitute(world=world, model=model)
 
-    rendered = template.substitute(world=world, model=model)
     path_bridge_config = f"/tmp/bridge_{world}_{model}_urdf.yaml"
 
     with open(path_bridge_config, "w") as f:
@@ -55,42 +34,41 @@ def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
     )]
 
 
-def make_gazebo_launch(rover_sim_share: str, cfg: RoverConfig) -> IncludeLaunchDescription:
-    world_file = os.path.join(rover_sim_share, 'worlds', f'{cfg.world_name}.sdf')
+def make_gazebo_launch(rover_sim_share: str) -> IncludeLaunchDescription:
+    world_file = PathJoinSubstitution([
+        rover_sim_share, 'worlds', LaunchConfiguration('world_name')
+    ])
     source = PythonLaunchDescriptionSource(
         os.path.join(get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')
     )
     return IncludeLaunchDescription(source, launch_arguments={
-        'gz_args': f'-r {world_file}',
+        'gz_args': ['-r ', world_file, '.sdf'],
         'on_exit_shutdown': 'True',
     }.items())
 
 
-def make_spawn_node(cfg: RoverConfig) -> Node:
+def make_spawn_node() -> Node:
     return Node(
         package='ros_gz_sim',
         executable='create',
         arguments=[
-            '-name', cfg.model_name,
+            '-name', LaunchConfiguration('model_name'),
             '-topic', 'robot_description',
-            '-x', str(cfg.spawn_x),
-            '-y', str(cfg.spawn_y),
-            '-z', str(cfg.spawn_z),
+            '-x', '0.0', '-y', '0.0', '-z', '3.5',
         ],
         output='screen',
     )
 
 
 def generate_launch_description() -> LaunchDescription:
-    cfg = RoverConfig()
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share         = get_package_share_directory('rover_sim')
 
     controllers_yaml_path = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     return LaunchDescription([
-        DeclareLaunchArgument('world_name', default_value=cfg.world_name),
-        DeclareLaunchArgument('model_name', default_value=cfg.model_name),
+        DeclareLaunchArgument('world_name', default_value='world_demo'),
+        DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
 
         SetEnvironmentVariable(
             name='GZ_SIM_RESOURCE_PATH',
@@ -101,7 +79,7 @@ def generate_launch_description() -> LaunchDescription:
             ]
         ),
 
-        make_gazebo_launch(rover_sim_share, cfg),
+        make_gazebo_launch(rover_sim_share),
 
         include_launch('rover_description', 'robot_state_publisher.launch.py', {
             'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
@@ -111,7 +89,7 @@ def generate_launch_description() -> LaunchDescription:
 
         OpaqueFunction(function=generate_bridge_config,
                        kwargs={'rover_sim_share': rover_sim_share}),
-        make_spawn_node(cfg),
+        make_spawn_node(),
 
         include_launch('rover_bringup', 'control.launch.py', {
             'use_sim': 'true',
