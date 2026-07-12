@@ -1,0 +1,34 @@
+name: Manual Image Cleanup Utility
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_tags:
+        description: 'Tag pattern to delete (e.g., experimental/*, bad-typo-dev)'
+        required: true
+        type: string
+      perform_untagged_cleanup:
+        description: 'Enable cleanup of orphaned image layers (WARNING: Cannot be undone)'
+        required: true
+        type: boolean
+        default: false
+      days_to_keep:
+        description: 'Keep untagged images newer than this many days (ignored if cleanup is false)'
+        required: true
+        type: number
+        default: 3
+
+jobs:
+  manual-cleanup:
+    runs-on: ubuntu-22.04
+    permissions:
+      packages: write
+      
+    steps:
+      - name: Execute Tag Cleanup
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          delete-tags: ${{ inputs.target_tags }}
+          delete-untagged: ${{ inputs.perform_untagged_cleanup }}
+          older-than: ${{ inputs.days_to_keep }} days
