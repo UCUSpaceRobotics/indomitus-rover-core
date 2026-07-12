@@ -10,6 +10,10 @@
     <xacro:property name="mesh_path" value="package://arm_description/meshes"/>
     <xacro:property name="stl_scale" value="0.001 0.001 0.001"/>
 
+    <material name="light_grey">
+      <color rgba="0.7 0.7 0.7 1.0"/>
+    </material>
+
     <xacro:macro name="dummy_inertia" params="mass">
       <inertial>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -27,6 +31,7 @@
     <link name="arm_mount_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_mount.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_mount.stl" scale="${stl_scale}"/></geometry>
@@ -45,6 +50,7 @@
     <link name="arm_base_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_base.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_base.stl" scale="${stl_scale}"/></geometry>
@@ -63,6 +69,7 @@
     <link name="arm_shoulder_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_shoulder.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_shoulder.stl" scale="${stl_scale}"/></geometry>
@@ -81,6 +88,7 @@
     <link name="arm_forearm_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_forearm.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_forearm.stl" scale="${stl_scale}"/></geometry>
@@ -99,6 +107,7 @@
     <link name="arm_wrist_1_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_wrist_1.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_wrist_1.stl" scale="${stl_scale}"/></geometry>
@@ -117,6 +126,7 @@
     <link name="arm_wrist_2_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_wrist_2.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_wrist_2.stl" scale="${stl_scale}"/></geometry>
@@ -136,6 +146,7 @@
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
         <visual>
           <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
+          <material name="light_grey"/>
         </visual>
         <collision>
           <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
@@ -227,9 +238,79 @@
         </plugin>
       </gazebo>
 
+      <gazebo reference="arm_mount_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_base_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_shoulder_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_forearm_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_wrist_1_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_wrist_2_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_end_effector_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
       <gazebo reference="arm_camera_link">
         <sensor name="arm_camera" type="camera">
-          <pose>0 0 0 0 0 0</pose>
+          <pose>0 0 0.03 0 0 0</pose>
           <camera>
             <horizontal_fov>1.047</horizontal_fov>
             <image>
