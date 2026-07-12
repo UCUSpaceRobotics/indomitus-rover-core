@@ -8,7 +8,7 @@
     the framework for state estimation, sensor data fusion, and the transformation 
     pipeline required to track the rover's position within its environment.
   </description>
-  <maintainer email="bohdan.zasymovych@gmail.com">BohdanZasymovych</maintainer>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
