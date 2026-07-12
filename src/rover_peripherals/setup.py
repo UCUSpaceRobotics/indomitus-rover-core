@@ -21,8 +21,8 @@ setup(
     zip_safe=True,
     maintainer='yurifi',
     maintainer_email='fito.pn@ucu.edu.ua',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='ROS2 nodes for rover peripheral hardware via CAN bus',
+    license='MIT',
     extras_require={
         'test': [
             'pytest',
@@ -31,7 +31,8 @@ setup(
     entry_points={
         'console_scripts': [
             'rover_container_node = rover_peripherals.rover_container_node:main',
-            'rover_lighting_node = rover_peripherals.rover_lighting_node:main'
+            'rover_lighting_node = rover_peripherals.rover_lighting_node:main',
+            'rover_power_node = rover_peripherals.rover_power_node:main',
         ],
     },
 )
