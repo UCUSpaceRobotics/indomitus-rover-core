@@ -1,8 +1,10 @@
 # rover_bringup/launch/rover.launch.py
 import os
+import subprocess
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler, EmitEvent
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler, EmitEvent, OpaqueFunction, LogInfo, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution
 from launch.events import matches_action
 from launch_ros.actions import LifecycleNode, Node
@@ -28,23 +30,43 @@ def lifecycle_sequence(node):
     ]
 
 
-def generate_launch_description():
+def check_can_interface_up(context, *args, **kwargs):
+    """
+    Runs at launch time (after argument substitution).
+    Aborts the launch with a clear error if the CAN interface is missing or down.
+    """
+    interface = LaunchConfiguration('interface').perform(context)
 
-    rover_description_dir = get_package_share_directory('rover_description')
-    rover_bringup_dir     = get_package_share_directory('rover_bringup')
+    try:
+        output = subprocess.check_output(
+            ['ip', 'link', 'show', interface],
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    except subprocess.CalledProcessError:
+        raise RuntimeError(
+            f"CAN interface '{interface}' does not exist.")
+    except FileNotFoundError:
+        raise RuntimeError("'ip' command not found — cannot verify CAN interface state.")
+
+    if 'state UP' not in output and ',UP,' not in output:
+        raise RuntimeError(
+            f"CAN interface '{interface}' exists but is DOWN.")
+
+    return [LogInfo(msg=f"CAN interface '{interface}' is up — proceeding with launch.")]
+
+
+def launch_setup(context, *args, **kwargs):
+
+    rover_bringup_share     = get_package_share_directory('rover_bringup')
+    rover_localization_share = get_package_share_directory('rover_localization')
 
     twist_mux_config = PathJoinSubstitution([
-        rover_bringup_dir,
+        rover_bringup_share,
         'config',
         'twist_mux.yaml',
     ])
 
-    interface_arg = DeclareLaunchArgument(
-        'interface', default_value='can0',
-        description='SocketCAN network interface name',
-    )
-
-    # --- ros2_socketcan (для інших нод, не для hardware interface) ---
     sender_node = LifecycleNode(
         package='ros2_socketcan',
         executable='socket_can_sender_node_exe',
@@ -62,14 +84,18 @@ def generate_launch_description():
         parameters=[{
             'interface': LaunchConfiguration('interface'),
             'interval_sec': 0.01,
+            # candump-syntax: id:mask (hex, without 0x).
+            # Pass only 0x300-0x3FF (ESP),
+            # all other ids are filtered out.
+            # example: 'filters': '300:700,400:700',
+            'filters': '300:700',
         }],
         output='screen',
     )
 
-    # --- ros2_control ---
     robot_description = Command([
         'xacro ',
-        os.path.join(rover_bringup_dir, 'urdf', 'rover_real.urdf.xacro'),
+        os.path.join(rover_bringup_share, 'urdf', 'rover_real.urdf.xacro'),
         ' can_interface:=', LaunchConfiguration('interface'),
     ])
 
@@ -85,7 +111,7 @@ def generate_launch_description():
         executable='ros2_control_node',
         parameters=[
             {'robot_description': robot_description},
-            os.path.join(rover_bringup_dir, 'config', 'controllers.yaml'),
+            os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
         ],
         output='screen',
     )
@@ -129,20 +155,33 @@ def generate_launch_description():
         ]
     )
 
-    return LaunchDescription([
-        interface_arg,
-        # socketcan
+    robot_localization = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(rover_localization_share, 'launch', 'ekf.launch.py')
+        ),
+    )
+
+    return [
         sender_node,
         receiver_node,
         *lifecycle_sequence(sender_node),
         *lifecycle_sequence(receiver_node),
-        # ros2_control
         robot_state_publisher,
         controller_manager,
         joint_state_broadcaster_spawner,
         swerve_controller_spawner,
         odometry_controller_spawner,
-        # peripherals
         twist_mux_node,
         lighting_node,
+        robot_localization,
+    ]
+
+
+def generate_launch_description():
+    interface_arg = DeclareLaunchArgument('interface', default_value='can0')
+
+    return LaunchDescription([
+        interface_arg,
+        OpaqueFunction(function=check_can_interface_up),
+        OpaqueFunction(function=launch_setup),
     ])

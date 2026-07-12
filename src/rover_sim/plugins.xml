@@ -1,0 +1,6 @@
+<!-- rover_sim/plugins.xml -->
+<library path="rover_sim_controller">
+  <class name="rover_sim/RockerDiffController"
+         type="rover_sim::RockerDiffController"
+         base_class_type="controller_interface::ControllerInterface"/>
+</library>

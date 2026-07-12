@@ -1,8 +1,5 @@
-teleop_node:
+joystick_interpreter:
   ros__parameters:
-    require_enable_button: false
-
-    # --- LINEAR CONTROLS (Left Stick) ---
     axis_linear:
       x: 1 # Left stick vertical (forward/backward)
       y: 0 # Left stick horizontal (strafing left/right)
@@ -12,17 +9,37 @@ teleop_node:
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 3 # Right stick horizontal (rotation clockwise/counterclockwise). 3 for ubuntu 22.04, 2 for ubuntu 24.04
-      # 2 for jetson
+      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise)
     scale_angular:
       yaw: 1.0
+    
+    # --- GRANNY MODE ---
+    granny_speed_scale: 0.1
+    granny_button: 0
 
-joystick_interpreter:
-  ros__parameters:
-    vy_toggle_button: 8 # Share button
-    motor_toggle_button: 9 # Options button
+    # --- VY (strafing) ---
     vy_enabled_default: false
-    cmd_timeout: 0.5
-    timeout_pub_rate: 10.0
+    vy_toggle_button: 4   # Share button
+
+    # --- MOTORS / COMPACT MODE ---
+    motor_toggle_button: 6   # Options button
+    compact_mode_button: 1
+
+    active_toggle_button: 2
+    active_default: true
+
+    # --- TIMEOUT / PUBLISH RATE ---
+    cmd_timeout: 0.2
+    timeout_pub_rate: 20.0
     initial_timed_out: true
-    compact_mode_button: 2
+    cmd_pub_rate: 20.0
+
+    # --- LIGHTS ---
+    spotlight_button: 9   # L1
+    beautiful_button: 10   # R1
+
+    # --- TRAFFIC LIGHT ---
+    traffic_red_button: 11      # ←
+    traffic_yellow_button: 12   # →
+    traffic_green_button: 13    # ↑
+    traffic_blue_button: 14     # ↓

@@ -1,4 +1,4 @@
-# How to transfer messages over wifi
+# How to share ROS 2 network between laptop and Jetson over Wi-Fi (deprecated)
 
 
 ## How to ssh into Jetson

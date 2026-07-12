@@ -11,6 +11,9 @@ controller_manager:
     
     odometry_controller:
       type: rover_controller/RoverOdometryController
+    
+    diff_bar_effort_controller:
+      type: rover_sim/RockerDiffController
 
 swerve_controller:
   ros__parameters:
@@ -49,3 +52,9 @@ odometry_controller:
       - fr_wheel_joint
       - bl_wheel_joint
       - br_wheel_joint
+
+diff_bar_effort_controller:
+  ros__parameters:
+    k_stiffness: 2000.0
+    d_damping: 10.0
+    effort_limit: 150.0
