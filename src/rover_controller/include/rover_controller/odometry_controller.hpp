@@ -10,8 +10,6 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
-#include "tf2_ros/transform_broadcaster.h"
-#include "geometry_msgs/msg/transform_stamped.hpp"
 
 namespace rover_controller {
 
@@ -102,8 +100,6 @@ private:
     double theta_{0.0};
 
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr  odom_pub_;
-
-    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 };
 
 }  // namespace rover_controller
