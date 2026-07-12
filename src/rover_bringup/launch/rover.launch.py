@@ -3,7 +3,8 @@ import os
 import subprocess
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler, EmitEvent, OpaqueFunction, LogInfo
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler, EmitEvent, OpaqueFunction, LogInfo, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution
 from launch.events import matches_action
 from launch_ros.actions import LifecycleNode, Node
@@ -57,10 +58,11 @@ def check_can_interface_up(context, *args, **kwargs):
 
 def launch_setup(context, *args, **kwargs):
 
-    rover_bringup_dir     = get_package_share_directory('rover_bringup')
+    rover_bringup_share     = get_package_share_directory('rover_bringup')
+    rover_localization_share = get_package_share_directory('rover_localization')
 
     twist_mux_config = PathJoinSubstitution([
-        rover_bringup_dir,
+        rover_bringup_share,
         'config',
         'twist_mux.yaml',
     ])
@@ -93,7 +95,7 @@ def launch_setup(context, *args, **kwargs):
 
     robot_description = Command([
         'xacro ',
-        os.path.join(rover_bringup_dir, 'urdf', 'rover_real.urdf.xacro'),
+        os.path.join(rover_bringup_share, 'urdf', 'rover_real.urdf.xacro'),
         ' can_interface:=', LaunchConfiguration('interface'),
     ])
 
@@ -109,7 +111,7 @@ def launch_setup(context, *args, **kwargs):
         executable='ros2_control_node',
         parameters=[
             {'robot_description': robot_description},
-            os.path.join(rover_bringup_dir, 'config', 'controllers.yaml'),
+            os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
         ],
         output='screen',
     )
@@ -153,6 +155,12 @@ def launch_setup(context, *args, **kwargs):
         ]
     )
 
+    robot_localization = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(rover_localization_share, 'launch', 'ekf.launch.py')
+        ),
+    )
+
     return [
         sender_node,
         receiver_node,
@@ -165,14 +173,12 @@ def launch_setup(context, *args, **kwargs):
         odometry_controller_spawner,
         twist_mux_node,
         lighting_node,
+        robot_localization,
     ]
 
 
 def generate_launch_description():
-    interface_arg = DeclareLaunchArgument(
-        'interface', default_value='can0',
-        description='SocketCAN network interface name',
-    )
+    interface_arg = DeclareLaunchArgument('interface', default_value='can0')
 
     return LaunchDescription([
         interface_arg,
