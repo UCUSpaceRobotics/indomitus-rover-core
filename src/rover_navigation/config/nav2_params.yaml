@@ -231,8 +231,6 @@ behavior_server:
     max_rotational_vel: 0.8
     min_rotational_vel: 0.4
     rotational_acc_lim: 2.0
-    lim_linear_accilation: 1.0
-    lim_linear_deceleration: -1.0
 
 # ============================================================
 # COSTMAPS
