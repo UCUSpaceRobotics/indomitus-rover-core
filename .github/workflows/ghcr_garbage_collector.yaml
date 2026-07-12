@@ -2,7 +2,7 @@ name: GHCR Garbage Collector
 
 on:
   schedule:
-    - cron: '0 2 * * 0'
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
@@ -22,31 +22,28 @@ jobs:
       - name: Clean stale DEV SHA tags
         uses: snok/container-retention-policy@v3.0.0
         with:
-          account-type: org
-          org-name: ${{ github.repository_owner }}
+          account: ${{ github.repository_owner }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "sha-*-dev"
           cut-off: 14 days ago UTC
-          keep-at-least: 5
+          keep-n-most-recent: 5
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Clean stale PROD SHA tags
         uses: snok/container-retention-policy@v3.0.0
         with:
-          account-type: org
-          org-name: ${{ github.repository_owner }}
+          account: ${{ github.repository_owner }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "sha-*-prod"
           cut-off: 30 days ago UTC
-          keep-at-least: 10
+          keep-n-most-recent: 10
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete untagged images
         uses: snok/container-retention-policy@v3.0.0
         with:
-          account-type: org
-          org-name: ${{ github.repository_owner }}
+          account: ${{ github.repository_owner }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "!*"
-          cut-off: 7 days ago UTC 
+          cut-off: 3 days ago UTC 
           token: ${{ secrets.GITHUB_TOKEN }}
