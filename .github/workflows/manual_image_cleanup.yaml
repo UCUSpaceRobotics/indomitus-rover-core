@@ -4,16 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       target_tags:
-        description: 'Tag pattern to delete (e.g., experimental/*, bad-typo-dev)'
+        description: 'Comma-separated tags or patterns (e.g., exp-*, bad-tag-1, temp-feature)'
         required: true
         type: string
       perform_untagged_cleanup:
-        description: 'Enable cleanup of orphaned image layers (WARNING: Cannot be undone)'
+        description: 'Enable cleanup of untagged images in the GHCR'
         required: true
         type: boolean
         default: false
       days_to_keep:
-        description: 'Keep untagged images newer than this many days (ignored if cleanup is false)'
+        description: 'Keep untagged images newer than X days (ignored if cleanup false)'
         required: true
         type: number
         default: 3
@@ -25,10 +25,17 @@ jobs:
       packages: write
       
     steps:
-      - name: Execute Tag Cleanup
+      - name: Sanitize Inputs
+        id: sanitize
+        run: |
+          # Remove all spaces from the input string to ensure a clean CSV format
+          CLEAN_TAGS=$(echo "${{ inputs.target_tags }}" | tr -d '[:space:]')
+          echo "tags=$CLEAN_TAGS" >> $GITHUB_OUTPUT
+
+      - name: Execute Cleanup
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          delete-tags: ${{ inputs.target_tags }}
+          delete-tags: ${{ steps.sanitize.outputs.tags }}
           delete-untagged: ${{ inputs.perform_untagged_cleanup }}
           older-than: ${{ inputs.days_to_keep }} days
