@@ -3,7 +3,6 @@
 
   <xacro:include filename="$(find rover_description)/urdf/rover.urdf.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/ros2_control_sim.xacro"/>
-  <xacro:include filename="$(find rover_description)/urdf/gz_odometry.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/lidar_sim.xacro"/>
 
   <gazebo>

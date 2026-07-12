@@ -15,12 +15,10 @@ def generate_launch_description():
     params_file          = os.path.join(pkg, "config",          "nav2_params.yaml")
     nav_to_pose_bt       = os.path.join(pkg, "behaviour_trees", "navigate_to_pose_w_replanning.xml")
     nav_through_poses_bt = os.path.join(pkg, "behaviour_trees", "navigate_through_poses_w_replanning.xml")
-    map_yaml             = os.path.join(pkg, "maps",            "nav2_test_world.yaml")
 
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    lc_localization = ["map_server", "amcl"]
-    lc_navigation   = [
+    lc_navigation = [
         "planner_server",
         "controller_server",
         "bt_navigator",
@@ -35,42 +33,6 @@ def generate_launch_description():
             default_value="true",
             description="Use /clock from Gazebo (true) or wall clock (false)."
         ),
-
-        # --- Localization ---
-        # NOTE: These three nodes are here for simulation convenience only.
-        # Before deploying on real hardware, remove this entire section and
-        # run localization from a dedicated launch file so it can be restarted
-        # independently of the nav stack.
-
-        Node(
-            package="nav2_map_server",
-            executable="map_server",
-            name="map_server",
-            output="screen",
-            parameters=[{"use_sim_time": use_sim_time, "yaml_filename": map_yaml}],
-        ),
-
-        Node(
-            package="nav2_amcl",
-            executable="amcl",
-            name="amcl",
-            output="screen",
-            parameters=[params_file, {"use_sim_time": use_sim_time}],
-        ),
-
-        Node(
-            package="nav2_lifecycle_manager",
-            executable="lifecycle_manager",
-            name="lifecycle_manager_localization",
-            output="screen",
-            parameters=[{
-                "use_sim_time": use_sim_time,
-                "autostart": True,
-                "node_names": lc_localization,
-            }],
-        ),
-
-        # --- Navigation ---
 
         Node(
             package="nav2_planner",
