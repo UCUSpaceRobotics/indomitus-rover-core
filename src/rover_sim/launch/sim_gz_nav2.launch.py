@@ -15,10 +15,12 @@ from launch.actions import (
     OpaqueFunction,
     TimerAction,
     EmitEvent,
+    IncludeLaunchDescription,
 )
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
 @dataclass
@@ -153,9 +155,12 @@ def make_spawn_node(cfg: RoverConfig) -> Node:
         arguments=[
             '-name', LaunchConfiguration('model_name'),
             '-topic', 'robot_description',
-            '-x', str(cfg.spawn_x),
-            '-y', str(cfg.spawn_y),
+            '-x', LaunchConfiguration('spawn_x'),
+            '-y', LaunchConfiguration('spawn_y'),
             '-z', LaunchConfiguration('spawn_z'),
+            '-R', '0.0',
+            '-P', '0.0',
+            '-Y', '0.0',
         ],
         output='screen',
     )
@@ -166,12 +171,23 @@ def generate_launch_description() -> LaunchDescription:
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share = get_package_share_directory('rover_sim')
 
+    rover_localization_share = get_package_share_directory('rover_localization')
+
     robot_description = make_robot_description(rover_sim_share)
     gz_server = make_gazebo_server(rover_sim_share)
+
+    robot_localization = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(rover_localization_share, 'launch', 'ekf.launch.py')
+        ),
+        launch_arguments={'use_sim_time': 'true'}.items() # Crucial for Gazebo!
+    )
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value=cfg.world_name),
         DeclareLaunchArgument('model_name', default_value=cfg.model_name),
+        DeclareLaunchArgument('spawn_x',    default_value=str(cfg.spawn_x)),
+        DeclareLaunchArgument('spawn_y',    default_value=str(cfg.spawn_y)),
         DeclareLaunchArgument('spawn_z',    default_value=str(cfg.spawn_z)),
 
         SetEnvironmentVariable(
@@ -240,6 +256,14 @@ def generate_launch_description() -> LaunchDescription:
                     arguments=['odometry_controller'],
                     output='screen',
                 ),
+                Node(
+                    package='controller_manager',
+                    executable='spawner',
+                    arguments=['diff_bar_effort_controller'],
+                    output='screen',
+                ),
+
+                robot_localization,
             ],
         ),
     ])
