@@ -4,24 +4,38 @@
   <name>arm_sim</name>
   <version>0.0.0</version>
   <description>
-    Gazebo simulation package for the Indomitus 6-DOF manipulator.
-    Scaffold only — launch/ and urdf/ directories are not yet populated.
+    Gazebo simulation package for the Indomitus 6-DOF manipulator,
+    including Gazebo model spawn, ros2_control integration,
+    camera sensor bridge and MoveIt connection.
   </description>
   <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- Interfaces -->
+  <depend>sensor_msgs</depend>
+
+  <!-- Launch infrastructure -->
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
+  <!-- Internal packages -->
   <exec_depend>arm_description</exec_depend>
-  <exec_depend>xacro</exec_depend>
+  <exec_depend>arm_moveit_config</exec_depend>
 
-  <exec_depend>ros_gz_sim</exec_depend>
-  <exec_depend>ros_gz_bridge</exec_depend>
+  <!-- State publisher -->
+  <depend>xacro</depend>
+  <depend>robot_state_publisher</depend>
 
+  <!-- ROS2 Control -->
+  <exec_depend>controller_manager</exec_depend>
   <exec_depend>gz_ros2_control</exec_depend>
+
+  <!-- Simulation -->
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

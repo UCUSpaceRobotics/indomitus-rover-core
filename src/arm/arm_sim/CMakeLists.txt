@@ -3,10 +3,9 @@ project(arm_sim)
 
 find_package(ament_cmake REQUIRED)
 
-# Temporary commentting
-# install(
-#   DIRECTORY launch urdf
-#   DESTINATION share/${PROJECT_NAME}
-# )
+install(
+  DIRECTORY launch config worlds
+  DESTINATION share/${PROJECT_NAME}
+)
 
 ament_package()
