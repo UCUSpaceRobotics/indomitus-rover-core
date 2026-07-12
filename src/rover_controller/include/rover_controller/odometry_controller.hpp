@@ -5,7 +5,6 @@
 #include <string>
 
 #include <Eigen/Dense>
-#include <tf2_ros/transform_broadcaster.h>
 
 #include "controller_interface/controller_interface.hpp"
 #include "nav_msgs/msg/odometry.hpp"
@@ -101,7 +100,6 @@ private:
     double theta_{0.0};
 
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr  odom_pub_;
-    std::unique_ptr<tf2_ros::TransformBroadcaster>         tf_broadcaster_;
 };
 
 }  // namespace rover_controller

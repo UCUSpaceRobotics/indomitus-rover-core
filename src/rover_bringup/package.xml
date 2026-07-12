@@ -43,6 +43,9 @@
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>rover_controller</exec_depend>
 
+  <!-- Odometry -->
+  <exec_depend>robot_localization</exec_depend>
+
   <!-- Interfaces -->
   <exec_depend>lifecycle_msgs</exec_depend>
 

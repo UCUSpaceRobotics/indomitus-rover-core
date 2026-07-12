@@ -41,6 +41,14 @@
   <depend>ros_gz_sim</depend>
   <depend>ros_gz_bridge</depend>
 
+  <!-- Odometry -->
+  <exec_depend>robot_localization</exec_depend>
+
+  <depend>pluginlib</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>hardware_interface</depend>
+  <depend>controller_interface</depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

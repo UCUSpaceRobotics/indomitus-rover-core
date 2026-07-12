@@ -29,7 +29,7 @@ joystick_interpreter:
     active_default: true
 
     # --- TIMEOUT / PUBLISH RATE ---
-    cmd_timeout: 0.1
+    cmd_timeout: 0.2
     timeout_pub_rate: 20.0
     initial_timed_out: true
     cmd_pub_rate: 20.0

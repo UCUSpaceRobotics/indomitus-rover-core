@@ -384,6 +384,4 @@ The `arm_macro.xacro` model exposes a `use_fake_hardware` xacro argument that co
 | `true` (default) | `mock_components/GenericSystem` | Joint commands are written directly into the joint state and read back immediately — no physics, no motor, no delay. Useful for testing planning logic, SRDF groups, and the MoveIt API without any physical or simulated dynamics. |
 | `false` | `arm_hardware_interface/ArmCanSystem` | Sends commands over the real CAN bus to the physical actuators. Requires the Jetson and a working `arm_hardware_interface` build. |
 
-Because `mock_components/GenericSystem` reports back whatever position it was just told to move
-to, it does **not** validate motor dynamics, CAN latency, encoder noise, or mechanical limits like
-backlash or sag — only the kinematic/geometric correctness of a trajectory is verified.
+Because `mock_components/GenericSystem` reports back whatever position it was just told to move to, it does **not** validate motor dynamics, CAN latency, encoder noise, or mechanical limits like backlash or sag — only the kinematic/geometric correctness of a trajectory is verified.
