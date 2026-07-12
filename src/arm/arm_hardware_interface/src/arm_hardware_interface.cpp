@@ -2,9 +2,12 @@
 #include "arm_hardware_interface/steadywin_protocol.hpp"
 #include "arm_hardware_interface/damiao_wrist_protocol.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <cerrno>
+#include <string>
+#include <unordered_map>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -21,83 +24,111 @@ PLUGINLIB_EXPORT_CLASS(
 
 namespace arm_hardware_interface {
 
-// =============================================================================
-// CALIBRATION PARAMETERS
-// Update these arrays after finding the physical zero points of your arm.
-// =============================================================================
+namespace sw = steadywin_protocol;
+namespace dm = damiao_wrist_protocol;
 
-// 1.0 = Normal rotation direction (matches URDF)
-// -1.0 = Inverted rotation direction
-//
-// Array order MUST match URDF joint order (same as info.joints[i] / joint_names_[i]):
-//   [0] arm_mount_base_joint
-//   [1] arm_base_shoulder_joint
-//   [2] arm_shoulder_forearm_joint
-//   [3] arm_wrist_1_wrist_2_joint
-//   [4] arm_forearm_wrist_1_joint
-//   [5] arm_wrist_2_end_effector_joint
-// NOTE: the previous version of this file had [3] and [4] swapped
-// (values/comments for wrist_1_wrist_2 and forearm_wrist_1 were transposed).
-// Fixed below.
-const double JOINT_DIRECTIONS[NUM_JOINTS] = {
-    -1.0, -1.0, 1.0, -1.0, 1.0, 1.0
-};
- 
-// Offsets calculated based on your physical calibration data
-const double JOINT_OFFSETS[NUM_JOINTS] = {
-    -0.8437,   // arm_mount_base_joint
-     0.6512,   // arm_base_shoulder_joint
-     2.8576,   // arm_shoulder_forearm_joint
-     2.2192,   // arm_forearm_wrist_1_joint
-    -1.6767,   // arm_wrist_1_wrist_2_joint
-    -3.1122    // arm_wrist_2_end_effector_joint
-};
+// Smooth 0->1 ramp (smoothstep) for stiffness ramping after enable.
+static inline double smoothstep01(double t)
+{
+    t = std::clamp(t, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
 
+static double param_or(const std::unordered_map<std::string, std::string>& params,
+                       const std::string& key, double fallback)
+{
+    auto it = params.find(key);
+    if (it == params.end()) return fallback;
+    try { return std::stod(it->second); } catch (...) { return fallback; }
+}
+
+// =============================================================================
+// Lifecycle
+// =============================================================================
 
 #ifdef JAZZY_OR_LATER
 hardware_interface::CallbackReturn ArmCanSystem::on_init(
     const hardware_interface::HardwareComponentInterfaceParams & params)
 {
-    if (hardware_interface::SystemInterface::on_init(params) != hardware_interface::CallbackReturn::SUCCESS) {
+    if (hardware_interface::SystemInterface::on_init(params) !=
+        hardware_interface::CallbackReturn::SUCCESS) {
         return hardware_interface::CallbackReturn::ERROR;
     }
-    const auto & info = params.hardware_info;
+    return init_from_info(params.hardware_info);
+}
 #else
 hardware_interface::CallbackReturn ArmCanSystem::on_init(
     const hardware_interface::HardwareInfo & info)
 {
-    if (hardware_interface::SystemInterface::on_init(info) != hardware_interface::CallbackReturn::SUCCESS) {
+    if (hardware_interface::SystemInterface::on_init(info) !=
+        hardware_interface::CallbackReturn::SUCCESS) {
         return hardware_interface::CallbackReturn::ERROR;
     }
+    return init_from_info(info);
+}
 #endif
 
-    // Parse joint names from URDF (expected 6 joints)
+hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
+    const hardware_interface::HardwareInfo & info)
+{
     if (info.joints.size() != NUM_JOINTS) {
         RCLCPP_ERROR(logger_, "Expected %zu joints, got %zu", NUM_JOINTS, info.joints.size());
         return hardware_interface::CallbackReturn::ERROR;
     }
 
-    // Read can_interface parameter from URDF
-    if (info.hardware_parameters.count("can_interface") > 0) {
+    // ---- Hardware-level parameters ----
+    if (info.hardware_parameters.count("can_interface")) {
         can_interface_ = info.hardware_parameters.at("can_interface");
-        RCLCPP_INFO(logger_, "Using CAN interface from URDF: %s", can_interface_.c_str());
     } else {
-        can_interface_ = "can0"; // Fallback
         RCLCPP_WARN(logger_, "can_interface param missing in URDF, defaulting to can0");
     }
+    gain_ramp_secs_        = param_or(info.hardware_parameters, "gain_ramp_secs", gain_ramp_secs_);
+    max_cmd_speed_rad_s_   = param_or(info.hardware_parameters, "max_cmd_speed_rad_s", max_cmd_speed_rad_s_);
+    feedback_timeout_secs_ = param_or(info.hardware_parameters, "feedback_timeout_secs", feedback_timeout_secs_);
 
+    // ---- Per-joint parameters: direction, offset, kp, kd, motor_id ----
+    // These live in arm_macro.xacro so recalibration never requires recompiling.
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
-        joint_names_[i] = info.joints[i].name;
+        const auto& j = info.joints[i];
+        joint_names_[i] = j.name;
+
+        const double dir = param_or(j.parameters, "direction", joint_directions_[i]);
+        if (dir != 1.0 && dir != -1.0) {
+            RCLCPP_ERROR(logger_, "Joint '%s': direction must be 1 or -1 (got %f)",
+                         j.name.c_str(), dir);
+            return hardware_interface::CallbackReturn::ERROR;
+        }
+        joint_directions_[i] = dir;
+        joint_offsets_[i]    = param_or(j.parameters, "offset", joint_offsets_[i]);
+        joint_kp_[i]         = param_or(j.parameters, "kp", joint_kp_[i]);
+        joint_kd_[i]         = param_or(j.parameters, "kd", joint_kd_[i]);
+        motor_ids_[i]        = static_cast<uint8_t>(
+                                   param_or(j.parameters, "motor_id",
+                                            static_cast<double>(motor_ids_[i])));
+
+        // Damiao manual: kd must not be 0 while kp > 0 or the motor oscillates.
+        if (i >= NUM_STEADYWIN && joint_kp_[i] > 0.0 && joint_kd_[i] <= 0.0) {
+            RCLCPP_ERROR(logger_, "Joint '%s' (Damiao): kd must be > 0 when kp > 0", j.name.c_str());
+            return hardware_interface::CallbackReturn::ERROR;
+        }
+
+        RCLCPP_INFO(logger_,
+            "Joint %zu '%s' -> motor %u  dir=%+.0f offset=%.4f rad  kp=%.1f kd=%.2f",
+            i, j.name.c_str(), motor_ids_[i], joint_directions_[i],
+            joint_offsets_[i], joint_kp_[i], joint_kd_[i]);
     }
 
-    // Initialize all buffers to 0.0
     joint_position_command_.fill(0.0);
     joint_velocity_command_.fill(0.0);
     joint_position_state_.fill(0.0);
     joint_velocity_state_.fill(0.0);
-    hw_position_states_.fill(0.0); // Initialize shadow buffer
+    hw_position_states_.fill(0.0);
+    hw_velocity_states_.fill(0.0);
+    feedback_seen_.fill(false);
+    dm_last_err_.fill(0x01);
 
-    RCLCPP_INFO(logger_, "ArmCanSystem initialized successfully.");
+    RCLCPP_INFO(logger_, "ArmCanSystem initialized (CAN: %s, ramp: %.1fs, cmd speed limit: %.2f rad/s)",
+                can_interface_.c_str(), gain_ramp_secs_, max_cmd_speed_rad_s_);
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -116,137 +147,172 @@ std::vector<hardware_interface::CommandInterface> ArmCanSystem::export_command_i
     std::vector<hardware_interface::CommandInterface> command_interfaces;
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
         command_interfaces.emplace_back(joint_names_[i], hardware_interface::HW_IF_POSITION, &joint_position_command_[i]);
-        // Also exporting velocity to handle advanced trajectory features if needed
         command_interfaces.emplace_back(joint_names_[i], hardware_interface::HW_IF_VELOCITY, &joint_velocity_command_[i]);
     }
     return command_interfaces;
 }
 
-hardware_interface::CallbackReturn ArmCanSystem::on_configure(const rclcpp_lifecycle::State& /*previous_state*/)
+hardware_interface::CallbackReturn ArmCanSystem::on_configure(const rclcpp_lifecycle::State&)
 {
     RCLCPP_INFO(logger_, "Configuring ArmCanSystem...");
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecycle::State& /*previous_state*/)
+hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecycle::State&)
 {
     if (!open_can_socket()) {
         return hardware_interface::CallbackReturn::ERROR;
     }
 
-    // Start background thread for reading CAN bus
+    feedback_seen_.fill(false);
     rx_running_.store(true);
     rx_thread_ = std::thread(&ArmCanSystem::rx_thread_fn, this);
 
-    // Give the RX thread time to receive the initial state frames from all motors
-    // before we synchronize the commands.
-    RCLCPP_INFO(logger_, "Waiting for initial CAN frames to establish physical zero...");
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // 1) Enable: Steadywin gets its 0xF0 limits config (does NOT apply torque —
+    //    it only enters MIT mode on the first 0x4xx frame). Damiao gets 0xFC
+    //    (enabled but torqueless until its first MIT command).
+    send_enable_frames();
 
-    // Force an immediate read to populate joint_position_state_ with actual hardware values
-    read(rclcpp::Time(0, 0, RCL_ROS_TIME), rclcpp::Duration(0, 0));
-
-    // Synchronize initial command with actual hardware state (prevent startup jumps)
-    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
-        joint_position_command_[i] = joint_position_state_[i];
+    // 2) ACTIVELY poll every motor for its true position. Motors only reply
+    //    when spoken to — the old passive 200 ms wait received nothing, left
+    //    the state at 0, and caused the startup jump. If any motor stays
+    //    silent, we ABORT instead of guessing.
+    if (!wait_for_all_feedback(feedback_timeout_secs_)) {
+        RCLCPP_FATAL(logger_,
+            "Not all motors reported their position — REFUSING to enable torque "
+            "with an unknown arm pose. Check CAN wiring / IDs / power.");
+        safe_stop();
+        return hardware_interface::CallbackReturn::ERROR;
     }
 
-    send_enable_frames();
-    motors_enabled_ = true;
+    // 3) Sync commands and states to the measured pose (URDF frame),
+    //    so the first MIT frame holds the arm exactly where it is.
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        joint_position_state_  = hw_position_states_;
+        joint_velocity_state_  = hw_velocity_states_;
+    }
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        joint_position_command_[i] = joint_position_state_[i];
+        joint_velocity_command_[i] = 0.0;
+        last_sent_command_[i]      = joint_position_state_[i];
+        RCLCPP_INFO(logger_, "  '%s' start pose: %.4f rad (motor frame %.4f)",
+                    joint_names_[i].c_str(), joint_position_state_[i],
+                    urdf_to_motor(i, joint_position_state_[i]));
+    }
+    have_last_sent_ = true;
+    ramp_started_   = false;   // ramp clock starts at the first write()
+    motors_enabled_.store(true);
 
-    RCLCPP_INFO(logger_, "ArmCanSystem successfully activated. Motors enabled.");
+    RCLCPP_INFO(logger_,
+        "ArmCanSystem activated. Stiffness will ramp 0 -> 100%% over %.1f s. "
+        "Do not command motion until the ramp completes.", gain_ramp_secs_);
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-hardware_interface::CallbackReturn ArmCanSystem::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/)
+hardware_interface::CallbackReturn ArmCanSystem::on_deactivate(const rclcpp_lifecycle::State&)
 {
-    motors_enabled_ = false;
-    send_disable_frames();
+    RCLCPP_WARN(logger_, "Deactivating: motors will be DISABLED and the arm will go limp. "
+                         "Support it or move it to a rest pose first.");
+    safe_stop();
+    RCLCPP_INFO(logger_, "ArmCanSystem deactivated.");
+    return hardware_interface::CallbackReturn::SUCCESS;
+}
 
-    // Stop RX thread safely
+hardware_interface::CallbackReturn ArmCanSystem::on_shutdown(const rclcpp_lifecycle::State&)
+{
+    safe_stop();
+    return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn ArmCanSystem::on_error(const rclcpp_lifecycle::State&)
+{
+    RCLCPP_ERROR(logger_, "on_error: disabling all motors.");
+    safe_stop();
+    return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+void ArmCanSystem::safe_stop()
+{
+    motors_enabled_.store(false);
+    if (can_fd_ >= 0) {
+        send_disable_frames();
+    }
     rx_running_.store(false);
     if (rx_thread_.joinable()) {
         rx_thread_.join();
     }
-
     close_can_socket();
-
-    RCLCPP_INFO(logger_, "ArmCanSystem deactivated. Motors disabled.");
-    return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-hardware_interface::return_type ArmCanSystem::read(const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+// =============================================================================
+// read / write
+// =============================================================================
+
+hardware_interface::return_type ArmCanSystem::read(const rclcpp::Time&, const rclcpp::Duration&)
 {
-    // Thread-safe copy from the background RX thread buffer to the state interface buffer
     std::lock_guard<std::mutex> lock(feedback_mutex_);
-    joint_position_state_ = hw_position_states_; 
-    
+    joint_position_state_ = hw_position_states_;
+    joint_velocity_state_ = hw_velocity_states_;
     return hardware_interface::return_type::OK;
 }
 
-
-hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const rclcpp::Duration& period)
 {
-    if (!motors_enabled_) return hardware_interface::return_type::OK;
+    if (!motors_enabled_.load()) return hardware_interface::return_type::OK;
 
-    // Safety check: Prevent jumping to 0.0 if the controller sends an uninitialized command
-    static bool first_write = true;
-    if (first_write) {
-        for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
-            // If the command is exactly 0.0 but the physical state is not, override the command
-            if (joint_position_command_[i] == 0.0 && std::abs(joint_position_state_[i]) > 0.01) {
-                joint_position_command_[i] = joint_position_state_[i];
-            }
-        }
-        first_write = false;
+    // ---- Stiffness ramp: 0 -> 1 over gain_ramp_secs_ from the first write ----
+    if (!ramp_started_) {
+        ramp_start_   = std::chrono::steady_clock::now();
+        ramp_started_ = true;
+    }
+    double ramp = 1.0;
+    if (gain_ramp_secs_ > 0.05) {
+        const double elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - ramp_start_).count();
+        ramp = smoothstep01(elapsed / gain_ramp_secs_);
     }
 
-    /*
-     * ======================= CONTROL GAINS =======================
-     */
-    const float KP_STEADYWIN[3] = {0.0f, 0.0f, 0.0f}; 
-    const float KD_STEADYWIN[3] = {0.0f, 0.0f, 0.0f}; 
+    // ---- Command rate limiter: never step the target faster than
+    //      max_cmd_speed_rad_s_, no matter what the controller asks for.
+    //      This is the last line of defense against "jump to wrong pose". ----
+    double dt = period.seconds();
+    if (!(dt > 0.0) || dt > 0.5) dt = 0.01;
+    const double max_step = max_cmd_speed_rad_s_ * dt;
 
-    const float KP_DAMIAO[3]    = {0.0f, 0.0f, 0.0f}; 
-    const float KD_DAMIAO[3]    = {0.0f, 0.0f, 0.0f}; 
+    std::array<double, NUM_JOINTS> cmd{};
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        double target = joint_position_command_[i];
+        if (!std::isfinite(target)) {
+            target = last_sent_command_[i];   // hold on NaN/inf
+        }
+        const double delta = std::clamp(target - last_sent_command_[i], -max_step, max_step);
+        cmd[i] = last_sent_command_[i] + delta;
+        last_sent_command_[i] = cmd[i];
+    }
 
     std::lock_guard<std::mutex> lock(can_tx_mutex_);
 
-    // 1. Send commands to Steadywin (Base, Shoulder, Elbow -> indices 0, 1, 2)
-    for (std::size_t i = 0; i < 3; ++i) {
-        float target_pos = static_cast<float>((joint_position_command_[i] * JOINT_DIRECTIONS[i]) + JOINT_OFFSETS[i]);
-        float target_vel = static_cast<float>(joint_velocity_command_[i] * JOINT_DIRECTIONS[i]);
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        const float target_pos = static_cast<float>(urdf_to_motor(i, cmd[i]));
+        double vff = joint_velocity_command_[i];
+        if (!std::isfinite(vff)) vff = 0.0;
+        const float target_vel = static_cast<float>(vff * joint_directions_[i]);
+        const float kp = static_cast<float>(joint_kp_[i] * ramp);
+        const float kd = static_cast<float>(joint_kd_[i] * ramp);
 
-        can_msgs::msg::Frame f = steadywin_protocol::build_mit_command_frame(
-            motor_ids_[i], 
-            target_pos, 
-            target_vel, 
-            KP_STEADYWIN[i], KD_STEADYWIN[i], 0.0f);
-        
-        send_can_frame(f.id, f.data, f.dlc);
-    }
-
-    // 2. Send commands to Damiao Wrist (Indices 3, 4, 5)
-    for (std::size_t i = 3; i < 6; ++i) {
-        float target_pos = static_cast<float>((joint_position_command_[i] * JOINT_DIRECTIONS[i]) + JOINT_OFFSETS[i]);
-        float target_vel = static_cast<float>(joint_velocity_command_[i] * JOINT_DIRECTIONS[i]);
-
-        can_msgs::msg::Frame f = damiao_wrist_protocol::build_mit_command_frame(
-            motor_ids_[i], 
-            target_pos, 
-            target_vel, 
-            KP_DAMIAO[i - 3], KD_DAMIAO[i - 3], 0.0f);
-        
+        can_msgs::msg::Frame f = (i < NUM_STEADYWIN)
+            ? sw::build_mit_command_frame(motor_ids_[i], target_pos, target_vel, kp, kd, 0.0f)
+            : dm::build_mit_command_frame(motor_ids_[i], target_pos, target_vel, kp, kd, 0.0f);
         send_can_frame(f.id, f.data, f.dlc);
     }
 
     return hardware_interface::return_type::OK;
 }
 
-
-// -----------------------------------------------------------------------------
-// SocketCAN Internals
-// -----------------------------------------------------------------------------
+// =============================================================================
+// SocketCAN
+// =============================================================================
 
 bool ArmCanSystem::open_can_socket()
 {
@@ -255,6 +321,12 @@ bool ArmCanSystem::open_can_socket()
         RCLCPP_ERROR(logger_, "Failed to open CAN socket: %s", std::strerror(errno));
         return false;
     }
+
+    // Receive timeout so rx_thread_fn can notice rx_running_ == false and the
+    // deactivate path never hangs on join() (the old blocking read could).
+    struct timeval tv{};
+    tv.tv_sec = 0; tv.tv_usec = 100000;   // 100 ms
+    setsockopt(can_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     struct ifreq ifr{};
     std::strncpy(ifr.ifr_name, can_interface_.c_str(), IFNAMSIZ - 1);
@@ -267,13 +339,13 @@ bool ArmCanSystem::open_can_socket()
     struct sockaddr_can addr{};
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
-    if (bind(can_fd_, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
+    if (bind(can_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
         RCLCPP_ERROR(logger_, "CAN bind failed: %s", std::strerror(errno));
         close(can_fd_); can_fd_ = -1;
         return false;
     }
 
-    RCLCPP_INFO(logger_, "SocketCAN interface %s opened successfully.", can_interface_.c_str());
+    RCLCPP_INFO(logger_, "SocketCAN interface %s opened.", can_interface_.c_str());
     return true;
 }
 
@@ -288,107 +360,181 @@ void ArmCanSystem::close_can_socket()
 bool ArmCanSystem::send_can_frame(uint32_t id, const std::array<uint8_t, 8>& data, uint8_t dlc)
 {
     if (can_fd_ < 0) return false;
-
     struct can_frame frame{};
-    frame.can_id = id; // Eff flag not needed for these particular IDs
+    frame.can_id  = id;            // all IDs here fit in 11-bit standard frames
     frame.can_dlc = dlc;
     std::memcpy(frame.data, data.data(), dlc);
-
-    if (::write(can_fd_, &frame, sizeof(frame)) != sizeof(frame)) {
-        return false;
-    }
-    return true;
+    return ::write(can_fd_, &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame));
 }
+
+// =============================================================================
+// Motor sequences
+// =============================================================================
 
 void ArmCanSystem::send_enable_frames()
 {
     std::lock_guard<std::mutex> lock(can_tx_mutex_);
-    
-    // Enable Steadywin (requires limits config before enabling)
-    uint16_t sw_pos = 955;  // 95.5 * 10
-    uint16_t sw_vel = 4500; // 45.0 * 100
-    uint16_t sw_tmx = 1800; // 18.0 * 100
-    
-    for (std::size_t i = 0; i < 3; ++i) {
-        struct can_frame f{};
-        f.can_id = 0x100 | motor_ids_[i];
-        f.can_dlc = 7;
-        f.data[0] = 0xF0;
-        f.data[1] = sw_pos & 0xFF; f.data[2] = (sw_pos >> 8) & 0xFF;
-        f.data[3] = sw_vel & 0xFF; f.data[4] = (sw_vel >> 8) & 0xFF;
-        f.data[5] = sw_tmx & 0xFF; f.data[6] = (sw_tmx >> 8) & 0xFF;
-        ::write(can_fd_, &f, sizeof(f));
-    }
 
-    // Enable Damiao
-    for (std::size_t i = 3; i < 6; ++i) {
-        auto f = damiao_wrist_protocol::build_enable_frame(motor_ids_[i]);
+    for (std::size_t i = 0; i < NUM_STEADYWIN; ++i) {
+        auto f = sw::build_config_limits_frame(motor_ids_[i]);
         send_can_frame(f.id, f.data, f.dlc);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+        auto f = dm::build_enable_frame(motor_ids_[i]);
+        send_can_frame(f.id, f.data, f.dlc);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 }
 
 void ArmCanSystem::send_disable_frames()
 {
     std::lock_guard<std::mutex> lock(can_tx_mutex_);
-    
-    for (std::size_t i = 0; i < 3; ++i) {
-        auto f = steadywin_protocol::build_disable_frame(motor_ids_[i]);
+
+    // Damiao: zero-gain MIT frame first to avoid a torque discontinuity
+    // (mirrors dm_disable() in the proven Python tools), then 0xFD.
+    for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+        auto probe = dm::build_zero_gain_probe_frame(motor_ids_[i]);
+        send_can_frame(probe.id, probe.data, probe.dlc);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+        auto f = dm::build_disable_frame(motor_ids_[i]);
         send_can_frame(f.id, f.data, f.dlc);
     }
-    
-    for (std::size_t i = 3; i < 6; ++i) {
-        auto f = damiao_wrist_protocol::build_disable_frame(motor_ids_[i]);
+    for (std::size_t i = 0; i < NUM_STEADYWIN; ++i) {
+        auto f = sw::build_disable_frame(motor_ids_[i]);
         send_can_frame(f.id, f.data, f.dlc);
     }
 }
 
+bool ArmCanSystem::wait_for_all_feedback(double timeout_sec)
+{
+    RCLCPP_INFO(logger_, "Polling all motors for their true positions (timeout %.1f s)...",
+                timeout_sec);
+
+    const auto deadline = std::chrono::steady_clock::now()
+                        + std::chrono::duration<double>(timeout_sec);
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        {
+            std::lock_guard<std::mutex> lock(can_tx_mutex_);
+            for (std::size_t i = 0; i < NUM_STEADYWIN; ++i) {
+                // 0xF1: reads state WITHOUT entering MIT mode — zero torque.
+                auto f = sw::build_read_state_frame(motor_ids_[i]);
+                send_can_frame(f.id, f.data, f.dlc);
+            }
+            for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+                // kp=0/kd=0/tff=0 MIT frame: zero torque, elicits feedback.
+                auto f = dm::build_zero_gain_probe_frame(motor_ids_[i]);
+                send_can_frame(f.id, f.data, f.dlc);
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        bool all = true;
+        {
+            std::lock_guard<std::mutex> lock(feedback_mutex_);
+            for (std::size_t i = 0; i < NUM_JOINTS; ++i) all = all && feedback_seen_[i];
+        }
+        if (all) {
+            RCLCPP_INFO(logger_, "All %zu motors reported.", NUM_JOINTS);
+            return true;
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        if (!feedback_seen_[i]) {
+            RCLCPP_ERROR(logger_, "  motor %u ('%s') never replied",
+                         motor_ids_[i], joint_names_[i].c_str());
+        }
+    }
+    return false;
+}
+
+// =============================================================================
+// RX thread
+// =============================================================================
+
 void ArmCanSystem::rx_thread_fn()
 {
+    static rclcpp::Clock steady_clock(RCL_STEADY_TIME);
     struct can_frame frame{};
     while (rx_running_.load()) {
-        ssize_t nbytes = ::read(can_fd_, &frame, sizeof(frame));
+        const ssize_t nbytes = ::read(can_fd_, &frame, sizeof(frame));
         if (nbytes < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) continue;
             if (!rx_running_.load()) break;
             continue;
         }
         if (nbytes != static_cast<ssize_t>(sizeof(frame))) continue;
+        if (frame.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG)) continue;
 
-        uint32_t raw_id = frame.can_id & CAN_EFF_MASK;
-        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        const uint32_t raw_id = frame.can_id & CAN_EFF_MASK;
 
-        // Parse Steadywin (IDs 20, 21, 22)
-        if (raw_id >= 20 && raw_id <= 22) {
-            uint16_t pos_uint = (frame.data[1] << 8) | frame.data[2];
-            float pos_rad = steadywin_protocol::uint_to_float(
-                pos_uint, -steadywin_protocol::P_MAX_RAD, steadywin_protocol::P_MAX_RAD, 16);
-            
-            size_t idx = raw_id - 20;
-            // Clean physical motor position back to URDF/MoveIt coordinates
-            hw_position_states_[idx] = (static_cast<double>(pos_rad) - JOINT_OFFSETS[idx]) * JOINT_DIRECTIONS[idx];
+        // ---------- Steadywin: replies arrive on StdID == Dev_addr ----------
+        bool is_sw = false;
+        std::size_t sw_idx = 0;
+        for (std::size_t i = 0; i < NUM_STEADYWIN; ++i) {
+            if (raw_id == motor_ids_[i]) { is_sw = true; sw_idx = i; break; }
         }
-        // Parse Damiao (IDs 23, 24, 25 or 0)
-        else if ((raw_id >= 23 && raw_id <= 25) || raw_id == 0) {
-            uint8_t mid = raw_id;
-            
-            // Damiao can reply on ID 0 with the actual motor ID mod 16 in the first byte
-            if (raw_id == 0) {
-                uint8_t mod = frame.data[0] & 0x0F;
-                for (uint8_t dm_id = 23; dm_id <= 25; ++dm_id) {
-                    if (dm_id % 16 == mod) { mid = dm_id; break; }
+        if (is_sw) {
+            sw::Feedback fb;
+            // parse_feedback filters out 0xF0/0xB1/etc. replies whose bytes
+            // [1..2] are NOT a position (the old code misread the 0xF0 config
+            // echo as ~92 rad and glitched the joint state).
+            if (sw::parse_feedback(frame.data, frame.can_dlc, fb)) {
+                if (fb.fault) {
+                    RCLCPP_WARN_THROTTLE(logger_, steady_clock, 2000,
+                        "Steadywin motor %u reports FAULT", motor_ids_[sw_idx]);
                 }
+                std::lock_guard<std::mutex> lock(feedback_mutex_);
+                hw_position_states_[sw_idx] = motor_to_urdf(sw_idx, fb.pos_rad);
+                hw_velocity_states_[sw_idx] = fb.vel_rps * joint_directions_[sw_idx];
+                feedback_seen_[sw_idx] = true;
             }
-            
-            if (mid >= 23 && mid <= 25) {
-                uint16_t pos_uint = (frame.data[1] << 8) | frame.data[2];
-                float pos_rad = damiao_wrist_protocol::uint_to_float(
-                    pos_uint, -damiao_wrist_protocol::P_MAX_RAD, damiao_wrist_protocol::P_MAX_RAD, 16);
-                
-                size_t idx = mid - 20;
-                // Clean physical motor position back to URDF/MoveIt coordinates
-                hw_position_states_[idx] = (static_cast<double>(pos_rad) - JOINT_OFFSETS[idx]) * JOINT_DIRECTIONS[idx];
+            continue;
+        }
+
+        // ---------- Damiao: replies arrive on Master ID (default 0) or,
+        //            depending on configuration, on the motor's own ID -------
+        bool maybe_dm = (raw_id == 0);
+        std::size_t dm_idx = NUM_JOINTS;
+        if (!maybe_dm) {
+            for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+                if (raw_id == motor_ids_[i]) { maybe_dm = true; dm_idx = i; break; }
             }
         }
+        if (!maybe_dm) continue;
+
+        dm::Feedback fb;
+        if (!dm::parse_feedback(frame.data, frame.can_dlc, fb)) continue;
+
+        // Identify the motor from data[0]'s low nibble when the reply came on
+        // the shared Master ID 0. (23,24,25 -> nibbles 7,8,9 — unambiguous.)
+        if (dm_idx == NUM_JOINTS) {
+            for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+                if ((motor_ids_[i] & 0x0F) == fb.motor_id_nibble) { dm_idx = i; break; }
+            }
+            if (dm_idx == NUM_JOINTS) continue;
+        }
+
+        if (fb.err >= 0x8) {
+            RCLCPP_ERROR_THROTTLE(logger_, steady_clock, 2000,
+                "Damiao motor %u error: %s (T_mos=%u°C T_rotor=%u°C)",
+                motor_ids_[dm_idx], dm::err_to_string(fb.err), fb.t_mos_c, fb.t_rotor_c);
+        } else if (fb.err == 0x0 && motors_enabled_.load() && dm_last_err_[dm_idx] == 0x1) {
+            RCLCPP_WARN_THROTTLE(logger_, steady_clock, 2000,
+                "Damiao motor %u dropped to DISABLED (comm-loss watchdog?)",
+                motor_ids_[dm_idx]);
+        }
+
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        dm_last_err_[dm_idx] = fb.err;
+        hw_position_states_[dm_idx] = motor_to_urdf(dm_idx, fb.pos_rad);
+        hw_velocity_states_[dm_idx] = fb.vel_rps * joint_directions_[dm_idx];
+        feedback_seen_[dm_idx] = true;
     }
 }
 

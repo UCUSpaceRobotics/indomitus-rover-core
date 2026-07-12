@@ -1,5 +1,8 @@
 controller_manager:
   ros__parameters:
+    # Keep >= 100 Hz: the Damiao comm-loss watchdog disables the motor if
+    # MIT frames stop arriving; the hardware interface sends one frame per
+    # joint per update() cycle.
     update_rate: 100  # Hz
 
     indomitus_arm_controller:
@@ -17,9 +20,31 @@ indomitus_arm_controller:
       - arm_forearm_wrist_1_joint
       - arm_wrist_1_wrist_2_joint
       - arm_wrist_2_end_effector_joint
+
     command_interfaces:
       - position
-      - velocity
+      - velocity        # populated by JTC -> used as MIT velocity feedforward
+
     state_interfaces:
       - position
       - velocity
+
+    # Goals may name a subset of joints; the JTC holds the rest at their
+    # current position. Makes single-joint test moves (step 6) trivial.
+    allow_partial_joints_goal: true
+
+    # On goal cancel / controller stop, ramp to hold over this time instead
+    # of freezing the setpoint instantly.
+    stop_trajectory_duration: 0.5   # seconds
+
+    # Safety net: abort the goal (and hold) if tracking degrades instead of
+    # pulling harder toward an unreachable trajectory.
+    constraints:
+      goal_time: 1.0                    # s of slack to reach the final point
+      stopped_velocity_tolerance: 0.05  # rad/s considered "stopped" at goal
+      arm_mount_base_joint:            { trajectory: 0.25, goal: 0.03 }
+      arm_base_shoulder_joint:         { trajectory: 0.25, goal: 0.03 }
+      arm_shoulder_forearm_joint:      { trajectory: 0.25, goal: 0.03 }
+      arm_forearm_wrist_1_joint:       { trajectory: 0.25, goal: 0.03 }
+      arm_wrist_1_wrist_2_joint:       { trajectory: 0.25, goal: 0.03 }
+      arm_wrist_2_end_effector_joint:  { trajectory: 0.25, goal: 0.03 }

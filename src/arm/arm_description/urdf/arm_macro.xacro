@@ -54,7 +54,7 @@
     <joint name="arm_base_shoulder_joint" type="revolute">
       <parent link="arm_base_link"/>
       <child link="arm_shoulder_link"/>
-      <origin xyz="0 0.013 0.0945" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <origin xyz="0 0.013 0.0945" rpy="${-pi/3} 0 ${-pi/2}"/>
       <axis xyz="1 0 0"/>
       <limit lower="${-pi/2}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
@@ -72,7 +72,7 @@
     <joint name="arm_shoulder_forearm_joint" type="revolute">
       <parent link="arm_shoulder_link"/>
       <child link="arm_forearm_link"/>
-      <origin xyz="-0.057 0 0.5" rpy="0 0 0"/>
+      <origin xyz="-0.057 0 0.5" rpy="${5*pi/6} 0 0"/>
       <axis xyz="1 0 0"/>
       <limit lower="${-pi/2}" upper="${pi/2}" effort="100.0" velocity="1.0"/>
     </joint>
@@ -150,28 +150,55 @@
           <plugin>mock_components/GenericSystem</plugin>
         </xacro:if>
         <xacro:unless value="$(arg use_fake_hardware)">
-          <!-- TODO: replace with the real plugin name once arm_hardware_interface is implemented -->
           <plugin>arm_hardware_interface/ArmCanSystem</plugin>
           <param name="can_interface">can0</param>
+          <!-- Stiffness ramps 0 -> 100% over this many seconds after activation -->
+          <param name="gain_ramp_secs">6.0</param>
+          <!-- Hard rate limiter on outgoing position commands (rad/s).
+               Even a wrong/hostile command cannot move a joint faster than this.
+               Keep at 0.3 for the very first powered tests, raise later. -->
+          <param name="max_cmd_speed_rad_s">1.0</param>
+          <!-- Activation aborts if any motor is silent for this long -->
+          <param name="feedback_timeout_secs">2.0</param>
         </xacro:unless>
       </hardware>
-      <xacro:macro name="arm_joint_control" params="joint_name">
+
+      <!-- ======================= CALIBRATION =======================
+           direction : +1 if pushing the joint in its URDF-positive direction
+                       (right-hand rule about the <axis>) makes the RAW motor
+                       angle increase; -1 otherwise.
+           offset    : the RAW motor angle (rad) measured when the arm is
+                       physically in the URDF zero pose. If you save the motor
+                       zero (0xB1 / FF..FE) at that pose, offset = 0.0.
+           kp / kd   : MIT gains — starting values are the proven ones from
+                       play_arm_waypoints.py. Halve kp for first powered tests.
+           Determine direction & offset with scripts/check_calibration.py
+           (torqueless) — see CALIBRATION_GUIDE.md.
+           ============================================================= -->
+      <xacro:macro name="arm_joint_control" params="joint_name motor_id direction offset kp kd">
         <joint name="${joint_name}">
           <command_interface name="position">
             <param name="min">${-pi}</param>
             <param name="max">${pi}</param>
           </command_interface>
-          <command_interface name="velocity"/> <state_interface name="position"/>
+          <command_interface name="velocity"/>
+          <state_interface name="position"/>
           <state_interface name="velocity"/>
+          <param name="motor_id">${motor_id}</param>
+          <param name="direction">${direction}</param>
+          <param name="offset">${offset}</param>
+          <param name="kp">${kp}</param>
+          <param name="kd">${kd}</param>
         </joint>
       </xacro:macro>
 
-      <xacro:arm_joint_control joint_name="arm_mount_base_joint"/>
-      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"/>
-      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"/>
-      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"/>
-      <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"/>
-      <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint"/>
+      <!-- TODO: replace direction/offset with YOUR measured calibration values -->
+      <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="1.9746" kp="15.0" kd="1.5"/>
+      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="-1" offset="1.7093" kp="100.0" kd="3.5"/>
+      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="1"  offset="-0.7155" kp="50.0" kd="2.0"/>
+      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="1.0378" kp="10.0" kd="1.0"/>
+      <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="1"  offset="0.0" kp="30.0"  kd="1.0"/>
+      <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0" kp="15.0"  kd="0.5"/>
     </ros2_control>
 
   </xacro:macro>
