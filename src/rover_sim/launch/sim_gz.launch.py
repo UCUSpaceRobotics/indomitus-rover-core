@@ -80,23 +80,13 @@ def make_spawn_node(cfg: RoverConfig) -> Node:
         output='screen',
     )
 
-def make_controller_spawners(cfg: RoverConfig, controllers_yaml: str) -> list[Node]:
-    return [
-        Node(
-            package='controller_manager',
-            executable='spawner',
-            arguments=[name, '--param-file', controllers_yaml],
-            output='screen',
-        )
-        for name in cfg.controllers
-    ]
 
 def generate_launch_description() -> LaunchDescription:
     cfg = RoverConfig()
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share         = get_package_share_directory('rover_sim')
 
-    controllers_yaml = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
+    controllers_yaml_path = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value=cfg.world_name),
@@ -115,7 +105,7 @@ def generate_launch_description() -> LaunchDescription:
 
         include_launch('rover_description', 'robot_state_publisher.launch.py', {
             'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
-            'xacro_args': 'use_sim:=true',
+            'xacro_args': f'use_sim:=true controllers_yaml_path:={controllers_yaml_path}',
             'use_sim_time': 'true',
         }),
 
@@ -123,7 +113,11 @@ def generate_launch_description() -> LaunchDescription:
                        kwargs={'rover_sim_share': rover_sim_share}),
         make_spawn_node(cfg),
 
-        *make_controller_spawners(cfg, controllers_yaml),
+        include_launch('rover_bringup', 'control.launch.py', {
+            'use_sim': 'true',
+            'controllers_yaml': controllers_yaml_path,
+            'controllers': 'joint_state_broadcaster swerve_controller odometry_controller diff_bar_effort_controller',
+        }),
 
         include_launch('rover_localization', 'ekf.launch.py', {
             'use_sim_time': 'true',
