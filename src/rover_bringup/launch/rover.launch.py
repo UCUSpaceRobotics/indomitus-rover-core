@@ -5,23 +5,12 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
-from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-
-
-def include_launch(
-    package: str, launch_file: str, launch_arguments: dict | None = None,
-) -> IncludeLaunchDescription:
-    return IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory(package), 'launch', launch_file)
-        ),
-        launch_arguments=(launch_arguments or {}).items(),
-    )
+from rover_bringup.launch_utils import include_launch
 
 
 def generate_launch_description():
     rover_bringup_share = get_package_share_directory('rover_bringup')
+    rover_description_share = get_package_share_directory('rover_description')
 
     interface_arg = DeclareLaunchArgument(
         'interface', default_value='can0',
@@ -31,7 +20,8 @@ def generate_launch_description():
 
     robot_description = Command([
         'xacro ',
-        os.path.join(rover_bringup_share, 'urdf', 'rover_real.urdf.xacro'),
+        os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+        ' use_sim:=false',
         ' can_interface:=', LaunchConfiguration('interface'),
     ])
 

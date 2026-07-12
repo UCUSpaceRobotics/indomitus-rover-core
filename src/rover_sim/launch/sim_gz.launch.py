@@ -12,17 +12,8 @@ from launch.actions import (
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from rover_bringup.launch_utils import include_launch
 
-
-def include_launch(
-    package: str, launch_file: str, launch_arguments: dict | None = None,
-) -> IncludeLaunchDescription:
-    return IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory(package), 'launch', launch_file)
-        ),
-        launch_arguments=(launch_arguments or {}).items(),
-    )
 
 @dataclass
 class RoverConfig:
@@ -64,8 +55,8 @@ def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
         output='screen',
     )]
 
-def make_robot_description(rover_sim_share: str) -> str:
-    path = os.path.join(rover_sim_share, 'urdf', 'rover_sim.urdf.xacro')
+def make_robot_description(rover_description_share: str) -> str:
+    path = os.path.join(rover_description_share, 'urdf', 'rover.xacro')
     return xacro.process_file(path).toxml()
 
 
@@ -112,7 +103,7 @@ def generate_launch_description() -> LaunchDescription:
 
     controllers_yaml = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
-    robot_description = make_robot_description(rover_sim_share)
+    robot_description = make_robot_description(rover_description_share)
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value=cfg.world_name),
