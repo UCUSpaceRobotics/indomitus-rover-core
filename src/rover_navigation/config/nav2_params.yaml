@@ -75,7 +75,7 @@ controller_server:
     # --- MPPI controller ---
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 56
+      time_steps: 36
       model_dt: 0.05
       batch_size: 2000
       iteration_count: 2
@@ -93,9 +93,9 @@ controller_server:
       ax_min: -1.5
       ay_max:  0.5
       az_max:  2.0
-      prune_distance: 2.5
+      prune_distance: 3.0
       transform_tolerance: 1.0
-      temperature: 0.3
+      temperature: 0.5
       gamma: 0.015
       motion_model: "Omni"
       visualize: false
@@ -130,7 +130,7 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 10.0
+        cost_weight: 2.0
         threshold_to_consider: 0.5
 
       CostCritic:
@@ -147,22 +147,22 @@ controller_server:
         cost_power: 1
         cost_weight: 5.0
         max_path_occupancy_ratio: 0.05
-        trajectory_point_step: 3
+        trajectory_point_step: 1
         threshold_to_consider: 0.5
-        offset_from_furthest: 30
-        use_path_orientations: false
+        offset_from_furthest: 10
+        use_path_orientations: true
 
       PathFollowCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 4.0
+        cost_weight: 8.0
         offset_from_furthest: 8
         threshold_to_consider: 2.0
 
       PathAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 6.0
+        cost_weight: 10.0
         offset_from_furthest: 6
         threshold_to_consider: 0.5
         max_angle_to_furthest: 1.0
@@ -187,7 +187,7 @@ planner_server:
       max_iterations: 1000000
       max_on_approach_iterations: 1000
       max_planning_time: 3.0
-      cost_travel_multiplier: 10.0
+      cost_travel_multiplier: 20.0
       use_final_approach_orientation: false
 
 # ============================================================
@@ -249,8 +249,8 @@ local_costmap:
       height: 8
       resolution: 0.05
       transform_tolerance: 1.0
-      footprint: "[[0.46, 0.45], [0.46, -0.45], [-0.46, -0.45], [-0.46, 0.45]]"
-      footprint_padding: 0.025
+      footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
+      footprint_padding: 0.05
       plugins:
         - voxel_layer
         - inflation_layer
@@ -277,7 +277,7 @@ local_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 1.0
+        cost_scaling_factor: 10.0
         inflation_radius: 0.75
       always_send_full_costmap: true
 
@@ -290,8 +290,8 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       transform_tolerance: 1.0
-      footprint: "[[0.46, 0.45], [0.46, -0.45], [-0.46, -0.45], [-0.46, 0.45]]"
-      footprint_padding: 0.025
+      footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
+      footprint_padding: 0.15
       resolution: 0.05
       track_unknown_space: true
       plugins:
@@ -304,6 +304,7 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
+        combination_method: 1
         observation_sources: scan
         scan:
           topic: /scan
@@ -316,9 +317,10 @@ global_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 3.5
           obstacle_min_range: 0.0
+          observation_persistence: 0.5
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.0
+        cost_scaling_factor: 3.5
         inflation_radius: 0.75
       always_send_full_costmap: true
 
