@@ -14,8 +14,10 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
   <depend>pluginlib</depend>
   <depend>controller_interface</depend>
+  <depend>hardware_interface</depend>
 
   <!-- Interfaces -->
   <depend>geometry_msgs</depend>
@@ -29,9 +31,6 @@
   <exec_depend>rover_bringup</exec_depend>
   <exec_depend>rover_description</exec_depend>\
   <exec_depend>rover_localization</exec_depend>
-  
-  <!-- ROS2 Control -->
-  <exec_depend>controller_manager</exec_depend>
   
   <!-- Simulation -->
   <depend>ros_gz_sim</depend>
