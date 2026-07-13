@@ -11,7 +11,6 @@
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <exec_depend>rclpy</exec_depend>
 
   <!-- Launch infrastructure -->
   <exec_depend>ament_index_python</exec_depend>
@@ -20,16 +19,12 @@
 
   <!-- Internal packages -->
   <exec_depend>rover_description</exec_depend>
-  <exec_depend>rover_teleop</exec_depend>
-  <exec_depend>rover_hardware_interface</exec_depend>
   <exec_depend>rover_peripherals</exec_depend>
+  <exec_depend>rover_viz</exec_depend>
+  <exec_depend>rover_localization</exec_depend>
 
   <!-- CAN -->
   <exec_depend>ros2_socketcan</exec_depend>
-
-  <!-- Joystick  -->
-  <exec_depend>joy</exec_depend>
-  <exec_depend>teleop_twist_joy</exec_depend>
 
   <!-- cmd_vel multiplexer -->
   <exec_depend>twist_mux</exec_depend>
@@ -38,9 +33,7 @@
   <exec_depend>xacro</exec_depend>
 
   <!-- ROS2 Control -->
-  <exec_depend>ros2_control</exec_depend>
   <exec_depend>controller_manager</exec_depend>
-  <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>rover_controller</exec_depend>
 

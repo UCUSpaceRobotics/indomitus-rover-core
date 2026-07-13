@@ -4,14 +4,20 @@
   <name>rover_teleop</name>
   <version>0.0.0</version>
   <description>
-    Core control package for the Indomitus rover. Contains nodes for 
-    joystick command interpretation, kinematics calculation, 
-    and wheel-odometry estimation.
+    Teleop package for the Indomitus rover. Contains node for 
+    joystick command interpretation.
   </description>
   <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
+
+  <!-- Launch files -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- Joystick driver -->
+  <exec_depend>joy</exec_depend>
 
   <!-- Messages types -->
   <depend>std_msgs</depend>
