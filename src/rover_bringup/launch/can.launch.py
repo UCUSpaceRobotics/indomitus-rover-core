@@ -1,5 +1,5 @@
 """
-can_bridge.launch.py
+can.launch.py
 ====================
 Brings up ros2_socketcan sender and receiver lifecycle nodes.
 
@@ -184,7 +184,7 @@ def generate_launch_description() -> LaunchDescription:
     )
     receiver_interval_arg = DeclareLaunchArgument(
         "receiver_interval_sec",
-        default_value="0.01",
+        default_value="0.5",
         description="CAN socket polling interval for the receiver (seconds)",
     )
 
