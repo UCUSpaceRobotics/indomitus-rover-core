@@ -2,57 +2,30 @@ import os
 from typing import List
 
 import launch.actions
-import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
 from launch.utilities import perform_substitutions
 from launch_ros.actions import Node
-
-
-args_descriptions = {
-    "name": "Name of the robot used as a tf prefix",
-    "use_rviz": "Launch RViz2 for visualization",
-    "use_joint_state_publisher_gui": "Launch joint_state_publisher_gui for joint control"
-}
-
-
-def urdf(name: str = '') -> str:
-    urdf_xacro = os.path.join(
-        get_package_share_directory('rover_description'),
-        'urdf', 'rover_s1.urdf.xacro',
-    )
-    xacro_args = [f'name:={name}']
-
-    opts, input_file_name = xacro.process_args([urdf_xacro] + xacro_args)
-    try:
-        doc = xacro.process_file(input_file_name, **vars(opts))
-        return doc.toprettyxml(indent='  ')
-    except Exception as e:
-        print(f"Error processing URDF for S1: {e}")
-        return ''
+from rover_bringup.launch_utils import include_launch
 
 
 def launch_nodes(context: LaunchContext,
                  **substitutions: launch.substitutions.LaunchConfiguration
                  ) -> List[Node]:
+    rover_description_share = get_package_share_directory('rover_description')
     kwargs = {k: perform_substitutions(context, [v]) for k, v in substitutions.items()}
 
     use_rviz = kwargs.get('use_rviz', 'true').lower() == 'true'
     use_joint_gui = kwargs.get('use_joint_state_publisher_gui', 'true').lower() == 'true'
 
-    urdf_string = urdf(**{k: v for k, v in kwargs.items()
-                          if k not in ('use_rviz', 'use_joint_state_publisher_gui')})
-
     nodes = []
 
-    robot_state_publisher_node = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        name='robot_state_publisher',
-        parameters=[{'robot_description': urdf_string, 'publish_frequency': 100.0}],
-        output='screen',
-        arguments=["--ros-args", "--log-level", "warn"]
-    )
+    robot_state_publisher_node = include_launch('rover_description', 'robot_state_publisher.launch.py', {
+        'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.urdf.xacro'),
+        'xacro_args': f'name:={kwargs.get('name', '')}',
+        'publish_frequency': '100.0',
+        'log_level': 'warn',
+    })
     nodes.append(robot_state_publisher_node)
 
     if use_joint_gui:
@@ -73,26 +46,14 @@ def launch_nodes(context: LaunchContext,
 
     if use_rviz:
         rviz_config_file = os.path.join(
-            get_package_share_directory('rover_viz'),
-            'rviz', 'robot.rviz'
-        )
-        if os.path.exists(rviz_config_file):
-            rviz_args = ['-d', rviz_config_file]
-        else:
-            source_rviz_config = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                'rover_viz', 'rviz', 'robot.rviz'
-            )
-            if os.path.exists(source_rviz_config):
-                rviz_args = ['-d', source_rviz_config]
-            else:
-                rviz_args = []
+            get_package_share_directory('rover_viz'), 'rviz', 'robot.rviz')
+
         rviz_node = Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
             output='screen',
-            arguments=rviz_args
+            arguments=['-d', rviz_config_file],
         )
         nodes.append(rviz_node)
 
@@ -100,13 +61,12 @@ def launch_nodes(context: LaunchContext,
 
 
 def generate_launch_description():
-    urdf_args = [
+    declared_args = [
         launch.actions.DeclareLaunchArgument(
-            k, default_value=str(urdf.__defaults__[i]), description=args_descriptions.get(k, ''))
-        for i, (k, _) in enumerate(urdf.__annotations__.items()) if k != 'return'
-    ]
-
-    additional_args = [
+            'name',
+            default_value='',
+            description='Name of the robot used as a tf prefix'
+        ),
         launch.actions.DeclareLaunchArgument(
             'use_rviz',
             default_value='true',
@@ -116,16 +76,17 @@ def generate_launch_description():
             'use_joint_state_publisher_gui',
             default_value='true',
             description='Launch joint_state_publisher_gui for joint control'
-        )
+        ),
     ]
 
-    all_kwargs = {k: launch.substitutions.LaunchConfiguration(k)
-                  for (k, _) in urdf.__annotations__.items() if k != 'return'}
-    all_kwargs['use_rviz'] = launch.substitutions.LaunchConfiguration('use_rviz')
-    all_kwargs['use_joint_state_publisher_gui'] = launch.substitutions.LaunchConfiguration('use_joint_state_publisher_gui')
+    all_kwargs = {
+        'name': launch.substitutions.LaunchConfiguration('name'),
+        'use_rviz': launch.substitutions.LaunchConfiguration('use_rviz'),
+        'use_joint_state_publisher_gui': launch.substitutions.LaunchConfiguration('use_joint_state_publisher_gui'),
+    }
 
     return LaunchDescription(
-        urdf_args + additional_args + [
+        declared_args + [
             launch.actions.OpaqueFunction(
                 function=launch_nodes,
                 kwargs=all_kwargs),

@@ -9,6 +9,8 @@ def generate_launch_description():
         DeclareLaunchArgument('xacro_file'),
         DeclareLaunchArgument('xacro_args', default_value=''),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('publish_frequency', default_value='20.0'),
+        DeclareLaunchArgument('log_level', default_value='info'),
 
         Node(
             package='robot_state_publisher',
@@ -19,6 +21,8 @@ def generate_launch_description():
                     'xacro ', LaunchConfiguration('xacro_file'), ' ', LaunchConfiguration('xacro_args'),
                 ]),
                 'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'publish_frequency': LaunchConfiguration('publish_frequency'),
             }],
+            arguments=["--ros-args", "--log-level", LaunchConfiguration('log_level')],
         ),
     ])
