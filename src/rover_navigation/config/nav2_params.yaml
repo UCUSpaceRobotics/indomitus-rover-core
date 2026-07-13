@@ -1,26 +1,6 @@
 # rover_navigation/config/nav2_params.yaml
 
 # ============================================================
-# LOCALISATION
-# ============================================================
-
-amcl:
-  ros__parameters:
-    use_sim_time: true
-    robot_model_type: "nav2_amcl::OmniMotionModel"
-    base_frame_id: "base_link"
-    global_frame_id: "map"
-    odom_frame_id: "odom"
-    transform_tolerance: 1.0
-    tf_broadcast: true
-    # NOTE: Auto-initialise at map origin; remove when deploying on real hardware.
-    set_initial_pose: true
-    initial_pose_x: 0.0
-    initial_pose_y: 0.0
-    initial_pose_z: 0.0
-    initial_pose_yaw: 0.0
-
-# ============================================================
 # BT NAVIGATOR
 # ============================================================
 
@@ -56,6 +36,7 @@ bt_navigator:
       - nav2_rate_controller_bt_node
       - nav2_pipeline_sequence_bt_node
       - nav2_recovery_node_bt_node
+      - nav2_remove_passed_goals_action_bt_node
     error_code_names:
       - compute_path_error_code
       - follow_path_error_code
@@ -71,7 +52,7 @@ controller_server:
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 0.3
+    failure_tolerance: 1.0
     transform_tolerance: 1.0
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "general_goal_checker"
@@ -81,8 +62,8 @@ controller_server:
     # --- Progress checker ---
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.3
-      movement_time_allowance: 8.0
+      required_movement_radius: 0.15
+      movement_time_allowance: 25.0
 
     # --- Goal checker ---
     general_goal_checker:
@@ -92,10 +73,9 @@ controller_server:
       yaw_goal_tolerance: 0.25
 
     # --- MPPI controller ---
-    # Configured for omnidirectional (4WIS swerve) drive at 1.0 m/s cruise.
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 56
+      time_steps: 36
       model_dt: 0.05
       batch_size: 2000
       iteration_count: 2
@@ -103,7 +83,7 @@ controller_server:
       vy_std: 0.05
       wz_std: 0.2
       # Velocity limits.
-      vx_max:  1.0 
+      vx_max:  1.0
       vx_min: -0.2
       vy_max:  0.1
       vy_min: -0.1
@@ -113,9 +93,9 @@ controller_server:
       ax_min: -1.5
       ay_max:  0.5
       az_max:  2.0
-      prune_distance: 2.5
+      prune_distance: 3.0
       transform_tolerance: 1.0
-      temperature: 0.3
+      temperature: 0.5
       gamma: 0.015
       motion_model: "Omni"
       visualize: false
@@ -150,13 +130,13 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 10.0
+        cost_weight: 2.0
         threshold_to_consider: 0.5
 
       CostCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 12.0
+        cost_weight: 15.0
         critical_cost: 200.0
         consider_footprint: true
         collision_cost: 1000000.0
@@ -165,24 +145,24 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 6.0
+        cost_weight: 5.0
         max_path_occupancy_ratio: 0.05
-        trajectory_point_step: 3
+        trajectory_point_step: 1
         threshold_to_consider: 0.5
-        offset_from_furthest: 30
-        use_path_orientations: false
+        offset_from_furthest: 10
+        use_path_orientations: true
 
       PathFollowCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
+        cost_weight: 8.0
         offset_from_furthest: 8
         threshold_to_consider: 2.0
 
       PathAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 6.0
+        cost_weight: 10.0
         offset_from_furthest: 6
         threshold_to_consider: 0.5
         max_angle_to_furthest: 1.0
@@ -200,10 +180,15 @@ planner_server:
     planner_plugins:
       - GridBased
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
+      plugin: "nav2_smac_planner/SmacPlanner2D"
       tolerance: 0.5
-      use_astar: true
+      downsample_costmap: false
       allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 3.0
+      cost_travel_multiplier: 20.0
+      use_final_approach_orientation: false
 
 # ============================================================
 # WAYPOINT FOLLOWER
@@ -264,7 +249,8 @@ local_costmap:
       height: 8
       resolution: 0.05
       transform_tolerance: 1.0
-      footprint: "[[0.46, 0.45], [0.46, -0.45], [-0.46, -0.45], [-0.46, 0.45]]"
+      footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
+      footprint_padding: 0.05
       plugins:
         - voxel_layer
         - inflation_layer
@@ -291,7 +277,7 @@ local_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.0
+        cost_scaling_factor: 10.0
         inflation_radius: 0.75
       always_send_full_costmap: true
 
@@ -304,7 +290,8 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       transform_tolerance: 1.0
-      footprint: "[[0.46, 0.45], [0.46, -0.45], [-0.46, -0.45], [-0.46, 0.45]]"
+      footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
+      footprint_padding: 0.15
       resolution: 0.05
       track_unknown_space: true
       plugins:
@@ -317,6 +304,7 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
+        combination_method: 0
         observation_sources: scan
         scan:
           topic: /scan
@@ -329,9 +317,10 @@ global_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 3.5
           obstacle_min_range: 0.0
+          observation_persistence: 0.5
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.0
+        cost_scaling_factor: 3.5
         inflation_radius: 0.75
       always_send_full_costmap: true
 
@@ -351,6 +340,3 @@ lifecycle_manager_navigation:
       - waypoint_follower
       - local_costmap
       - global_costmap
-      # NOTE: Remove amcl from here and manage it under a separate
-      # lifecycle_manager_localization node when localization is decoupled.
-      - amcl

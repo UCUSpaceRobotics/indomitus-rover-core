@@ -242,6 +242,7 @@ Images built locally or by GitHub workflows will use the following tags:
   * *Architecture:* **ARM64**
   * *Use Case:* Designed strictly for deployment on the NVIDIA Jetson. Cannot run natively on standard Intel/AMD laptops.
 * **`<branch-name>-dev`** and **`<branch-name>-prod`**: Images built by GitHub workflows when you manually trigger **Publish Production and Development Images** for your branch (slashes in the branch name are replaced with dashes).
+* **`latest-prod`**: Production image build on merge to main branch 
 
 ---
 
