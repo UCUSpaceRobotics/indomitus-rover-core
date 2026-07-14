@@ -275,10 +275,10 @@ run_remote_build_mode() {
 
     step "Building Docker Image natively on Jetson (${IMAGE_NAME}:${IMAGE_TAG})..."
 
-    if ssh -t -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose build --progress=tty"; then
+    if ssh -t -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose --progress=tty build"; then
         success "Image successfully built on the Jetson."
     else
-        error "Remote Docker build failed."
+        error "Remote Docker Compose build failed."
     fi
 
     step "Restarting Container on Jetson (Safe Mode with Rollback)..."
@@ -459,7 +459,7 @@ Make sure a CI run completed successfully for this tag."
 
 
 run_local_build_mode() {
-    warning "ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, turn off address space randomization before script usage with command 'sudo sysctl kernel.randomize_va_space=0'. After deployment, turn it back on with 'sudo sysctl kernel.randomize_va_space=2'."
+    warning "ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, turn off address space randomization with command 'sudo sysctl kernel.randomize_va_space=0'. After deployment, turn it back on with 'sudo sysctl kernel.randomize_va_space=2'."
 
     step "Running Pre-Flight Checks for Full Build..."
     if ! docker info > /dev/null 2>&1; then error "Docker is not running."; fi

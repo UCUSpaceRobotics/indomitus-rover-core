@@ -79,6 +79,9 @@ jobs:
           target: prod 
           platforms: linux/arm64
           push: true
+          build-args: |
+            BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-l4t-r36.4
+            BASE_IMAGE=stereolabs/zed:5.4-devel-l4t-r36.4
           tags: ${{ steps.metadata-tags.outputs.tags }}
           labels: ${{ steps.metadata-tags.outputs.labels }}
           cache-from: |
@@ -95,6 +98,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
 
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@v1.3.1
@@ -146,6 +160,8 @@ jobs:
           push: true
           build-args: |
             INSTALL_SIM_TOOLS=true
+            BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04
+            BASE_IMAGE=stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04
           tags: ${{ steps.meta-dev.outputs.tags }}
           labels: ${{ steps.meta-dev.outputs.labels }}
           cache-from: |

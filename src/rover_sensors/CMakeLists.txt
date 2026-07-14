@@ -24,7 +24,7 @@ install(
 )
 
 install(
-  FILES README.md rplidar.md
+  FILES README.md rplidar_s2.md
   DESTINATION share/${PROJECT_NAME}
 )
 

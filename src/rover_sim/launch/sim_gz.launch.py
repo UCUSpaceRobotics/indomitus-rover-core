@@ -20,7 +20,7 @@ class RoverConfig:
     model_name: str = 'indomitus_rover'
     spawn_x: float = 0.0
     spawn_y: float = 0.0
-    spawn_z: float = 3.5
+    spawn_z: float = 4.0
     controllers: list[str] = field(default_factory=lambda: [
         'joint_state_broadcaster',
         'swerve_controller',
@@ -98,9 +98,11 @@ def make_controller_spawners(cfg: RoverConfig, controllers_yaml: str) -> list[No
 def generate_launch_description() -> LaunchDescription:
     cfg = RoverConfig()
     rover_description_share = get_package_share_directory('rover_description')
-    rover_sim_share         = get_package_share_directory('rover_sim')
-    rover_bringup_share     = get_package_share_directory('rover_bringup')
+    zed_description_share = get_package_share_directory('zed_description')
+    rover_sim_share = get_package_share_directory('rover_sim')
+    rover_bringup_share = get_package_share_directory('rover_bringup')
     rover_localization_share = get_package_share_directory('rover_localization')
+
     controllers_yaml = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     robot_description = make_robot_description(rover_sim_share)
@@ -117,6 +119,8 @@ def generate_launch_description() -> LaunchDescription:
                 os.environ.get('GZ_SIM_RESOURCE_PATH', ''),
                 ':',
                 os.path.dirname(rover_description_share),
+                ':',
+                os.path.dirname(zed_description_share),
             ]
         ),
 
