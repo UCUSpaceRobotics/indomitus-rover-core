@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<robot name="indomitus_s1" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="use_sim" default="false"/>
+  <xacro:arg name="can_interface" default="can0"/>
+  <xacro:arg name="controllers_yaml_path" default=""/>
+
+  <!-- Main robot description -->
+  <xacro:include filename="$(find rover_description)/urdf/rover.urdf.xacro"/>
+
+  <!-- ros2_control (sim/real branching handled inside) -->
+  <xacro:include filename="$(find rover_description)/urdf/rover.ros2_control.xacro"/>
+
+  <!-- Simulation-only Gazebo plugins -->
+  <xacro:if value="$(arg use_sim)">
+    <gazebo>
+      <plugin filename="gz_ros2_control-system"
+              name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <parameters>$(arg controllers_yaml_path)</parameters>
+      </plugin>
+    </gazebo>
+
+    <gazebo>
+      <plugin filename="gz-sim-joint-state-publisher-system"
+              name="gz::sim::systems::JointStatePublisher">
+      </plugin>
+    </gazebo>
+  </xacro:if>
+
+</robot>

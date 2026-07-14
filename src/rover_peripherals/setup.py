@@ -1,6 +1,5 @@
 import os
 from glob import glob
-
 from setuptools import find_packages, setup
 
 package_name = 'rover_peripherals'
@@ -17,7 +16,6 @@ setup(
             glob(os.path.join('launch', '*.launch.py'))),
         (os.path.join('share', package_name, 'config'),
             glob(os.path.join('config', '*.yaml'))),
-
     ],
     install_requires=['setuptools'],
     zip_safe=True,
