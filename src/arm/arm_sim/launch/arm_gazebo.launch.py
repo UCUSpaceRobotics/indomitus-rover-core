@@ -23,7 +23,7 @@ def generate_launch_description() -> LaunchDescription:
     arm_sim_dir = get_package_share_directory("arm_sim")
     ros_gz_sim_dir = get_package_share_directory("ros_gz_sim")
 
-    xacro_file = os.path.join(arm_description_dir, "urdf", "arm_standalone.urdf.xacro")
+    xacro_file = os.path.join(arm_description_dir, "urdf", "arm_standalone_simple.urdf.xacro")
     world_file = os.path.join(arm_sim_dir, "worlds", "empty.sdf")
     bridge_config = os.path.join(arm_sim_dir, "config", "gz_bridge.yaml")
 
