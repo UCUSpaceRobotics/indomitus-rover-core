@@ -118,7 +118,6 @@ jobs:
             BASE_IMAGE=stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          no-cache: true # TEMPORARY, SHOULD BE REMOVED
           cache-from: |
             type=gha
             type=gha,scope=${{ github.base_ref }}-dev
