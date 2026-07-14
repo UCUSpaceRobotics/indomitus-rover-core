@@ -2,6 +2,7 @@
 """
 Joystick Interpreter Node.
 """
+import math
 
 import rclpy
 from rclpy.node import Node
@@ -202,7 +203,30 @@ class JoystickInterpreterNode(Node):
 
         vx = self.raw_vx
         vy = self.raw_vy
-        wz = self.raw_wz
+        
+        # self.raw_wz is the raw right joystick input [-1.0 to 1.0]
+        right_stick_input = self.raw_wz  
+
+        # Translate the right stick input directly into curvature (1 / Radius).
+        # self._scale_wz now acts as our maximum curvature (1 / R_min).
+        # Pushing the stick fully right sets curvature = max_curvature (minimum radius).
+        target_curvature = right_stick_input * self._scale_wz * 2
+
+        # Calculate current total translation speed
+        v_total = math.sqrt(vx**2 + vy**2)
+
+        if v_total < 1e-3 and abs(target_curvature) > 1e-3:
+            # 1. STANDING IN PLACE (vx = 0, vy = 0) but steering:
+            # Inject a tiny dummy velocity of 1e-5 to force swerve kinematics to align.
+            # We assign it to vx so it acts as a tiny forward nudge.
+            vx_dummy = 1e-5 if target_curvature >= 0 else -1e-5
+            wz = vx_dummy * target_curvature
+            vx = vx_dummy
+            vy = 0.0
+        else:
+            # 2. MOVING (either vx, vy, or both):
+            # wz = v_total / R  =>  wz = v_total * (1 / R)  =>  wz = v_total * target_curvature
+            wz = v_total * target_curvature
         
         if not self._vy_enabled:
             wz = self._apply_swerve_wz_correction(self.raw_vx, self.raw_vy, self.raw_wz)

@@ -7,8 +7,8 @@
 
 namespace rover_controller {
 
-constexpr double VXY_EPS = 1e-3;   ///< m/s  — below this vx/vy is considered zero
-constexpr double WZ_EPS  = 1e-3;   ///< rad/s — below this wz is considered zero
+constexpr double VXY_EPS = 1e-6;   ///< m/s  — below this vx/vy is considered zero
+constexpr double WZ_EPS  = 1e-6;   ///< rad/s — below this wz is considered zero
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WheelData — strongly-typed container for per-wheel scalars

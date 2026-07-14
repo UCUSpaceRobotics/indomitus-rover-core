@@ -171,13 +171,51 @@ RoverSwerveController::update(
     }
 
     // Step 1: Smooth chassis velocities via independent slew-rate limiters
-    vx_smoothed_ = limiters_[0].update(target_vx_, dt);
-    vy_smoothed_ = limiters_[1].update(target_vy_, dt);
-    wz_smoothed_ = limiters_[2].update(target_wz_, dt);
+    double vx;
+    double vy;
+    double wz;
 
-    const double vx = vx_smoothed_;
-    const double vy = vy_smoothed_;
-    const double wz = wz_smoothed_;
+    const double target_speed = std::hypot(target_vx_, target_vy_);
+    
+    // Ignore heavy smoothing ONLY for the microscopic alignment dummy velocities (1e-5)
+    // to prevent state-machine jitter or wind-up.
+    if (target_speed > 1e-4 || std::abs(target_wz_) > 1e-4) {
+        // Find current smoothed speed
+        const double current_speed = std::hypot(vx_smoothed_, vy_smoothed_);
+        
+        // Slew the speed magnitude
+        double new_speed = current_speed;
+        if (target_speed > current_speed) {
+            new_speed = std::min(target_speed, current_speed + max_accel_ * dt);
+        } else {
+            new_speed = std::max(target_speed, current_speed - max_decel_ * dt);
+        }
+
+        // Project the slewed speed back onto vx and vy to preserve the vector direction
+        if (target_speed > 1e-5) {
+            vx_smoothed_ = (target_vx_ / target_speed) * new_speed;
+            vy_smoothed_ = (target_vy_ / target_speed) * new_speed;
+        } else {
+            vx_smoothed_ = 0.0;
+            vy_smoothed_ = 0.0;
+        }
+
+        // Limit the angular velocity independently
+        wz_smoothed_ = limiters_[2].update(target_wz_, dt);
+        
+        vx = vx_smoothed_;
+        vy = vy_smoothed_;
+        wz = wz_smoothed_;
+    } else {
+        // Directly bypass limiters for static micro-movements to avoid mathematical flutter
+        vx_smoothed_ = target_vx_;
+        vy_smoothed_ = target_vy_;
+        wz_smoothed_ = target_wz_;
+        
+        vx = target_vx_;
+        vy = target_vy_;
+        wz = target_wz_;
+    }
 
     // // Step 2: Read measured hardware steering positions
     read_measured_angles();
