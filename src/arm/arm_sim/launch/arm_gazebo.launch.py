@@ -1,12 +1,18 @@
 import os
 
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, RegisterEventHandler, SetEnvironmentVariable
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+    SetEnvironmentVariable,
+)
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command
-from launch_ros.actions import Node
+from launch.substitutions import Command, LaunchConfiguration
+from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_move_group_launch
@@ -33,7 +39,15 @@ def generate_launch_description() -> LaunchDescription:
     ign_resource_path = os.pathsep.join(filter(None, [resource_path_root, existing_ign_path]))
 
     robot_description_content = ParameterValue(
-        Command(["xacro ", xacro_file, " sim:=true"]),
+        Command(
+            [
+                "xacro ",
+                xacro_file,
+                " sim:=true",
+                " camera:=",
+                LaunchConfiguration("camera"),
+            ]
+        ),
         value_type=str,
     )
 
@@ -153,15 +167,51 @@ def generate_launch_description() -> LaunchDescription:
     ).to_moveit_configs()
     move_group_launch = generate_move_group_launch(moveit_config)
 
+    # NOTE (servo in sim):
+    # servo_node is started here, in the SAME launch as Gazebo, instead of
+    # reusing demo.launch.py alongside this file. demo.launch.py brings up
+    # its own controller_manager backed by mock_components hardware; running
+    # it in parallel with Gazebo produces two /controller_manager nodes and
+    # two competing /joint_states publishers (one wall-clock mock, one
+    # sim-clock Gazebo), which breaks Servo's state monitoring. Same
+    # readiness ordering as demo.launch.py: servo starts only after the
+    # controller spawner exits successfully (see notes above).
+    moveit_config_dir = get_package_share_directory("arm_moveit_config")
+    with open(os.path.join(moveit_config_dir, "config", "servo.yaml")) as f:
+        servo_yaml = yaml.safe_load(f)
+    servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
+
+    servo_node = Node(
+        package="moveit_servo",
+        executable="servo_node_main",
+        name="servo_node",
+        output="screen",
+        parameters=[
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+            servo_params,
+        ],
+    )
+
     delayed_move_group = RegisterEventHandler(
         OnProcessExit(
             target_action=controller_spawner,
-            on_exit=list(move_group_launch.entities),
+            on_exit=list(move_group_launch.entities) + [servo_node],
         )
     )
 
     ld = LaunchDescription(
         [
+            # camera:=false drops the simulated camera sensor from the URDF.
+            # Use it to test whether sensor rendering is what tanks the
+            # real-time factor (see note in arm_macro.xacro).
+            DeclareLaunchArgument("camera", default_value="true"),
+            # Everything in this launch must follow Gazebo's /clock. Without
+            # this, move_group and servo_node run on wall time while
+            # /joint_states and TF are stamped with sim time, so Servo
+            # rejects the robot state as stale and never produces commands.
+            SetParameter(name="use_sim_time", value=True),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
             gz_sim,

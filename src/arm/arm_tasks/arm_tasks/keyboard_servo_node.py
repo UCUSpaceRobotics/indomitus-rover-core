@@ -222,14 +222,17 @@ class ServoController(Node):
 
         Halts current velocity commands, confirms Servo has stopped, then
         sends a ``FollowJointTrajectory`` goal to move all joints to the
-        ``safe_pose`` parameter values over 3 seconds.
+        ``safe_pose`` parameter values over 3 seconds (of controller time,
+        i.e. sim time under Gazebo) and blocks until the controller reports
+        the goal finished. There is deliberately no wall-clock timeout: under
+        Gazebo with a low real-time factor the trajectory can legitimately
+        take much longer in wall time, and this method runs on a dedicated
+        thread, so waiting does not stall keyboard handling.
 
         Returns:
-            bool: True if the trajectory goal was accepted and completed
-            (or its result was received) within the 8 second timeout;
-            False if Servo could not be confirmed stopped, the trajectory
-            action server was unavailable, the goal was rejected, or the
-            goal timed out.
+            bool: True once the trajectory result was received; False if
+            Servo could not be confirmed stopped, the trajectory action
+            server was unavailable, or the goal was rejected.
         """
         self.stop()
 
@@ -258,6 +261,7 @@ class ServoController(Node):
         self.get_logger().info('Moving to safe pose...')
 
         done_event = threading.Event()
+        goal_rejected = threading.Event()
 
         def goal_response_cb(future):
             """Handle the trajectory action's goal-acceptance response.
@@ -269,6 +273,7 @@ class ServoController(Node):
             goal_handle = future.result()
             if not goal_handle or not goal_handle.accepted:
                 self.get_logger().error('Goal rejected')
+                goal_rejected.set()
                 done_event.set()
                 return
             result_future = goal_handle.get_result_async()
@@ -277,12 +282,11 @@ class ServoController(Node):
         future = self._traj_client.send_goal_async(goal)
         future.add_done_callback(goal_response_cb)
 
-        done = done_event.wait(timeout=8.0)
-        if done:
-            self.get_logger().info('Safe pose reached!')
-        else:
-            self.get_logger().warn('Safe pose timeout!')
-        return done
+        done_event.wait()
+        if goal_rejected.is_set():
+            return False
+        self.get_logger().info('Safe pose reached!')
+        return True
 
     def start_servo(self):
         """Asynchronously call the Servo ``start_servo`` service.
