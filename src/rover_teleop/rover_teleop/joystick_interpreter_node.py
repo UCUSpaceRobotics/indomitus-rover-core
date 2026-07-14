@@ -121,6 +121,7 @@ class JoystickInterpreterNode(Node):
         self.raw_vy: float = 0.0
         self.raw_wz: float = 0.0
 
+        self._row_twist_mode: bool = False
         self._compact_mode: bool = False
 
         self._traffic_red    = False
@@ -160,6 +161,7 @@ class JoystickInterpreterNode(Node):
         self._toggles = [
             ButtonToggle(declare_and_get('vy_toggle_button', 8), self._on_vy_toggle_pressed),
             ButtonToggle(declare_and_get('motor_toggle_button', 9), self._toggle_motors),
+            ButtonToggle(declare_and_get('raw_twist_mode_button', 3), self._on_raw_twist_mode_toggle_pressed),
             ButtonToggle(declare_and_get('compact_mode_button', 1), self._toggle_compact_mode),
             ButtonToggle(declare_and_get('granny_button', 10), self._on_granny_toggle_pressed),
             ButtonToggle(declare_and_get('spotlight_button', 4), self._spotlight.toggle),
@@ -203,33 +205,25 @@ class JoystickInterpreterNode(Node):
 
         vx = self.raw_vx
         vy = self.raw_vy
-        
-        # self.raw_wz is the raw right joystick input [-1.0 to 1.0]
-        right_stick_input = self.raw_wz  
 
-        # Translate the right stick input directly into curvature (1 / Radius).
-        # self._scale_wz now acts as our maximum curvature (1 / R_min).
-        # Pushing the stick fully right sets curvature = max_curvature (minimum radius).
-        target_curvature = right_stick_input * self._scale_wz * 2
-
-        # Calculate current total translation speed
-        v_total = math.sqrt(vx**2 + vy**2)
-
-        if v_total < 1e-3 and abs(target_curvature) > 1e-3:
-            # 1. STANDING IN PLACE (vx = 0, vy = 0) but steering:
-            # Inject a tiny dummy velocity of 1e-5 to force swerve kinematics to align.
-            # We assign it to vx so it acts as a tiny forward nudge.
-            vx_dummy = 1e-5 if target_curvature >= 0 else -1e-5
-            wz = vx_dummy * target_curvature
-            vx = vx_dummy
-            vy = 0.0
+        if self._row_twist_mode:
+            wz = self.raw_wz
         else:
-            # 2. MOVING (either vx, vy, or both):
-            # wz = v_total / R  =>  wz = v_total * (1 / R)  =>  wz = v_total * target_curvature
-            wz = v_total * target_curvature
+            right_stick_input = self.raw_wz
+            target_curvature = right_stick_input * self._scale_wz
+
+            v_total = math.sqrt(vx**2 + vy**2)
+
+            if v_total < 1e-3 and abs(target_curvature) > 1e-3:
+                vx_dummy = 1e-5 if target_curvature >= 0 else -1e-5
+                wz = vx_dummy * target_curvature
+                vx = vx_dummy
+                vy = 0.0
+            else:
+                wz = v_total * target_curvature
         
         if not self._vy_enabled:
-            wz = self._apply_swerve_wz_correction(self.raw_vx, self.raw_vy, self.raw_wz)
+            wz = self._apply_swerve_wz_correction(vx, vy, wz)
 
         if self._granny_mode:
             vx *= self._granny_scale
@@ -310,6 +304,11 @@ class JoystickInterpreterNode(Node):
             request, lambda f: self._on_motor_toggle_result(f, target_enabled))
         if not started:
             self.get_logger().warn('Motor enable service busy or not available yet')
+    
+    def _on_raw_twist_mode_toggle_pressed(self):
+        self._row_twist_mode = not self._row_twist_mode
+        state_str = 'RAW TWIST (Direct)' if self._row_twist_mode else 'PROCESSED (Curvature)'
+        self.get_logger().info(f'Switching to {state_str} mode')
 
     def _toggle_compact_mode(self):
         target = not self._compact_mode
