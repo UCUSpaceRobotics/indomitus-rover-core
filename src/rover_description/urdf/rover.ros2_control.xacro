@@ -3,11 +3,16 @@
 
   <ros2_control name="RoverHardware" type="system">
     <hardware>
-      <plugin>rover_hardware_interface/RoverHardwareInterface</plugin>
-      <param name="can_interface">$(arg can_interface)</param>
-      <param name="steer_ids">11 13 17 15</param>
-      <param name="drive_ids">10 12 16 14</param>
-      <param name="lifecycle_initial_state">inactive</param>
+      <xacro:if value="$(arg use_sim)">
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </xacro:if>
+      <xacro:unless value="$(arg use_sim)">
+        <plugin>rover_hardware_interface/RoverHardwareInterface</plugin>
+        <param name="can_interface">$(arg can_interface)</param>
+        <param name="steer_ids">11 13 17 15</param>
+        <param name="drive_ids">10 12 16 14</param>
+        <param name="lifecycle_initial_state">inactive</param>
+      </xacro:unless>
     </hardware>
 
     <joint name="fl_wheel_mount_joint">
@@ -49,5 +54,24 @@
     </joint>
 
   </ros2_control>
+
+
+  <xacro:if value="$(arg use_sim)">
+    <ros2_control name="DiffBarHardware" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+      <joint name="l_rocker_joint">
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="r_rocker_joint">
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+  </xacro:if>
 
 </robot>

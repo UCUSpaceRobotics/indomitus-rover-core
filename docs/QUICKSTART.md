@@ -80,7 +80,7 @@ ros2 launch rover_bringup rover.launch.py
 
 7. **Start the joystick nodes:** Run the following command to start the nodes responsible for handling joystick input:
 ```bash
-ros2 launch rover_bringup joy.launch.py
+ros2 launch rover_teleop joy.launch.py
 ```
 
 8. **Control the rover:** You are now ready to drive the rover using the joystick.

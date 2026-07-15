@@ -29,11 +29,15 @@ ros2_control `SystemInterface` plugin responsible for low-level communication wi
 
 Communicates with two motor types:
 - **Steer Motors (Steadywin V3.06b0):** 4 motors (IDs: 11, 13, 15, 17)
-- **Drive Motors (Damiao MIT):** 4 motors (IDs: 10, 12, 14, 16)
+- **Drive Motors (Damiao J10010):** 4 motors (IDs: 10, 12, 14, 16)
 
 **Protocols:** `damiao_protocol.hpp`, `steadywin_protocol.hpp`
 
-Loaded as a ros2_control plugin via `ros2_control_real.xacro` — no standalone node or launch file.
+**Config:** `config/chassis_driver.yaml`
+
+Loaded as a ros2_control hardware plugin (`rover_hardware_interface/RoverHardwareInterface`) via `rover_description/urdf/rover.ros2_control.xacro`, conditionally on `use_sim:=false` — no standalone node or launch file.
+
+**Tests:** `test/test_protocols.cpp`
 
 ---
 
@@ -45,37 +49,42 @@ ros2_control controller plugins implementing swerve-drive kinematics and odometr
 - **`ackermann_controller`** *(planned)* — Ackermann steering with fixed rear wheels, only front wheels steer
 - **`dual_ackermann_controller`** *(planned)* — Ackermann steering with symmetric front and rear wheel steering
 
-Loaded as plugins via `controllers.yaml`, not launched directly.
+Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for real hardware, one in `rover_sim/config` for simulation), spawned by `rover_bringup/launch/control.launch.py` — not launched directly.
 
 ---
 
 ## 4. `rover_bringup`
-Main launch and configuration package.
+Main launch and configuration package for the real rover.
 
 **Launch files:**
-- `rover.launch.py` — top-level bringup (loads description, ros2_control, controllers)
+- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `control.launch.py`, `twist_mux.launch.py`, plus includes from `rover_peripherals` and `rover_localization`
 - `can.launch.py` — configures and brings up the CAN bus interface
-- `joy.launch.py` — launches joystick input stack
-- `container.launch.py` — launches container peripheral node
+- `control.launch.py` — shared controller-manager/spawner logic; used by both `rover.launch.py` (real) and `rover_sim/launch/sim_gz.launch.py` (sim), toggled via a `use_sim` argument
+- `twist_mux.launch.py` — velocity command multiplexer
+- `power_monitor.launch.py` — brings up power monitoring (pairs with `rover_peripherals`' power node)
 
 **Config:**
-- `controllers.yaml` — ros2_control controller parameters
+- `controllers.yaml` — ros2_control controller parameters (real hardware)
 - `twist_mux.yaml` — velocity command multiplexer config
-- `joy.yaml` — joystick driver config
 
-**URDF:**
-- `rover_real.urdf.xacro` — top-level xacro for the real robot (includes hardware interface)
+**Python module:**
+- `rover_bringup/launch_utils.py` — shared launch-file helpers (e.g. `include_launch`) used across packages
+
+> Note: `joy.launch.py` and `container.launch.py` now live in `rover_teleop` and `rover_peripherals` respectively, not here.
 
 ---
 
 ## 5. `rover_description`
-URDF/xacro robot description files and 3D meshes.
+URDF/xacro robot description files and 3D meshes. Sim/real-agnostic — differences are handled via xacro arguments rather than separate files.
 
 **URDF:**
-- `rover.urdf.xacro` — base robot description
-- `ros2_control_real.xacro` — hardware interface definition for the real robot
-- `ros2_control_sim.xacro` — hardware interface definition for simulation
+- `rover.xacro` — top-level entry point; declares shared args (`use_sim`, `can_interface`) and includes the pieces below
+- `rover.urdf.xacro` — physical robot description (links, joints, meshes, inertials)
+- `rover.ros2_control.xacro` — `<ros2_control>` hardware definitions for both sim (`gz_ros2_control/GazeboSimSystem`) and real (`rover_hardware_interface/RoverHardwareInterface`), branched via `xacro:if`/`xacro:unless` on `use_sim`
 - `camera.xacro` — camera link/sensor definition
+
+**Launch files:**
+- `launch/robot_state_publisher.launch.py` — shared `robot_state_publisher` launch, parameterized by `xacro_file`, `xacro_args`, and `use_sim_time`; used by both `rover_bringup/rover.launch.py` and `rover_sim/sim_gz.launch.py`
 
 **Meshes:** suspension components (`rocker`, `wheel`, `wheel_mount`, `central_axii`), plus arm, navigation, and science subfolders.
 
@@ -86,6 +95,12 @@ Teleoperation nodes.
 
 - **`joystick_interpreter_node`** — maps raw joystick input (`sensor_msgs/Joy`) to `Twist` commands on `/cmd_vel`
 
+**Launch files:**
+- `launch/joy.launch.py` — launches the joystick driver + interpreter stack
+
+**Config:**
+- `config/joy.yaml` — joystick driver config
+
 ---
 
 ## 7. `rover_peripherals` (Python)
@@ -93,28 +108,65 @@ Nodes for non-drivetrain devices mounted to the rover body.
 
 - **`rover_container_node`** — controls the sample container mechanism (communicates over CAN, config: `container_can.yaml`)
 - **`rover_lighting_node`** — controls rover lighting
+- **`rover_power_node`** — power (voltage/current) monitoring via CAN bus; decodes per-sensor CAN frames and republishes as `sensor_msgs/msg/BatteryState` (config: `power_node.yaml`)
+
+**Launch files:**
+- `launch/container.launch.py`
+- `launch/lighting.launch.py`
+- `launch/power_monitor_node.launch.py`
 
 ---
 
-## 8. `rover_sim` (C++)
+## 8. `rover_localization`
+State estimation.
+
+- **`ekf_node`** (from `robot_localization`) — sensor fusion for odometry, config `config/ekf_filter.yaml`
+
+**Launch files:**
+- `launch/ekf.launch.py` — included by both `rover_bringup/rover.launch.py` (real) and `rover_sim/sim_gz.launch.py` (sim), with `use_sim_time` set accordingly
+
+---
+
+## 9. `rover_sim` (C++)
 Gazebo simulation support.
 
 **Launch files:**
-- `launch/sim_gz.launch.py`
+- `launch/sim_gz.launch.py` — top-level sim bringup; spawns Gazebo, includes `robot_state_publisher.launch.py` (with `use_sim:=true`), bridges Gazebo↔ROS2 topics, spawns the robot entity, and includes `control.launch.py` (with `use_sim:=true`)
 
 **World:**
 - `worlds/world_demo.sdf`
 
+**Config:**
+- `config/bridge_gz.yaml` — template for `ros_gz_bridge` topic mappings (rendered per-world/model at launch time)
+- `config/controllers.yaml` — ros2_control controller parameters (sim variant)
+
 **Controllers:**
-- **`rocker_diff_controller`** — simulates passive differential bar suspension behaviour.
+- **`rocker_diff_controller`** — simulates passive differential bar suspension behaviour
 
 ---
 
-## 9. `rover_viz`
-RViz visualization config and launch.
+## 10. `rover_viz`
+Visualization tooling.
 
 **Launch files:**
-- `launch/rviz.launch.py`
+- `launch/rviz.launch.py` — RViz visualization
+- `launch/power_monitor_viz.launch.py` — brings up PlotJuggler for live power monitoring, loading `plotjuggler/power_monitor.xml`
 
 **Config:**
 - `rviz/robot.rviz`
+- `plotjuggler/power_monitor.xml` — PlotJuggler layout (voltage/current plots per sensor)
+
+---
+
+## 11. `arm/` — Robotic Arm Subsystem
+> *New subtree — descriptions below are inferred from package/file names only; please confirm and expand.*
+
+- **`arm_bringup`** — top-level arm launch (`arm_standalone.launch.py`)
+- **`arm_description`** — arm URDF/xacro (`arm_macro.xacro`, `arm_standalone.urdf.xacro`) and meshes (base, forearm, mount, shoulder, wrist_1, wrist_2, jaw_gripper)
+- **`arm_hardware_interface`** — ros2_control hardware plugin for the real arm (`plugins.xml`)
+- **`arm_moveit_config`** — MoveIt2 configuration: SRDF, kinematics, joint limits, controllers, Servo config; launch files for `move_group`, RViz, controller spawning, virtual joint TFs, setup assistant, warehouse DB
+- **`arm_sim`** — simulation support for the arm (structure only; no launch/config files yet)
+- **`arm_tasks`** (Python) — task-level nodes; includes `keyboard_servo_node.py`
+- **`arm_viz`** — RViz config for the arm (`rviz/arm.rviz`)
+
+---

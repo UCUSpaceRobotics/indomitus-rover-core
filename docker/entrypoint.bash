@@ -32,7 +32,7 @@ if [ "${1}" = "autolaunch" ]; then
     export LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/tegra:$LD_LIBRARY_PATH
 
     echo "[ROVER] Starting launch file 2..."
-    ros2 launch rover_bringup joy.launch.py &
+    ros2 launch rover_teleop joy.launch.py &
     PID2=$!
 
     # wait -n $PID1

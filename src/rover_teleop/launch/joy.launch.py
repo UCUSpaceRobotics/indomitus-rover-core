@@ -11,7 +11,7 @@ def generate_launch_description():
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
 
     default_config = PathJoinSubstitution([
-        FindPackageShare('rover_bringup'),
+        FindPackageShare('rover_teleop'),
         'config',
         'joy.yaml',
     ])
