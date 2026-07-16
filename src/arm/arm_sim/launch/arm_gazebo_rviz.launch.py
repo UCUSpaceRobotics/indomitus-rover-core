@@ -37,9 +37,6 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             DeclareLaunchArgument("camera", default_value="true"),
-            # RViz must follow Gazebo's /clock like every node in
-            # arm_gazebo.launch.py; on wall time it would treat sim-stamped
-            # TF and /joint_states as stale and show nothing.
             SetParameter(name="use_sim_time", value=True),
             gazebo_launch,
             *rviz_launch.entities,

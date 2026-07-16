@@ -27,11 +27,6 @@ def generate_launch_description() -> LaunchDescription:
     world_file = os.path.join(arm_sim_dir, "worlds", "empty.sdf")
     bridge_config = os.path.join(arm_sim_dir, "config", "gz_bridge.yaml")
 
-    # Gazebo needs to know where to look for the "arm_description" folder
-    # to resolve package://arm_description/meshes/*.stl URIs used in the
-    # xacro visuals/collisions. The resource path is the *parent* of the
-    # package's own share dir, since gz appends "arm_description/..." to
-    # each entry when resolving package:// URIs.
     resource_path_root = os.path.dirname(arm_description_dir)
     existing_gz_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
     existing_ign_path = os.environ.get("IGN_GAZEBO_RESOURCE_PATH", "")
@@ -79,57 +74,6 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    # NOTE (spawner readiness):
-    # gz_ros2_control brings up /controller_manager only once the model has
-    # actually been spawned inside Gazebo (the <gazebo> plugin activates as
-    # part of the spawned entity). `ros_gz_sim create` is a one-shot process
-    # that exits as soon as the entity is spawned. If the controller
-    # spawner runs in parallel with spawn_entity, it can hit
-    # /controller_manager before it exists and fail with
-    # "service not available". So, same pattern as demo.launch.py: we wait
-    # for spawn_entity to exit, then start the spawner via OnProcessExit.
-    #
-    # NOTE (single spawner call):
-    # Both controllers are spawned via ONE `spawner` invocation instead of
-    # two parallel ones. Each spawner process independently calls the
-    # controller_manager's switch_controller service; running two of them
-    # at once races against each other (one hangs until the internal
-    # switch timeout, the other aborts because the controller set is
-    # mid-transition, i.e. "Switch controller timed out" /
-    # "Aborting, no controller is switched! (::STRICT switch)"). Passing
-    # both controller names to a single spawner issues one switch request
-    # for both controllers, which avoids the race entirely.
-
-    # NOTE (switch-timeout workaround):
-    # controller_manager's switch_controller has a HARDCODED internal
-    # ~5s timeout for confirming a controller's activation (introduced by
-    # ros2_control PR #1638), separate from --controller-manager-timeout
-    # (which only governs waiting for services to become available). If
-    # gz_ros2_control's Update() hasn't ticked enough times within that 5s
-    # window (slow startup / rendering), activation fails EVERY time,
-    # regardless of which controller or how many spawner processes are
-    # used. This is a known upstream issue:
-    # https://github.com/ros-controls/gz_ros2_control/issues/421
-    # Fix (PR https://github.com/ros-controls/ros2_control/pull/1790):
-    # explicitly raise the switch timeout via an extra spawner flag.
-    # The exact flag name depends on your installed ros2_control version
-    # run `ros2 run controller_manager spawner --help` to confirm which
-    # one your Humble install exposes and edit accordingly:
-    #   --switch-timeout <seconds>            (older PR revisions)
-    #   --controller-manager-switch-timeout   (newer revisions)
-
-    # NOTE (service-call-timeout must match switch-timeout):
-    # --switch-timeout (above) raises the SERVER-side internal deadline
-    # for confirming controller activation. But the spawner's ROS 2
-    # SERVICE CLIENT has its own, separate --service-call-timeout
-    # (default 10s) for how long it waits for a response to the
-    # switch_controller call. If the server legitimately takes longer
-    # than that to finish activating (as it now can, up to 60s), the
-    # client gives up first with "Failed getting a result from calling
-    # /controller_manager/switch_controller in 10.0", retries, and by
-    # then the controller is in an inconsistent state -> abort. Both
-    # timeouts must be raised together.
-
     controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -150,32 +94,11 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
-    # NOTE (move_group deferral):
-    # move_group is a heavy CPU consumer at startup (it loads the pilz,
-    # chomp, and ompl planning pipelines). Launching it in parallel with
-    # the controller spawn/activation window competes for CPU with the
-    # controller_manager's real-time update thread, which can make even a
-    # trivial controller like joint_state_broadcaster miss the internal
-    # (hardcoded, ~5s) switch_controller activation deadline -> "Switch
-    # controller timed out after 5.000000 seconds!". To give the
-    # activation handshake a clear run, move_group is now started only
-    # after controller_spawner has exited (i.e. once both controllers are
-    # confirmed active), instead of being started immediately at launch.
-
     moveit_config = MoveItConfigsBuilder(
         "indomitus_arm", package_name="arm_moveit_config"
     ).to_moveit_configs()
     move_group_launch = generate_move_group_launch(moveit_config)
 
-    # NOTE (servo in sim):
-    # servo_node is started here, in the SAME launch as Gazebo, instead of
-    # reusing demo.launch.py alongside this file. demo.launch.py brings up
-    # its own controller_manager backed by mock_components hardware; running
-    # it in parallel with Gazebo produces two /controller_manager nodes and
-    # two competing /joint_states publishers (one wall-clock mock, one
-    # sim-clock Gazebo), which breaks Servo's state monitoring. Same
-    # readiness ordering as demo.launch.py: servo starts only after the
-    # controller spawner exits successfully (see notes above).
     moveit_config_dir = get_package_share_directory("arm_moveit_config")
     with open(os.path.join(moveit_config_dir, "config", "servo.yaml")) as f:
         servo_yaml = yaml.safe_load(f)
@@ -203,14 +126,7 @@ def generate_launch_description() -> LaunchDescription:
 
     ld = LaunchDescription(
         [
-            # camera:=false drops the simulated camera sensor from the URDF.
-            # Use it to test whether sensor rendering is what tanks the
-            # real-time factor (see note in arm_macro.xacro).
             DeclareLaunchArgument("camera", default_value="true"),
-            # Everything in this launch must follow Gazebo's /clock. Without
-            # this, move_group and servo_node run on wall time while
-            # /joint_states and TF are stamped with sim time, so Servo
-            # rejects the robot state as stale and never produces commands.
             SetParameter(name="use_sim_time", value=True),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
