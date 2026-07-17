@@ -39,7 +39,7 @@ swerve_controller:
     wheel_radius: 0.15
 
     max_steer_deg: 90.0
-    max_steer_rate_deg: 90.0 
+    max_steer_rate_deg: 180.0 
 
 odometry_controller:
   ros__parameters:

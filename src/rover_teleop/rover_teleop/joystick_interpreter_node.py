@@ -210,7 +210,7 @@ class JoystickInterpreterNode(Node):
             wz = self.raw_wz
         else:
             right_stick_input = self.raw_wz
-            target_curvature = right_stick_input * self._scale_wz
+            target_curvature = right_stick_input * self._scale_wz * 2
 
             v_total = math.sqrt(vx**2 + vy**2)
 

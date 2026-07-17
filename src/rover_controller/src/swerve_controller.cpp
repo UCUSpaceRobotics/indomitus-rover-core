@@ -60,7 +60,10 @@ RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_s
         scale_down_rate_
     );
 
-    for (auto & lim : limiters_) { lim.reset(0.0); }
+    // for (auto & lim : limiters_) { lim.reset(0.0); }
+    v_limiter_.reset(0.0);
+    heading_limiter_.reset(0.0);
+    curvature_limiter_.reset(0.0);
 
     cmd_vel_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
         "/cmd_vel",
@@ -171,59 +174,75 @@ RoverSwerveController::update(
     }
 
     // Step 1: Smooth chassis velocities via independent slew-rate limiters
-    double vx;
-    double vy;
-    double wz;
+    // vx_smoothed_ = limiters_[0].update(target_vx_, dt);
+    // vy_smoothed_ = limiters_[1].update(target_vy_, dt);
+    // wz_smoothed_ = limiters_[2].update(target_wz_, dt);
 
-    const double target_speed = std::hypot(target_vx_, target_vy_);
-    
-    // Ignore heavy smoothing ONLY for the microscopic alignment dummy velocities (1e-5)
-    // to prevent state-machine jitter or wind-up.
-    if (target_speed > 1e-4 || std::abs(target_wz_) > 1e-4) {
-        // Find current smoothed speed
-        const double current_speed = std::hypot(vx_smoothed_, vy_smoothed_);
-        
-        // Slew the speed magnitude
-        double new_speed = current_speed;
-        if (target_speed > current_speed) {
-            new_speed = std::min(target_speed, current_speed + max_accel_ * dt);
+    static auto wrap_to_pi = [](double a) {
+        while (a >  M_PI) a -= 2.0 * M_PI;
+        while (a < -M_PI) a += 2.0 * M_PI;
+        return a;
+    };
+
+    const double raw_v = std::hypot(target_vx_, target_vy_);
+
+    if (raw_v > VXY_EPS) {
+        const double heading_a = std::atan2(target_vy_, target_vx_);
+        const double heading_b = wrap_to_pi(heading_a + M_PI);
+
+        const double d_a = std::abs(wrap_to_pi(heading_a - heading_smoothed_));
+        const double d_b = std::abs(wrap_to_pi(heading_b - heading_smoothed_));
+
+        constexpr double kHysteresis = 5.0 * M_PI / 180.0;
+        const bool prefer_b = (d_b + kHysteresis < d_a);
+
+        double target_heading, target_curvature;
+        if (!prefer_b) {
+            target_heading   = heading_a;
+            target_curvature = target_wz_ / raw_v;
+            target_v_signed_ = raw_v;
         } else {
-            new_speed = std::max(target_speed, current_speed - max_decel_ * dt);
+            target_heading   = heading_b;
+            target_curvature = -target_wz_ / raw_v;
+            target_v_signed_ = -raw_v;
         }
 
-        // Project the slewed speed back onto vx and vy to preserve the vector direction
-        if (target_speed > 1e-5) {
-            vx_smoothed_ = (target_vx_ / target_speed) * new_speed;
-            vy_smoothed_ = (target_vy_ / target_speed) * new_speed;
-        } else {
-            vx_smoothed_ = 0.0;
-            vy_smoothed_ = 0.0;
-        }
-
-        // Limit the angular velocity independently
-        wz_smoothed_ = limiters_[2].update(target_wz_, dt);
-        
-        vx = vx_smoothed_;
-        vy = vy_smoothed_;
-        wz = wz_smoothed_;
+        heading_smoothed_   = heading_limiter_.update(target_heading, dt);
+        curvature_smoothed_ = curvature_limiter_.update(target_curvature, dt);
     } else {
-        // Directly bypass limiters for static micro-movements to avoid mathematical flutter
-        vx_smoothed_ = target_vx_;
-        vy_smoothed_ = target_vy_;
-        wz_smoothed_ = target_wz_;
-        
-        vx = target_vx_;
-        vy = target_vy_;
-        wz = target_wz_;
+        // Direction is undefined at ~zero commanded speed — hold heading/curvature
+        // so the next nonzero command can disambiguate forward/backward correctly.
+        // But the speed TARGET itself is genuinely zero here, always.
+        target_v_signed_ = 0.0;
+        curvature_smoothed_ = curvature_limiter_.update(0.0, dt);
     }
+
+    v_smoothed_ = v_limiter_.update(target_v_signed_, dt);
+
+    if (std::abs(v_smoothed_) < VXY_EPS) {
+        vx_smoothed_ = vy_smoothed_ = wz_smoothed_ = 0.0;
+    } else {
+        vx_smoothed_ = v_smoothed_ * std::cos(heading_smoothed_);
+        vy_smoothed_ = v_smoothed_ * std::sin(heading_smoothed_);
+        wz_smoothed_ = v_smoothed_ * curvature_smoothed_;
+    }
+
+    const double vx = vx_smoothed_;
+    const double vy = vy_smoothed_;
+    const double wz = wz_smoothed_;
 
     // // Step 2: Read measured hardware steering positions
     read_measured_angles();
 
     // Step 3: Compute desired target angles for transition detection
-    const auto [desired_angles, desired_speeds_unused] =
-        kinematics_->ik_full(vx, vy, wz, current_angles_);
-    (void)desired_speeds_unused;
+    const double dir_vx = std::cos(heading_smoothed_);
+    const double dir_vy = std::sin(heading_smoothed_);
+    const double dir_wz = curvature_smoothed_;
+
+    const auto angle_result = kinematics_->ik_full(dir_vx, dir_vy, dir_wz, current_angles_);
+    const WheelData & angle_target = angle_result.angles;
+
+    const WheelData & desired_angles = angle_target;
 
     auto logger = get_node()->get_logger();
     state_machine_->update_transitions(
@@ -239,8 +258,8 @@ RoverSwerveController::update(
     switch (state_machine_->state()) {
 
         case RoverState::NORMAL: {
-            auto [a, s] = kinematics_->ik_full(vx, vy, wz, current_angles_);
-            work_angles = a;
+            auto [_, s] = kinematics_->ik_full(vx, vy, wz, current_angles_);
+            work_angles = angle_target;
             work_speeds = s;
             break;
         }
@@ -274,6 +293,7 @@ RoverSwerveController::update(
     // Step 5: Step steering joints toward target (rate-limited)
     const double speed_magnitude = std::hypot(vx, vy);
     const double dynamic_steer_rate = max_steer_rate_ * (1.0 - 0.5 * speed_magnitude / max_linear_);
+    // const double dynamic_steer_rate = max_steer_rate_;
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         current_angles_[i] = step_angle(current_angles_[i], work_angles[i], dt, dynamic_steer_rate);
@@ -322,9 +342,7 @@ RoverSwerveController::update(
 
     if (global_align_scale < kTransitTriggerScale && 
         state_machine_->state() == RoverState::NORMAL) {
-        state_machine_->force_transit(
-            kinematics_->ik_full(vx, vy, wz, current_angles_).angles,
-            &logger);
+        state_machine_->force_transit(angle_target, &logger);
     }
 
     const double state_scale = state_machine_->update_scale(
@@ -334,6 +352,27 @@ RoverSwerveController::update(
 
     // Step 8: Write drive velocity commands
     write_drive_commands(work_angles, work_speeds, total_scale);
+
+    const double log_target_curvature = (raw_v > VXY_EPS)
+        ? (target_v_signed_ >= 0 ? target_wz_ / raw_v : -target_wz_ / raw_v)
+        : 0.0;
+        
+    
+    RCLCPP_INFO(get_node()->get_logger(),
+        "[full] t_vx=%.4f t_vy=%.4f t_wz=%.4f raw_v=%.4f t_v_sgn=%.4f | "
+        "v_sm=%.3e vx=%.3e vy=%.3e wz=%.3e | "
+        "hd_sm=%.6f cv_sm=%.6f cv_target=%.6f cv_gap=%.6f | "
+        "spd=%.4f dyn_rate=%.4f | "
+        "state=%d scale_align=%.4f scale_state=%.4f scale_tot=%.4f | "
+        "work=[%.4f %.4f %.4f %.4f] cur=[%.4f %.4f %.4f %.4f]",
+        target_vx_, target_vy_, target_wz_, raw_v, target_v_signed_,
+        v_smoothed_, vx, vy, wz,
+        heading_smoothed_, curvature_smoothed_, log_target_curvature,
+        std::abs(curvature_smoothed_ - log_target_curvature),
+        speed_magnitude, dynamic_steer_rate,
+        static_cast<int>(state_machine_->state()), global_align_scale, state_scale, total_scale,
+        work_angles[0], work_angles[1], work_angles[2], work_angles[3],
+        current_angles_[0], current_angles_[1], current_angles_[2], current_angles_[3]);
 
     return controller_interface::return_type::OK;
 }
@@ -360,6 +399,7 @@ void RoverSwerveController::declare_parameters()
     declare_param("max_angular_speed",     0.50);
     declare_param("max_accel",             0.20);
     declare_param("max_decel",             0.50);
+    declare_param("max_curvature_rate",    4.0);
     declare_param("control_frequency",     20.0);
     declare_param("cmd_vel_timeout_s",     2.0);
     declare_param("align_threshold_deg",   5.0);
@@ -389,6 +429,7 @@ bool RoverSwerveController::read_parameters()
     max_angular_       = node->get_parameter("max_angular_speed").as_double();
     max_accel_         = node->get_parameter("max_accel").as_double();
     max_decel_         = node->get_parameter("max_decel").as_double();
+    max_curvature_rate_ = node->get_parameter("max_curvature_rate").as_double();
     control_frequency_ = node->get_parameter("control_frequency").as_double();
     cmd_vel_timeout_   = node->get_parameter("cmd_vel_timeout_s").as_double();
     align_threshold_   = node->get_parameter("align_threshold_deg").as_double() * M_PI / 180.0;
@@ -396,9 +437,17 @@ bool RoverSwerveController::read_parameters()
     scale_down_rate_   = node->get_parameter("scale_down_rate").as_double();
 
     // Reset slew limiters with updated accel/decel values.
-    limiters_[0] = SlewRateLimiter{max_accel_, max_decel_};
-    limiters_[1] = SlewRateLimiter{max_accel_, max_decel_};
-    limiters_[2] = SlewRateLimiter{max_accel_*2, max_decel_*2};
+    // limiters_[0] = SlewRateLimiter{max_accel_, max_decel_};
+    // limiters_[1] = SlewRateLimiter{max_accel_, max_decel_};
+    // limiters_[2] = SlewRateLimiter{max_accel_*2, max_decel_*2};
+
+    // v_limiter_{max_decel_, max_accel};
+    // heading_limiter_{max_steer_rate_, max_steer_rate_};
+    // curvature_limiter_{max_accel*2, max_accel*2};
+
+    v_limiter_ = SlewRateLimiter(max_decel_, max_accel_, 0.0);
+    heading_limiter_ = AngularSlewRateLimiter(max_steer_rate_, heading_limiter_.current());
+    curvature_limiter_ = SlewRateLimiter(max_curvature_rate_, max_curvature_rate_, curvature_limiter_.current());
 
     // Joint names — must be exactly NUM_WHEELS entries each.
     const auto steer_names = node->get_parameter("steer_joint_names")
