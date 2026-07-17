@@ -19,6 +19,9 @@
   <!-- Joystick driver -->
   <exec_depend>joy</exec_depend>
 
+  <!-- ROS2 control -->
+  <exec_depend>gz_ros2_control</exec_depend>
+
   <!-- Messages types -->
   <depend>std_srvs</depend>
   <depend>geometry_msgs</depend>

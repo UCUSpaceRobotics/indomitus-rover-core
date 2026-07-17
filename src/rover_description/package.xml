@@ -25,7 +25,6 @@
 
   <!-- ROS2 Control -->
   <exec_depend>ros2_control</exec_depend>
-  <exec_depend>gz_ros2_control</exec_depend>
   <exec_depend>rover_hardware_interface</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
