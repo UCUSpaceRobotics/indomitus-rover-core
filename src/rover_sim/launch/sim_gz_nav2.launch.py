@@ -119,7 +119,9 @@ def make_robot_description(rover_sim_share: str) -> Command:
         'xacro ',
         os.path.join(rover_sim_share, 'urdf', 'rover_sim.urdf.xacro'),
         ' use_nav:=true lidar_simulate_scan:=true',
+        ' use_nav:=true stereo_camera_simulate_pointcloud:=true',
     ])
+
 
 def make_gazebo_server(rover_sim_share: str) -> ExecuteProcess:
     """Launch server only. GUI starts separately to avoid the starting_world race."""
@@ -180,7 +182,7 @@ def generate_launch_description() -> LaunchDescription:
     gz_server = make_gazebo_server(rover_sim_share)
 
     robot_localization = include_launch('rover_localization', 'ekf.launch.py', {
-        'use_sim_time': 'true'
+        'use_sim': 'true'
     })
 
     return LaunchDescription([

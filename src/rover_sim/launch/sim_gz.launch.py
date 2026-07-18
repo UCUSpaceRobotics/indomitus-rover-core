@@ -128,7 +128,7 @@ def generate_launch_description() -> LaunchDescription:
 
         include_launch('rover_description', 'robot_state_publisher.launch.py', {
             'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
-            'xacro_args': f'use_sim:=true lidar_simulate_scan:=true controllers_yaml_path:={controllers_yaml_path}',
+            'xacro_args': f'use_sim:=true controllers_yaml_path:={controllers_yaml_path}',
             'use_sim_time': 'true',
         }),
 
@@ -142,7 +142,7 @@ def generate_launch_description() -> LaunchDescription:
         }),
 
         include_launch('rover_localization', 'ekf.launch.py', {
-            'use_sim_time': 'true',
+            'use_sim': 'true',
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
     ])

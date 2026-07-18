@@ -40,5 +40,5 @@ def generate_launch_description():
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
         include_launch('rover_peripherals', 'lighting.launch.py'),
-        include_launch('rover_localization', 'ekf.launch.py')
+        include_launch('rover_localization', 'ekf.launch.py', {'use_sim': 'false'})
     ])
