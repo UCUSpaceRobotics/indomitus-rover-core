@@ -167,9 +167,13 @@ ARG INSTALL_SIM_TOOLS=false
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
 RUN apt-get update && \ 
-    rosdep install --from-paths ${WS}/src/ ${HW_WS}/src/ --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y && \
+    if [ "${INSTALL_SIM_TOOLS}" = "true" ]; then \
+        rosdep install --from-paths ${WS}/src/ ${HW_WS}/src/ --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y ; \
+    else \
+        rosdep install --from-paths ${WS}/src/ ${HW_WS}/src/ --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y --skip-keys "${SIMULATION_PKGS}" ; \
+    fi && \
     rm -rf /var/lib/apt/lists/*
-
+        
 RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libglib2.0-0 && \
@@ -188,6 +192,7 @@ ARG SIMULATION_PKGS
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
 RUN apt-get update && rosdep install --from-paths ${WS}/src ${HW_WS}/src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
+    --skip-keys "${SIMULATION_PKGS}" \
     -t build \
     -t buildtool \
     -t build_export \
