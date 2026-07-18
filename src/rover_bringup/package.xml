@@ -20,7 +20,6 @@
   <!-- Internal packages -->
   <exec_depend>rover_description</exec_depend>
   <exec_depend>rover_peripherals</exec_depend>
-  <exec_depend>rover_viz</exec_depend>
   <exec_depend>rover_localization</exec_depend>
 
   <!-- CAN -->
