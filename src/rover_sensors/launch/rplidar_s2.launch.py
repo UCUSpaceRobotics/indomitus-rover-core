@@ -21,7 +21,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'namespace',
-            default_value='',
+            default_value='rplidar',
             description='Namespace to prevent topic collisions'
         ),
 

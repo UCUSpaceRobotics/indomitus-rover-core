@@ -44,7 +44,7 @@
       <gazebo reference="laser_link">
         <sensor type="gpu_lidar" name="generic_laser">
           <update_rate>10.0</update_rate>
-          <topic>/scan</topic>
+          <topic>/rplidar/scan</topic>
           <gz_frame_id>laser_link</gz_frame_id>
           <lidar>
             <scan>

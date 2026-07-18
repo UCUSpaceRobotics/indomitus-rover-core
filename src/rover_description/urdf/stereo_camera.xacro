@@ -34,7 +34,7 @@
           </camera>
           <plugin name="zed2i_rgb_plugin" filename="libgazebo_ros_camera.so">
             <ros>
-              <namespace>zed2i/zed_node</namespace>
+              <namespace>zed2i</namespace>
               <remapping>image_raw:=rgb/image_rect_color</remapping>
               <remapping>camera_info:=rgb/camera_info</remapping>
             </ros>
@@ -64,8 +64,8 @@
           </camera>
           <plugin name="zed2i_pointcloud_plugin" filename="libgazebo_ros_camera.so">
             <ros>
-              <namespace>zed2i/zed_node</namespace>
-              <remapping>points:=point_cloud/cloud_registered</remapping>
+              <namespace>zed2i</namespace>
+              <remapping>points:=points</remapping>
               <remapping>depth/image_raw:=depth/depth_registered</remapping>
               <remapping>camera_info:=depth/camera_info</remapping>
               <remapping>image_raw:=depth/image_rect_color</remapping>

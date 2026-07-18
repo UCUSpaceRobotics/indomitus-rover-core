@@ -15,7 +15,7 @@ ekf_filter_node:
                    false, false, true,   # vroll, vpitch, vyaw
                    false, false, false]  # ax, ay, az
 
-    odom1: /zed2i/zed_node/odom
+    odom1: /zed2i/odom
     odom1_config: [true,  true,  false,
                    false, false, true,
                    false, false, false,
