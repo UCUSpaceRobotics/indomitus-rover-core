@@ -8,10 +8,10 @@ controller_manager:
 
     swerve_controller:
       type: rover_controller/RoverSwerveController
-    
+
     odometry_controller:
       type: rover_controller/RoverOdometryController
-    
+
     diff_bar_effort_controller:
       type: rover_sim/RockerDiffController
 

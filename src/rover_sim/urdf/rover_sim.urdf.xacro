@@ -7,8 +7,6 @@
 
   <xacro:include filename="$(find rover_description)/urdf/rover.urdf.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/ros2_control_sim.xacro"/>
-  <xacro:include filename="$(find rover_description)/urdf/lidar_sim.xacro"/>
-  <xacro:lidar_sim simulate_scan="${use_nav}"/>
 
   <gazebo>
     <plugin filename="gz_ros2_control-system"

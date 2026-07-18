@@ -3,7 +3,6 @@ import subprocess
 from dataclasses import dataclass
 from string import Template
 
-import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -19,8 +18,9 @@ from launch.actions import (
 )
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, Command
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from rover_bringup.launch_utils import include_launch
 
 
 @dataclass
@@ -114,10 +114,12 @@ def generate_bridge_config(context) -> list[Node]:
     )]
 
 
-def make_robot_description(rover_sim_share: str) -> str:
-    path = os.path.join(rover_sim_share, 'urdf', 'rover_sim_nav2.urdf.xacro')
-    return xacro.process_file(path).toxml()
-
+def make_robot_description(rover_sim_share: str) -> Command:
+    return Command([
+        'xacro ',
+        os.path.join(rover_sim_share, 'urdf', 'rover_sim.urdf.xacro'),
+        ' use_nav:=true lidar_simulate_scan:=true',
+    ])
 
 def make_gazebo_server(rover_sim_share: str) -> ExecuteProcess:
     """Launch server only. GUI starts separately to avoid the starting_world race."""
@@ -169,6 +171,7 @@ def make_spawn_node(cfg: RoverConfig) -> Node:
 def generate_launch_description() -> LaunchDescription:
     cfg = RoverConfig()
     rover_description_share = get_package_share_directory('rover_description')
+    zed_description_share = get_package_share_directory('zed_description')
     rover_sim_share = get_package_share_directory('rover_sim')
 
     rover_localization_share = get_package_share_directory('rover_localization')
@@ -176,12 +179,9 @@ def generate_launch_description() -> LaunchDescription:
     robot_description = make_robot_description(rover_sim_share)
     gz_server = make_gazebo_server(rover_sim_share)
 
-    robot_localization = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(rover_localization_share, 'launch', 'ekf.launch.py')
-        ),
-        launch_arguments={'use_sim_time': 'true'}.items() # Crucial for Gazebo!
-    )
+    robot_localization = include_launch('rover_localization', 'ekf.launch.py', {
+        'use_sim_time': 'true'
+    })
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value=cfg.world_name),
@@ -206,7 +206,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
 
         gz_server,
-        # GUI starts 3 s after server to ensure world services are ready.
+
         TimerAction(period=3.0, actions=[make_gazebo_gui()]),
 
         RegisterEventHandler(
@@ -228,7 +228,6 @@ def generate_launch_description() -> LaunchDescription:
 
         OpaqueFunction(function=generate_bridge_config),
 
-        # Spawn rover after 5 s so the world services are ready.
         TimerAction(
             period=5.0,
             actions=[make_spawn_node(cfg)],
@@ -264,6 +263,8 @@ def generate_launch_description() -> LaunchDescription:
                 ),
 
                 robot_localization,
+                include_launch('rover_navigation', 'navigation.launch.py', {'use_sim_time': 'true'}),
+                include_launch('rover_localization', 'slam.launch.py', {'use_sim_time': 'true'}),
             ],
         ),
     ])
