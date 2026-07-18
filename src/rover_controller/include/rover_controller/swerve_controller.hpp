@@ -433,6 +433,9 @@ private:
     WheelData measured_angles_{WheelData::filled(0.0)};
     WheelData last_work_speeds_{WheelData::filled(0.0)};
 
+    SlewRateLimiter wz_pure_limiter_{0.0, 0.0};
+    double wz_pure_smoothed_{0.0};
+
     double vx_smoothed_{0.0};
     double vy_smoothed_{0.0};
     double wz_smoothed_{0.0};

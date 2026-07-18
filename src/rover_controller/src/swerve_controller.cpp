@@ -64,6 +64,7 @@ RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_s
     v_limiter_.reset(0.0);
     heading_limiter_.reset(0.0);
     curvature_limiter_.reset(0.0);
+    wz_pure_limiter_.reset(0.0);
 
     cmd_vel_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
         "/cmd_vel",
@@ -209,18 +210,32 @@ RoverSwerveController::update(
 
         heading_smoothed_   = heading_limiter_.update(target_heading, dt);
         curvature_smoothed_ = curvature_limiter_.update(target_curvature, dt);
+
+        // Not rotating in place right now — let the pure-rotation limiter
+        // decay to 0 so it's ready for a clean start next time we are.
+        wz_pure_smoothed_ = wz_pure_limiter_.update(0.0, dt);
     } else {
         // Direction is undefined at ~zero commanded speed — hold heading/curvature
         // so the next nonzero command can disambiguate forward/backward correctly.
         // But the speed TARGET itself is genuinely zero here, always.
         target_v_signed_ = 0.0;
         curvature_smoothed_ = curvature_limiter_.update(0.0, dt);
+
+        // Pure rotation-in-place: v == 0 but wz requested. curvature = wz/v is
+        // undefined here, so wz is tracked directly through its own limiter
+        // instead of being derived from v * curvature.
+        wz_pure_smoothed_ = wz_pure_limiter_.update(target_wz_, dt);
     }
 
     v_smoothed_ = v_limiter_.update(target_v_signed_, dt);
 
-    if (std::abs(v_smoothed_) < VXY_EPS) {
+    if (std::abs(v_smoothed_) < VXY_EPS && std::abs(wz_pure_smoothed_) < WZ_EPS) {
         vx_smoothed_ = vy_smoothed_ = wz_smoothed_ = 0.0;
+    } else if (std::abs(v_smoothed_) < VXY_EPS) {
+        // Pure rotation: no translation, wz comes from its own limiter.
+        vx_smoothed_ = 0.0;
+        vy_smoothed_ = 0.0;
+        wz_smoothed_ = wz_pure_smoothed_;
     } else {
         vx_smoothed_ = v_smoothed_ * std::cos(heading_smoothed_);
         vy_smoothed_ = v_smoothed_ * std::sin(heading_smoothed_);
@@ -235,9 +250,16 @@ RoverSwerveController::update(
     read_measured_angles();
 
     // Step 3: Compute desired target angles for transition detection
-    const double dir_vx = std::cos(heading_smoothed_);
-    const double dir_vy = std::sin(heading_smoothed_);
-    const double dir_wz = curvature_smoothed_;
+    double dir_vx, dir_vy, dir_wz;
+    if (std::abs(v_smoothed_) < VXY_EPS && std::abs(wz_pure_smoothed_) >= WZ_EPS) {
+        dir_vx = 0.0;
+        dir_vy = 0.0;
+        dir_wz = wz_pure_smoothed_;
+    } else {
+        dir_vx = std::cos(heading_smoothed_);
+        dir_vy = std::sin(heading_smoothed_);
+        dir_wz = curvature_smoothed_;
+    }
 
     const auto angle_result = kinematics_->ik_full(dir_vx, dir_vy, dir_wz, current_angles_);
     const WheelData & angle_target = angle_result.angles;
@@ -448,6 +470,8 @@ bool RoverSwerveController::read_parameters()
     v_limiter_ = SlewRateLimiter(max_decel_, max_accel_, 0.0);
     heading_limiter_ = AngularSlewRateLimiter(max_steer_rate_, heading_limiter_.current());
     curvature_limiter_ = SlewRateLimiter(max_curvature_rate_, max_curvature_rate_, curvature_limiter_.current());
+
+    wz_pure_limiter_ = SlewRateLimiter(max_accel_ * 2.0, max_decel_ * 2.0, wz_pure_limiter_.current());
 
     // Joint names — must be exactly NUM_WHEELS entries each.
     const auto steer_names = node->get_parameter("steer_joint_names")
