@@ -2,12 +2,12 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!--
-    RPLIDAR S2 fragment as a macro. Call `lidar_sim simulate_scan="true|false"` to
+    RPLIDAR S2 fragment as a macro. Call `lidar simulate_scan="true|false"` to
     include the simulated sensor (topic publishing). The visual/collision
     geometry and joint are always added so the model is visible in the GUI.
   -->
 
-  <xacro:macro name="lidar_sim" params="simulate_scan:false">
+  <xacro:macro name="lidar" params="use_sim:=false simulate_scan:=false">
 
     <material name="lidar_black">
       <color rgba="0.05 0.05 0.05 1.0"/>
@@ -40,8 +40,7 @@
       <origin xyz="0 0 0.17" rpy="0 0 0"/>
     </joint>
 
-    <!-- Only include the Gazebo sensor block when simulation/publishing is desired -->
-    <xacro:if value="${simulate_scan}">
+    <xacro:if value="${use_sim and simulate_scan}">
       <gazebo reference="laser_link">
         <sensor type="gpu_lidar" name="generic_laser">
           <update_rate>10.0</update_rate>

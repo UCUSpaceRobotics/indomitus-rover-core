@@ -1,0 +1,83 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 
+    ZED 2i stereo camera fragment as a macro. 
+    The visual/collision geometry and joint are always added.
+  -->
+
+  <xacro:macro name="stereo_camera" params="use_sim:=false simulate_rgb:=false simulate_pointcloud:=false">
+
+    <xacro:include filename="$(find zed_description)/urdf/zed_macro.urdf.xacro" />
+    <xacro:zed_camera name="zed2i" model="zed2i">
+      <gnss_origin>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+      </gnss_origin>
+    </xacro:zed_camera>
+
+    <xacro:if value="${use_sim and simulate_rgb}">
+      <gazebo reference="zed2i_left_camera_frame">
+        <sensor type="camera" name="zed2i_rgb_sensor">
+          <update_rate>30.0</update_rate>
+          <always_on>true</always_on>
+          <camera name="zed2i_rgb">
+            <horizontal_fov>1.91986</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>420</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>100.0</far>
+            </clip>
+          </camera>
+          <plugin name="zed2i_rgb_plugin" filename="libgazebo_ros_camera.so">
+            <ros>
+              <namespace>zed2i/zed_node</namespace>
+              <remapping>image_raw:=rgb/image_rect_color</remapping>
+              <remapping>camera_info:=rgb/camera_info</remapping>
+            </ros>
+            <camera_name>rgb</camera_name>
+            <frame_name>zed2i_left_camera_optical_frame</frame_name>
+          </plugin>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+    <xacro:if value="${use_sim and simulate_pointcloud}">
+      <gazebo reference="zed2i_left_camera_frame">
+        <sensor type="depth" name="zed2i_depth_sensor">
+          <update_rate>15.0</update_rate>
+          <always_on>true</always_on>
+          <camera name="zed2i_depth">
+            <horizontal_fov>1.91986</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>360</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.3</near>
+              <far>20.0</far>
+            </clip>
+          </camera>
+          <plugin name="zed2i_pointcloud_plugin" filename="libgazebo_ros_camera.so">
+            <ros>
+              <namespace>zed2i/zed_node</namespace>
+              <remapping>points:=point_cloud/cloud_registered</remapping>
+              <remapping>depth/image_raw:=depth/depth_registered</remapping>
+              <remapping>camera_info:=depth/camera_info</remapping>
+              <remapping>image_raw:=depth/image_rect_color</remapping>
+            </ros>
+            <camera_name>depth</camera_name>
+            <frame_name>zed2i_left_camera_optical_frame</frame_name>
+            <min_depth>0.3</min_depth>
+            <max_depth>20.0</max_depth>
+          </plugin>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+</robot>
