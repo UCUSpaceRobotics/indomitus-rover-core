@@ -10,8 +10,8 @@ from launch.substitutions import LaunchConfiguration
 def generate_launch_description():
     rover_localization_share = get_package_share_directory('rover_localization')
 
-    ekf_base_config = os.path.join(rover_localization_share, 'config', 'ekf.yaml')
-    ekf_sim_overide_config = os.path.join(rover_localization_share, 'config', 'ekf_sim.yaml')
+    ekf_real_config = os.path.join(rover_localization_share, 'config', 'ekf.yaml')
+    ekf_sim_config = os.path.join(rover_localization_share, 'config', 'ekf_sim.yaml')
 
     use_sim = LaunchConfiguration('use_sim')
     use_sim_arg = DeclareLaunchArgument('use_sim', default_value='false')
@@ -26,8 +26,7 @@ def generate_launch_description():
             name='ekf_filter_node',
             output='screen',
             parameters=[
-                ekf_base_config,
-                ekf_sim_overide_config,
+                ekf_sim_config,
                 {'use_sim_time': use_sim},
             ],
         ),
@@ -39,7 +38,7 @@ def generate_launch_description():
             name='ekf_filter_node',
             output='screen',
             parameters=[
-                ekf_base_config,
+                ekf_real_config,
                 {'use_sim_time': use_sim},
             ],
         ),

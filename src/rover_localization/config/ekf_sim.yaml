@@ -14,5 +14,3 @@ ekf_filter_node:
                    true,  true,  false,  # vx, vy, vz
                    false, false, true,   # vroll, vpitch, vyaw
                    false, false, false]  # ax, ay, az
-
-    odom1: ""
