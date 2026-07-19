@@ -9,6 +9,7 @@ from launch.actions import (
     RegisterEventHandler,
     SetEnvironmentVariable,
 )
+from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
@@ -26,6 +27,7 @@ def generate_launch_description() -> LaunchDescription:
     xacro_file = os.path.join(arm_description_dir, "urdf", "arm_standalone_simple.urdf.xacro")
     world_file = os.path.join(arm_sim_dir, "worlds", "empty.sdf")
     bridge_config = os.path.join(arm_sim_dir, "config", "gz_bridge.yaml")
+    bridge_config_no_camera = os.path.join(arm_sim_dir, "config", "gz_bridge_no_camera.yaml")
 
     resource_path_root = os.path.dirname(arm_description_dir)
     existing_gz_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
@@ -67,11 +69,23 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
+    # With camera:=false the sensor is absent from the URDF, so bridging its
+    # topics would advertise dead /camera/* ROS topics. Use the clock-only
+    # bridge config in that case.
     ros_gz_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
         parameters=[{"config_file": bridge_config, "use_sim_time": True}],
         output="screen",
+        condition=IfCondition(LaunchConfiguration("camera")),
+    )
+
+    ros_gz_bridge_no_camera = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        parameters=[{"config_file": bridge_config_no_camera, "use_sim_time": True}],
+        output="screen",
+        condition=UnlessCondition(LaunchConfiguration("camera")),
     )
 
     controller_spawner = Node(
@@ -134,6 +148,7 @@ def generate_launch_description() -> LaunchDescription:
             robot_state_publisher,
             spawn_entity,
             ros_gz_bridge,
+            ros_gz_bridge_no_camera,
             delayed_controller_spawners,
             delayed_move_group,
         ]
