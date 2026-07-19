@@ -64,10 +64,11 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{"robot_description": robot_description_content, "use_sim_time": True}],
     )
 
+
     spawn_entity = Node(
         package="ros_gz_sim",
         executable="create",
-        arguments=["-topic", "robot_description", "-name", "indomitus_arm", "-z", "0.05"],
+        arguments=["-topic", "robot_description", "-name", "indomitus_arm", "-z", "0.3"],
         output="screen",
     )
 

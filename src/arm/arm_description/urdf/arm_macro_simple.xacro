@@ -8,6 +8,9 @@
 
   <xacro:macro name="indomitus_arm" params="parent_link *origin">
 
+    <xacro:property name="mesh_path" value="package://arm_description/meshes"/>
+    <xacro:property name="stl_scale" value="0.001 0.001 0.001"/>
+
     <material name="light_grey">
       <color rgba="0.7 0.7 0.7 1.0"/>
     </material>
@@ -20,30 +23,6 @@
       </inertial>
     </xacro:macro>
 
-    <xacro:macro name="box_geometry" params="size xyz">
-      <visual>
-        <origin xyz="${xyz}" rpy="0 0 0"/>
-        <geometry><box size="${size}"/></geometry>
-        <material name="light_grey"/>
-      </visual>
-      <collision>
-        <origin xyz="${xyz}" rpy="0 0 0"/>
-        <geometry><box size="${size}"/></geometry>
-      </collision>
-    </xacro:macro>
-
-    <xacro:macro name="cylinder_geometry" params="radius length xyz">
-      <visual>
-        <origin xyz="${xyz}" rpy="0 0 0"/>
-        <geometry><cylinder radius="${radius}" length="${length}"/></geometry>
-        <material name="light_grey"/>
-      </visual>
-      <collision>
-        <origin xyz="${xyz}" rpy="0 0 0"/>
-        <geometry><cylinder radius="${radius}" length="${length}"/></geometry>
-      </collision>
-    </xacro:macro>
-
     <joint name="arm_mount_joint" type="fixed">
       <xacro:insert_block name="origin" />
       <parent link="${parent_link}"/>
@@ -51,7 +30,27 @@
     </joint>
 
     <link name="arm_mount_link">
-      <xacro:cylinder_geometry radius="0.075" length="0.018" xyz="0 0 0.009"/>
+      <!-- geometry: MESH active, PRIMITIVE commented below — swap which
+           block is commented to switch (ground-penetration test: mesh back
+           on + spawn height raised in arm_gazebo.launch.py) -->
+      <visual>
+        <geometry><mesh filename="${mesh_path}/arm_mount.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/arm_mount.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <!--
+      <visual>
+        <origin xyz="0 0 0.009" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.075" length="0.018"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.009" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.075" length="0.018"/></geometry>
+      </collision>
+      -->
       <xacro:dummy_inertia mass="1.0"/>
     </link>
 
@@ -64,7 +63,27 @@
     </joint>
 
     <link name="arm_base_link">
-      <xacro:cylinder_geometry radius="0.05" length="0.0945" xyz="0 0 0.047"/>
+      <!-- geometry: MESH active, PRIMITIVE commented below — swap which
+           block is commented to switch (ground-penetration test: mesh back
+           on + spawn height raised in arm_gazebo.launch.py) -->
+      <visual>
+        <geometry><mesh filename="${mesh_path}/arm_base.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/arm_base.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <!--
+      <visual>
+        <origin xyz="0 0 0.047" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.05" length="0.0945"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.047" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.05" length="0.0945"/></geometry>
+      </collision>
+      -->
       <xacro:dummy_inertia mass="2.0"/>
     </link>
 
@@ -77,7 +96,27 @@
     </joint>
 
     <link name="arm_shoulder_link">
-      <xacro:box_geometry size="0.06 0.06 0.5" xyz="-0.0285 0 0.25"/>
+      
+      <visual>
+        <geometry><mesh filename="${mesh_path}/arm_shoulder.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/arm_shoulder.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      
+      <!--
+      <visual>
+        <origin xyz="-0.0285 0 0.25" rpy="0 0 0"/>
+        <geometry><box size="0.06 0.06 0.5"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="-0.0285 0 0.25" rpy="0 0 0"/>
+        <geometry><box size="0.06 0.06 0.5"/></geometry>
+      </collision>
+      -->
+      
       <xacro:dummy_inertia mass="1.5"/>
     </link>
 
@@ -90,7 +129,29 @@
     </joint>
 
     <link name="arm_forearm_link">
-      <xacro:box_geometry size="0.05 0.05 0.4" xyz="0 0 0.2"/>
+      <!-- geometry: MESH active, PRIMITIVE commented below — swap which
+           block is commented to switch -->
+      
+      <visual>
+        <geometry><mesh filename="${mesh_path}/arm_forearm.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/arm_forearm.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      
+      <!--
+      <visual>
+        <origin xyz="0 0 0.2" rpy="0 0 0"/>
+        <geometry><box size="0.05 0.05 0.4"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.2" rpy="0 0 0"/>
+        <geometry><box size="0.05 0.05 0.4"/></geometry>
+      </collision>
+      -->
+      
       <xacro:dummy_inertia mass="1.0"/>
     </link>
 
@@ -103,7 +164,29 @@
     </joint>
 
     <link name="arm_wrist_1_link">
-      <xacro:box_geometry size="0.1 0.06 0.06" xyz="-0.034 0 0.018"/>
+      <!-- geometry: MESH active, PRIMITIVE commented below — swap which
+           block is commented to switch -->
+      
+      <visual>
+        <geometry><mesh filename="${mesh_path}/arm_wrist_1.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/arm_wrist_1.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      
+      <!--
+      <visual>
+        <origin xyz="-0.034 0 0.018" rpy="0 0 0"/>
+        <geometry><box size="0.1 0.06 0.06"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="-0.034 0 0.018" rpy="0 0 0"/>
+        <geometry><box size="0.1 0.06 0.06"/></geometry>
+      </collision>
+      -->
+      
       <xacro:dummy_inertia mass="0.5"/>
     </link>
 
@@ -116,7 +199,29 @@
     </joint>
 
     <link name="arm_wrist_2_link">
-      <xacro:box_geometry size="0.1 0.06 0.06" xyz="-0.034 0 0.018"/>
+      <!-- geometry: MESH active, PRIMITIVE commented below — swap which
+           block is commented to switch -->
+      
+      <visual>
+        <geometry><mesh filename="${mesh_path}/arm_wrist_2_custom.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/arm_wrist_2_custom.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      
+      <!--
+      <visual>
+        <origin xyz="-0.034 0 0.018" rpy="0 0 0"/>
+        <geometry><box size="0.1 0.06 0.06"/></geometry>
+        <material name="light_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="-0.034 0 0.018" rpy="0 0 0"/>
+        <geometry><box size="0.1 0.06 0.06"/></geometry>
+      </collision>
+      -->
+      
       <xacro:dummy_inertia mass="0.3"/>
     </link>
 
@@ -129,9 +234,32 @@
     </joint>
 
     <link name="arm_end_effector_link">
+      <!-- geometry: PRIMITIVE active, MESH commented below — swap which
+           block is commented to switch (RTF isolation test in progress) -->
+      <!--
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
-        <xacro:box_geometry size="0.05 0.23 0.06" xyz="0 -0.115 0"/>
+        <visual>
+          <origin xyz="0 -0.115 0" rpy="0 0 0"/>
+          <geometry><box size="0.05 0.23 0.06"/></geometry>
+          <material name="light_grey"/>
+        </visual>
+        <collision>
+          <origin xyz="0 -0.115 0" rpy="0 0 0"/>
+          <geometry><box size="0.05 0.23 0.06"/></geometry>
+        </collision>
       </xacro:if>
+      -->
+      
+      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+        <visual>
+          <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
+          <material name="light_grey"/>
+        </visual>
+        <collision>
+          <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
+        </collision>
+      </xacro:if>
+      
 
       <xacro:if value="${'$(arg end_effector)' == 'other_tool'}">
       </xacro:if>
