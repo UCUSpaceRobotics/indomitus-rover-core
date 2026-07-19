@@ -4,9 +4,6 @@
   <xacro:arg name="use_fake_hardware" default="true"/>
   <xacro:arg name="end_effector" default="jaw"/>
   <xacro:arg name="sim" default="false"/>
-  <!-- camera:=false drops the simulated camera sensor (the URDF link and
-       frames stay). Camera rendering is the main real-time-factor cost
-       when the GPU isn't doing the rendering. -->
   <xacro:arg name="camera" default="true"/>
 
   <xacro:macro name="indomitus_arm" params="parent_link *origin">
@@ -23,11 +20,6 @@
       </inertial>
     </xacro:macro>
 
-    <!-- Visual + collision as a primitive placed to span the link's extent
-         between its joint frames. Primitives instead of the CAD meshes keep
-         rendering cheap (the STLs were ~500k triangles, which software
-         rendering of the simulated camera could not sustain); joints,
-         masses and inertias fully define the physics and are unaffected. -->
     <xacro:macro name="box_geometry" params="size xyz">
       <visual>
         <origin xyz="${xyz}" rpy="0 0 0"/>
@@ -185,6 +177,14 @@
       </collision>
     </link>
 
+    <joint name="arm_camera_optical_joint" type="fixed">
+      <parent link="arm_camera_link"/>
+      <child link="arm_camera_optical_frame"/>
+      <origin xyz="0 0 0.03" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <link name="arm_camera_optical_frame"/>
+
     <ros2_control name="ArmSystem" type="system">
       <hardware>
         <xacro:if value="$(arg sim)">
@@ -301,6 +301,7 @@
         <sensor name="arm_camera" type="camera">
           <pose>0 0 0.03 0 0 0</pose>
           <camera>
+            <optical_frame_id>arm_camera_optical_frame</optical_frame_id>
             <horizontal_fov>1.047</horizontal_fov>
             <image>
               <width>640</width>

@@ -71,9 +71,6 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    # With camera:=false the sensor is absent from the URDF, so bridging its
-    # topics would advertise dead /camera/* ROS topics. Use the clock-only
-    # bridge config in that case.
     ros_gz_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",

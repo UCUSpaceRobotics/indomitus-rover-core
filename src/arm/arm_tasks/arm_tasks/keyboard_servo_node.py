@@ -46,9 +46,6 @@ DEFAULT_PUBLISH_RATE  = 50.0
 DEFAULT_COMMAND_FRAME = 'arm_camera_link'
 DEFAULT_SAFE_POSE     = [0.0, 1.2, -1.0, 0.8, 0.5, 0.0]
 DEFAULT_KEYBOARD_DEVICE_PATH = '/dev/input/event3'
-# Wall-clock ceiling for the safe-pose move; generous so a slow (low
-# real-time-factor) sim can still finish the 3-sim-second trajectory.
-# <= 0 disables the timeout entirely (wait forever).
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
 
 SAFE_POSE_JOINTS = [

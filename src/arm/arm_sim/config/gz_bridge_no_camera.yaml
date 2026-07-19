@@ -1,5 +1,3 @@
-# Bridge config for camera:=false — clock only, so no dead /camera/*
-# topics are advertised when the camera sensor is not simulated.
 - ros_topic_name: "/clock"
   gz_topic_name: "/clock"
   ros_type_name: "rosgraph_msgs/msg/Clock"

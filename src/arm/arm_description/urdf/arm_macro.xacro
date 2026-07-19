@@ -197,6 +197,14 @@
       </collision>
     </link>
 
+    <joint name="arm_camera_optical_joint" type="fixed">
+      <parent link="arm_camera_link"/>
+      <child link="arm_camera_optical_frame"/>
+      <origin xyz="0 0 0.03" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <link name="arm_camera_optical_frame"/>
+
     <ros2_control name="ArmSystem" type="system">
       <hardware>
         <xacro:if value="$(arg sim)">
@@ -312,6 +320,7 @@
         <sensor name="arm_camera" type="camera">
           <pose>0 0 0.03 0 0 0</pose>
           <camera>
+            <optical_frame_id>arm_camera_optical_frame</optical_frame_id>
             <horizontal_fov>1.047</horizontal_fov>
             <image>
               <width>640</width>
