@@ -23,6 +23,8 @@
   <exec_depend>usb_cam</exec_depend>
   <exec_depend>aruco_opencv</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
 
 
   <test_depend>ament_lint_auto</test_depend>

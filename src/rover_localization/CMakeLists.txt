@@ -33,6 +33,10 @@ install(DIRECTORY launch config maps
     DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS launch/calibrate_camera.py
+    DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install package resource marker for ament index visibility
 install(DIRECTORY resource
     DESTINATION share/${PROJECT_NAME}
