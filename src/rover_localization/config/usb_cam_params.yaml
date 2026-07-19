@@ -1,4 +1,4 @@
-/camera/usb_cam:
+/**:
   ros__parameters:
     video_device: /dev/video0
     image_width: 640

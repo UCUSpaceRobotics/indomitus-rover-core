@@ -45,4 +45,18 @@ have a valid `frame_id`.
 
 For local USB camera testing, see `DEBUG_TEST.md`.
 
-Image with bounding boxes is published to `/aruco_tracker/debug`. Use `rviz2` to see  
+## Verification Checklist
+
+After starting the camera and ArUco tracker, point the camera at a configured
+marker:
+
+- [ ] Verify images arrive: `ros2 topic hz /camera/image_raw`
+- [ ] Verify camera calibration: `ros2 topic echo /camera/camera_info --once`
+- [ ] Verify marker detections: `ros2 topic echo /aruco_detections --once`
+- [ ] If `publish_tf` is enabled, verify `/tf` contains a marker transform:
+  `ros2 topic echo /tf --once`
+- [ ] Run `rviz2`, then select **Add** > **By topic** >
+  `/aruco_detections/camera`. This image path does not appear in
+  `ros2 topic list`. A working setup shows the webcam image and, when a marker
+  is detected, its bounding box. **No Image** indicates a problem in the camera
+  or detection pipeline.
