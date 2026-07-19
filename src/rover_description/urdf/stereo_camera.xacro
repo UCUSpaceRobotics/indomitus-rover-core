@@ -21,7 +21,8 @@
           <always_on>true</always_on>
           <update_rate>20.0</update_rate>
           <topic>/zed2i/rgb/image_rect_color</topic>
-          <gz_frame_id>zed2i_left_camera_optical_frame</gz_frame_id>
+          <ignition_frame_id>zed2i_left_camera_frame_optical</ignition_frame_id>
+          <gz_frame_id>zed2i_left_camera_frame_optical</gz_frame_id>
           <camera>
             <camera_info_topic>/zed2i/rgb/camera_info</camera_info_topic>
             <horizontal_fov>1.91986</horizontal_fov>
@@ -44,19 +45,20 @@
       <gazebo reference="zed2i_left_camera_frame">
         <sensor type="depth_camera" name="zed2i_depth_sensor">
           <always_on>true</always_on>
-          <update_rate>15.0</update_rate>
+          <update_rate>10.0</update_rate>
           <topic>/zed2i/depth/depth_registered</topic>
-          <gz_frame_id>zed2i_left_camera_optical_frame</gz_frame_id>
+          <ignition_frame_id>zed2i_left_camera_frame</ignition_frame_id>
+          <gz_frame_id>zed2i_left_camera_frame</gz_frame_id>
           <camera>
             <camera_info_topic>/zed2i/depth/camera_info</camera_info_topic>
             <horizontal_fov>1.91986</horizontal_fov>
             <image>
-              <width>640</width>
-              <height>360</height>
+              <width>320</width>
+              <height>180</height>
               <format>R_FLOAT32</format> 
             </image>
             <clip>
-              <near>0.01</near>
+              <near>0.3</near>
               <far>15.0</far>
             </clip>
           </camera>
