@@ -1,5 +1,6 @@
 import os
-import subprocess
+import tempfile
+import atexit
 from string import Template
 
 from ament_index_python.packages import get_package_share_directory
@@ -7,96 +8,76 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     OpaqueFunction,
-    SetEnvironmentVariable,
-    ExecuteProcess,
+    AppendEnvironmentVariable,
+    IncludeLaunchDescription,
     TimerAction,
 )
-from launch.substitutions import LaunchConfiguration
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from rover_bringup.launch_utils import include_launch
 
-_GZ_SIM_VERSIONS = ['gz-sim8', 'gz-sim9']
 
+def generate_bridge_and_rsp(context, rover_sim_share: str, rover_description_share: str, controllers_yaml_path: str) -> list:
+    """Dynamically handles configuration switching for the bridge and robot description."""
+    world = LaunchConfiguration('world_name').perform(context)
+    model = LaunchConfiguration('model_name').perform(context)
+    use_nav = LaunchConfiguration('use_nav').perform(context).lower() == 'true'
 
-def _detect_gz_sim_pkg() -> str | None:
-    for pkg in _GZ_SIM_VERSIONS:
-        try:
-            subprocess.check_output(['pkg-config', '--exists', pkg], stderr=subprocess.DEVNULL)
-            return pkg
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            continue
-    return None
-
-
-def _gz_config_path() -> str:
-    gz_pkg = _detect_gz_sim_pkg()
-    if gz_pkg:
-        try:
-            prefix = subprocess.check_output(['pkg-config', '--variable=prefix', gz_pkg], text=True,
-                                             stderr=subprocess.DEVNULL).strip()
-            return os.path.join(prefix, 'share', 'gz')
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass
-    return '/usr/share/gz'
-
-
-def _gz_sim_version_flag() -> list[str]:
-    gz_pkg = _detect_gz_sim_pkg()
-    if gz_pkg:
-        return ['--force-version', gz_pkg.replace('gz-sim', '')]
-    return []
-
-
-def _gz_ros2_control_lib_dir() -> str:
-    share = get_package_share_directory('gz_ros2_control')
-    return os.path.normpath(os.path.join(share, '..', '..', 'lib'))
-
-
-def _gz_transport_env() -> dict:
-    return {'GZ_IP': '127.0.0.1', 'GZ_RELAY': '127.0.0.1'}
-
-
-def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
-    world = LaunchConfiguration("world_name").perform(context)
-    model = LaunchConfiguration("model_name").perform(context)
-
-    template_path = os.path.join(rover_sim_share, 'config', 'bridge_gz.yaml')
+    template_name = 'bridge_gz_nav2.yaml' if use_nav else 'bridge_gz.yaml'
+    template_path = os.path.join(rover_sim_share, 'config', template_name)
     with open(template_path) as f:
         rendered = Template(f.read()).substitute(world=world, model=model)
 
-    path_bridge_config = f"/tmp/bridge_{world}_{model}_urdf.yaml"
-
-    with open(path_bridge_config, "w") as f:
-        f.write(rendered)
-
-    return [Node(
-        package='ros_gz_bridge',
-        executable='parameter_bridge',
-        arguments=['--ros-args', '-p', f'config_file:={path_bridge_config}'],
-        output='screen',
-    )]
-
-
-def make_gazebo_server(rover_sim_share: str) -> ExecuteProcess:
-    world_name = LaunchConfiguration('world_name')
-    return ExecuteProcess(
-        cmd=['gz', 'sim', '-s', '-r', '-v', '4', [rover_sim_share, '/worlds/', world_name, '.sdf'],
-             *_gz_sim_version_flag()],
-        output='screen',
-        additional_env={
-            'GZ_CONFIG_PATH': _gz_config_path(),
-            'GZ_SIM_SYSTEM_PLUGIN_PATH': _gz_ros2_control_lib_dir(),
-            **_gz_transport_env(),
-        },
+    tmp_file = tempfile.NamedTemporaryFile(
+        mode='w', delete=False, prefix=f'bridge_{world}_{model}_', suffix='.yaml'
     )
+    tmp_file.write(rendered)
+    tmp_file.close()
+    atexit.register(os.remove, tmp_file.name)
+
+    bridge_node = Node(
+        package='ros_gz_bridge',
+        name='ros_gz_bridge',
+        executable='parameter_bridge',
+        arguments=['--ros-args', '-p', f'config_file:={tmp_file.name}'],
+        output='screen',
+    )
+
+    xacro_args = f'use_sim:=true controllers_yaml_path:={controllers_yaml_path}'
+    if use_nav:
+        xacro_args += ' use_nav:=true lidar_simulate_scan:=true stereo_camera_simulate_pointcloud:=true'
+
+    rsp_launch = include_launch('rover_description', 'robot_state_publisher.launch.py', {
+        'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+        'xacro_args': xacro_args,
+        'use_sim_time': 'true',
+    })
+
+    return [bridge_node, rsp_launch]
+
+
+def make_gazebo_launch(rover_sim_share: str) -> IncludeLaunchDescription:
+    """Abstracts Gazebo startup through the official ros_gz_sim package."""
+    world_file = PathJoinSubstitution([
+        rover_sim_share, 'worlds', LaunchConfiguration('world_name')
+    ])
+    source = PythonLaunchDescriptionSource(
+        os.path.join(get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')
+    )
+    return IncludeLaunchDescription(source, launch_arguments={
+        'gz_args': ['-r ', world_file, '.sdf'],
+        'on_exit_shutdown': 'True',
+    }.items())
 
 
 def make_spawn_node() -> Node:
     return Node(
         package='ros_gz_sim',
+        name='rover_spawner',
         executable='create',
-        arguments=['-name', LaunchConfiguration('model_name'), '-topic', 'robot_description', '-x', '0.0',
-                   '-y', '0.0', '-z', '3.5'],
+        arguments=['-name', LaunchConfiguration('model_name'), '-topic', 'robot_description', 
+                   '-x', LaunchConfiguration('spawn_x'), '-y', LaunchConfiguration('spawn_y'), '-z', LaunchConfiguration('spawn_z')],
         output='screen',
     )
 
@@ -111,29 +92,39 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value='world_demo'),
         DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
+        DeclareLaunchArgument('spawn_delay', default_value='5.0', description='Delay before spawning robot'),
+        DeclareLaunchArgument('use_nav', default_value='false', description='Whether to load navigation configs'),
+        DeclareLaunchArgument('spawn_x', default_value='0.0', description='Spawning x coordinate of the robot'),
+        DeclareLaunchArgument('spawn_y', default_value='0.0', description='Spawning y coordinate of the robot'),
+        DeclareLaunchArgument('spawn_z', default_value='5.0', description='Spawning z coordinate of the robot'),
 
-        SetEnvironmentVariable(
+        # 1. Support modern Gazebo (Harmonic/Ionic)
+        AppendEnvironmentVariable(
             name='GZ_SIM_RESOURCE_PATH',
-            value=[
-                os.environ.get('GZ_SIM_RESOURCE_PATH', ''),
-                ':',
-                os.path.dirname(rover_description_share),
-                ':',
-                os.path.dirname(zed_description_share),
-            ]
+            value=f"{os.path.dirname(rover_description_share)}:{os.path.dirname(zed_description_share)}"
         ),
 
-        make_gazebo_server(rover_sim_share),
-        TimerAction(period=3.0, actions=[ExecuteProcess(cmd=['gz', 'sim', '-g', *_gz_sim_version_flag()], output='screen')]),
+        # 2. Support Ignition Gazebo (Fortress)
+        AppendEnvironmentVariable(
+            name='IGN_GAZEBO_RESOURCE_PATH',
+            value=f"{os.path.dirname(rover_description_share)}:{os.path.dirname(zed_description_share)}"
+        ),
 
-        include_launch('rover_description', 'robot_state_publisher.launch.py', {
-            'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
-            'xacro_args': f'use_sim:=true controllers_yaml_path:={controllers_yaml_path}',
-            'use_sim_time': 'true',
-        }),
+        make_gazebo_launch(rover_sim_share),
 
-        OpaqueFunction(function=generate_bridge_config, kwargs={'rover_sim_share': rover_sim_share}),
-        TimerAction(period=5.0, actions=[make_spawn_node()]),
+        OpaqueFunction(
+            function=generate_bridge_and_rsp, 
+            kwargs={
+                'rover_sim_share': rover_sim_share,
+                'rover_description_share': rover_description_share,
+                'controllers_yaml_path': controllers_yaml_path
+            }
+        ),
+
+        TimerAction(
+            period=LaunchConfiguration('spawn_delay'), 
+            actions=[make_spawn_node()]
+        ),
 
         include_launch('rover_bringup', 'control.launch.py', {
             'use_sim': 'true',
@@ -144,5 +135,6 @@ def generate_launch_description() -> LaunchDescription:
         include_launch('rover_localization', 'ekf.launch.py', {
             'use_sim': 'true',
         }),
+
         include_launch('rover_bringup', 'twist_mux.launch.py'),
     ])
