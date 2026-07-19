@@ -1,0 +1,34 @@
+name: Cleanup Branch and PR Images
+
+on:
+  pull_request:
+    types: [closed]
+  delete:
+
+jobs:
+  delete-images:
+    if: github.event_name == 'pull_request' || (github.event_name == 'delete' && github.event.ref_type == 'branch')
+    runs-on: ubuntu-22.04
+    permissions:
+      packages: write
+
+    steps:
+      - name: Determine Target Tags
+        id: set-target
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "target=pr-${{ github.event.pull_request.number }}-*" >> $GITHUB_OUTPUT
+            echo "Cleaning up Pull Request #${{ github.event.pull_request.number }}"
+
+          elif [ "${{ github.event_name }}" == "delete" ]; then
+            # Sanitize the branch name by replacing slashes with hyphens
+            SAFE_REF=$(echo "${{ github.event.ref }}" | sed 's/\//-/g')
+            echo "target=${SAFE_REF}-*" >> $GITHUB_OUTPUT
+            echo "Cleaning up deleted branch: ${{ github.event.ref }} (Tag: ${SAFE_REF})"
+          fi
+
+      - name: Delete Images from GHCR
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          delete-tags: ${{ steps.set-target.outputs.target }}

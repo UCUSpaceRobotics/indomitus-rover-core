@@ -8,7 +8,7 @@
     the framework for state estimation, sensor data fusion, and the transformation
     pipeline required to track the rover's position within its environment.
   </description>
-  <maintainer email="bohdan.zasymovych@gmail.com">BohdanZasymovych</maintainer>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -26,6 +26,7 @@
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
 
+  <exec_depend>robot_localization</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

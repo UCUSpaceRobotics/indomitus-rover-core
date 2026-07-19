@@ -1,27 +1,41 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+
 <package format="3">
   <name>rover_navigation</name>
   <version>0.0.0</version>
   <description>
-    Autonomous navigation stack for the Indomitus Rover. This package contains 
-    configurations for path planning, local controller tuning, costmap management, 
-    and the high-level behavior logic required for point-to-point movement.
+    Autonomous navigation stack for the Indomitus Rover. This package
+    provides Nav2 configuration, behavior trees, path planning,
+    controller tuning, costmap management, and waypoint navigation
+    capabilities.
   </description>
-  <maintainer email="bohdan.zasymovych@gmail.com">BohdanZasymovych</maintainer>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>rclpy</depend>
-  <depend>ros2launch</depend>
-  <depend>std_msgs</depend>
-  <depend>geometry_msgs</depend>
-  <depend>nav_msgs</depend>
-  <depend>nav2_msgs</depend>
-  <depend>nav2_bringup</depend>
-  <depend>tf2_ros</depend>
+  <!-- Runtime: Nav2 servers -->
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_waypoint_follower</exec_depend>
+
+    <!-- Runtime: SLAM -->
+    <exec_depend>slam_toolbox</exec_depend>
+
+    <!-- Runtime: Planner plugins -->
+    <exec_depend>nav2_smac_planner</exec_depend>
+
+  <!-- Runtime: Controller plugins -->
+  <exec_depend>nav2_mppi_controller</exec_depend>
+
+  <!-- Runtime: Messages -->
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
@@ -29,4 +43,5 @@
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+
 </package>

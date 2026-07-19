@@ -30,6 +30,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Lowercase Repository Name
         id: lowercase-repo
         run: |
@@ -68,9 +79,14 @@ jobs:
           target: prod 
           platforms: linux/arm64
           push: true
+          build-args: |
+            BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-l4t-r36.4
+            BASE_IMAGE=stereolabs/zed:5.4-devel-l4t-r36.4
           tags: ${{ steps.metadata-tags.outputs.tags }}
           labels: ${{ steps.metadata-tags.outputs.labels }}
-          cache-from: type=gha,scope=${{ github.ref_name }}-prod
+          cache-from: |
+            type=gha,scope=${{ github.ref_name }}-prod
+            type=gha,scope=develop-prod
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-prod
 
   build-and-push-dev-amd64:
@@ -82,6 +98,28 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
 
       - name: Lowercase Repository Name
         id: lowercase-repo
@@ -98,6 +136,7 @@ jobs:
             suffix=-dev
           tags: |
             type=ref,event=branch
+            type=sha
           labels: |
             org.opencontainers.image.description=Development Image (AMD64) for Indomitus Rover with Simulation Tools
 
@@ -121,7 +160,11 @@ jobs:
           push: true
           build-args: |
             INSTALL_SIM_TOOLS=true
+            BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04
+            BASE_IMAGE=stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04
           tags: ${{ steps.meta-dev.outputs.tags }}
           labels: ${{ steps.meta-dev.outputs.labels }}
-          cache-from: type=gha,scope=${{ github.ref_name }}-dev
+          cache-from: |
+            type=gha,scope=${{ github.ref_name }}-dev
+            type=gha,scope=develop-dev
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-dev
