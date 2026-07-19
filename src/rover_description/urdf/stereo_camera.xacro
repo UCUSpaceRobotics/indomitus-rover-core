@@ -6,7 +6,13 @@
     The visual/collision geometry and joint are always added.
   -->
 
-  <xacro:macro name="stereo_camera" params="use_sim:=false simulate_rgb:=false simulate_pointcloud:=false">
+  <xacro:macro
+    name="stereo_camera"
+    params="use_sim:=false
+            simulate_rgb:=false
+            simulate_pointcloud:=false
+            simulate_imu:=false"
+  >
 
     <xacro:include filename="$(find zed_description)/urdf/zed_macro.urdf.xacro" />
     <xacro:zed_camera name="zed2i" model="zed2i">
@@ -15,6 +21,7 @@
       </gnss_origin>
     </xacro:zed_camera>
 
+    <!-- RGB CAMERA PLUGIN -->
     <xacro:if value="${use_sim and simulate_rgb}">
       <gazebo reference="zed2i_left_camera_frame">
         <sensor type="camera" name="zed2i_rgb_sensor">
@@ -45,6 +52,7 @@
       </gazebo>
     </xacro:if>
 
+    <!-- DEPTH & POINTCLOUD PLUGIN -->
     <xacro:if value="${use_sim and simulate_pointcloud}">
       <gazebo reference="zed2i_left_camera_frame">
         <sensor type="depth" name="zed2i_depth_sensor">
@@ -58,8 +66,8 @@
               <format>R8G8B8</format>
             </image>
             <clip>
-              <near>0.3</near>
-              <far>20.0</far>
+              <near>0.01</near>
+              <far>15.0</far>
             </clip>
           </camera>
           <plugin name="zed2i_pointcloud_plugin" filename="libgazebo_ros_camera.so">
@@ -72,8 +80,25 @@
             </ros>
             <camera_name>depth</camera_name>
             <frame_name>zed2i_left_camera_optical_frame</frame_name>
-            <min_depth>0.3</min_depth>
-            <max_depth>20.0</max_depth>
+            <min_depth>0.01</min_depth>
+            <max_depth>15.0</max_depth>
+          </plugin>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+    <!-- IMU PLUGIN -->
+    <xacro:if value="${use_sim and simulate_imu}">
+      <gazebo reference="zed2i_left_camera_frame">
+        <sensor name="zed2i_imu_sensor" type="imu">
+          <always_on>true</always_on>
+          <update_rate>100.0</update_rate>
+          <plugin name="zed2i_imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+            <ros>
+              <namespace>zed2i</namespace>
+              <remapping>~/out:=imu/data</remapping>
+            </ros>
+            <initial_orientation_as_reference>false</initial_orientation_as_reference>
           </plugin>
         </sensor>
       </gazebo>

@@ -88,6 +88,7 @@
     use_sim="$(arg use_sim)"
     simulate_rgb="$(arg stereo_camera_simulate_rgb)"
     simulate_pointcloud="$(arg stereo_camera_simulate_pointcloud)"
+    simulate_imu="$(arg stereo_camera_simulate_imu)"
   />
 
   <joint name="zed2i_base_joint" type="fixed">
