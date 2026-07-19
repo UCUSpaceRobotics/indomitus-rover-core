@@ -43,6 +43,7 @@
     <xacro:if value="${use_sim and simulate_scan}">
       <gazebo reference="laser_link">
         <sensor type="gpu_lidar" name="generic_laser">
+          <always_on>true</always_on>
           <update_rate>10.0</update_rate>
           <topic>/rplidar/scan</topic>
           <gz_frame_id>laser_link</gz_frame_id>

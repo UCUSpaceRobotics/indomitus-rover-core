@@ -1,18 +1,11 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- 
-    ZED 2i stereo camera fragment as a macro. 
-    The visual/collision geometry and joint are always added.
-  -->
-
-  <xacro:macro
-    name="stereo_camera"
-    params="use_sim:=false
-            simulate_rgb:=false
-            simulate_pointcloud:=false
-            simulate_imu:=false"
-  >
+  <xacro:macro name="stereo_camera" 
+               params="use_sim:=false 
+                       simulate_rgb:=false 
+                       simulate_pointcloud:=false 
+                       simulate_imu:=false">
 
     <xacro:include filename="$(find zed_description)/urdf/zed_macro.urdf.xacro" />
     <xacro:zed_camera name="zed2i" model="zed2i">
@@ -21,13 +14,16 @@
       </gnss_origin>
     </xacro:zed_camera>
 
-    <!-- RGB CAMERA PLUGIN -->
+    <!-- RGB CAMERA -->
     <xacro:if value="${use_sim and simulate_rgb}">
       <gazebo reference="zed2i_left_camera_frame">
         <sensor type="camera" name="zed2i_rgb_sensor">
-          <update_rate>30.0</update_rate>
           <always_on>true</always_on>
-          <camera name="zed2i_rgb">
+          <update_rate>20.0</update_rate>
+          <topic>/zed2i/rgb/image_rect_color</topic>
+          <gz_frame_id>zed2i_left_camera_optical_frame</gz_frame_id>
+          <camera>
+            <camera_info_topic>/zed2i/rgb/camera_info</camera_info_topic>
             <horizontal_fov>1.91986</horizontal_fov>
             <image>
               <width>640</width>
@@ -39,26 +35,20 @@
               <far>100.0</far>
             </clip>
           </camera>
-          <plugin name="zed2i_rgb_plugin" filename="libgazebo_ros_camera.so">
-            <ros>
-              <namespace>zed2i</namespace>
-              <remapping>image_raw:=rgb/image_rect_color</remapping>
-              <remapping>camera_info:=rgb/camera_info</remapping>
-            </ros>
-            <camera_name>rgb</camera_name>
-            <frame_name>zed2i_left_camera_optical_frame</frame_name>
-          </plugin>
         </sensor>
       </gazebo>
     </xacro:if>
 
-    <!-- DEPTH & POINTCLOUD PLUGIN -->
+    <!-- DEPTH CAMERA -->
     <xacro:if value="${use_sim and simulate_pointcloud}">
       <gazebo reference="zed2i_left_camera_frame">
-        <sensor type="depth" name="zed2i_depth_sensor">
-          <update_rate>15.0</update_rate>
+        <sensor type="depth_camera" name="zed2i_depth_sensor">
           <always_on>true</always_on>
-          <camera name="zed2i_depth">
+          <update_rate>15.0</update_rate>
+          <topic>/zed2i/depth/depth_registered</topic>
+          <gz_frame_id>zed2i_left_camera_optical_frame</gz_frame_id>
+          <camera>
+            <camera_info_topic>/zed2i/depth/camera_info</camera_info_topic>
             <horizontal_fov>1.91986</horizontal_fov>
             <image>
               <width>640</width>
@@ -70,36 +60,18 @@
               <far>15.0</far>
             </clip>
           </camera>
-          <plugin name="zed2i_pointcloud_plugin" filename="libgazebo_ros_camera.so">
-            <ros>
-              <namespace>zed2i</namespace>
-              <remapping>points:=points</remapping>
-              <remapping>depth/image_raw:=depth/depth_registered</remapping>
-              <remapping>camera_info:=depth/camera_info</remapping>
-              <remapping>image_raw:=depth/image_rect_color</remapping>
-            </ros>
-            <camera_name>depth</camera_name>
-            <frame_name>zed2i_left_camera_optical_frame</frame_name>
-            <min_depth>0.01</min_depth>
-            <max_depth>15.0</max_depth>
-          </plugin>
         </sensor>
       </gazebo>
     </xacro:if>
 
-    <!-- IMU PLUGIN -->
+    <!-- IMU -->
     <xacro:if value="${use_sim and simulate_imu}">
       <gazebo reference="zed2i_left_camera_frame">
         <sensor name="zed2i_imu_sensor" type="imu">
           <always_on>true</always_on>
           <update_rate>100.0</update_rate>
-          <plugin name="zed2i_imu_plugin" filename="libgazebo_ros_imu_sensor.so">
-            <ros>
-              <namespace>zed2i</namespace>
-              <remapping>~/out:=imu/data</remapping>
-            </ros>
-            <initial_orientation_as_reference>false</initial_orientation_as_reference>
-          </plugin>
+          <topic>/zed2i/imu/data</topic>
+          <gz_frame_id>zed2i_left_camera_frame</gz_frame_id>
         </sensor>
       </gazebo>
     </xacro:if>
