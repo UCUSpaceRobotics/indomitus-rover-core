@@ -9,7 +9,7 @@
   <!-- Sensor Simulation Arguments -->
   <xacro:arg name="lidar_simulate_scan" default="false"/>
   <xacro:arg name="stereo_camera_simulate_rgb" default="false"/>
-  <xacro:arg name="stereo_camera_simulate_pointcloud" default="false"/>
+  <xacro:arg name="stereo_camera_simulate_depth" default="false"/>
   <xacro:arg name="stereo_camera_simulate_imu" default="false"/>
 
   <!-- Main robot description -->

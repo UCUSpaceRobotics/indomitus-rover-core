@@ -87,7 +87,7 @@
   <xacro:stereo_camera
     use_sim="$(arg use_sim)"
     simulate_rgb="$(arg stereo_camera_simulate_rgb)"
-    simulate_pointcloud="$(arg stereo_camera_simulate_pointcloud)"
+    simulate_depth="$(arg stereo_camera_simulate_depth)"
     simulate_imu="$(arg stereo_camera_simulate_imu)"
   />
 

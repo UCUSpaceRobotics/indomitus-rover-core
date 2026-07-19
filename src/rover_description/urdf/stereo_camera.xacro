@@ -4,7 +4,7 @@
   <xacro:macro name="stereo_camera" 
                params="use_sim:=false 
                        simulate_rgb:=false 
-                       simulate_pointcloud:=false 
+                       simulate_depth:=false 
                        simulate_imu:=false">
 
     <xacro:include filename="$(find zed_description)/urdf/zed_macro.urdf.xacro" />
@@ -40,7 +40,7 @@
     </xacro:if>
 
     <!-- DEPTH CAMERA -->
-    <xacro:if value="${use_sim and simulate_pointcloud}">
+    <xacro:if value="${use_sim and simulate_depth}">
       <gazebo reference="zed2i_left_camera_frame">
         <sensor type="depth_camera" name="zed2i_depth_sensor">
           <always_on>true</always_on>
@@ -53,7 +53,7 @@
             <image>
               <width>640</width>
               <height>360</height>
-              <format>R8G8B8</format>
+              <format>R_FLOAT32</format> 
             </image>
             <clip>
               <near>0.01</near>
