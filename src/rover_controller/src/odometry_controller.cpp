@@ -42,7 +42,7 @@ RoverOdometryController::on_configure(const rclcpp_lifecycle::State & /*prev*/)
     build_kinematics_matrix();
 
     odom_pub_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
-        "/odometry/wheels", rclcpp::SystemDefaultsQoS());
+        "/wheels/odom", rclcpp::SystemDefaultsQoS());
 
     RCLCPP_INFO(get_node()->get_logger(),
         "[OdomController] Configured — wheelbase=%.3f m  track=%.3f m  r_wheel=%.4f m",
@@ -367,7 +367,7 @@ void RoverOdometryController::publish_odom(
     nav_msgs::msg::Odometry odom;
     odom.header.stamp            = stamp;
     odom.header.frame_id         = "odom";
-    odom.child_frame_id          = "base_link";
+    odom.child_frame_id          = "base_footprint";
 
     odom.pose.pose.position.x    = x_;
     odom.pose.pose.position.y    = y_;
