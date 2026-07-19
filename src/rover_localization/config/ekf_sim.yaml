@@ -1,14 +1,15 @@
 ekf_filter_node:
   ros__parameters:
     frequency: 30.0
+    use_sim_time: true
     two_d_mode: true
     publish_tf: true
 
     odom_frame: odom
-    base_link_frame: base_link
+    base_link_frame: base_footprint
     world_frame: odom
 
-    odom0: /odometry_controller/odom
+    odom0: /wheels/odom
     odom0_config: [true,  true,  false,  # x, y, z
                    false, false, true,   # roll, pitch, yaw
                    true,  true,  false,  # vx, vy, vz

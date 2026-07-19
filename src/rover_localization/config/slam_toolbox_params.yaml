@@ -6,8 +6,8 @@ slam_toolbox:
 
     odom_frame: odom
     map_frame: map
-    base_frame: base_link
-    scan_topic: /scan
+    base_frame: base_footprint
+    scan_topic: /rplidar/scan
 
     mode: mapping
     solver_plugin: solver_plugins::CeresSolver

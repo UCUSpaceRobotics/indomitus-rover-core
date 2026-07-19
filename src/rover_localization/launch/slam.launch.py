@@ -1,4 +1,4 @@
-# rover_navigation/launch/slam.launch.py
+# rover_localization/launch/slam.launch.py
 
 import os
 
@@ -10,7 +10,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory("rover_navigation")
+    pkg = get_package_share_directory("rover_localization")
     params_file = os.path.join(pkg, "config", "slam_toolbox_params.yaml")
 
     use_sim_time = LaunchConfiguration("use_sim_time")
