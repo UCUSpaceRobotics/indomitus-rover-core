@@ -24,8 +24,8 @@ def generate_bridge_and_rsp(context, rover_sim_share: str, rover_description_sha
     model = LaunchConfiguration('model_name').perform(context)
     use_nav = LaunchConfiguration('use_nav').perform(context).lower() == 'true'
 
-    template_name = 'bridge_gz_nav2.yaml' if use_nav else 'bridge_gz.yaml'
-    template_path = os.path.join(rover_sim_share, 'config', template_name)
+    template_path = os.path.join(rover_sim_share, 'config', 'bridge_gz.yaml')
+    
     with open(template_path) as f:
         rendered = Template(f.read()).substitute(world=world, model=model)
 
@@ -40,13 +40,14 @@ def generate_bridge_and_rsp(context, rover_sim_share: str, rover_description_sha
         package='ros_gz_bridge',
         name='ros_gz_bridge',
         executable='parameter_bridge',
+        parameters=[{'use_sim_time': True}],
         arguments=['--ros-args', '-p', f'config_file:={tmp_file.name}'],
         output='screen',
     )
 
     xacro_args = f'use_sim:=true controllers_yaml_path:={controllers_yaml_path}'
     if use_nav:
-        xacro_args += ' use_nav:=true lidar_simulate_scan:=true stereo_camera_simulate_pointcloud:=true'
+        xacro_args += ' use_nav:=true lidar_simulate_scan:=true stereo_camera_simulate_depth:=true'
 
     rsp_launch = include_launch('rover_description', 'robot_state_publisher.launch.py', {
         'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
