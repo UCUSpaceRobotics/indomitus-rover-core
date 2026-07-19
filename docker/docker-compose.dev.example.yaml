@@ -19,8 +19,13 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+
+    # devices:
+      # - /dev/video0:/dev/video0 # FOR aruco_debug.launch.py
+
     device_cgroup_rules:
       - "c 13:* rmw"
+      # - 'c 81:* rmw' # FOR aruco_debug.launch.py
     stdin_open: true
     tty: true
     healthcheck:
