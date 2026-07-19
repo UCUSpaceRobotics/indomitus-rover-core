@@ -6,8 +6,10 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
+    LogInfo,
     RegisterEventHandler,
     SetEnvironmentVariable,
+    Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
@@ -101,10 +103,21 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
+    # Each startup stage runs only if the previous one exited with code 0;
+    # otherwise the whole launch shuts down instead of starting nodes
+    # against a broken stack.
+    def _after_spawn(event, context):
+        if event.returncode != 0:
+            return [
+                LogInfo(msg=f"Entity spawn failed (exit code {event.returncode})."),
+                Shutdown(reason="entity spawn failed"),
+            ]
+        return [controller_spawner]
+
     delayed_controller_spawners = RegisterEventHandler(
         OnProcessExit(
             target_action=spawn_entity,
-            on_exit=[controller_spawner],
+            on_exit=_after_spawn,
         )
     )
 
@@ -131,10 +144,18 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    def _after_controllers(event, context):
+        if event.returncode != 0:
+            return [
+                LogInfo(msg=f"Controller activation failed (exit code {event.returncode})."),
+                Shutdown(reason="controller activation failed"),
+            ]
+        return list(move_group_launch.entities) + [servo_node]
+
     delayed_move_group = RegisterEventHandler(
         OnProcessExit(
             target_action=controller_spawner,
-            on_exit=list(move_group_launch.entities) + [servo_node],
+            on_exit=_after_controllers,
         )
     )
 
