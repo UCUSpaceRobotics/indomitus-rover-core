@@ -12,8 +12,8 @@ from launch_ros.actions import Node
 def generate_launch_description():
     pkg = get_package_share_directory("rover_navigation")
 
-    params_file          = os.path.join(pkg, "config",          "nav2_params.yaml")
-    nav_to_pose_bt       = os.path.join(pkg, "behaviour_trees", "navigate_to_pose_w_replanning.xml")
+    params_file = os.path.join(pkg, "config", "nav2_params.yaml")
+    nav_to_pose_bt = os.path.join(pkg, "behaviour_trees", "navigate_to_pose_w_replanning.xml")
     nav_through_poses_bt = os.path.join(pkg, "behaviour_trees", "navigate_through_poses_w_replanning.xml")
 
     use_sim_time = LaunchConfiguration("use_sim_time")

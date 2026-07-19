@@ -8,8 +8,8 @@ bt_navigator:
   ros__parameters:
     use_sim_time: true
     global_frame: map
-    robot_base_frame: base_link
-    odom_topic: /odom
+    robot_base_frame: base_footprint
+    odom_topic: /odometry/filtered
     bt_loop_duration: 20
     default_server_timeout: 20
     transform_tolerance: 1.0
@@ -48,6 +48,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: true
+    odom_topic: /odometry/filtered
     controller_frequency: 20.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
@@ -225,7 +226,7 @@ behavior_server:
     wait:
       plugin: "nav2_behaviors/Wait"
     global_frame: odom
-    robot_base_frame: base_link
+    robot_base_frame: base_footprint
     transform_timeout: 0.5
     simulate_ahead_time: 2.0
     max_rotational_vel: 0.8
@@ -243,12 +244,12 @@ local_costmap:
       update_frequency: 10.0
       publish_frequency: 5.0
       global_frame: odom
-      robot_base_frame: base_link
+      robot_base_frame: base_footprint
       rolling_window: true
       width: 8
       height: 8
       resolution: 0.05
-      transform_tolerance: 1.0
+      transform_tolerance: 2.0
       footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
       footprint_padding: 0.05
       plugins:
@@ -263,9 +264,9 @@ local_costmap:
         z_voxels: 16
         max_obstacle_height: 2.0
         mark_threshold: 0
-        observation_sources: scan
+        observation_sources: scan pointcloud
         scan:
-          topic: /scan
+          topic: /rplidar/scan
           sensor_frame: laser_link
           max_obstacle_height: 2.0
           clearing: true
@@ -275,6 +276,18 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 3.5
           obstacle_min_range: 0.0
+        pointcloud:
+          topic: /zed2i/points
+          sensor_frame: zed2i_left_camera_frame
+          data_type: "PointCloud2"
+          clearing: true
+          marking: true
+          min_obstacle_height: 0.05
+          max_obstacle_height: 1.2
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.3
+          raytrace_max_range: 4.0
+          raytrace_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 10.0
@@ -288,8 +301,8 @@ global_costmap:
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: map
-      robot_base_frame: base_link
-      transform_tolerance: 1.0
+      robot_base_frame: base_footprint
+      transform_tolerance: 2.0
       footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
       footprint_padding: 0.15
       resolution: 0.05
@@ -307,7 +320,7 @@ global_costmap:
         combination_method: 0
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /rplidar/scan
           sensor_frame: laser_link
           max_obstacle_height: 2.0
           clearing: true
