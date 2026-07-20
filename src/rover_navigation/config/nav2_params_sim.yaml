@@ -266,16 +266,16 @@ local_costmap:
         mark_threshold: 0
         observation_sources: scan pointcloud
         scan:
-          topic: /rplidar/scan
+          topic: /rplidar/scan_filtered
           sensor_frame: laser_link
           max_obstacle_height: 2.0
           clearing: true
           marking: true
           data_type: "LaserScan"
           raytrace_max_range: 4.0
-          raytrace_min_range: 0.0
+          raytrace_min_range: 0.1
           obstacle_max_range: 3.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.1
         pointcloud:
           topic: /zed2i/points
           sensor_frame: zed2i_left_camera_frame
@@ -320,16 +320,16 @@ global_costmap:
         combination_method: 0
         observation_sources: scan
         scan:
-          topic: /rplidar/scan
+          topic: /rplidar/scan_filtered
           sensor_frame: laser_link
           max_obstacle_height: 2.0
           clearing: true
           marking: true
           data_type: "LaserScan"
           raytrace_max_range: 4.0
-          raytrace_min_range: 0.0
+          raytrace_min_range: 0.1
           obstacle_max_range: 3.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.1
           observation_persistence: 0.5
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

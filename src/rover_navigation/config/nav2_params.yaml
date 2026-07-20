@@ -273,9 +273,9 @@ local_costmap:
           marking: true
           data_type: "LaserScan"
           raytrace_max_range: 4.0
-          raytrace_min_range: 0.0
+          raytrace_min_range: 0.1
           obstacle_max_range: 3.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.1
         pointcloud:
           topic: /zed2i/points
           sensor_frame: zed2i_left_camera_frame
@@ -327,9 +327,9 @@ global_costmap:
           marking: true
           data_type: "LaserScan"
           raytrace_max_range: 4.0
-          raytrace_min_range: 0.0
+          raytrace_min_range: 0.1
           obstacle_max_range: 3.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.1
           observation_persistence: 0.5
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

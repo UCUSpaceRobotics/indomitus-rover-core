@@ -6,9 +6,10 @@ from rover_bringup.launch_utils import include_launch
 def generate_launch_description() -> LaunchDescription:
     stereo_camera_launch = include_launch("rover_sensors", "zed2i.launch.py")
     lidar_launch = include_launch("rover_sensors", "rplidar_s2.launch.py")
+    scan_filter_launch = include_launch("rover_sensors", "scan_filter.launch.py")
 
     wait_for_lidar = ExecuteProcess(
-        cmd=["ros2", "topic", "echo", "--once", "/rplidar/scan"],
+        cmd=["ros2", "topic", "echo", "--once", "/rplidar/scan_filtered"],
         output="log",
         description="Waiting for LiDAR data..."
     )
@@ -45,8 +46,9 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     return LaunchDescription([
-        lidar_launch,
         stereo_camera_launch,
+        lidar_launch,
+        scan_filter_launch,
 
         wait_for_lidar,
         start_camera_wait,
