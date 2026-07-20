@@ -103,7 +103,7 @@
   <joint name="zed2i_base_joint" type="fixed">
     <parent link="main_body_link"/>
     <child link="zed2i_camera_link"/>
-    <origin xyz="0.350039 0 0.179931" rpy="0 ${pi/12} 0"/>
+    <origin xyz="0.35 0 0.19" rpy="0 ${pi/12} 0"/>
   </joint>
 
   <!-- ===================== RPLIDAR S2 ===================== -->
@@ -116,7 +116,7 @@
   <joint name="laser_joint" type="fixed">
     <parent link="main_body_link"/>
     <child link="laser_link"/>
-    <origin xyz="0 0 0.17" rpy="0 0 0"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
   </joint>
 
   <!-- ===================== LEFT ROCKER ===================== -->
