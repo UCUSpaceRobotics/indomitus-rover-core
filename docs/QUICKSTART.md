@@ -186,7 +186,7 @@ docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:develop-dev
 docker compose build
 ```
 
-> **Note:** The all containers mount your local `src/` directory. Ensure you are on the correct branch locally and have pulled the latest changes before starting the container.
+> **Note:** All containers mount your local `src/` directory, which means your code will be used inside the container. Ensure that your `src/`` directory contains the code you want to test.
 
 ### Start the Container and Build the Workspace
 
