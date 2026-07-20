@@ -4,6 +4,7 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def make_controller_spawners(context):
@@ -39,8 +40,7 @@ def generate_launch_description():
             package='controller_manager',
             executable='ros2_control_node',
             parameters=[
-                {'robot_description': LaunchConfiguration('robot_description')},
-                LaunchConfiguration('controllers_yaml'),
+                {'robot_description': ParameterValue(LaunchConfiguration('robot_description'), value_type=str)},                LaunchConfiguration('controllers_yaml'),
             ],
             output='screen',
             condition=UnlessCondition(LaunchConfiguration('use_sim')),

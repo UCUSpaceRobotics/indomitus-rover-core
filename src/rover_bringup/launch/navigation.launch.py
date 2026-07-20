@@ -9,15 +9,13 @@ def generate_launch_description() -> LaunchDescription:
     scan_filter_launch = include_launch("rover_sensors", "scan_filter.launch.py")
 
     wait_for_lidar = ExecuteProcess(
-        cmd=["ros2", "topic", "echo", "--once", "/rplidar/scan_filtered"],
-        output="log",
-        description="Waiting for LiDAR data..."
+        cmd=["/bin/bash", "-c", "until ros2 topic echo --once /rplidar/scan_filtered > /dev/null 2>&1; do sleep 1; done"],
+        output="log"
     )
 
     wait_for_stereo_camera = ExecuteProcess(
-        cmd=["ros2", "topic", "echo", "--once", "/zed2i/imu/data"],
-        output="log",
-        description="Waiting for Stereo Camera data..."
+        cmd=["/bin/bash", "-c", "until ros2 topic echo --once /zed2i/imu/data > /dev/null 2>&1; do sleep 1; done"],
+        output="log"
     )
 
     start_nav_and_slam = RegisterEventHandler(
