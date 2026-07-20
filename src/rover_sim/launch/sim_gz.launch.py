@@ -22,7 +22,7 @@ def generate_bridge_and_rsp(context, rover_sim_share: str, rover_description_sha
     """Dynamically handles configuration switching for the bridge and robot description."""
     world = LaunchConfiguration('world_name').perform(context)
     model = LaunchConfiguration('model_name').perform(context)
-    use_nav = LaunchConfiguration('use_nav').perform(context).lower() == 'true'
+    extra_xacro_args = LaunchConfiguration('extra_xacro_args').perform(context)
 
     template_path = os.path.join(rover_sim_share, 'config', 'bridge_gz.yaml')
     
@@ -45,9 +45,7 @@ def generate_bridge_and_rsp(context, rover_sim_share: str, rover_description_sha
         output='screen',
     )
 
-    xacro_args = f'use_sim:=true controllers_yaml_path:={controllers_yaml_path}'
-    if use_nav:
-        xacro_args += ' use_nav:=true lidar_simulate_scan:=true stereo_camera_simulate_depth:=true'
+    xacro_args = f'use_sim:=true controllers_yaml_path:={controllers_yaml_path} {extra_xacro_args}'
 
     rsp_launch = include_launch('rover_description', 'robot_state_publisher.launch.py', {
         'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
@@ -91,13 +89,41 @@ def generate_launch_description() -> LaunchDescription:
     controllers_yaml_path = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     return LaunchDescription([
-        DeclareLaunchArgument('world_name', default_value='world_demo'),
-        DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
-        DeclareLaunchArgument('spawn_delay', default_value='5.0', description='Delay before spawning robot'),
-        DeclareLaunchArgument('use_nav', default_value='false', description='Whether to load navigation configs'),
-        DeclareLaunchArgument('spawn_x', default_value='0.0', description='Spawning x coordinate of the robot'),
-        DeclareLaunchArgument('spawn_y', default_value='0.0', description='Spawning y coordinate of the robot'),
-        DeclareLaunchArgument('spawn_z', default_value='5.0', description='Spawning z coordinate of the robot'),
+        DeclareLaunchArgument(
+            'world_name', 
+            default_value='world_demo', 
+            description='Name of the Gazebo world file to load (without the .sdf extension).'
+        ),
+        DeclareLaunchArgument(
+            'model_name', 
+            default_value='indomitus_rover', 
+            description='The name assigned to the robot model when spawned inside the Gazebo environment.'
+        ),
+        DeclareLaunchArgument(
+            'spawn_delay', 
+            default_value='5.0', 
+            description='Time (in seconds) to wait before spawning the robot, ensuring the Gazebo world is fully loaded.'
+        ),
+        DeclareLaunchArgument(
+            'extra_xacro_args', 
+            default_value='', 
+            description="Additional flags to pass to the URDF xacro compiler. Format strictly as space-separated key:=value pairs (e.g., 'use_nav:=true lidar_simulate_scan:=true')."
+        ),
+        DeclareLaunchArgument(
+            'spawn_x', 
+            default_value='0.0', 
+            description='Initial X coordinate (in meters) for spawning the robot in the global world frame.'
+        ),
+        DeclareLaunchArgument(
+            'spawn_y', 
+            default_value='0.0', 
+            description='Initial Y coordinate (in meters) for spawning the robot in the global world frame.'
+        ),
+        DeclareLaunchArgument(
+            'spawn_z', 
+            default_value='5.0', 
+            description='Initial Z coordinate (in meters) for spawning the robot in the global world frame. Set higher than ground level.'
+        ),
 
         # 1. Support modern Gazebo (Harmonic/Ionic)
         AppendEnvironmentVariable(
