@@ -1,6 +1,13 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!--
+    ZED2i Stereo Camera fragment as a macro. 
+    Parameters: `use_sim`, `simulate_rgb`, `simulate_depth`, `simulate_imu` (booleans).
+    Enables Gazebo camera and IMU plugins and topic publishing when set to true.
+    Defines the sensor links, visual, and collision geometries.
+  -->
+
   <xacro:macro name="stereo_camera" 
                params="use_sim:=false 
                        simulate_rgb:=false 

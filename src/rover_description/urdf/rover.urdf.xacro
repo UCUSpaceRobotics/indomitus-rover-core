@@ -113,6 +113,12 @@
     simulate_scan="$(arg lidar_simulate_scan)"
   />
 
+  <joint name="laser_joint" type="fixed">
+    <parent link="main_body_link"/>
+    <child link="laser_link"/>
+    <origin xyz="0 0 0.17" rpy="0 0 0"/>
+  </joint>
+
   <!-- ===================== LEFT ROCKER ===================== -->
   <link name="l_rocker_link">
     <inertial>
