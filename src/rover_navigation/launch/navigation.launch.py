@@ -5,7 +5,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration, IfElseSubstitution
 from launch_ros.actions import Node
 
 
@@ -25,9 +25,11 @@ def generate_launch_description():
         description='Enable simulation mode (uses sim clock and sim nav2 config).',
     )
 
-    params_file = PythonExpression([
-        "'", nav2_sim_config, "' if '", use_sim, "' == 'true' else '", nav2_real_config, "'"
-    ])
+    params_file = IfElseSubstitution(
+        use_sim,
+        if_value=nav2_sim_config,
+        else_value=nav2_real_config,
+    )
 
     lc_navigation = [
         "planner_server",
