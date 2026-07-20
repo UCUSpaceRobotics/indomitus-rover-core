@@ -210,20 +210,10 @@ RoverSwerveController::update(
 
         heading_smoothed_   = heading_limiter_.update(target_heading, dt);
         curvature_smoothed_ = curvature_limiter_.update(target_curvature, dt);
-
-        // Not rotating in place right now — let the pure-rotation limiter
-        // decay to 0 so it's ready for a clean start next time we are.
         wz_pure_smoothed_ = wz_pure_limiter_.update(0.0, dt);
     } else {
-        // Direction is undefined at ~zero commanded speed — hold heading/curvature
-        // so the next nonzero command can disambiguate forward/backward correctly.
-        // But the speed TARGET itself is genuinely zero here, always.
         target_v_signed_ = 0.0;
         curvature_smoothed_ = curvature_limiter_.update(0.0, dt);
-
-        // Pure rotation-in-place: v == 0 but wz requested. curvature = wz/v is
-        // undefined here, so wz is tracked directly through its own limiter
-        // instead of being derived from v * curvature.
         wz_pure_smoothed_ = wz_pure_limiter_.update(target_wz_, dt);
     }
 
@@ -250,18 +240,7 @@ RoverSwerveController::update(
     read_measured_angles();
 
     // Step 3: Compute desired target angles for transition detection
-    double dir_vx, dir_vy, dir_wz;
-    if (std::abs(v_smoothed_) < VXY_EPS && std::abs(wz_pure_smoothed_) >= WZ_EPS) {
-        dir_vx = 0.0;
-        dir_vy = 0.0;
-        dir_wz = wz_pure_smoothed_;
-    } else {
-        dir_vx = std::cos(heading_smoothed_);
-        dir_vy = std::sin(heading_smoothed_);
-        dir_wz = curvature_smoothed_;
-    }
-
-    const auto angle_result = kinematics_->ik_full(dir_vx, dir_vy, dir_wz, current_angles_);
+    const auto angle_result = kinematics_->ik_full(vx, vy, wz, current_angles_);
     const WheelData & angle_target = angle_result.angles;
 
     const WheelData & desired_angles = angle_target;
@@ -280,9 +259,9 @@ RoverSwerveController::update(
     switch (state_machine_->state()) {
 
         case RoverState::NORMAL: {
-            auto [_, s] = kinematics_->ik_full(vx, vy, wz, current_angles_);
+            // auto [_, s] = kinematics_->ik_full(vx, vy, wz, current_angles_);
             work_angles = angle_target;
-            work_speeds = s;
+            work_speeds = angle_result.speeds;
             break;
         }
 
@@ -334,31 +313,6 @@ RoverSwerveController::update(
         // cos^2 because it derivative in 0 and pi/2 is 0,
         // so it's smooth acceleation and deceleration
     }
-
-    // constexpr double kHardStopAngle = M_PI * 3.0 / 8.0;  // 45°
-
-    // double global_align_scale = 1.0;
-    // bool any_wheel_misaligned = false;
-
-    // for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-    //     const double err = std::abs(work_angles[i] - current_angles_[i]);
-
-    //     double wheel_scale;
-    //     if (err >= kHardStopAngle) {
-    //         wheel_scale = 0.0;
-    //         any_wheel_misaligned = true;
-    //     } else {
-    //         // cos² normalized over [0, kHardStopAngle]:
-    //         // err=0       → scale=1
-    //         // err=π/4     → scale=0  (continuous, no jerk)
-    //         const double t = err / kHardStopAngle;       // [0, 1]
-    //         const double c4 = std::pow(std::cos(t * M_PI / 2.0), 4);  // cos(0)=1, cos(π/2)=0
-    //         wheel_scale = c4;
-    //     }
-
-    //     global_align_scale = std::min(global_align_scale, wheel_scale);
-    // }
-
 
     constexpr double kTransitTriggerScale = 0.005;  // tune this
 
