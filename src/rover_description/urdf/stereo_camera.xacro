@@ -65,7 +65,7 @@
               <format>R_FLOAT32</format> 
             </image>
             <clip>
-              <near>0.4</near>
+              <near>0.45</near>
               <far>15.0</far>
             </clip>
           </camera>
