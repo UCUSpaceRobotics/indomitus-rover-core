@@ -121,7 +121,7 @@ class JoystickInterpreterNode(Node):
         self.raw_vy: float = 0.0
         self.raw_wz: float = 0.0
 
-        self._row_twist_mode: bool = False
+        self._row_twist_mode: bool = True
         self._compact_mode: bool = False
 
         self._traffic_red    = False

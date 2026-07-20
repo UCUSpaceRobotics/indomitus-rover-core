@@ -83,30 +83,6 @@ private:
     double current_;
 };
 
-class AngularSlewRateLimiter {
-public:
-    explicit AngularSlewRateLimiter(double max_rate, double initial = 0.0)
-    : max_rate_(max_rate), current_(initial) {}
-
-    double update(double target, double dt) {
-        double diff = wrap_to_pi(target - current_);
-        double step = clamp(diff, -max_rate_ * dt, max_rate_ * dt);
-        current_ = wrap_to_pi(current_ + step);
-        return current_;
-    }
-    double current() const { return current_; }
-    void   reset(double v = 0.0) { current_ = wrap_to_pi(v); }
-
-private:
-    static double wrap_to_pi(double a) {
-        while (a >  M_PI) a -= 2.0 * M_PI;
-        while (a < -M_PI) a += 2.0 * M_PI;
-        return a;
-    }
-    double max_rate_;
-    double current_;
-};
-
 // ─────────────────────────────────────────────────────────────────────────────
 // RoverStateMachine
 //
@@ -419,22 +395,17 @@ private:
     std::unique_ptr<SwerveKinematics> kinematics_;
     std::unique_ptr<RoverStateMachine> state_machine_;
 
-    SlewRateLimiter v_limiter_{0.0, 0.0};
-    AngularSlewRateLimiter heading_limiter_{max_steer_rate_, 0.0};
-    SlewRateLimiter curvature_limiter_{0.0, 0.0};
-
-    double v_smoothed_{0.0};
-    double heading_smoothed_{0.0};
-    double curvature_smoothed_{0.0};
+    std::array<SlewRateLimiter, 3> limiters_ = {
+        SlewRateLimiter{0.2, 0.5},   // vx
+        SlewRateLimiter{0.2, 0.5},   // vy
+        SlewRateLimiter{0.2, 0.5},   // wz
+    };
 
     // Runtime state
 
     WheelData current_angles_{WheelData::filled(0.0)};
     WheelData measured_angles_{WheelData::filled(0.0)};
     WheelData last_work_speeds_{WheelData::filled(0.0)};
-
-    SlewRateLimiter wz_pure_limiter_{0.0, 0.0};
-    double wz_pure_smoothed_{0.0};
 
     double vx_smoothed_{0.0};
     double vy_smoothed_{0.0};
@@ -443,7 +414,6 @@ private:
     double target_vx_{0.0};
     double target_vy_{0.0};
     double target_wz_{0.0};
-    double target_v_signed_{0.0};
 
     rclcpp::Time last_cmd_vel_time_{0, 0, RCL_ROS_TIME};
 
@@ -457,7 +427,6 @@ private:
     double max_angular_{0.5};             // rad/s
     double max_accel_{0.2};
     double max_decel_{0.5};
-    double max_curvature_rate_{4.0};
     double control_frequency_{20.0};      // Hz
     double cmd_vel_timeout_{2.0};         // s
     double align_threshold_{0.0073};      // rad ≈ 5°
