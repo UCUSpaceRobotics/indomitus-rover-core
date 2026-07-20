@@ -5,6 +5,11 @@
     base_class_type="controller_interface::ControllerInterface">
   </class>
   <class
+    name="rover_controller/RoverSwerveRadiusController"
+    type="rover_controller::RoverSwerveRadiusController"
+    base_class_type="controller_interface::ControllerInterface">
+  </class>
+  <class
     name="rover_controller/RoverOdometryController"
     type="rover_controller::RoverOdometryController"
     base_class_type="controller_interface::ControllerInterface">
