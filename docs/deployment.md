@@ -21,7 +21,8 @@ Choose your deployment strategy based on the type of changes you just made. You 
 
 * **When to use:** You want to deploy a pre-built stable image and clean code directly from GitHub (develop/main branch). Or you have manually activated workflow on your branch and want to deploy it for testing.
 * **What it does:** Pulls an image from GHCR, extracts the exact commit SHA from the image metadata, clones a clean codebase from GitHub, transfers everything over the hotspot, and restarts the container.
-* **Pro-Tip: Offload Builds to GitHub Actions** You can build your images in the cloud instead of locally by using GitHub Actions. First, push your branch to GitHub, then open the [GitHub Actions page](https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml). Click the **Run workflow** dropdown, choose your branch, and click the green button to trigger the cloud build. Once the build finishes successfully, you can deploy the new image to the Jetson using the script's pull mode. For example, use `--tag <branch-name>-prod` (ensuring any slashes in your branch name are replaced with dashes, like `--tag feature-shared-some-feature-prod`) to deploy the image and the code for the commit on which the image was built.
+
+> **Pro-Tip: Offload Builds to GitHub Actions** You can build your images in the cloud instead of locally by using GitHub Actions. First, push your branch to GitHub, then open the [GitHub Actions page](https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml). Click the **Run workflow** dropdown, choose your branch, and click the green button to trigger the cloud build. Once the build finishes successfully, you can deploy the new image to the Jetson using the script's pull mode. For example, use `--tag <branch-name>-prod` (ensuring any slashes in your branch name are replaced with dashes, like `--tag feature-shared-some-feature-prod`) to deploy the image and the code for the commit on which the image was built.
 
 **Rapid Source Sync (`sync-src`)**
 
@@ -31,7 +32,7 @@ Choose your deployment strategy based on the type of changes you just made. You 
 **Infrastructure Sync (`sync-docker-compose`)**
 
 * **When to use:** You only modified the `docker-compose.prod.yaml` file.
-* **What it does:** Transfers the compose file and cleanly restarts the container infrastructure.
+* **What it does:** Transfers the compose file and restarts the container infrastructure.
 
 **Local Cross-Compile (`local-build`) — ⚠️ DEPRECATED**
 
