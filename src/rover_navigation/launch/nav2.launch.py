@@ -1,4 +1,4 @@
-# rover_navigation/launch/navigation.launch.py
+# rover_navigation/launch/nav2.launch.py
 
 import os
 
