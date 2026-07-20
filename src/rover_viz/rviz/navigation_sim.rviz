@@ -4,7 +4,6 @@ Panels:
   - Class: rviz_common/Tool Properties
     Expanded:
       - /2D Goal Pose1
-      - /Publish Point1
     Name: Tool Properties
     Splitter Ratio: 0.5886790156364441
   - Class: rviz_common/Views
@@ -16,28 +15,26 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: LaserScan
+    SyncSource: Filtered LaserScan
   - Class: nav2_rviz_plugins/Navigation 2
     Name: Navigation 2
   - Class: slam_toolbox::SlamToolboxPlugin
     Name: SlamToolboxPlugin
   - Class: rviz_common/Displays
-    Help Height: 85
+    Help Height: 0
     Name: Displays
     Property Tree Widget:
       Expanded:
         - /Global Options1
       Splitter Ratio: 0.5
-    Tree Height: 352
+    Tree Height: 403
   - Class: rviz_common/Displays
     Help Height: 0
     Name: Displays
     Property Tree Widget:
-      Expanded:
-        - /LaserScan1
-        - /LaserScan1/Topic1
+      Expanded: ~
       Splitter Ratio: 0.5
-    Tree Height: 448
+    Tree Height: 437
   - Class: rviz_common/Displays
     Help Height: 85
     Name: Displays
@@ -68,13 +65,34 @@ Visualization Manager:
       Value: true
     - Alpha: 0.699999988079071
       Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: true
+      Enabled: true
+      Name: Main Map
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map_updates
+      Use Timestamp: false
+      Value: true
+    - Alpha: 0.5
+      Class: rviz_default_plugins/Map
       Color Scheme: costmap
       Draw Behind: true
       Enabled: true
-      Name: Map
+      Name: Global Costmap
       Topic:
-        Depth: 5
-        Durability Policy: Volatile
+        Depth: 1
+        Durability Policy: Transient Local
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
@@ -85,17 +103,17 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /global_costmap/costmap_updates
-      Use Timestamp: true
+      Use Timestamp: false
       Value: true
     - Alpha: 0.5
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
-      Draw Behind: false
+      Draw Behind: true
       Enabled: true
-      Name: Map
+      Name: Local Costmap
       Topic:
-        Depth: 5
-        Durability Policy: Volatile
+        Depth: 1
+        Durability Policy: Transient Local
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
@@ -108,43 +126,20 @@ Visualization Manager:
         Value: /local_costmap/costmap_updates
       Use Timestamp: false
       Value: true
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Autocompute Value Bounds:
-        Max Value: 10
-        Min Value: -10
-        Value: true
-      Axis: Z
-      Channel Name: intensity
-      Class: rviz_default_plugins/LaserScan
-      Color: 255; 255; 255
-      Color Transformer: Intensity
-      Decay Time: 0
-      Enabled: true
-      Invert Rainbow: false
-      Max Color: 255; 255; 255
-      Max Intensity: 0
-      Min Color: 0; 0; 0
-      Min Intensity: 0
-      Name: LaserScan
-      Position Transformer: XYZ
-      Selectable: true
-      Size (Pixels): 2
-      Size (m): 0.03
-      Style: Points
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        Filter size: 10
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /rplidar/scan_filtered
-      Use Fixed Frame: true
-      Use rainbow: true
-      Value: true
-      Use Fixed Frame: true
-      Use rainbow: true
-      Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: false
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+      Marker Scale: 0.30000001192092896
+      Name: TF Frames
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Tree:
+        {}
+      Update Interval: 0
+      Value: false
     - Alpha: 1
       Class: rviz_default_plugins/RobotModel
       Collision Enabled: false
@@ -272,14 +267,14 @@ Visualization Manager:
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
-      Color: 25; 255; 0
+      Color: 0; 255; 0
       Enabled: true
-      Head Diameter: 0.30000001192092896
-      Head Length: 0.20000000298023224
+      Head Diameter: 0.10000000149011612
+      Head Length: 0.07000000029802322
       Length: 0.30000001192092896
-      Line Style: Lines
+      Line Style: Billboards
       Line Width: 0.029999999329447746
-      Name: Path
+      Name: Global Plan
       Offset:
         X: 0
         Y: 0
@@ -287,8 +282,8 @@ Visualization Manager:
       Pose Color: 255; 85; 255
       Pose Style: None
       Radius: 0.029999999329447746
-      Shaft Diameter: 0.10000000149011612
-      Shaft Length: 0.10000000149011612
+      Shaft Diameter: 0.05000000074505806
+      Shaft Length: 0.23000000417232513
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -296,6 +291,102 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /plan
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 0; 180; 255
+      Enabled: true
+      Head Diameter: 0.10000000149011612
+      Head Length: 0.07000000029802322
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 0.029999999329447746
+      Name: Local Plan
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.05000000074505806
+      Shaft Length: 0.23000000417232513
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_plan
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/LaserScan
+      Color: 0; 110; 255
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: false
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: Raw LaserScan
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.05000000074505806
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rplidar/scan
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: false
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/LaserScan
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 0
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: Filtered LaserScan
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.05000000074505806
+      Style: Points
+      Topic:
+        Depth: 50
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rplidar/scan_filtered
+      Use Fixed Frame: true
+      Use rainbow: true
       Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
@@ -309,24 +400,24 @@ Visualization Manager:
       Color: 255; 255; 0
       Color Transformer: FlatColor
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 2.1389386128290864e-38
       Min Color: 0; 0; 0
       Min Intensity: 0
-      Name: PointCloud2
+      Name: ZED2i PointCloud
       Position Transformer: XYZ
       Selectable: true
-      Size (Pixels): 1
+      Size (Pixels): 2
       Size (m): 0.009999999776482582
       Style: Points
       Topic:
-        Depth: 5
+        Depth: 50
         Durability Policy: Volatile
         Filter size: 10
         History Policy: Keep Last
-        Reliability Policy: Best Effort
+        Reliability Policy: Reliable
         Value: /zed2i/points
       Use Fixed Frame: true
       Use rainbow: true
@@ -335,26 +426,12 @@ Visualization Manager:
   Global Options:
     Background Color: 48; 48; 48
     Fixed Frame: map
-    Frame Rate: 10
+    Frame Rate: 20
   Name: root
   Tools:
-    - Class: rviz_default_plugins/Interact
-      Hide Inactive Objects: true
     - Class: rviz_default_plugins/MoveCamera
-    - Class: rviz_default_plugins/Select
-    - Class: rviz_default_plugins/FocusCamera
     - Class: rviz_default_plugins/Measure
       Line color: 128; 128; 0
-    - Class: rviz_default_plugins/SetInitialPose
-      Covariance x: 0.25
-      Covariance y: 0.25
-      Covariance yaw: 0.06853891909122467
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /initialpose
     - Class: rviz_default_plugins/SetGoal
       Topic:
         Depth: 5
@@ -362,14 +439,6 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /goal_pose
-    - Class: rviz_default_plugins/PublishPoint
-      Single click: false
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /clicked_point
     - Class: nav2_rviz_plugins/GoalTool
   Transformation:
     Current:
@@ -378,25 +447,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 20.433622360229492
+      Distance: 21.990421295166016
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.32634973526000977
-        Y: 2.029942512512207
-        Z: 0.005776405334472656
+        X: -0.07852745056152344
+        Y: -0.027889251708984375
+        Z: 0.5701074600219727
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.42860355973243713
+      Pitch: 0.4387558698654175
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.141470432281494
+      Yaw: 3.184363603591919
     Saved: ~
 Window Geometry:
   Displays:
@@ -406,7 +475,7 @@ Window Geometry:
   Hide Right Dock: false
   Navigation 2:
     collapsed: true
-  QMainWindow State: 000000ff00000000fd00000004000000000000024800000341fc020000000cfb0000001200530065006c0065006300740069006f006e0000000044000000810000006b00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073020000014d000000be000002130000016afb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb00000018004e0061007600690067006100740069006f006e002000320000000044000001390000013900fffffffb000000220053006c0061006d0054006f006f006c0062006f00780050006c007500670069006e00000001d9000001a8000001a800fffffffb000000100044006900730070006c0061007900730000000198000000eb000000eb00fffffffb000000100044006900730070006c006100790073000000018400000201000000eb00fffffffb000000100044006900730070006c006100790073000000027e00000103000000eb00ffffff00000001000001020000033dfc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a0056006900650077007300000000440000033d000000b900fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000007800000003afc0100000002fb0000000800540069006d0065010000000000000780000002d200fffffffb0000000800540069006d00650100000000000004500000000000000000000007800000034100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000400000000000001c800000341fc020000000cfb0000001200530065006c0065006300740069006f006e0000000044000000810000006b00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073020000014d000000be000002130000016afb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb00000018004e0061007600690067006100740069006f006e002000320000000044000001660000013900fffffffb000000220053006c0061006d0054006f006f006c0062006f00780050006c007500670069006e00000001d9000001a8000001a800fffffffb000000100044006900730070006c00610079007300000001b1000001d4000000eb00fffffffb000000100044006900730070006c006100790073000000018400000201000000eb00fffffffb000000100044006900730070006c006100790073000000027e00000103000000eb00ffffff00000001000001020000033dfc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a0056006900650077007300000000440000033d000000b900fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000007800000003afc0100000002fb0000000800540069006d0065010000000000000780000002d200fffffffb0000000800540069006d00650100000000000004500000000000000000000007800000034100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   SlamToolboxPlugin:
