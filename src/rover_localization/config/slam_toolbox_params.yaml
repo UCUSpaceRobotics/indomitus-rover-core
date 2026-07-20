@@ -1,4 +1,4 @@
-# rover_navigation/config/slam_toolbox_params.yaml
+# rover_localization/config/slam_toolbox_params.yaml
 
 slam_toolbox:
   ros__parameters:
