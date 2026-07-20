@@ -221,15 +221,14 @@ RoverSwerveController::update(
 
     if (std::abs(v_smoothed_) < VXY_EPS && std::abs(wz_pure_smoothed_) < WZ_EPS) {
         vx_smoothed_ = vy_smoothed_ = wz_smoothed_ = 0.0;
-    } else if (std::abs(v_smoothed_) < VXY_EPS) {
-        // Pure rotation: no translation, wz comes from its own limiter.
-        vx_smoothed_ = 0.0;
-        vy_smoothed_ = 0.0;
-        wz_smoothed_ = wz_pure_smoothed_;
     } else {
         vx_smoothed_ = v_smoothed_ * std::cos(heading_smoothed_);
         vy_smoothed_ = v_smoothed_ * std::sin(heading_smoothed_);
-        wz_smoothed_ = v_smoothed_ * curvature_smoothed_;
+        if (std::abs(v_smoothed_) < VXY_EPS) {
+            wz_smoothed_ = wz_pure_smoothed_;
+        } else {
+            wz_smoothed_ = v_smoothed_ * curvature_smoothed_;
+        }
     }
 
     const double vx = vx_smoothed_;
