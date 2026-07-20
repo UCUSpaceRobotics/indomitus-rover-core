@@ -41,8 +41,9 @@ RoverOdometryController::on_configure(const rclcpp_lifecycle::State & /*prev*/)
 
     build_kinematics_matrix();
 
+    std::string odom_topic = get_node()->get_parameter("odom_topic").as_string();
     odom_pub_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
-        "/wheels/odom", rclcpp::SystemDefaultsQoS());
+        odom_topic, rclcpp::SystemDefaultsQoS());
 
     RCLCPP_INFO(get_node()->get_logger(),
         "[OdomController] Configured — wheelbase=%.3f m  track=%.3f m  r_wheel=%.4f m",
@@ -210,9 +211,10 @@ void RoverOdometryController::declare_parameters()
         catch (const std::exception &) { /* already declared */ }
     };
 
-    decl("wheelbase",    0.842);
-    decl("track_width",  0.682);
+    decl("wheelbase", 0.842);
+    decl("track_width", 0.682);
     decl("wheel_radius", 0.16);
+    decl("odom_topic", std::string("/wheels/odom"));
 
     decl("steer_joint_names",
         std::vector<std::string>{
