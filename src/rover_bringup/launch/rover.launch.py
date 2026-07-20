@@ -15,7 +15,6 @@ def generate_launch_description():
         description='SocketCAN network interface name',
     )
 
-
     robot_description = Command([
         'xacro ',
         os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
