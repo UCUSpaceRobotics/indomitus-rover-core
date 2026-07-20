@@ -266,7 +266,7 @@ local_costmap:
         mark_threshold: 0
         observation_sources: scan pointcloud
         scan:
-          topic: /rplidar/scan
+          topic: /rplidar/scan_filtered
           sensor_frame: laser_link
           max_obstacle_height: 2.0
           clearing: true
@@ -320,7 +320,7 @@ global_costmap:
         combination_method: 0
         observation_sources: scan
         scan:
-          topic: /rplidar/scan
+          topic: /rplidar/scan_filtered
           sensor_frame: laser_link
           max_obstacle_height: 2.0
           clearing: true
