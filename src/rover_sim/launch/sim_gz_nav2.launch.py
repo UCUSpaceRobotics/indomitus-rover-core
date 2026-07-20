@@ -25,7 +25,7 @@ def generate_launch_description() -> LaunchDescription:
             period=10.0,
             actions=[
                 include_launch('rover_navigation', 'navigation.launch.py', {
-                    'use_sim_time': 'true'
+                    'use_sim': 'true'
                 }),
                 include_launch('rover_localization', 'slam.launch.py', {
                     'use_sim_time': 'true'
