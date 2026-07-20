@@ -53,12 +53,12 @@
             <camera_info_topic>/zed2i/depth/camera_info</camera_info_topic>
             <horizontal_fov>1.91986</horizontal_fov>
             <image>
-              <width>320</width>
-              <height>180</height>
+              <width>220</width>
+              <height>125</height>
               <format>R_FLOAT32</format> 
             </image>
             <clip>
-              <near>0.3</near>
+              <near>0.4</near>
               <far>15.0</far>
             </clip>
           </camera>
