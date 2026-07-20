@@ -15,6 +15,9 @@ controller_manager:
     diff_bar_effort_controller:
       type: rover_sim/RockerDiffController
 
+    # swerve_radius_controller:
+    #   type: rover_controller/RoverSwerveRadiusController
+
 swerve_controller:
   ros__parameters:
     drive_joint_names:
@@ -39,7 +42,7 @@ swerve_controller:
     wheel_radius: 0.15
 
     max_steer_deg: 90.0
-    max_steer_rate_deg: 180.0 
+    max_steer_rate_deg: 90.0 
 
 odometry_controller:
   ros__parameters:
