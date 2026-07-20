@@ -24,9 +24,12 @@ def generate_launch_description() -> LaunchDescription:
         TimerAction(
             period=10.0,
             actions=[
+                include_launch("rover_sensors", "scan_filter.launch.py"),
+
                 include_launch('rover_localization', 'slam.launch.py', {
                     'use_sim_time': 'true',
                 }),
+
                 include_launch('rover_navigation', 'nav2.launch.py', {
                     'use_sim': 'true',
                     'cmd_vel_topic': 'cmd_vel_nav',
