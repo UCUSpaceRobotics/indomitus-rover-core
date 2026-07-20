@@ -18,15 +18,22 @@ def generate_launch_description():
     nav_to_pose_bt = os.path.join(pkg, "behaviour_trees", "navigate_to_pose_w_replanning.xml")
     nav_through_poses_bt = os.path.join(pkg, "behaviour_trees", "navigate_through_poses_w_replanning.xml")
 
-    use_sim = LaunchConfiguration('use_sim')
+    use_sim_val = LaunchConfiguration('use_sim')
     use_sim_arg = DeclareLaunchArgument(
         'use_sim',
         default_value='false',
         description='Enable simulation mode (uses sim clock and sim nav2 config).',
     )
 
+    cmd_vel_topic_val = LaunchConfiguration('cmd_vel_topic')
+    cmd_vel_topic_arg = DeclareLaunchArgument(
+        'cmd_vel_topic',
+        default_value='cmd_vel_nav',
+        description='The topic Nav2 will publish its velocity commands to. Defaults to cmd_vel_nav for twist_mux routing.'
+    )
+
     params_file = IfElseSubstitution(
-        use_sim,
+        use_sim_val,
         if_value=nav2_sim_config,
         else_value=nav2_real_config,
     )
@@ -41,13 +48,14 @@ def generate_launch_description():
 
     return LaunchDescription([
         use_sim_arg,
+        cmd_vel_topic_arg,
 
         Node(
             package="nav2_planner",
             executable="planner_server",
             name="planner_server",
             output="screen",
-            parameters=[params_file, {"use_sim_time": use_sim}],
+            parameters=[params_file, {"use_sim_time": use_sim_val}],
         ),
 
         Node(
@@ -55,7 +63,8 @@ def generate_launch_description():
             executable="controller_server",
             name="controller_server",
             output="screen",
-            parameters=[params_file, {"use_sim_time": use_sim}],
+            parameters=[params_file, {"use_sim_time": use_sim_val}],
+            remappings=[('cmd_vel', cmd_vel_topic_val)],
         ),
 
         Node(
@@ -63,7 +72,8 @@ def generate_launch_description():
             executable="behavior_server",
             name="behavior_server",
             output="screen",
-            parameters=[params_file, {"use_sim_time": use_sim}],
+            parameters=[params_file, {"use_sim_time": use_sim_val}],
+            remappings=[('cmd_vel', cmd_vel_topic_val)],
         ),
 
         Node(
@@ -74,8 +84,8 @@ def generate_launch_description():
             parameters=[
                 params_file,
                 {
-                    "use_sim_time": use_sim,
-                    "default_nav_to_pose_bt_xml":       nav_to_pose_bt,
+                    "use_sim_time": use_sim_val,
+                    "default_nav_to_pose_bt_xml": nav_to_pose_bt,
                     "default_nav_through_poses_bt_xml": nav_through_poses_bt,
                 },
             ],
@@ -86,7 +96,7 @@ def generate_launch_description():
             executable="waypoint_follower",
             name="waypoint_follower",
             output="screen",
-            parameters=[params_file, {"use_sim_time": use_sim}],
+            parameters=[params_file, {"use_sim_time": use_sim_val}],
         ),
 
         Node(
@@ -95,7 +105,7 @@ def generate_launch_description():
             name="lifecycle_manager_navigation",
             output="screen",
             parameters=[{
-                "use_sim_time": use_sim,
+                "use_sim_time": use_sim_val,
                 "autostart": True,
                 "node_names": lc_navigation,
             }],

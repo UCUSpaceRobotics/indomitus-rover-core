@@ -25,10 +25,11 @@ def generate_launch_description() -> LaunchDescription:
             period=10.0,
             actions=[
                 include_launch('rover_navigation', 'navigation.launch.py', {
-                    'use_sim': 'true'
+                    'use_sim': 'true',
+                    'cmd_vel_topic': 'cmd_vel_nav',
                 }),
                 include_launch('rover_localization', 'slam.launch.py', {
-                    'use_sim_time': 'true'
+                    'use_sim_time': 'true',
                 }),
             ],
         ),
