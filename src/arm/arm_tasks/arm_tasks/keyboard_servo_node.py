@@ -19,6 +19,14 @@ Controls:
 
     r      — move to safe pose + start servo
     ESC/x  — exit
+
+Usage:
+    Real hardware / RViz mock-hardware demo (wall clock, conservative speeds):
+        ros2 run arm_tasks keyboard_servo_node
+
+    Gazebo sim (sim clock + faster speeds, see arm_sim/config/keyboard_servo_sim.yaml):
+        ros2 run arm_tasks keyboard_servo_node --ros-args \\
+            --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
 """
 
 import sys
