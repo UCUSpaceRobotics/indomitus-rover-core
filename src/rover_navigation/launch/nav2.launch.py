@@ -5,7 +5,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, IfElseSubstitution
+from launch.substitutions import LaunchConfiguration, IfElseSubstitution, NotEqualsSubstitution
 from launch_ros.actions import Node
 
 
@@ -18,24 +18,39 @@ def generate_launch_description():
     nav_to_pose_bt = os.path.join(pkg, "behaviour_trees", "navigate_to_pose_w_replanning.xml")
     nav_through_poses_bt = os.path.join(pkg, "behaviour_trees", "navigate_through_poses_w_replanning.xml")
 
-    use_sim_val = LaunchConfiguration('use_sim')
+    use_sim_val = LaunchConfiguration("use_sim")
     use_sim_arg = DeclareLaunchArgument(
-        'use_sim',
-        default_value='false',
-        description='Enable simulation mode (uses sim clock and sim nav2 config).',
+        "use_sim",
+        default_value="false",
+        description="Enable simulation mode (uses sim clock and sim nav2 config).",
     )
 
-    cmd_vel_topic_val = LaunchConfiguration('cmd_vel_topic')
+    cmd_vel_topic_val = LaunchConfiguration("cmd_vel_topic")
     cmd_vel_topic_arg = DeclareLaunchArgument(
-        'cmd_vel_topic',
-        default_value='cmd_vel_nav',
-        description='The topic Nav2 will publish its velocity commands to. Defaults to cmd_vel_nav for twist_mux routing.'
+        "cmd_vel_topic",
+        default_value="cmd_vel_nav",
+        description="The topic Nav2 will publish its velocity commands to. Defaults to cmd_vel_nav for twist_mux routing.",
     )
 
-    params_file = IfElseSubstitution(
+    nav2_params_file_val = LaunchConfiguration("params_file")
+    nav2_params_file_arg = DeclareLaunchArgument(
+        "params_file",
+        default_value="",
+        description="Full path to the ROS 2 parameters file to override default params",
+    )
+
+    default_params_file = IfElseSubstitution(
         use_sim_val,
         if_value=nav2_sim_config,
         else_value=nav2_real_config,
+    )
+
+    custom_params_file_present = NotEqualsSubstitution(nav2_params_file_val, "")
+
+    params_file = IfElseSubstitution(
+        custom_params_file_present,
+        if_value=nav2_params_file_val,
+        else_value=default_params_file,
     )
 
     lc_navigation = [
@@ -49,6 +64,7 @@ def generate_launch_description():
     return LaunchDescription([
         use_sim_arg,
         cmd_vel_topic_arg,
+        nav2_params_file_arg,
 
         Node(
             package="nav2_planner",

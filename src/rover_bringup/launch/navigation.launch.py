@@ -1,4 +1,6 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch.actions import ExecuteProcess, RegisterEventHandler, LogInfo
 from launch.event_handlers import OnProcessExit
 from rover_bringup.launch_utils import include_launch
@@ -7,6 +9,13 @@ def generate_launch_description() -> LaunchDescription:
     stereo_camera_launch = include_launch("rover_sensors", "zed2i.launch.py")
     lidar_launch = include_launch("rover_sensors", "rplidar_s2.launch.py")
     scan_filter_launch = include_launch("rover_sensors", "scan_filter.launch.py")
+
+    nav2_params_file_val = LaunchConfiguration("params_file")
+    nav2_params_file_arg = DeclareLaunchArgument(
+        "params_file",
+        default_value="",
+        description="Full path to the ROS 2 parameters file to override default params",
+    )
 
     wait_for_lidar = ExecuteProcess(
         cmd=["/bin/bash", "-c", "until ros2 topic echo --once /rplidar/scan_filtered > /dev/null 2>&1; do sleep 1; done"],
@@ -24,13 +33,14 @@ def generate_launch_description() -> LaunchDescription:
             on_exit=[
                 LogInfo(msg="Sensors are online, launching SLAM and Navigation..."),
 
-                include_launch('rover_localization', 'slam.launch.py', {
-                    'use_sim_time': 'false',
+                include_launch("rover_localization", "slam.launch.py", {
+                    "use_sim_time": "false",
                 }),
 
-                include_launch('rover_navigation', 'nav2.launch.py', {
-                    'use_sim': 'false',
-                    'cmd_vel_topic': 'cmd_vel_nav',
+                include_launch("rover_navigation", "nav2.launch.py", {
+                    "use_sim": "false",
+                    "cmd_vel_topic": "cmd_vel_nav",
+                    "params_file": nav2_params_file_val
                 }),
             ]
         )
@@ -44,6 +54,8 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     return LaunchDescription([
+        nav2_params_file_arg,
+
         stereo_camera_launch,
         lidar_launch,
         scan_filter_launch,
