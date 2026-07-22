@@ -46,7 +46,6 @@ def generate_launch_description():
     )
 
     custom_params_file_present = NotEqualsSubstitution(nav2_params_file_val, "")
-
     params_file = IfElseSubstitution(
         custom_params_file_present,
         if_value=nav2_params_file_val,
