@@ -15,6 +15,12 @@ controller_manager:
     odometry_controller:
       type: rover_controller/RoverOdometryController
 
+joint_state_broadcaster:
+  ros__parameters:
+    extra_joints:
+      - l_rocker_joint
+      - r_rocker_joint
+
 swerve_controller:
   ros__parameters:
     drive_joint_names:
