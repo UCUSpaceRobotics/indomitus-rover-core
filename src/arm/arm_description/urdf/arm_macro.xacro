@@ -194,8 +194,8 @@
 
       <!-- TODO: replace direction/offset with YOUR measured calibration values -->
       <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="1.9746" kp="15.0" kd="1.5"/>
-      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="-1" offset="1.7093" kp="100.0" kd="3.5"/>
-      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="1"  offset="-0.7155" kp="50.0" kd="2.0"/>
+      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="-1" offset="1.7093" kp="120.0" kd="4.0"/>
+      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint" motor_id="22" direction="1" offset="-0.7155" kp="75.0" kd="2.75"/>
       <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="1.0378" kp="10.0" kd="1.0"/>
       <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="1"  offset="0.0" kp="30.0"  kd="1.0"/>
       <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0" kp="15.0"  kd="0.5"/>
