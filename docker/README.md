@@ -1,19 +1,23 @@
 
-## Docker
+# Docker
 
-### !!!ATTENTION!!!⚠️
+## !!!ATTENTION!!!
 
-> ⚠️ Each user must set up `docker-compose` individually — drivers and dependencies vary by platform.
+> Each user may need to set up `docker-compose` individually — drivers and dependencies vary by platform.
 
-> Copy `docker/docker-compose.dev.example.yaml` to the project root and rename it to `docker-compose.yaml`.
+> Run the following command to copy `docker/docker-compose.dev.example.yaml` to the project root and rename it to `docker-compose.yaml`.
 
-### Dependencies
+```bash
+cp ./docker/docker-compose.dev.example.yaml ./docker-compose.yaml
+```
+
+## Dependencies
 ```bash
 curl -fsSL https://get.docker.com | sh  # installs docker + compose plugin
 sudo usermod -aG docker $USER           # run docker without sudo (re-login required)
 ```
 
-### Quick Reference
+## Quick Reference
 
 | Action | Command |
 |--------|---------|
@@ -27,7 +31,7 @@ sudo usermod -aG docker $USER           # run docker without sudo (re-login requ
 
 > 💡 You can enter the same container from multiple terminals simultaneously.
 
-### Display Access (for GUI / RViz)
+## Display Access (for GUI / RViz)
 
 Allow Docker to use your screen before entering the container:
 
@@ -35,7 +39,7 @@ Allow Docker to use your screen before entering the container:
 xhost +local:docker
 ```
 
-### Troubleshooting
+## Troubleshooting
 
 - Commands not found? Try `docker-compose` (with `-`) or prepend `sudo`
 - Container already exists? `docker compose up -d` will just start it, not recreate
