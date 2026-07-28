@@ -33,25 +33,37 @@
 
 Follow these steps to power on and operate the rover:
 
-1. **Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button.
-2. **Turn on the joystick:** Power on the red joystick. It will automatically connect to the rover's computer.
-3. **Verify the connection:** Wait for the LED on the joystick to stop blinking and turn solid white, indicating a successful connection.
-4. **Control the rover:** The launch file that initializes all the required nodes will run automatically. No further action is needed, and you are now ready to drive the rover using the joystick.
+1. **Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button. When the rover is powered on, the CAN interface is automatically set up, the Wi-Fi hotspot is turned on, and the Docker container starts.
+2. **Connect to the hotspot:** Connect to the rover's Wi-Fi hotspot. The credentials can be found in the [Current System Credentials and Network Info](#current-system-credentials-and-network-info) section.
+3. **Enter the container on the rover:** Use the command `./scripts/enter_container rover` to enter the container's terminal on the rover.
+4. **Launch the rover:** Run the command `ros2 launch rover_bringup rover.launch.py` inside the rover's container to start all the necessary rover control nodes.
+5. **Get the image and start the container on the laptop:** Please refer to the [Docker](#docker) section to complete this step. Use the command `docker exec -it rover_dev /bin/bash` to enter the local container's terminal.
+6. **Build and source the workspace:** Run `colcon build --packages-ignore-regex ".*_sim|.*_viz"` inside the laptop's container to build the workspace, then run `source install/setup.bash` to source it.
+7. **Connect the joystick:** Pair the joystick with your laptop and connect it.
+8. **Verify the joystick connection:** Wait for the joystick LEDs to stop blinking and turn solid white, indicating a successful connection.
+9. **Start the joystick nodes:** Run the command `ros2 launch rover_teleop joy.launch.py` inside the laptop's container to start the nodes responsible for handling joystick input.
+10. **Control the rover:** You are now ready to drive the rover using the joystick.
 
+The steps below are currently irrelevant:
+
+1. ~~**Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button.~~
+2. ~~**Turn on the joystick:** Power on the red joystick. It will automatically connect to the rover's computer.~~
+3. ~~**Verify the joystick connection:** Wait for the joystick LEDs to stop blinking and turn solid white, indicating a successful connection.~~
+4. ~~**Control the rover:** The launch file that initializes all the required nodes will run automatically. No further action is needed, and you are now ready to drive the rover using the joystick.~~
 
 ### Starting the Laptop-Controlled Rover
 
 Follow these steps to power on and operate the rover using a laptop:
 
-1. **Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button.
-
+1. **Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button. When the rover is powered on, the CAN interface is automatically set up and the Docker container starts.
 2. **Set up the CAN-to-USB adapter:** Connect the CAN-to-USB adapter to your laptop, then run the following commands in your terminal:
 
 Verify the CAN interface is visible to the laptop:
 ```bash
 ip link show can0
 ```
-*The output should display the can0 interface details and include the state DOWN.*
+
+*The output should display the `can0` interface details and include the state `DOWN`.*
 
 Bring the CAN interface up:
 ```bash
@@ -63,27 +75,18 @@ Verify the interface is up:
 ```bash
 ip link show can0
 ```
-*The output should include the state `UP LOWER_UP` and blue LED on the adapter should light up.*
+
+*The output should include the state `UP LOWER_UP`, and the blue LED on the adapter should light up.*
 
 > **Note:** If you have multiple CAN adapters connected, you may need to replace `can0` in these commands with the correct interface name (e.g., `can1`).
 
-3. **Build and start the container:** Please refer to the [Docker setup section](#docker) to complete this step.
-
-4. **Run the rover launch file:** From the bash terminal inside your Docker container, run the launch file to start all the necessary rover control nodes:
-```bash
-ros2 launch rover_bringup rover.launch.py
-```
-
-5. **Connect the joystick:** Pair the joystick with your laptop and connect it.
-
-6. **Verify the joystick connection:** Wait for the LED on the joystick to stop blinking and turn solid white, indicating a successful connection.
-
-7. **Start the joystick nodes:** Run the following command to start the nodes responsible for handling joystick input:
-```bash
-ros2 launch rover_teleop joy.launch.py
-```
-
-8. **Control the rover:** You are now ready to drive the rover using the joystick.
+3. **Get the image and start the container on the laptop:** Please refer to the [Docker](#docker) section to complete this step. Use the command `docker exec -it rover_dev /bin/bash` to enter the local container's terminal.
+4. **Build and source the workspace:** Run `colcon build --packages-ignore-regex ".*_sim|.*_viz"` inside the laptop's container to build the workspace, then run `source install/setup.bash` to source it.
+5. **Launch the rover:** Run the command `ros2 launch rover_bringup rover.launch.py` inside the laptop's container to start all the necessary rover control nodes.
+6. **Connect the joystick:** Pair the joystick with your laptop and connect it.
+7. **Verify the joystick connection:** Wait for the joystick LEDs to stop blinking and turn solid white, indicating a successful connection.
+8. **Start the joystick nodes:** Run the command `ros2 launch rover_teleop joy.launch.py` inside the laptop's container to start the nodes responsible for handling joystick input.
+9. **Control the rover:** You are now ready to drive the rover using the joystick.
 
 
 ### Turning Off the Rover
@@ -91,9 +94,7 @@ ros2 launch rover_teleop joy.launch.py
 To power down the rover, perform **one** of the following actions:
 
 * **Use the power switch:** Rotate the blue switch on the back of the rover counterclockwise.
-* **Use the Emergency Stop:** Press the **left** red button on the top of the rover.
-
-> **Attention:** Currently, only the **left** red button on top of the rover is connected. The right red button is inactive and will not stop the rover. Always use the left button for an emergency stop.
+* ~~**Use the Emergency Stop:** Press the **left** red button on the top of the rover.~~
 
 
 ### Current System Credentials and Network Info
@@ -186,7 +187,7 @@ docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:develop-dev
 docker compose build
 ```
 
-> **Note:** The all containers mount your local `src/` directory. Ensure you are on the correct branch locally and have pulled the latest changes before starting the container.
+> **Note:** All containers mount your local `src/` directory. Ensure you are on the correct branch locally and have pulled the latest changes before starting the container.
 
 ### Start the Container and Build the Workspace
 
@@ -210,8 +211,7 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-> **Note: Simulation Package Build Errors**
-At this stage, you might encounter build errors related to the `rover_viz` or `rover_sim` packages. This typically occurs because your current Docker container was built without the necessary visualization and simulation dependencies (controlled by the `INSTALL_SIM_TOOLS` variable in `docker-compose.yaml`).
+> **Note: Simulation Package Build Errors** At this stage, you might encounter build errors related to the `rover_viz` or `rover_sim` packages. This typically occurs because your current Docker container was built without the necessary visualization and simulation dependencies (controlled by the `INSTALL_SIM_TOOLS` variable in `docker-compose.yaml`).
 
 Depending on your requirements, choose one of the following solutions:
 
