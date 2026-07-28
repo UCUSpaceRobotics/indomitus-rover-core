@@ -10,9 +10,6 @@
 Custom ROS2 messages, services, and actions used across all packages.
 
 **Messages:**
-- **`WheelTargets`** — commands for all 8 actuators (4 steer + 4 drive)
-  - `fl_speed`, `fr_speed`, `rl_speed`, `rr_speed` (rad/s) — drive motor speeds
-  - `fl_angle`, `fr_angle`, `rl_angle`, `rr_angle` (rad) — steer motor positions
 - **`ChassisStatus`** — complete status report from all motors
 - **`MotorStatus`** — individual motor state (kinematic and electrical data)
 
@@ -32,8 +29,6 @@ Communicates with two motor types:
 - **Drive Motors (Damiao J10010):** 4 motors (IDs: 10, 12, 14, 16)
 
 **Protocols:** `damiao_protocol.hpp`, `steadywin_protocol.hpp`
-
-**Config:** `config/chassis_driver.yaml`
 
 Loaded as a ros2_control hardware plugin (`rover_hardware_interface/RoverHardwareInterface`) via `rover_description/urdf/rover.ros2_control.xacro`, conditionally on `use_sim:=false` — no standalone node or launch file.
 
