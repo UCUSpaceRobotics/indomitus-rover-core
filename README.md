@@ -256,7 +256,7 @@ Next, you need the Docker image. You can either pull a pre-built image or build 
 
 **Option A: Pull the image from GitHub**
 
-*This saves significant time.*
+*This may save significant time.*
 
 For example, pull the image from `develop`:
 
@@ -272,7 +272,7 @@ docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:develop-dev
 docker compose build
 ```
 
-> **Note:** All containers mount your local `src/` directory. Ensure you are on the correct branch locally and have pulled the latest changes before starting the container.
+> **Note:** All containers mount your local `src/` directory, which means your code will be used inside the container. Ensure that your `src/` directory contains the code you want to test.
 
 ### Start the Container and Build the Workspace
 
@@ -281,6 +281,12 @@ docker compose build
    ```bash
    docker compose up -d
    ```
+
+> **Important:** By default, this starts the container using the image tag `local-dev` (defined in `docker-compose.yaml`). If you pulled the image from GitHub, it will have a different tag (refer to the [Image Tags](#image-tags) section). To start the container using a different image tag, you need to set the `IMAGE_TAG` environment variable. You can do this either in the `docker-compose.yaml` file or directly in the command:
+> ```bash
+> IMAGE_TAG=feature-shared-some-feature-dev docker compose up -d
+> ```
+> If you omit this, Docker will either build a new image (if there is no image tagged `local-dev`), or it will start the container using the existing `local-dev` image, which may have different dependencies installed.
 
 2. Enter the running container:
 
@@ -303,7 +309,7 @@ Depending on your requirements, choose one of the following solutions:
 **Option A: Skip the packages (If you do not need simulations)**
 You can instruct `colcon` to ignore the failing packages and safely build the rest of the workspace:
 ```bash
-colcon build --symlink-install --packages-ignore rover_viz rover_sim
+colcon build --symlink-install --packages-ignore rover_viz rover_sim arm_viz arm_sim
 source install/setup.bash
 ```
 
@@ -378,6 +384,7 @@ Enter the **remote** rover container:
 
 
 ---
+
 
 ## Testing
 
