@@ -6,7 +6,11 @@ This document provides a quick introduction on how to start the rover. For furth
 
 Follow these steps to power on and operate the rover:
 
-> **Note:** All commands below need to be run from the root of the `indomitus-rover-core` repository.
+> **Note:** All commands below need to be run from the root of the `indomitus-rover-core` repository. If you haven't already, clone the repository to your laptop:
+> ```bash
+> git clone git@github.com:UCUSpaceRobotics/indomitus-rover-core.git
+> cd indomitus-rover-core
+> ```
 
 1. **Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button. When the rover is powered on, the CAN interface is automatically set up, the Docker container starts, and the Wi-Fi hotspot is turned on (**note that it takes ~1 minute for the network to appear**).
 
