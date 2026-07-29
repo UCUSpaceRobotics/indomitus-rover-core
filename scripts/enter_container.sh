@@ -170,7 +170,7 @@ EOF
       if [ "$CURRENT_SSID" = "$WIFI_SSID" ]; then
         echo -e "\e[32m[INFO]\e[0m Already connected to network: ${WIFI_SSID}"
       else
-        echo "Attempting to automatically connect to Wi-Fi network: ${WIFI_SSID}..."
+        echo "Attempting to automatically connect to Wi-Fi network (you may do it manually): ${WIFI_SSID}..."
         if [ -n "$WIFI_PASS" ]; then
           nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASS" >/dev/null 2>&1 || true
         else
@@ -185,7 +185,7 @@ EOF
         if [ "$CURRENT_SSID" = "$WIFI_SSID" ]; then
           echo -e "\e[32m[INFO]\e[0m Already connected to network: ${WIFI_SSID}"
         else
-          echo "Attempting to automatically connect to Wi-Fi network: ${WIFI_SSID}..."
+          echo "Attempting to automatically connect to Wi-Fi network (you may do it manually): ${WIFI_SSID}..."
           if [ -n "$WIFI_PASS" ]; then
             networksetup -setairportnetwork "$WIFI_IFACE" "$WIFI_SSID" "$WIFI_PASS" >/dev/null 2>&1 || true
           else

@@ -3,6 +3,8 @@
 # Unneccessary simulation and visualization packages
 - rover_viz/
 - rover_sim/
+- arm_viz/
+- arm_sim/
 
 # Python
 - __pycache__/
