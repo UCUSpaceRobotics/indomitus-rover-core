@@ -4,6 +4,10 @@
   <xacro:arg name="use_fake_hardware" default="true"/>
   <xacro:arg name="end_effector" default="jaw"/>
   <xacro:arg name="sim" default="false"/>
+  <!-- camera:=false drops the simulated camera sensor (the URDF link and
+       frames stay). Camera rendering is the main real-time-factor cost
+       when the GPU isn't doing the rendering. -->
+  <xacro:arg name="camera" default="true"/>
 
   <xacro:macro name="indomitus_arm" params="parent_link *origin">
 
@@ -316,6 +320,7 @@
         </visual>
       </gazebo>
 
+      <xacro:if value="$(arg camera)">
       <gazebo reference="arm_camera_link">
         <sensor name="arm_camera" type="camera">
           <pose>0 0 0.03 0 0 0</pose>
@@ -338,6 +343,7 @@
           <topic>arm_camera/image_raw</topic>
         </sensor>
       </gazebo>
+      </xacro:if>
     </xacro:if>
 
   </xacro:macro>

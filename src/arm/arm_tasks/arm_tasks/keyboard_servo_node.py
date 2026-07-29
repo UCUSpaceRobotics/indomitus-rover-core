@@ -520,6 +520,11 @@ class KeyboardInputLoop:
     def _handle_safe_pose(self):
         """Clear pressed keys, stop motion, and move to the safe pose.
 
+        Servo is only started if the safe-pose move actually succeeded;
+        starting it after a rejected/aborted/timed-out move would let the
+        operator resume Cartesian teleop from a pose that never reached the
+        intended safe configuration.
+
         Intended to run in its own thread (spawned from ``_read_loop``) so
         that the blocking safe-pose and servo-start calls do not stall
         keyboard event processing.
@@ -528,9 +533,11 @@ class KeyboardInputLoop:
             self._pressed.clear()
         self._controller.stop()
         print('Moving to safe pose...')
-        self._controller.move_to_safe_pose()
-        print('Starting servo...')
-        self._controller.start_servo()
+        if self._controller.move_to_safe_pose():
+            print('Starting servo...')
+            self._controller.start_servo()
+        else:
+            print('Safe pose failed — Servo not started.')
 
     def _read_loop(self):
         """Continuously read raw key events and update velocity/state.
