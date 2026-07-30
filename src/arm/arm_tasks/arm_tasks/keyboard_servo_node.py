@@ -19,6 +19,14 @@ Controls:
 
     r      — move to safe pose + start servo
     ESC/x  — exit
+
+Usage:
+    Real hardware / RViz mock-hardware demo (wall clock, conservative speeds):
+        ros2 run arm_tasks keyboard_servo_node
+
+    Gazebo sim (sim clock + faster speeds, see arm_sim/config/keyboard_servo_sim.yaml):
+        ros2 run arm_tasks keyboard_servo_node --ros-args \\
+            --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
 """
 
 import sys
@@ -32,6 +40,7 @@ from rclpy.action import ActionClient
 from geometry_msgs.msg import TwistStamped
 from std_msgs.msg import Int8
 from std_srvs.srv import Trigger
+from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
@@ -45,6 +54,7 @@ DEFAULT_PUBLISH_RATE  = 50.0
 DEFAULT_COMMAND_FRAME = 'arm_camera_link'
 DEFAULT_SAFE_POSE     = [0.0, 1.2, -1.0, 0.8, 0.5, 0.0]
 DEFAULT_KEYBOARD_DEVICE_PATH = '/dev/input/event3'
+DEFAULT_SAFE_POSE_TIMEOUT = 60.0
 
 SAFE_POSE_JOINTS = [
     'arm_mount_base_joint',
@@ -103,6 +113,7 @@ class ServoController(Node):
         self.declare_parameter('command_frame', DEFAULT_COMMAND_FRAME)
         self.declare_parameter('safe_pose',     DEFAULT_SAFE_POSE)
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
+        self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -110,6 +121,7 @@ class ServoController(Node):
         self._command_frame = self.get_parameter('command_frame').value
         self._safe_pose     = list(self.get_parameter('safe_pose').value)
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
+        self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
 
         self.vx = 0.0
         self.vy = 0.0
@@ -222,14 +234,20 @@ class ServoController(Node):
 
         Halts current velocity commands, confirms Servo has stopped, then
         sends a ``FollowJointTrajectory`` goal to move all joints to the
-        ``safe_pose`` parameter values over 3 seconds.
+        ``safe_pose`` parameter values over 3 seconds (of controller time,
+        i.e. sim time under Gazebo) and blocks until the controller reports
+        the goal finished, up to ``safe_pose_timeout`` wall-clock seconds
+        (<= 0 waits forever; the default is generous because under a slow
+        sim the trajectory legitimately takes longer in wall time). This
+        method runs on a dedicated thread, so waiting does not stall
+        keyboard handling.
 
         Returns:
-            bool: True if the trajectory goal was accepted and completed
-            (or its result was received) within the 8 second timeout;
-            False if Servo could not be confirmed stopped, the trajectory
-            action server was unavailable, the goal was rejected, or the
-            goal timed out.
+            bool: True if the controller reported the goal SUCCEEDED with
+            error code SUCCESSFUL; False if Servo could not be confirmed
+            stopped, the action server was unavailable, the goal was
+            rejected, the trajectory was aborted/canceled or finished with
+            a controller error, or no result arrived within the timeout.
         """
         self.stop()
 
@@ -258,6 +276,26 @@ class ServoController(Node):
         self.get_logger().info('Moving to safe pose...')
 
         done_event = threading.Event()
+        outcome = {'success': False, 'error': ''}
+
+        def result_cb(future):
+            """Record the trajectory result's status and error code."""
+            try:
+                wrapped = future.result()
+                result = wrapped.result
+                if (wrapped.status == GoalStatus.STATUS_SUCCEEDED
+                        and result.error_code == FollowJointTrajectory.Result.SUCCESSFUL):
+                    outcome['success'] = True
+                else:
+                    outcome['error'] = (
+                        f'goal status {wrapped.status}, '
+                        f'controller error code {result.error_code}'
+                        + (f' ({result.error_string})' if result.error_string else '')
+                    )
+            except Exception as e:
+                outcome['error'] = f'failed to read result: {e!r}'
+            finally:
+                done_event.set()
 
         def goal_response_cb(future):
             """Handle the trajectory action's goal-acceptance response.
@@ -266,23 +304,34 @@ class ServoController(Node):
                 future: Future resolving to the goal handle returned by
                     ``send_goal_async``.
             """
-            goal_handle = future.result()
+            try:
+                goal_handle = future.result()
+            except Exception as e:
+                goal_handle = None
+                outcome['error'] = f'goal request failed: {e!r}'
             if not goal_handle or not goal_handle.accepted:
-                self.get_logger().error('Goal rejected')
+                outcome['error'] = outcome['error'] or 'goal rejected'
                 done_event.set()
                 return
             result_future = goal_handle.get_result_async()
-            result_future.add_done_callback(lambda f: done_event.set())
+            result_future.add_done_callback(result_cb)
 
         future = self._traj_client.send_goal_async(goal)
         future.add_done_callback(goal_response_cb)
 
-        done = done_event.wait(timeout=8.0)
-        if done:
-            self.get_logger().info('Safe pose reached!')
-        else:
-            self.get_logger().warn('Safe pose timeout!')
-        return done
+        timeout = self._safe_pose_timeout if self._safe_pose_timeout > 0.0 else None
+        if not done_event.wait(timeout=timeout):
+            self.get_logger().warn(
+                f'No trajectory result within {self._safe_pose_timeout:.1f}s — '
+                'controller may be unresponsive '
+                '(raise the safe_pose_timeout parameter if the sim is just slow).'
+            )
+            return False
+        if not outcome['success']:
+            self.get_logger().error(f'Safe pose move failed: {outcome["error"]}')
+            return False
+        self.get_logger().info('Safe pose reached!')
+        return True
 
     def start_servo(self):
         """Asynchronously call the Servo ``start_servo`` service.
@@ -471,6 +520,11 @@ class KeyboardInputLoop:
     def _handle_safe_pose(self):
         """Clear pressed keys, stop motion, and move to the safe pose.
 
+        Servo is only started if the safe-pose move actually succeeded;
+        starting it after a rejected/aborted/timed-out move would let the
+        operator resume Cartesian teleop from a pose that never reached the
+        intended safe configuration.
+
         Intended to run in its own thread (spawned from ``_read_loop``) so
         that the blocking safe-pose and servo-start calls do not stall
         keyboard event processing.
@@ -479,9 +533,11 @@ class KeyboardInputLoop:
             self._pressed.clear()
         self._controller.stop()
         print('Moving to safe pose...')
-        self._controller.move_to_safe_pose()
-        print('Starting servo...')
-        self._controller.start_servo()
+        if self._controller.move_to_safe_pose():
+            print('Starting servo...')
+            self._controller.start_servo()
+        else:
+            print('Safe pose failed — Servo not started.')
 
     def _read_loop(self):
         """Continuously read raw key events and update velocity/state.
