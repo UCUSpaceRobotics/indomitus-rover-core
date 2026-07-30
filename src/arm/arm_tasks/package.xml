@@ -26,6 +26,7 @@
 <exec_depend>arm_description</exec_depend>
 
 <exec_depend>python3-evdev</exec_depend>
+<exec_depend>joy</exec_depend>
 
 <test_depend>ament_copyright</test_depend>
 <test_depend>ament_flake8</test_depend>

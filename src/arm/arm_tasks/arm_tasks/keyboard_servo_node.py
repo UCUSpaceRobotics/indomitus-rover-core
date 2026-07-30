@@ -20,6 +20,14 @@ Controls:
     r      — move to safe pose + start servo
     ESC/x  — exit
 
+Gamepad controls (via ros2 joy game_controller_node, e.g. Stadia controller):
+    Right stick      — forward/back, left/right  (X / Y axis)
+    Left stick       — yaw / pitch
+    L2 / R2          — roll
+    L2 / R2, Y held  — up / down
+    A                — move to safe pose + start servo
+    X                — exit
+
 Usage:
     Real hardware / RViz mock-hardware demo (wall clock, conservative speeds):
         ros2 run arm_tasks keyboard_servo_node
@@ -27,6 +35,10 @@ Usage:
     Gazebo sim (sim clock + faster speeds, see arm_sim/config/keyboard_servo_sim.yaml):
         ros2 run arm_tasks keyboard_servo_node --ros-args \\
             --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
+
+    Gamepad, any target (start the joystick driver first, then this node):
+        ros2 run joy game_controller_node
+        ros2 run arm_tasks gamepad_servo_node
 """
 
 import sys
@@ -38,6 +50,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import TwistStamped
+from sensor_msgs.msg import Joy
 from std_msgs.msg import Int8
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
@@ -627,22 +640,209 @@ class KeyboardInputLoop:
                 termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_term_settings)
 
 
-def main():
-    """Entry point: initialize ROS2, run the keyboard input loop, and clean up.
+GAMEPAD_HELP = """
+╔══════════════════════════════════════════════╗
+║      Gamepad Servo Control (camera frame)    ║
+╠══════════════════════════════════════════════╣
+║  Right stick      — forward / back (X)       ║
+║                     left / right   (Y)       ║
+║  Left stick       — yaw                      ║
+║                     pitch                    ║
+║  L2 / R2          — roll                     ║
+║  L2 / R2, Y held  — up / down      (Z)       ║
+║  A                — safe pose + servo        ║
+║  X                — exit                     ║
+╚══════════════════════════════════════════════╝
+"""
 
-    Initializes rclpy, creates the ``ServoController`` node, spins it in a
-    background daemon thread, then runs the blocking ``KeyboardInputLoop``
-    on the main thread. On exit (normal, via ESC/X, or ``KeyboardInterrupt``),
-    stops any motion, confirms Servo has stopped, destroys the node, and
-    shuts down rclpy.
+
+class GamepadInputLoop:
+    """Reads sensor_msgs/Joy messages and drives a ``ServoController``.
+
+    Replaces the raw-keyboard evdev input of ``KeyboardInputLoop`` with a
+    subscription to the ``joy`` package's ``/joy`` topic (published by
+    ``ros2 run joy game_controller_node``) — as this module's docstring
+    already promises, ``ServoController`` itself needs no changes.
+
+    Axis/button indices follow the standard SDL_GameController enum,
+    which ros2 joy's game_controller_node wraps directly — axes in the
+    order LEFTX, LEFTY, RIGHTX, RIGHTY, TRIGGERLEFT, TRIGGERRIGHT, and
+    buttons A, B, X, Y, BACK, GUIDE, START, LEFTSTICK, RIGHTSTICK, ...
+    This matches a live baseline read from a Stadia controller (6 axes,
+    20 buttons, all resting at 0), and axis 1 = left-stick-Y was
+    confirmed directly against hardware. The rest follow from the same
+    enum and are very likely correct, but confirm anything that doesn't
+    respond as expected via `ros2 topic echo /joy`.
     """
-    rclpy.init()
-    controller = ServoController()
 
+    AXIS_LEFT_X = 0     # yaw
+    AXIS_LEFT_Y = 1     # pitch
+    AXIS_RIGHT_X = 2    # left / right
+    AXIS_RIGHT_Y = 3    # forward / back
+    AXIS_L2 = 4         # roll (normal) / down (Y held) — negative half of the pair
+    AXIS_R2 = 5         # roll (normal) / up (Y held)   — positive half of the pair
+
+    BUTTON_SAFE_POSE = 0   # 'A' — move to safe pose + start servo
+    BUTTON_Y = 3           # 'Y' — held to shift L2 / R2 from roll to up / down
+    BUTTON_EXIT = 2        # 'X' — exit
+
+    _DEADZONE = 0.15
+
+    def __init__(self, controller: 'ServoController'):
+        """Store a reference to the controller and subscribe to ``/joy``.
+
+        Args:
+            controller: The ``ServoController`` node that will receive
+                velocity commands derived from gamepad input. Its own
+                ``create_subscription`` is reused for the ``/joy`` topic
+                so the callback runs on the node's existing executor —
+                no separate thread is needed, unlike the keyboard's
+                blocking evdev read loop.
+        """
+        self._controller = controller
+        self._linear_speed = controller.linear_speed
+        self._angular_speed = controller.angular_speed
+        self._exit_event = threading.Event()
+        self._prev_buttons = []
+        self._shift_armed = {self.BUTTON_Y: False}
+        self._safe_pose_running = threading.Lock()
+        self._prev_active = (False,) * 6
+        self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
+
+    @classmethod
+    def _deadzone(cls, value: float) -> float:
+        """Zero out small stick values so resting drift doesn't creep the arm."""
+        return 0.0 if abs(value) < cls._DEADZONE else value
+
+    def _axis(self, axes, index: int) -> float:
+        """Return ``axes[index]`` with deadzone applied, or 0.0 if out of range."""
+        if index >= len(axes):
+            return 0.0
+        return self._deadzone(axes[index])
+
+    def _button_pressed(self, buttons, index: int) -> bool:
+        """Return True if ``buttons[index]`` is currently held down."""
+        return index < len(buttons) and buttons[index] == 1
+
+    def _button_rising_edge(self, buttons, index: int) -> bool:
+        """Return True if ``buttons[index]`` was just pressed this message."""
+        was_pressed = index < len(self._prev_buttons) and self._prev_buttons[index] == 1
+        return self._button_pressed(buttons, index) and not was_pressed
+
+    def _route(self, shift_button: int, held: bool, raw_value: float):
+        """Route one combined trigger value to a (normal, shifted) pair.
+
+        While ``shift_button`` is not held, ``raw_value`` is returned as
+        ``(raw_value, 0.0)``. While held, it's routed to the second slot
+        instead — but only once ``raw_value`` has passed back through the
+        deadzone since the button was pressed (i.e. L2/R2 have been let
+        go back to neutral at least once since Y was pressed), returning
+        ``(0.0, 0.0)`` until then. This is what prevents an already-held
+        trigger from producing a velocity jump the instant Y is pressed.
+        Disarmed again as soon as ``shift_button`` is released.
+        """
+        if not held:
+            self._shift_armed[shift_button] = False
+            return raw_value, 0.0
+        if not self._shift_armed[shift_button]:
+            if raw_value == 0.0:
+                self._shift_armed[shift_button] = True
+            return 0.0, 0.0
+        return 0.0, raw_value
+
+    @staticmethod
+    def _active_label(vx, vy, vz, wx, wy, wz, y_held: bool) -> str:
+        """Describe which physical control(s) are driving a nonzero command.
+
+        Mirrors KeyboardInputLoop's per-key name in the feedback line,
+        generalized to gamepad axes (several of which can be active at
+        once, e.g. a diagonally-pushed stick).
+        """
+        parts = []
+        if vx or vy:
+            parts.append('right stick')
+        if wy or wz:
+            parts.append('left stick')
+        if wx:
+            parts.append('L2/R2')
+        if vz:
+            parts.append('Y+L2/R2')
+        return '+'.join(parts) if parts else ('Y' if y_held else 'idle')
+
+    def _on_joy(self, msg: Joy):
+        """Translate one Joy snapshot into a velocity command and edge-triggered actions."""
+        axes = msg.axes
+        buttons = msg.buttons
+
+        vy = self._axis(axes, self.AXIS_RIGHT_X) * self._linear_speed
+        vx = self._axis(axes, self.AXIS_RIGHT_Y) * self._linear_speed
+
+        wz = self._axis(axes, self.AXIS_LEFT_X) * self._angular_speed
+        wy = self._axis(axes, self.AXIS_LEFT_Y) * self._angular_speed
+
+        trigger_diff = self._axis(axes, self.AXIS_R2) - self._axis(axes, self.AXIS_L2)
+        y_held = self._button_pressed(buttons, self.BUTTON_Y)
+        roll, updown = self._route(self.BUTTON_Y, y_held, trigger_diff)
+        wx = roll * self._angular_speed
+        vz = updown * self._linear_speed
+
+        self._controller.set_velocity(vx, vy, vz, wx, wy, wz)
+
+        active = (vx != 0.0, vy != 0.0, vz != 0.0, wx != 0.0, wy != 0.0, wz != 0.0)
+        if active != self._prev_active and any(active):
+            label = self._active_label(vx, vy, vz, wx, wy, wz, y_held)
+            print(f'{label} vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
+                  f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
+        self._prev_active = active
+
+        if self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE):
+            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+
+        if self._button_rising_edge(buttons, self.BUTTON_EXIT):
+            self._exit_event.set()
+
+        self._prev_buttons = list(buttons)
+
+    def _handle_safe_pose(self):
+        """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
+
+        Guarded by a non-blocking lock so a second button press while a
+        move is already in progress is ignored instead of racing a
+        redundant safe-pose goal against the first.
+        """
+        if not self._safe_pose_running.acquire(blocking=False):
+            return
+        try:
+            self._controller.stop()
+            print('Moving to safe pose...')
+            if self._controller.move_to_safe_pose():
+                print('Starting servo...')
+                self._controller.start_servo()
+            else:
+                print('Safe pose failed — Servo not started.')
+        finally:
+            self._safe_pose_running.release()
+
+    def run(self):
+        """Print the help banner and block until the exit button is pressed."""
+        print(GAMEPAD_HELP)
+        try:
+            self._exit_event.wait()
+        finally:
+            print('\nExiting...')
+            self._controller.stop()
+
+
+def _run_teleop(controller: 'ServoController', input_loop) -> None:
+    """Spin ``controller`` in a background thread and run ``input_loop`` until exit.
+
+    Shared by ``main`` (keyboard) and ``main_gamepad`` (gamepad): both
+    input loops expose the same ``run()`` contract (block until an exit
+    condition, leave the controller stopped), so the ROS lifecycle
+    around them doesn't need to be duplicated per input source.
+    """
     spin_thread = threading.Thread(target=rclpy.spin, args=(controller,), daemon=True)
     spin_thread.start()
-
-    input_loop = KeyboardInputLoop(controller)
 
     try:
         input_loop.run()
@@ -657,6 +857,28 @@ def main():
             )
         controller.destroy_node()
         rclpy.shutdown()
+
+
+def main():
+    """Entry point: initialize ROS2, run the keyboard input loop, and clean up.
+
+    See ``_run_teleop`` for the shared spin/cleanup lifecycle.
+    """
+    rclpy.init()
+    controller = ServoController()
+    _run_teleop(controller, KeyboardInputLoop(controller))
+
+
+def main_gamepad():
+    """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
+
+    Requires a running ``joy`` publisher (``ros2 run joy
+    game_controller_node``). See ``_run_teleop`` for the shared
+    spin/cleanup lifecycle.
+    """
+    rclpy.init()
+    controller = ServoController()
+    _run_teleop(controller, GamepadInputLoop(controller))
 
 
 if __name__ == '__main__':
