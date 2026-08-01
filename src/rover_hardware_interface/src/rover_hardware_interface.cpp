@@ -372,6 +372,29 @@ RoverHardwareInterface::write(
 
 // SocketCAN — open / close / send
 
+void RoverHardwareInterface::on_can_error(const struct can_frame & frame)
+{
+    // frame.data[1] holds controller-problem bits when CAN_ERR_CRTL is set
+    if (frame.can_id & CAN_ERR_BUSOFF) {
+        bus_state_.store(CanBusState::BUS_OFF);
+        RCLCPP_ERROR(logger_, "[RoverHW] CAN bus-off detected on %s", can_interface_.c_str());
+    } else if (frame.can_id & CAN_ERR_CRTL) {
+        if (frame.data[1] & CAN_ERR_CRTL_TX_PASSIVE ||
+            frame.data[1] & CAN_ERR_CRTL_RX_PASSIVE) {
+            bus_state_.store(CanBusState::ERROR_PASSIVE);
+            RCLCPP_WARN(logger_, "[RoverHW] CAN controller error-passive");
+        } else if (frame.data[1] & CAN_ERR_CRTL_TX_WARNING ||
+                   frame.data[1] & CAN_ERR_CRTL_RX_WARNING) {
+            bus_state_.store(CanBusState::ERROR_WARNING);
+        }
+        tx_error_count_.store(frame.data[6]);
+        rx_error_count_.store(frame.data[7]);
+    } else if (frame.can_id & CAN_ERR_RESTARTED) {
+        bus_state_.store(CanBusState::OK);
+        RCLCPP_INFO(logger_, "[RoverHW] CAN interface auto-restarted, bus recovered");
+    }
+}
+
 bool RoverHardwareInterface::open_can_socket()
 {
     can_fd_ = socket(PF_CAN, SOCK_RAW, CAN_RAW);
@@ -380,6 +403,11 @@ bool RoverHardwareInterface::open_can_socket()
             "[RoverHW] socket(PF_CAN) failed: %s", std::strerror(errno));
         return false;
     }
+
+    can_err_mask_t err_mask = CAN_ERR_TX_TIMEOUT | CAN_ERR_LOSTARB | CAN_ERR_CRTL |
+        CAN_ERR_PROT | CAN_ERR_TRX | CAN_ERR_ACK | CAN_ERR_BUSOFF  |
+        CAN_ERR_BUSERROR | CAN_ERR_RESTARTED;
+    setsockopt(can_fd_, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &err_mask, sizeof(err_mask));
 
     // Bind to the named CAN interface
     struct ifreq ifr{};
@@ -423,7 +451,7 @@ void RoverHardwareInterface::close_can_socket()
     }
 }
 
-bool RoverHardwareInterface::send_can_frame(
+CanSendResult RoverHardwareInterface::send_can_frame(
     uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended)
 {
     if (can_fd_ < 0) return false;
@@ -435,12 +463,28 @@ bool RoverHardwareInterface::send_can_frame(
 
     std::lock_guard<std::mutex> lock(can_tx_mutex_);
     const ssize_t nbytes = ::write(can_fd_, &frame, sizeof(frame));
-    if (nbytes != static_cast<ssize_t>(sizeof(frame))) {
-        RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
-            "[RoverHW] send_can_frame id=0x%X failed: %s", id, std::strerror(errno));
-        return false;
+    if (nbytes == static_cast<ssize_t>(sizeof(frame))) {
+        return CanSendResult::OK;
     }
-    return true;
+
+    if (errno == ENOBUFS || errno == EAGAIN) {
+        return CanSendResult::WOULD_BLOCK;   // tx queue full, transient
+    }
+    if (errno == ENETDOWN) {
+        bus_state_.store(CanBusState::BUS_OFF);
+        return CanSendResult::BUS_DOWN;
+    }
+    
+    RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
+        "[RoverHW] send_can_frame id=0x%X failed: %s", id, std::strerror(errno));
+    return CanSendResult::ERROR;
+
+    // if (nbytes != static_cast<ssize_t>(sizeof(frame))) {
+    //     RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
+    //         "[RoverHW] send_can_frame id=0x%X failed: %s", id, std::strerror(errno));
+    //     return false;
+    // }
+    // return true;
 }
 
 // rx_thread_fn — blocking receive loop
@@ -464,6 +508,11 @@ void RoverHardwareInterface::rx_thread_fn()
         }
 
         if (nbytes != static_cast<ssize_t>(sizeof(frame))) continue;
+
+        if (frame.can_id & CAN_ERR_FLAG) {
+            on_can_error(frame);
+            continue;  // don't pass error frames to dispatch_can_frame
+        }
 
         // Strip flags from CAN ID before dispatch
         const uint32_t raw_id = frame.can_id & CAN_EFF_MASK;
