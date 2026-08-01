@@ -37,10 +37,16 @@ Usage:
             --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
 
     Gamepad, any target (start the joystick driver first, then this node):
-        ros2 run joy game_controller_node
+        ros2 run arm_tasks gamepad_joy_driver
         ros2 run arm_tasks gamepad_servo_node
+
+    ``gamepad_joy_driver`` is a thin wrapper around ``ros2 run joy
+    game_controller_node`` — see ``main_gamepad_joy_driver`` below for
+    why a plain ``ros2 run joy game_controller_node`` isn't enough for
+    this specific controller over Bluetooth.
 """
 
+import os
 import sys
 import threading
 import termios
@@ -60,6 +66,29 @@ from builtin_interfaces.msg import Duration
 import evdev
 from evdev import ecodes
 
+
+# SDL's built-in mapping for this controller (GUID
+# 03000000d11800000094000011010000, name "Google Stadia Controller") only
+# matches it over USB. Over Bluetooth the same physical controller gets a
+# different GUID (05000000d11800000094000000010000 — same vendor/product,
+# different bus-type byte), which has no built-in entry, and SDL's
+# automatic fallback mapping for it is broken: confirmed live via a
+# standalone SDL2 test program dumping SDL_GameControllerMapping() that it
+# never maps rightx/righty at all, and instead assigns lefttrigger and
+# righttrigger to the right stick's raw axes (a2/a3). This override is
+# that same auto-generated mapping, corrected: rightx/righty restored on
+# their real raw axes, and the triggers moved to their real raw axes
+# (a4/a5, confirmed via `ros2 topic echo /joy` and raw evdev ABS values).
+# Harmless over USB, where the built-in mapping already wins for its own
+# (different) GUID.
+STADIA_BLUETOOTH_MAPPING = (
+    "05000000d11800000094000000010000,StadiaBFRY-fe89,"
+    "a:b0,b:b1,x:b2,y:b3,back:b6,guide:b8,start:b7,"
+    "leftstick:b9,rightstick:b10,leftshoulder:b4,rightshoulder:b5,"
+    "dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,"
+    "leftx:a0,lefty:a1,rightx:a2,righty:a3,"
+    "lefttrigger:a4,righttrigger:a5,platform:Linux"
+)
 
 DEFAULT_LINEAR_SPEED  = 0.1
 DEFAULT_ANGULAR_SPEED = 0.3
@@ -652,14 +681,6 @@ GAMEPAD_HELP = """
 ║  L2 / R2, Y held  — up / down      (Z)       ║
 ║  A                — safe pose + servo        ║
 ║  X                — exit                     ║
-╠══════════════════════════════════════════════╣
-║  Press A once at startup: sticks/triggers    ║
-║  are ignored until the safe-pose move        ║
-║  succeeds. After that, a /joy dropout (e.g.  ║
-║  Bluetooth reconnect) just pauses motion,    ║
-║  then auto-resumes from the current position ║
-║  as soon as a clean centered reading comes   ║
-║  in — no button, no trip back to safe pose.  ║
 ╚══════════════════════════════════════════════╝
 """
 
@@ -719,7 +740,15 @@ class GamepadInputLoop:
         self._linear_speed = controller.linear_speed
         self._angular_speed = controller.angular_speed
         self._exit_event = threading.Event()
-        self._prev_buttons = []
+        # None means "no trustworthy baseline yet" — the first message
+        # after startup or after a /joy dropout is used only to seed
+        # this, never to fire a rising-edge action. Buttons can read
+        # garbage on that first message just like axes do (observed
+        # live: X came back as "pressed" on reconnect with nobody
+        # touching it, immediately exiting gamepad_servo_node instead
+        # of being ignored like a real accidental press would need a
+        # real prior "not pressed" reading to compare against).
+        self._prev_buttons = None
         self._shift_armed = {self.BUTTON_Y: False}
         self._safe_pose_running = threading.Lock()
         self._safe_pose_active = False
@@ -772,7 +801,14 @@ class GamepadInputLoop:
         return index < len(buttons) and buttons[index] == 1
 
     def _button_rising_edge(self, buttons, index: int) -> bool:
-        """Return True if ``buttons[index]`` was just pressed this message."""
+        """Return True if ``buttons[index]`` was just pressed this message.
+
+        Requires a real previous reading — see ``_prev_buttons`` in
+        ``__init__`` for why ``None`` (no baseline yet) always reports
+        no edge rather than comparing against an assumed all-zero state.
+        """
+        if self._prev_buttons is None:
+            return False
         was_pressed = index < len(self._prev_buttons) and self._prev_buttons[index] == 1
         return self._button_pressed(buttons, index) and not was_pressed
 
@@ -836,6 +872,7 @@ class GamepadInputLoop:
             if not self._joy_silent:
                 self._joy_silent = True
                 self._joy_settling = True
+                self._prev_buttons = None
                 self._controller.get_logger().warn(
                     f'/joy timed out after {elapsed:.2f}s — stopping arm.'
                 )
@@ -987,13 +1024,34 @@ def main():
 def main_gamepad():
     """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
 
-    Requires a running ``joy`` publisher (``ros2 run joy
-    game_controller_node``). See ``_run_teleop`` for the shared
-    spin/cleanup lifecycle.
+    Requires a running ``joy`` publisher — use ``gamepad_joy_driver``
+    (below), not a plain ``ros2 run joy game_controller_node``, or the
+    Bluetooth axis mapping fix won't be applied. See ``_run_teleop`` for
+    the shared spin/cleanup lifecycle.
     """
     rclpy.init()
     controller = ServoController()
     _run_teleop(controller, GamepadInputLoop(controller))
+
+
+def main_gamepad_joy_driver():
+    """Entry point: run ``joy``'s ``game_controller_node`` with a fixed
+    Bluetooth mapping for the Stadia controller.
+
+    A drop-in replacement for ``ros2 run joy game_controller_node`` —
+    sets ``SDL_GAMECONTROLLERCONFIG`` (see ``STADIA_BLUETOOTH_MAPPING``)
+    before exec'ing the real node, so the override is always in effect
+    without the operator having to remember to export it by hand each
+    time (it only lives for the lifetime of the process it's exported
+    into, so a plain ``ros2 run joy game_controller_node`` picks up
+    SDL's broken auto-generated Bluetooth mapping again every time).
+    Uses ``os.execvp`` rather than a subprocess so this process directly
+    becomes ``game_controller_node`` — signals (e.g. Ctrl+C) and process
+    lifetime behave exactly as if it had been started directly, with no
+    extra wrapper process left in between.
+    """
+    os.environ['SDL_GAMECONTROLLERCONFIG'] = STADIA_BLUETOOTH_MAPPING
+    os.execvp('ros2', ['ros2', 'run', 'joy', 'game_controller_node'])
 
 
 if __name__ == '__main__':
