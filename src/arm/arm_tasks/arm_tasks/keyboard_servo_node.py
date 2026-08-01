@@ -652,6 +652,14 @@ GAMEPAD_HELP = """
 ║  L2 / R2, Y held  — up / down      (Z)       ║
 ║  A                — safe pose + servo        ║
 ║  X                — exit                     ║
+╠══════════════════════════════════════════════╣
+║  Press A once at startup: sticks/triggers    ║
+║  are ignored until the safe-pose move        ║
+║  succeeds. After that, a /joy dropout (e.g.  ║
+║  Bluetooth reconnect) just pauses motion,    ║
+║  then auto-resumes from the current position ║
+║  as soon as a clean centered reading comes   ║
+║  in — no button, no trip back to safe pose.  ║
 ╚══════════════════════════════════════════════╝
 """
 
@@ -664,29 +672,37 @@ class GamepadInputLoop:
     ``ros2 run joy game_controller_node``) — as this module's docstring
     already promises, ``ServoController`` itself needs no changes.
 
-    Axis/button indices follow the standard SDL_GameController enum,
-    which ros2 joy's game_controller_node wraps directly — axes in the
-    order LEFTX, LEFTY, RIGHTX, RIGHTY, TRIGGERLEFT, TRIGGERRIGHT, and
-    buttons A, B, X, Y, BACK, GUIDE, START, LEFTSTICK, RIGHTSTICK, ...
-    This matches a live baseline read from a Stadia controller (6 axes,
-    20 buttons, all resting at 0), and axis 1 = left-stick-Y was
-    confirmed directly against hardware. The rest follow from the same
-    enum and are very likely correct, but confirm anything that doesn't
-    respond as expected via `ros2 topic echo /joy`.
+    Axis/button indices match SDL2's built-in mapping for this exact
+    controller (GUID 03000000d11800000094000011010000, name "Google
+    Stadia Controller" — confirmed by dumping strings from
+    libSDL2-2.0.so.0: "leftx:a0,lefty:a1,rightx:a2,righty:a3,
+    righttrigger:a4,lefttrigger:a5,a:b0,x:b2,y:b3,..."), which only
+    applies when game_controller_node opens the device under that
+    identity. Over Bluetooth this controller has also been observed
+    reconnecting under an unmapped raw name ("StadiaBFRY-fe89") that
+    does NOT get this mapping and produces unusable/garbage axis data
+    — that is a pairing problem to fix at the OS level (re-pair the
+    device), not something these indices can compensate for. A wired
+    USB connection reliably opens under the mapped identity and was
+    used to confirm this exact axis order live via `ros2 topic echo
+    /joy`, including that L2/R2 are TRIGGERLEFT/TRIGGERRIGHT — i.e.
+    swapped relative to a naive "L2 first" numbering.
     """
 
     AXIS_LEFT_X = 0     # yaw
     AXIS_LEFT_Y = 1     # pitch
     AXIS_RIGHT_X = 2    # left / right
     AXIS_RIGHT_Y = 3    # forward / back
-    AXIS_L2 = 4         # roll (normal) / down (Y held) — negative half of the pair
-    AXIS_R2 = 5         # roll (normal) / up (Y held)   — positive half of the pair
+    AXIS_R2 = 4         # roll (normal) / down (Y held) — negative half of the pair
+    AXIS_L2 = 5         # roll (normal) / up (Y held)   — positive half of the pair
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to safe pose + start servo
     BUTTON_Y = 3           # 'Y' — held to shift L2 / R2 from roll to up / down
     BUTTON_EXIT = 2        # 'X' — exit
 
     _DEADZONE = 0.15
+    _JOY_TIMEOUT_SEC = 0.2
+    _WATCHDOG_PERIOD_SEC = 0.1
 
     def __init__(self, controller: 'ServoController'):
         """Store a reference to the controller and subscribe to ``/joy``.
@@ -706,8 +722,39 @@ class GamepadInputLoop:
         self._prev_buttons = []
         self._shift_armed = {self.BUTTON_Y: False}
         self._safe_pose_running = threading.Lock()
+        self._safe_pose_active = False
         self._prev_active = (False,) * 6
+
+        # Teleop (axes -> velocity) is locked out until the first
+        # safe-pose move (A) completes — Servo hasn't been started yet
+        # at that point, so nothing would move anyway, and the arm's
+        # real-world pose is unknown to this process until then. This
+        # is a one-time latch: once armed it stays armed, including
+        # across /joy dropouts (e.g. a Bluetooth reconnect) — there is
+        # no re-arm button and no trip back to the fixed safe pose.
+        self._last_joy_time = None
+        self._joy_silent = False
+        self._teleop_locked = True
+
+        # A dropout (watchdog timeout below) does NOT re-lock teleop,
+        # but it does set this: the first /joy message(s) after a
+        # dropout are known-unreliable in practice (observed live: the
+        # left stick reporting full deflection for several messages
+        # right after "/joy resumed", with nothing touched) — likely
+        # SDL's controller state not having settled yet right after
+        # re-opening the device. So instead of acting on them, we force
+        # zero velocity and wait, with no timeout, until one message
+        # reports every monitored axis centered — then resume normally
+        # from wherever the arm already is. No button, no safe pose;
+        # on a healthy connection this clears within a message or two
+        # and is invisible. If it never clears, that's a genuinely bad
+        # connection and the arm staying stopped is the correct outcome.
+        self._joy_settling = False
+
         self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
+        self._watchdog_timer = controller.create_timer(
+            self._WATCHDOG_PERIOD_SEC, self._check_joy_timeout
+        )
 
     @classmethod
     def _deadzone(cls, value: float) -> float:
@@ -769,10 +816,71 @@ class GamepadInputLoop:
             parts.append('Y+L2/R2')
         return '+'.join(parts) if parts else ('Y' if y_held else 'idle')
 
+    def _check_joy_timeout(self):
+        """Stop the arm if no ``/joy`` message has arrived recently.
+
+        Runs on the node's own timer, independent of message arrival, so
+        a disconnected controller or a dead ``game_controller_node`` can't
+        leave the last commanded velocity republishing forever — Servo's
+        own command timeout does not help here because ServoController
+        keeps re-publishing that last twist every tick regardless of
+        whether new input has arrived. This only zeroes the current
+        command; it does not lock teleop out, so control resumes on its
+        own the moment ``/joy`` messages start arriving again (e.g. a
+        Bluetooth reconnect) — no separate re-arm step.
+        """
+        if self._last_joy_time is None:
+            return
+        elapsed = (self._controller.get_clock().now() - self._last_joy_time).nanoseconds / 1e9
+        if elapsed > self._JOY_TIMEOUT_SEC:
+            if not self._joy_silent:
+                self._joy_silent = True
+                self._joy_settling = True
+                self._controller.get_logger().warn(
+                    f'/joy timed out after {elapsed:.2f}s — stopping arm.'
+                )
+            self._controller.stop()
+
     def _on_joy(self, msg: Joy):
         """Translate one Joy snapshot into a velocity command and edge-triggered actions."""
         axes = msg.axes
         buttons = msg.buttons
+
+        if self._joy_silent:
+            self._joy_silent = False
+            self._controller.get_logger().info('/joy resumed.')
+        self._last_joy_time = self._controller.get_clock().now()
+
+        # Button edges are always processed, even while teleop is locked
+        # out — buttons are digital (no analog drift), and the safe-pose
+        # button is the only way to clear the lock, so it must keep
+        # working while locked or the arm could never be armed at all.
+        safe_pose_pressed = self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE)
+        exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
+        self._prev_buttons = list(buttons)
+
+        if exit_pressed:
+            self._exit_event.set()
+
+        if safe_pose_pressed:
+            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+
+        if self._teleop_locked or self._safe_pose_active:
+            self._controller.stop()
+            return
+
+        if self._joy_settling:
+            centered = all(
+                self._axis(axes, i) == 0.0
+                for i in (self.AXIS_LEFT_X, self.AXIS_LEFT_Y,
+                          self.AXIS_RIGHT_X, self.AXIS_RIGHT_Y,
+                          self.AXIS_L2, self.AXIS_R2)
+            )
+            self._controller.stop()
+            if centered:
+                self._joy_settling = False
+                self._controller.get_logger().info('Sticks centered — resuming control.')
+            return
 
         vy = self._axis(axes, self.AXIS_RIGHT_X) * self._linear_speed
         vx = self._axis(axes, self.AXIS_RIGHT_Y) * self._linear_speed
@@ -795,32 +903,39 @@ class GamepadInputLoop:
                   f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
         self._prev_active = active
 
-        if self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE):
-            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
-
-        if self._button_rising_edge(buttons, self.BUTTON_EXIT):
-            self._exit_event.set()
-
-        self._prev_buttons = list(buttons)
-
     def _handle_safe_pose(self):
         """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
 
         Guarded by a non-blocking lock so a second button press while a
         move is already in progress is ignored instead of racing a
-        redundant safe-pose goal against the first.
+        redundant safe-pose goal against the first. Also sets
+        ``_safe_pose_active`` for the duration so ``_on_joy`` ignores
+        stick/trigger input while it's set — otherwise a stick held
+        during the move would resume Cartesian motion the instant
+        ``start_servo()`` re-enables Servo, before the operator has a
+        chance to let go.
+
+        This is also the *only* place ``_teleop_locked`` is cleared. It's
+        a one-time latch: once cleared, a later ``/joy`` dropout does not
+        set it again (see ``_check_joy_timeout``), so control resumes
+        from wherever the arm already is on reconnect, with no repeat
+        trip back to the fixed safe pose.
         """
         if not self._safe_pose_running.acquire(blocking=False):
             return
+        self._safe_pose_active = True
         try:
             self._controller.stop()
             print('Moving to safe pose...')
             if self._controller.move_to_safe_pose():
                 print('Starting servo...')
                 self._controller.start_servo()
+                self._teleop_locked = False
+                self._controller.get_logger().info('Teleop enabled.')
             else:
                 print('Safe pose failed — Servo not started.')
         finally:
+            self._safe_pose_active = False
             self._safe_pose_running.release()
 
     def run(self):
