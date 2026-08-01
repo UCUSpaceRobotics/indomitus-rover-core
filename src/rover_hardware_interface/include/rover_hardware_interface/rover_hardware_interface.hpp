@@ -75,9 +75,16 @@ public:
 private:
     // SocketCAN
 
+    enum class CanSendResult { OK, WOULD_BLOCK, BUS_DOWN, ERROR };
+    enum class CanBusState { OK, ERROR_WARNING, ERROR_PASSIVE, BUS_OFF };
+    std::atomic<CanBusState> bus_state_{CanBusState::OK};
+    std::atomic<int> tx_error_count_{0};
+    std::atomic<int> rx_error_count_{0};
+
+    void on_can_error(const struct can_frame & frame);
     bool open_can_socket();
     void close_can_socket();
-    bool send_can_frame(uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended = false);
+    CanSendResult send_can_frame(uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended = false);
 
     std::mutex can_tx_mutex_;
 
