@@ -34,4 +34,5 @@ services:
       - SDL_AUDIODRIVER=dummy
     volumes:
       - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
+      - /dev/input:/dev/input:rw
       - /run/udev:/run/udev:ro
