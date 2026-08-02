@@ -19,6 +19,13 @@ def generate_launch_description():
         description="Full path to the Scan Filter parameters file",
     )
 
+    namespace_val = LaunchConfiguration("namespace")
+    namespace_arg = DeclareLaunchArgument(
+        "namespace",
+        default_value="rplidar",
+        description="Namespace to prevent topic collisions",
+    )
+
     custom_config_file_present = NotEqualsSubstitution(config_file_val, "")
     config_file = IfElseSubstitution(
         custom_config_file_present,
@@ -28,16 +35,14 @@ def generate_launch_description():
 
     return LaunchDescription([
         config_file_arg,
+        namespace_arg,
 
         Node(
             package="laser_filters",
             executable="scan_to_scan_filter_chain",
             name="laser_filter_node",
+            namespace=namespace_val,
             output="screen",
             parameters=[config_file],
-            remappings=[
-                ("scan", "/rplidar/scan"),
-                ("scan_filtered", "/rplidar/scan_filtered"),
-            ],
         ),
     ])
