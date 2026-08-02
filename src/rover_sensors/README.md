@@ -4,6 +4,7 @@
 
 The package should contain:
 
+* nodes source code
 * sensor node source code
 * launch files for running sensors separately
 * launch files for running multiple sensors together
@@ -11,10 +12,15 @@ The package should contain:
 
 Currently supported sensors:
 
-| Sensor     | Node           | Launch file            | Status      |
-| ---------- | -------------- | ---------------------- | ----------- |
-| RPLIDAR S2 | `rplidar_node` | `rplidar_s2.launch.py` | Implemented |
-| ZED2i Stereo Camera | `zed_camera` | `zed2i.launch.py` | Implemented |
+| Sensor     | Node           | Launch file            | Documentation |
+| ---------- | -------------- | ---------------------- | ---------------------- |
+| RPLIDAR S2 | `rplidar_node` | `rplidar_s2.launch.py` | [rplidar_s2.md](docs/rplidar_s2.md) |
+| ZED2i Stereo Camera | `zed_camera` | `zed2i.launch.py` | - |
+
+Additional nodes:
+| Node               | Launch file             | Description |
+| ------------------ | ----------------------- | ----------- |
+| `scan_filter_node` | `scan_filter.launch.py` | Node for filtering out rover parts seen by the LiDAR |
 
 ---
 
