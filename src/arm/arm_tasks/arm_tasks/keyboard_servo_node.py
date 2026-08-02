@@ -20,7 +20,7 @@ Controls:
     r      — move to safe pose + start servo
     ESC/x  — exit
 
-Gamepad controls (via ros2 joy game_controller_node, e.g. Stadia controller):
+Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller):
     Right stick      — forward/back, left/right  (X / Y axis)
     Left stick       — yaw / pitch
     L2 / R2          — roll
@@ -41,9 +41,8 @@ Usage:
         ros2 run arm_tasks gamepad_servo_node
 
     ``gamepad_joy_driver`` is a thin wrapper around ``ros2 run joy
-    game_controller_node`` — see ``main_gamepad_joy_driver`` below for
-    why a plain ``ros2 run joy game_controller_node`` isn't enough for
-    this specific controller over Bluetooth.
+    joy_node`` — see ``main_gamepad_joy_driver`` below for why this is
+    used instead of ``game_controller_node``.
 """
 
 import os
@@ -66,29 +65,6 @@ from builtin_interfaces.msg import Duration
 import evdev
 from evdev import ecodes
 
-
-# SDL's built-in mapping for this controller (GUID
-# 03000000d11800000094000011010000, name "Google Stadia Controller") only
-# matches it over USB. Over Bluetooth the same physical controller gets a
-# different GUID (05000000d11800000094000000010000 — same vendor/product,
-# different bus-type byte), which has no built-in entry, and SDL's
-# automatic fallback mapping for it is broken: confirmed live via a
-# standalone SDL2 test program dumping SDL_GameControllerMapping() that it
-# never maps rightx/righty at all, and instead assigns lefttrigger and
-# righttrigger to the right stick's raw axes (a2/a3). This override is
-# that same auto-generated mapping, corrected: rightx/righty restored on
-# their real raw axes, and the triggers moved to their real raw axes
-# (a4/a5, confirmed via `ros2 topic echo /joy` and raw evdev ABS values).
-# Harmless over USB, where the built-in mapping already wins for its own
-# (different) GUID.
-STADIA_BLUETOOTH_MAPPING = (
-    "05000000d11800000094000000010000,StadiaBFRY-fe89,"
-    "a:b0,b:b1,x:b2,y:b3,back:b6,guide:b8,start:b7,"
-    "leftstick:b9,rightstick:b10,leftshoulder:b4,rightshoulder:b5,"
-    "dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,"
-    "leftx:a0,lefty:a1,rightx:a2,righty:a3,"
-    "lefttrigger:a4,righttrigger:a5,platform:Linux"
-)
 
 DEFAULT_LINEAR_SPEED  = 0.1
 DEFAULT_ANGULAR_SPEED = 0.3
@@ -690,32 +666,42 @@ class GamepadInputLoop:
 
     Replaces the raw-keyboard evdev input of ``KeyboardInputLoop`` with a
     subscription to the ``joy`` package's ``/joy`` topic (published by
-    ``ros2 run joy game_controller_node``) — as this module's docstring
-    already promises, ``ServoController`` itself needs no changes.
+    ``ros2 run joy joy_node``, via the ``gamepad_joy_driver`` entry
+    point) — as this module's docstring already promises,
+    ``ServoController`` itself needs no changes.
 
-    Axis/button indices match SDL2's built-in mapping for this exact
-    controller (GUID 03000000d11800000094000011010000, name "Google
-    Stadia Controller" — confirmed by dumping strings from
-    libSDL2-2.0.so.0: "leftx:a0,lefty:a1,rightx:a2,righty:a3,
-    righttrigger:a4,lefttrigger:a5,a:b0,x:b2,y:b3,..."), which only
-    applies when game_controller_node opens the device under that
-    identity. Over Bluetooth this controller has also been observed
-    reconnecting under an unmapped raw name ("StadiaBFRY-fe89") that
-    does NOT get this mapping and produces unusable/garbage axis data
-    — that is a pairing problem to fix at the OS level (re-pair the
-    device), not something these indices can compensate for. A wired
-    USB connection reliably opens under the mapped identity and was
-    used to confirm this exact axis order live via `ros2 topic echo
-    /joy`, including that L2/R2 are TRIGGERLEFT/TRIGGERRIGHT — i.e.
-    swapped relative to a naive "L2 first" numbering.
+    ``joy_node`` (rather than ``game_controller_node``) is used
+    deliberately: ``game_controller_node`` goes through SDL, which maps
+    raw axes to named controls via a mapping database keyed by a GUID
+    derived from bus type + vendor + product + version. This
+    controller's Bluetooth GUID has no built-in entry, and SDL's
+    automatic fallback mapping for it is broken (confirmed live: it
+    never maps rightx/righty at all, and assigns lefttrigger/
+    righttrigger to the right stick's raw axes instead — the right
+    stick was completely dead). ``joy_node`` reads the kernel's
+    already-correctly-calibrated Linux joystick device directly, with
+    no SDL GUID lookup in between, sidestepping that whole class of bug.
+
+    Axis/button indices and rest values below were established by
+    watching `ros2 topic echo /joy` live with this controller over
+    Bluetooth through ``joy_node`` — not looked up from any mapping
+    database, since ``joy_node`` doesn't have one:
+
+    * Axes 0/1 (left stick) and 2/3 (right stick) rest at 0.0, X left =
+      +1.0, X right = -1.0, Y forward = +1.0, Y back = -1.0.
+    * Axes 4 (R2) and 5 (L2) rest at **+1.0** (released) and go to
+      **-1.0** at full press — the opposite convention from the sticks.
+      ``_trigger_amount`` below converts that to the same "0 at rest"
+      shape as everything else in this class expects.
+    * Buttons 0/2/3 are A/X/Y.
     """
 
     AXIS_LEFT_X = 0     # yaw
     AXIS_LEFT_Y = 1     # pitch
     AXIS_RIGHT_X = 2    # left / right
     AXIS_RIGHT_Y = 3    # forward / back
-    AXIS_R2 = 4         # roll (normal) / down (Y held) — negative half of the pair
-    AXIS_L2 = 5         # roll (normal) / up (Y held)   — positive half of the pair
+    AXIS_L2 = 4         # roll (normal) / down (Y held) — rests at +1.0, pressed -1.0
+    AXIS_R2 = 5         # roll (normal) / up (Y held)   — rests at +1.0, pressed -1.0
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to safe pose + start servo
     BUTTON_Y = 3           # 'Y' — held to shift L2 / R2 from roll to up / down
@@ -795,6 +781,21 @@ class GamepadInputLoop:
         if index >= len(axes):
             return 0.0
         return self._deadzone(axes[index])
+
+    def _trigger_amount(self, axes, index: int) -> float:
+        """Return how far a trigger (L2/R2) is pressed: 0.0 (released) .. 1.0 (full press).
+
+        ``joy_node`` reports these axes resting at +1.0 and going to
+        -1.0 at full press — inverted and offset from every other axis
+        in this class, which rests at 0.0. Remapping it here means the
+        deadzone, the settle-guard's "must be centered" check, and
+        ``_route``'s arming logic can all keep treating 0.0 as "at
+        rest" uniformly, without special-casing these two axes.
+        """
+        if index >= len(axes):
+            return 0.0
+        amount = (1.0 - axes[index]) / 2.0
+        return 0.0 if amount < self._DEADZONE else amount
 
     def _button_pressed(self, buttons, index: int) -> bool:
         """Return True if ``buttons[index]`` is currently held down."""
@@ -907,11 +908,14 @@ class GamepadInputLoop:
             return
 
         if self._joy_settling:
-            centered = all(
-                self._axis(axes, i) == 0.0
-                for i in (self.AXIS_LEFT_X, self.AXIS_LEFT_Y,
-                          self.AXIS_RIGHT_X, self.AXIS_RIGHT_Y,
-                          self.AXIS_L2, self.AXIS_R2)
+            centered = (
+                all(
+                    self._axis(axes, i) == 0.0
+                    for i in (self.AXIS_LEFT_X, self.AXIS_LEFT_Y,
+                              self.AXIS_RIGHT_X, self.AXIS_RIGHT_Y)
+                )
+                and self._trigger_amount(axes, self.AXIS_L2) == 0.0
+                and self._trigger_amount(axes, self.AXIS_R2) == 0.0
             )
             self._controller.stop()
             if centered:
@@ -925,7 +929,7 @@ class GamepadInputLoop:
         wz = self._axis(axes, self.AXIS_LEFT_X) * self._angular_speed
         wy = self._axis(axes, self.AXIS_LEFT_Y) * self._angular_speed
 
-        trigger_diff = self._axis(axes, self.AXIS_R2) - self._axis(axes, self.AXIS_L2)
+        trigger_diff = self._trigger_amount(axes, self.AXIS_R2) - self._trigger_amount(axes, self.AXIS_L2)
         y_held = self._button_pressed(buttons, self.BUTTON_Y)
         roll, updown = self._route(self.BUTTON_Y, y_held, trigger_diff)
         wx = roll * self._angular_speed
@@ -1035,23 +1039,35 @@ def main_gamepad():
 
 
 def main_gamepad_joy_driver():
-    """Entry point: run ``joy``'s ``game_controller_node`` with a fixed
-    Bluetooth mapping for the Stadia controller.
+    """Entry point: run ``joy``'s ``joy_node`` (not ``game_controller_node``).
 
-    A drop-in replacement for ``ros2 run joy game_controller_node`` —
-    sets ``SDL_GAMECONTROLLERCONFIG`` (see ``STADIA_BLUETOOTH_MAPPING``)
-    before exec'ing the real node, so the override is always in effect
-    without the operator having to remember to export it by hand each
-    time (it only lives for the lifetime of the process it's exported
-    into, so a plain ``ros2 run joy game_controller_node`` picks up
-    SDL's broken auto-generated Bluetooth mapping again every time).
-    Uses ``os.execvp`` rather than a subprocess so this process directly
-    becomes ``game_controller_node`` — signals (e.g. Ctrl+C) and process
-    lifetime behave exactly as if it had been started directly, with no
-    extra wrapper process left in between.
+    ``game_controller_node`` goes through SDL's GameController
+    abstraction, which maps raw axes/buttons to named controls
+    (leftx, righttrigger, ...) via a lookup keyed by a GUID derived
+    from bus type + vendor + product + version. Over Bluetooth this
+    controller has no matching built-in SDL mapping (its Bluetooth
+    GUID differs from its USB one), and SDL's automatic fallback
+    mapping for it is broken: confirmed live that it never maps
+    rightx/righty at all, and instead assigns lefttrigger/righttrigger
+    to the right stick's raw axes.
+
+    ``joy_node`` instead reads the kernel's already-calibrated Linux
+    joystick device directly (``/dev/input/jsN``), with no SDL GUID
+    lookup or guessed mapping in between — so this whole class of bug
+    doesn't apply to it. Axis/button indices are hardware-order, fixed
+    once via `ros2 topic echo /joy` while testing this controller (see
+    ``GamepadInputLoop``'s docstring), not looked up from any database.
+
+    A drop-in replacement for ``ros2 run joy joy_node``, kept as its
+    own entry point (rather than telling the operator to just run that
+    directly) so the launch command stays the same regardless of which
+    underlying driver this class ends up needing. Uses ``os.execvp``
+    rather than a subprocess so this process directly becomes
+    ``joy_node`` — signals (e.g. Ctrl+C) and process lifetime behave
+    exactly as if it had been started directly, with no extra wrapper
+    process left in between.
     """
-    os.environ['SDL_GAMECONTROLLERCONFIG'] = STADIA_BLUETOOTH_MAPPING
-    os.execvp('ros2', ['ros2', 'run', 'joy', 'game_controller_node'])
+    os.execvp('ros2', ['ros2', 'run', 'joy', 'joy_node'])
 
 
 if __name__ == '__main__':
