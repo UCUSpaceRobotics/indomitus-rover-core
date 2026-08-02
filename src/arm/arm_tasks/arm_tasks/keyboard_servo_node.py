@@ -37,15 +37,10 @@ Usage:
             --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
 
     Gamepad, any target (start the joystick driver first, then this node):
-        ros2 run arm_tasks gamepad_joy_driver
+        ros2 run joy joy_node
         ros2 run arm_tasks gamepad_servo_node
-
-    ``gamepad_joy_driver`` is a thin wrapper around ``ros2 run joy
-    joy_node``, kept as its own entry point so this launch command stays
-    stable regardless of what runs underneath it.
 """
 
-import os
 import sys
 import threading
 import termios
@@ -678,9 +673,8 @@ class GamepadInputLoop:
 
     Replaces the raw-keyboard evdev input of ``KeyboardInputLoop`` with a
     subscription to the ``joy`` package's ``/joy`` topic (published by
-    ``ros2 run joy joy_node``, via the ``gamepad_joy_driver`` entry
-    point) — as this module's docstring already promises,
-    ``ServoController`` itself needs no changes.
+    ``ros2 run joy joy_node``) — as this module's docstring already
+    promises, ``ServoController`` itself needs no changes.
 
     Axis/button indices and rest values below were established by
     watching `ros2 topic echo /joy` live with this controller over
@@ -1016,32 +1010,12 @@ def main():
 def main_gamepad():
     """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
 
-    Requires a running ``joy`` publisher — use ``gamepad_joy_driver``
-    (below) to start it. See ``_run_teleop`` for the shared spin/cleanup
-    lifecycle.
+    Requires a running ``joy`` publisher (``ros2 run joy joy_node``).
+    See ``_run_teleop`` for the shared spin/cleanup lifecycle.
     """
     rclpy.init()
     controller = ServoController()
     _run_teleop(controller, GamepadInputLoop(controller))
-
-
-def main_gamepad_joy_driver():
-    """Entry point: run ``joy``'s ``joy_node``.
-
-    ``joy_node`` reads the kernel's already-calibrated Linux joystick
-    device directly (``/dev/input/jsN``). Axis/button indices are
-    hardware-order, fixed once via `ros2 topic echo /joy` while testing
-    this controller (see ``GamepadInputLoop``'s docstring).
-
-    A drop-in replacement for ``ros2 run joy joy_node``, kept as its
-    own entry point (rather than telling the operator to just run that
-    directly) so the launch command stays stable regardless of what
-    runs underneath it. Uses ``os.execvp`` rather than a subprocess so
-    this process directly becomes ``joy_node`` — signals (e.g. Ctrl+C)
-    and process lifetime behave exactly as if it had been started
-    directly, with no extra wrapper process left in between.
-    """
-    os.execvp('ros2', ['ros2', 'run', 'joy', 'joy_node'])
 
 
 if __name__ == '__main__':
