@@ -41,8 +41,8 @@ Usage:
         ros2 run arm_tasks gamepad_servo_node
 
     ``gamepad_joy_driver`` is a thin wrapper around ``ros2 run joy
-    joy_node`` — see ``main_gamepad_joy_driver`` below for why this is
-    used instead of ``game_controller_node``.
+    joy_node``, kept as its own entry point so this launch command stays
+    stable regardless of what runs underneath it.
 """
 
 import os
@@ -482,6 +482,9 @@ class KeyboardInputLoop:
         self._exit_event = threading.Event()
         self._device = None
         self._read_thread = None
+        # Direction keys are ignored until Servo is running (see
+        # _read_loop) — pressing them earlier can't move the arm anyway.
+        self._servo_started = False
 
     def _open_device(self) -> bool:
         """Open the evdev keyboard device at ``self._device_path``.
@@ -554,6 +557,7 @@ class KeyboardInputLoop:
         if self._controller.move_to_safe_pose():
             print('Starting servo...')
             self._controller.start_servo()
+            self._servo_started = True
         else:
             print('Safe pose failed — Servo not started.')
 
@@ -588,6 +592,14 @@ class KeyboardInputLoop:
                     continue
 
                 if code not in self._DIRECTIONS:
+                    continue
+
+                # Direction keys are ignored entirely until Servo has
+                # started — _handle_safe_pose clears _pressed anyway, so
+                # tracking presses before that point would just be
+                # discarded, and set_velocity()'d twists Servo isn't
+                # listening to yet would have nothing to show for it.
+                if not self._servo_started:
                     continue
 
                 if value == self._KEYSTATE_DOWN:
@@ -670,26 +682,13 @@ class GamepadInputLoop:
     point) — as this module's docstring already promises,
     ``ServoController`` itself needs no changes.
 
-    ``joy_node`` (rather than ``game_controller_node``) is used
-    deliberately: ``game_controller_node`` goes through SDL, which maps
-    raw axes to named controls via a mapping database keyed by a GUID
-    derived from bus type + vendor + product + version. This
-    controller's Bluetooth GUID has no built-in entry, and SDL's
-    automatic fallback mapping for it is broken (confirmed live: it
-    never maps rightx/righty at all, and assigns lefttrigger/
-    righttrigger to the right stick's raw axes instead — the right
-    stick was completely dead). ``joy_node`` reads the kernel's
-    already-correctly-calibrated Linux joystick device directly, with
-    no SDL GUID lookup in between, sidestepping that whole class of bug.
-
     Axis/button indices and rest values below were established by
     watching `ros2 topic echo /joy` live with this controller over
-    Bluetooth through ``joy_node`` — not looked up from any mapping
-    database, since ``joy_node`` doesn't have one:
+    Bluetooth:
 
     * Axes 0/1 (left stick) and 2/3 (right stick) rest at 0.0, X left =
       +1.0, X right = -1.0, Y forward = +1.0, Y back = -1.0.
-    * Axes 4 (R2) and 5 (L2) rest at **+1.0** (released) and go to
+    * Axes 4 and 5 (L2 / R2) rest at **+1.0** (released) and go to
       **-1.0** at full press — the opposite convention from the sticks.
       ``_trigger_amount`` below converts that to the same "0 at rest"
       shape as everything else in this class expects.
@@ -700,14 +699,14 @@ class GamepadInputLoop:
     AXIS_LEFT_Y = 1     # pitch
     AXIS_RIGHT_X = 2    # left / right
     AXIS_RIGHT_Y = 3    # forward / back
-    AXIS_L2 = 4         # roll (normal) / down (Y held) — rests at +1.0, pressed -1.0
-    AXIS_R2 = 5         # roll (normal) / up (Y held)   — rests at +1.0, pressed -1.0
+    AXIS_L2 = 4         # roll (normal) / up (Y held)
+    AXIS_R2 = 5         # roll (normal) / down (Y held)
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to safe pose + start servo
     BUTTON_Y = 3           # 'Y' — held to shift L2 / R2 from roll to up / down
     BUTTON_EXIT = 2        # 'X' — exit
 
-    _DEADZONE = 0.15
+    _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
     _WATCHDOG_PERIOD_SEC = 0.1
 
@@ -727,13 +726,10 @@ class GamepadInputLoop:
         self._angular_speed = controller.angular_speed
         self._exit_event = threading.Event()
         # None means "no trustworthy baseline yet" — the first message
-        # after startup or after a /joy dropout is used only to seed
-        # this, never to fire a rising-edge action. Buttons can read
-        # garbage on that first message just like axes do (observed
-        # live: X came back as "pressed" on reconnect with nobody
-        # touching it, immediately exiting gamepad_servo_node instead
-        # of being ignored like a real accidental press would need a
-        # real prior "not pressed" reading to compare against).
+        # after startup or a /joy dropout only seeds this, it never
+        # fires a rising-edge action (a gamepad can report a stale
+        # "pressed" button on that first message, which was causing
+        # spurious exits).
         self._prev_buttons = None
         self._shift_armed = {self.BUTTON_Y: False}
         self._safe_pose_running = threading.Lock()
@@ -751,19 +747,14 @@ class GamepadInputLoop:
         self._joy_silent = False
         self._teleop_locked = True
 
-        # A dropout (watchdog timeout below) does NOT re-lock teleop,
-        # but it does set this: the first /joy message(s) after a
-        # dropout are known-unreliable in practice (observed live: the
-        # left stick reporting full deflection for several messages
-        # right after "/joy resumed", with nothing touched) — likely
-        # SDL's controller state not having settled yet right after
-        # re-opening the device. So instead of acting on them, we force
-        # zero velocity and wait, with no timeout, until one message
-        # reports every monitored axis centered — then resume normally
-        # from wherever the arm already is. No button, no safe pose;
-        # on a healthy connection this clears within a message or two
-        # and is invisible. If it never clears, that's a genuinely bad
-        # connection and the arm staying stopped is the correct outcome.
+        # A dropout does not re-lock teleop, but it does set this: the
+        # first /joy message(s) after a dropout can report stale values
+        # (observed live: full deflection with nothing touched) — likely
+        # a freshly re-created Bluetooth HID device reporting a default
+        # before its first real report arrives. So we force zero
+        # velocity and wait, with no timeout, until one message reports
+        # everything centered/released, then resume from wherever the
+        # arm already is.
         self._joy_settling = False
 
         self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
@@ -857,7 +848,7 @@ class GamepadInputLoop:
         """Stop the arm if no ``/joy`` message has arrived recently.
 
         Runs on the node's own timer, independent of message arrival, so
-        a disconnected controller or a dead ``game_controller_node`` can't
+        a disconnected controller or a dead ``joy_node`` can't
         leave the last commanded velocity republishing forever — Servo's
         own command timeout does not help here because ServoController
         keeps re-publishing that last twist every tick regardless of
@@ -956,11 +947,8 @@ class GamepadInputLoop:
         ``start_servo()`` re-enables Servo, before the operator has a
         chance to let go.
 
-        This is also the *only* place ``_teleop_locked`` is cleared. It's
-        a one-time latch: once cleared, a later ``/joy`` dropout does not
-        set it again (see ``_check_joy_timeout``), so control resumes
-        from wherever the arm already is on reconnect, with no repeat
-        trip back to the fixed safe pose.
+        This is also the only place ``_teleop_locked`` is cleared (see
+        its declaration in ``__init__``).
         """
         if not self._safe_pose_running.acquire(blocking=False):
             return
@@ -1029,9 +1017,8 @@ def main_gamepad():
     """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
 
     Requires a running ``joy`` publisher — use ``gamepad_joy_driver``
-    (below), not a plain ``ros2 run joy game_controller_node``, or the
-    Bluetooth axis mapping fix won't be applied. See ``_run_teleop`` for
-    the shared spin/cleanup lifecycle.
+    (below) to start it. See ``_run_teleop`` for the shared spin/cleanup
+    lifecycle.
     """
     rclpy.init()
     controller = ServoController()
@@ -1039,33 +1026,20 @@ def main_gamepad():
 
 
 def main_gamepad_joy_driver():
-    """Entry point: run ``joy``'s ``joy_node`` (not ``game_controller_node``).
+    """Entry point: run ``joy``'s ``joy_node``.
 
-    ``game_controller_node`` goes through SDL's GameController
-    abstraction, which maps raw axes/buttons to named controls
-    (leftx, righttrigger, ...) via a lookup keyed by a GUID derived
-    from bus type + vendor + product + version. Over Bluetooth this
-    controller has no matching built-in SDL mapping (its Bluetooth
-    GUID differs from its USB one), and SDL's automatic fallback
-    mapping for it is broken: confirmed live that it never maps
-    rightx/righty at all, and instead assigns lefttrigger/righttrigger
-    to the right stick's raw axes.
-
-    ``joy_node`` instead reads the kernel's already-calibrated Linux
-    joystick device directly (``/dev/input/jsN``), with no SDL GUID
-    lookup or guessed mapping in between — so this whole class of bug
-    doesn't apply to it. Axis/button indices are hardware-order, fixed
-    once via `ros2 topic echo /joy` while testing this controller (see
-    ``GamepadInputLoop``'s docstring), not looked up from any database.
+    ``joy_node`` reads the kernel's already-calibrated Linux joystick
+    device directly (``/dev/input/jsN``). Axis/button indices are
+    hardware-order, fixed once via `ros2 topic echo /joy` while testing
+    this controller (see ``GamepadInputLoop``'s docstring).
 
     A drop-in replacement for ``ros2 run joy joy_node``, kept as its
     own entry point (rather than telling the operator to just run that
-    directly) so the launch command stays the same regardless of which
-    underlying driver this class ends up needing. Uses ``os.execvp``
-    rather than a subprocess so this process directly becomes
-    ``joy_node`` — signals (e.g. Ctrl+C) and process lifetime behave
-    exactly as if it had been started directly, with no extra wrapper
-    process left in between.
+    directly) so the launch command stays stable regardless of what
+    runs underneath it. Uses ``os.execvp`` rather than a subprocess so
+    this process directly becomes ``joy_node`` — signals (e.g. Ctrl+C)
+    and process lifetime behave exactly as if it had been started
+    directly, with no extra wrapper process left in between.
     """
     os.execvp('ros2', ['ros2', 'run', 'joy', 'joy_node'])
 
