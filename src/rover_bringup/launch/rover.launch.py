@@ -30,6 +30,7 @@ def generate_launch_description():
         }),
         include_launch('rover_description', 'robot_state_publisher.launch.py', {
             'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+            'xacro_args': ['use_sim:=false can_interface:=', LaunchConfiguration('interface')]
         }),
         include_launch('rover_bringup', 'control.launch.py', {
             'use_sim': 'false',
