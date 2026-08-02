@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <limits>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -18,6 +19,8 @@
 #include <linux/can/raw.h>
 
 #include "pluginlib/class_list_macros.hpp"
+
+constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
 
 PLUGINLIB_EXPORT_CLASS(
     rover_hardware_interface::RoverHardwareInterface,
@@ -651,7 +654,9 @@ void RoverHardwareInterface::publish_chassis_status()
         indomitus_interfaces::msg::MotorStatus m;
         m.esc_id = steer_ids_[i]; m.motor_type = "steadywin";
         m.joint_name = steer_joint_names_[i];
-        m.position = s.pos_valid ? s.pos_rad : 0.0f;
+        m.position = s.pos_valid ? s.pos_rad : kNaN;
+        m.velocity = kNaN;
+        m.torque   = kNaN;
         m.kinematic_valid = s.pos_valid;
         m.voltage = s.voltage; m.current = s.bus_current;
         m.temperature = static_cast<float>(s.temperature);
@@ -664,13 +669,15 @@ void RoverHardwareInterface::publish_chassis_status()
         indomitus_interfaces::msg::MotorStatus m;
         m.esc_id = drive_ids_[i]; m.motor_type = "damiao";
         m.joint_name = drive_joint_names_[i];
-        m.position = s.valid ? s.pos : 0.0f;
-        m.velocity = s.valid ? s.vel : 0.0f;
-        m.torque   = s.valid ? s.tor : 0.0f;
+        m.position = s.valid ? s.pos : kNaN;
+        m.velocity = s.valid ? s.vel : kNaN;
+        m.torque   = s.valid ? s.tor : kNaN;
         m.kinematic_valid = s.valid;
+        m.voltage = kNaN;
+        m.current = kNaN;
         m.temperature = static_cast<float>(s.t_mos);
         m.mode = s.valid ? 3u : 0u;
-        m.fault_code = (s.valid && s.err != 0x1) ? 0x01u : 0x00u;
+        m.fault_code = s.valid ? s.err : 0xFFu;
         m.health_valid = s.valid;
         m.enabled = motors_enabled_ && s.valid && s.err == 0x1;
         msg.motors.push_back(m);
