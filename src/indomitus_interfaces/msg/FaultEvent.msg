@@ -37,6 +37,9 @@ uint8 FAULT_ENCODER      = 9
 uint8 FAULT_HARDWARE     = 10
 uint8 FAULT_SOFTWARE     = 11
 uint8 FAULT_UNKNOWN      = 12
+# Transport-level: reported against the CAN interface, not against a motor.
+uint8 FAULT_CAN_ERROR_PASSIVE = 13
+uint8 FAULT_CAN_BUS_OFF       = 14
 uint8 fault
 uint8 previous_fault
 string fault_name     # human-readable, so logs stay readable without the enum

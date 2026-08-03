@@ -26,6 +26,11 @@ enum class Fault : uint8_t {
     HARDWARE     = 10,
     SOFTWARE     = 11,
     UNKNOWN      = 12,  ///< reserved/undocumented code — surfaced, never ignored
+    // Transport-level faults. Not attached to any one motor: when the bus is
+    // down every motor is unreachable, so these are reported against the CAN
+    // interface itself rather than eight times over.
+    CAN_ERROR_PASSIVE = 13,  ///< controller degraded, still transmitting
+    CAN_BUS_OFF       = 14,  ///< controller off the bus, nothing gets through
 };
 
 /// How a fault manager is permitted to respond. Recovery policy is a property
@@ -64,6 +69,12 @@ constexpr Recovery recovery_for(Fault f)
         case Fault::HARDWARE:
         case Fault::SOFTWARE:
         case Fault::UNKNOWN:      return Recovery::LATCH;
+        // Both clear themselves: error-passive lifts once the controller's
+        // error counters fall, and bus-off is recovered by the kernel when the
+        // interface is configured with restart-ms. Latching would keep the
+        // rover down through a fault the driver stack already handles.
+        case Fault::CAN_ERROR_PASSIVE:
+        case Fault::CAN_BUS_OFF:  return Recovery::LIMITED;
     }
     return Recovery::LATCH;  // unreachable; fail safe
 }
@@ -84,6 +95,8 @@ constexpr const char * to_string(Fault f)
         case Fault::HARDWARE:     return "hardware";
         case Fault::SOFTWARE:     return "software";
         case Fault::UNKNOWN:      return "unknown";
+        case Fault::CAN_ERROR_PASSIVE: return "can_error_passive";
+        case Fault::CAN_BUS_OFF:       return "can_bus_off";
     }
     return "unknown";
 }

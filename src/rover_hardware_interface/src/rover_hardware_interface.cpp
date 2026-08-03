@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 #include <linux/can.h>
+#include <linux/can/error.h>   // CAN_ERR_* classes and CAN_ERR_CRTL_* bits
 #include <linux/can/raw.h>
 
 #include "pluginlib/class_list_macros.hpp"
@@ -374,14 +375,69 @@ RoverHardwareInterface::read(
             d.valid, d.err);
     }
 
+    detect_can_bus_fault();
+
     // A single motor fault must not tear down the hardware component: returning
     // ERROR here would deactivate all eight motors and the telemetry with them,
     // exactly when the operator needs both. ERROR is reserved for the CAN
     // socket itself being gone.
+    //
+    // Note bus-off is deliberately NOT an ERROR: the kernel recovers it on its
+    // own when the interface has restart-ms set, and the motors have their own
+    // failsafes. Tearing down the component on a transient bus-off would turn a
+    // self-healing fault into one that needs an operator to re-activate.
     if (can_fd_ < 0) {
         return hardware_interface::return_type::ERROR;
     }
     return hardware_interface::return_type::OK;
+}
+
+// detect_can_bus_fault — edge-trigger the transport
+//
+// Caller must hold feedback_mutex_ (queues onto pending_fault_events_).
+
+void RoverHardwareInterface::detect_can_bus_fault()
+{
+    rover_fault::Fault current = rover_fault::Fault::NONE;
+    switch (bus_state_.load()) {
+        case CanBusState::BUS_OFF:        current = rover_fault::Fault::CAN_BUS_OFF;       break;
+        case CanBusState::ERROR_PASSIVE:  current = rover_fault::Fault::CAN_ERROR_PASSIVE; break;
+        // Error-warning is a counter threshold, not a loss of function: the
+        // controller is still transmitting normally. Reporting it as a fault
+        // would cry wolf on a bus that is merely busy.
+        case CanBusState::ERROR_WARNING:
+        case CanBusState::OK:             current = rover_fault::Fault::NONE;              break;
+    }
+
+    if (bus_fault_.seen && current == bus_fault_.fault) return;
+
+    if (bus_fault_.seen) {
+        indomitus_interfaces::msg::FaultEvent ev;
+        ev.header.stamp = clock_->now();
+        ev.component = "chassis/" + can_interface_;
+        ev.vendor    = "socketcan";
+        ev.esc_id    = 0;
+        ev.raw_code  = static_cast<uint8_t>(bus_state_.load());
+        ev.event = !rover_fault::is_fault(bus_fault_.fault)
+            ? indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_ENTER
+            : (!rover_fault::is_fault(current)
+                   ? indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CLEAR
+                   : indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CHANGE);
+        ev.fault          = static_cast<uint8_t>(current);
+        ev.previous_fault = static_cast<uint8_t>(bus_fault_.fault);
+        ev.fault_name     = rover_fault::to_string(current);
+        ev.recovery       = static_cast<uint8_t>(rover_fault::recovery_for(current));
+        // The bus has no kinematics; the counters are what explain it, and they
+        // ride in the diagnostics entry alongside.
+        ev.position = ev.velocity = ev.torque = kNaN;
+        ev.temperature = ev.voltage = ev.current = kNaN;
+        ev.mode    = static_cast<uint8_t>(bus_state_.load());
+        ev.enabled = motors_enabled_;
+        pending_fault_events_.push_back(ev);
+    }
+
+    bus_fault_.fault = current;
+    bus_fault_.seen  = true;
 }
 
 // detect_fault_transition — edge-trigger one motor, queue an event if changed
@@ -494,6 +550,7 @@ RoverHardwareInterface::write(
 
     if (!motors_enabled_) return hardware_interface::return_type::OK;
 
+    std::size_t failed = 0;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto steer_f = steadywin_protocol::buildAbsPositionFrame(
             steer_ids_[i], static_cast<float>(steer_cmd_[i]));
@@ -502,8 +559,19 @@ RoverHardwareInterface::write(
             drive_ids_[i],
             static_cast<float>(drive_cmd_[i]) * kDriveSigns[i]);
 
-        send_can_frame(steer_f.id, steer_f.data.data(), steer_f.dlc);
-        send_can_frame(drive_f.id, drive_f.data.data(), drive_f.dlc);
+        if (send_can_frame(steer_f.id, steer_f.data.data(), steer_f.dlc)
+                != CanSendResult::OK) ++failed;
+        if (send_can_frame(drive_f.id, drive_f.data.data(), drive_f.dlc)
+                != CanSendResult::OK) ++failed;
+    }
+
+    // A whole cycle failing to reach any motor is the signature that matters:
+    // the Damiao TIMEOUT register is 200 ms, so twenty consecutive failed
+    // cycles at 100 Hz is enough for every drive motor to fault itself out.
+    // Reporting the cycle count makes that visible before the motors do it.
+    if (failed == NUM_WHEELS * 2) {
+        RCLCPP_ERROR_THROTTLE(logger_, *clock_, 1000,
+            "[RoverHW] no CAN frames reached the bus this cycle");
     }
 
     return hardware_interface::return_type::OK;
@@ -590,10 +658,15 @@ void RoverHardwareInterface::close_can_socket()
     }
 }
 
-CanSendResult RoverHardwareInterface::send_can_frame(
+// Return type must be qualified: a leading return type on an out-of-class
+// member definition is not looked up in class scope, and CanSendResult is a
+// nested type.
+RoverHardwareInterface::CanSendResult RoverHardwareInterface::send_can_frame(
     uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended)
 {
-    if (can_fd_ < 0) return false;
+    // Socket not open — same practical meaning to a caller as the bus being
+    // gone: there is no transport.
+    if (can_fd_ < 0) return CanSendResult::BUS_DOWN;
 
     struct can_frame frame{};
     frame.can_id  = is_extended ? (id | CAN_EFF_FLAG) : (id & CAN_SFF_MASK);
@@ -607,7 +680,15 @@ CanSendResult RoverHardwareInterface::send_can_frame(
     }
 
     if (errno == ENOBUFS || errno == EAGAIN) {
-        return CanSendResult::WOULD_BLOCK;   // tx queue full, transient
+        // TX queue full. Transient, but not nothing: a sustained burst of these
+        // means frames are being dropped, and 200 ms of dropped frames is
+        // exactly what trips the Damiao TIMEOUT register into a comm-loss
+        // fault. Silence here would hide the cause of the fault we then report.
+        tx_dropped_.fetch_add(1);
+        RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
+            "[RoverHW] CAN TX queue full (id=0x%X), frame dropped — %d total",
+            id, tx_dropped_.load());
+        return CanSendResult::WOULD_BLOCK;
     }
     if (errno == ENETDOWN) {
         bus_state_.store(CanBusState::BUS_OFF);
@@ -617,13 +698,6 @@ CanSendResult RoverHardwareInterface::send_can_frame(
     RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
         "[RoverHW] send_can_frame id=0x%X failed: %s", id, std::strerror(errno));
     return CanSendResult::ERROR;
-
-    // if (nbytes != static_cast<ssize_t>(sizeof(frame))) {
-    //     RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
-    //         "[RoverHW] send_can_frame id=0x%X failed: %s", id, std::strerror(errno));
-    //     return false;
-    // }
-    // return true;
 }
 
 // rx_thread_fn — blocking receive loop
@@ -884,6 +958,39 @@ void RoverHardwareInterface::publish_diagnostics()
     };
 
     std::lock_guard<std::mutex> lock(feedback_mutex_);
+
+    // ── CAN transport ─────────────────────────────────────────────────────────
+    // First entry deliberately: if the bus is down, every motor entry below is
+    // stale by definition, and this says so.
+    {
+        diagnostic_msgs::msg::DiagnosticStatus st;
+        st.name = st.hardware_id = "can/" + can_interface_;
+        const auto state = bus_state_.load();
+        switch (state) {
+            case CanBusState::BUS_OFF:
+                st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+                st.message = "BUS-OFF — no frames reach any motor";
+                break;
+            case CanBusState::ERROR_PASSIVE:
+                st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+                st.message = "Error-passive — controller degraded";
+                break;
+            case CanBusState::ERROR_WARNING:
+                st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+                st.message = "Error counters elevated";
+                break;
+            case CanBusState::OK:
+                st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+                st.message = "OK";
+                break;
+        }
+        st.values.push_back(kv("tx_error_count", std::to_string(tx_error_count_.load())));
+        st.values.push_back(kv("rx_error_count", std::to_string(rx_error_count_.load())));
+        // Cumulative, not a rate: a value that climbs during a manoeuvre is the
+        // evidence that the bus is saturating.
+        st.values.push_back(kv("tx_dropped",     std::to_string(tx_dropped_.load())));
+        arr.status.push_back(st);
+    }
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         const auto & s = steer_state_[i];

@@ -80,6 +80,7 @@ private:
     std::atomic<CanBusState> bus_state_{CanBusState::OK};
     std::atomic<int> tx_error_count_{0};
     std::atomic<int> rx_error_count_{0};
+    std::atomic<int> tx_dropped_{0};   ///< frames lost to a full TX queue
 
     void on_can_error(const struct can_frame & frame);
     bool open_can_socket();
@@ -131,8 +132,14 @@ private:
         std::size_t index, bool is_steer,
         rover_fault::Fault current, bool health_valid, uint8_t raw_code);
 
+    /// Same edge-triggering for the transport itself. The bus is a faultable
+    /// component like any motor, so it flows through the same event pipeline
+    /// and every downstream consumer handles it with no new code.
+    void detect_can_bus_fault();
+
     std::array<FaultTracker, NUM_WHEELS> steer_fault_;
     std::array<FaultTracker, NUM_WHEELS> drive_fault_;
+    FaultTracker bus_fault_;
 
     /// Queued under feedback_mutex_ by read(), drained by publish_fault_events().
     /// Faults are rare, so this is empty on essentially every cycle.
