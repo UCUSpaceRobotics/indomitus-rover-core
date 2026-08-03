@@ -677,7 +677,7 @@ void RoverHardwareInterface::publish_chassis_status()
         m.current = kNaN;
         m.temperature = static_cast<float>(s.t_mos);
         m.mode = s.valid ? 3u : 0u;
-        m.fault_code = s.valid ? s.err : 0xFFu;
+        m.fault_code = (s.valid && s.err > 0x1u) ? s.err : 0x00u;
         m.health_valid = s.valid;
         m.enabled = motors_enabled_ && s.valid && s.err == 0x1;
         msg.motors.push_back(m);
