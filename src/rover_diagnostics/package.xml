@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rover_diagnostics</name>
+  <version>0.0.0</version>
+  <description>
+    Fault event logging for the rover. Watches motor status topics, detects
+    fault transitions, and appends them to a rotating JSONL file together with
+    a freeze frame of the motor state at the moment of the fault.
+  </description>
+  <maintainer email="fito.pn@ucu.edu.ua">yuriifito</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+
+  <!-- Interfaces -->
+  <depend>indomitus_interfaces</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
