@@ -398,6 +398,20 @@ TEST(FaultRecovery, PhysicalFaultsAreNeverAutoRetried) {
               rover_fault::Recovery::IMMEDIATE);
 }
 
+TEST(CanBusFault, TransportFaultsAreFaultsButNotLatched) {
+    // Both self-clear: error-passive lifts as the controller's error counters
+    // fall, and bus-off is recovered by the kernel when restart-ms is set.
+    // Latching either would keep the rover down through a fault the driver
+    // stack already handles on its own.
+    EXPECT_TRUE(rover_fault::is_fault(rover_fault::Fault::CAN_BUS_OFF));
+    EXPECT_TRUE(rover_fault::is_fault(rover_fault::Fault::CAN_ERROR_PASSIVE));
+    EXPECT_EQ(rover_fault::recovery_for(rover_fault::Fault::CAN_BUS_OFF),
+              rover_fault::Recovery::LIMITED);
+    EXPECT_EQ(rover_fault::recovery_for(rover_fault::Fault::CAN_ERROR_PASSIVE),
+              rover_fault::Recovery::LIMITED);
+    EXPECT_STREQ(rover_fault::to_string(rover_fault::Fault::CAN_BUS_OFF), "can_bus_off");
+}
+
 TEST(FaultRecovery, ObservedFieldFaultIsClassified) {
     // The fault seen on all four steer motors at ~71 V bus.
     const auto f = steadywin_protocol::translateFault(0x01, 4);
