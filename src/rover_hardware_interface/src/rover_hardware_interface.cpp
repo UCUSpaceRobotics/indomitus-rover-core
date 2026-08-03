@@ -176,6 +176,17 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
     diagnostics_pub_ = node->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
         "/diagnostics", 10);
 
+    // Transient-local so a logger or operator GUI that starts late — or
+    // reconnects after a comms drop — immediately receives recent fault
+    // history instead of nothing. Events alone have no state for a late
+    // joiner to recover from; this buys some of it back.
+    {
+        rclcpp::QoS qos(rclcpp::KeepLast(20));
+        qos.reliable().transient_local();
+        fault_event_pub_ =
+            node->create_publisher<indomitus_interfaces::msg::FaultEvent>("/fault_events", qos);
+    }
+
     // ── Services ───────────────────────────────────────────────────────────────
     motor_enable_srv_ = node->create_service<std_srvs::srv::SetBool>(
         "~/set_motors_enabled",
@@ -208,6 +219,10 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
     // ── 1 Hz diagnostics ──────────────────────────────────────────────────────
     diagnostics_timer_ = node->create_wall_timer(
         1s, [this]() { publish_diagnostics(); });
+
+    // ── 20 Hz fault event drain ───────────────────────────────────────────────
+    fault_event_timer_ = node->create_wall_timer(
+        50ms, [this]() { publish_fault_events(); });
 
     // ── 10 Hz watchdog — zero motors if write() stops being called ────────────
     last_write_time_ = node->get_clock()->now();
@@ -282,6 +297,8 @@ RoverHardwareInterface::on_cleanup(const rclcpp_lifecycle::State& /*prev*/)
     status_poll_timer_.reset();
     chassis_status_timer_.reset();
     diagnostics_timer_.reset();
+    fault_event_timer_.reset();
+    fault_event_pub_.reset();
     watchdog_timer_.reset();
 
     RCLCPP_INFO(logger_, "[RoverHW] Cleaned up.");
@@ -339,7 +356,126 @@ RoverHardwareInterface::read(
         }
     }
 
+    // Fault detection runs here rather than in the RX thread: this is the only
+    // place with a consistent snapshot of all motors at a fixed rate, and a
+    // motor that has gone silent produces no frames to trigger the RX path.
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        const auto & s = steer_state_[i];
+        detect_fault_transition(
+            i, /*is_steer=*/true,
+            steadywin_protocol::translateFault(s.fault_code, s.mode),
+            s.diag_valid, s.fault_code);
+    }
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        const auto & d = drive_state_[i];
+        detect_fault_transition(
+            i, /*is_steer=*/false,
+            damiao_protocol::translateFault(d.err),
+            d.valid, d.err);
+    }
+
+    // A single motor fault must not tear down the hardware component: returning
+    // ERROR here would deactivate all eight motors and the telemetry with them,
+    // exactly when the operator needs both. ERROR is reserved for the CAN
+    // socket itself being gone.
+    if (can_fd_ < 0) {
+        return hardware_interface::return_type::ERROR;
+    }
     return hardware_interface::return_type::OK;
+}
+
+// detect_fault_transition — edge-trigger one motor, queue an event if changed
+//
+// Caller must hold feedback_mutex_.
+
+void RoverHardwareInterface::detect_fault_transition(
+    std::size_t index, bool is_steer,
+    rover_fault::Fault current, bool health_valid, uint8_t raw_code)
+{
+    static constexpr std::array<const char *, NUM_WHEELS> kNames = {"FL","FR","RL","RR"};
+
+    auto & tracker = is_steer ? steer_fault_[index] : drive_fault_[index];
+
+    indomitus_interfaces::msg::FaultEvent ev;
+    ev.header.stamp = clock_->now();
+    ev.component = std::string(is_steer ? "chassis/steer_" : "chassis/drive_") + kNames[index];
+    ev.joint_name = is_steer ? steer_joint_names_[index] : drive_joint_names_[index];
+    ev.vendor     = is_steer ? "steadywin" : "damiao";
+    ev.esc_id     = is_steer ? steer_ids_[index] : drive_ids_[index];
+    ev.raw_code   = raw_code;
+
+    if (is_steer) {
+        const auto & s = steer_state_[index];
+        ev.position    = s.pos_valid ? s.pos_rad : kNaN;
+        ev.velocity    = kNaN;   // not reported by this vendor
+        ev.torque      = kNaN;
+        ev.temperature = static_cast<float>(s.temperature);
+        ev.voltage     = s.voltage;
+        ev.current     = s.bus_current;
+        ev.mode        = s.mode;
+    } else {
+        const auto & d = drive_state_[index];
+        ev.position    = d.valid ? d.pos : kNaN;
+        ev.velocity    = d.valid ? d.vel : kNaN;
+        ev.torque      = d.valid ? d.tor : kNaN;
+        ev.temperature = static_cast<float>(d.t_mos);
+        ev.voltage     = kNaN;   // not reported by this vendor
+        ev.current     = kNaN;
+        ev.mode        = (d.valid && d.err == damiao_protocol::ERR_ENABLED) ? 3u : 0u;
+    }
+    ev.enabled = motors_enabled_;
+
+    // Feedback presence is tracked separately from faults: a motor that has
+    // dropped off the bus reports no fault code at all, so without this it
+    // would be indistinguishable from a healthy one.
+    if (tracker.seen && health_valid != tracker.health_valid) {
+        ev.event = health_valid
+            ? indomitus_interfaces::msg::FaultEvent::EVENT_SIGNAL_OK
+            : indomitus_interfaces::msg::FaultEvent::EVENT_SIGNAL_LOST;
+        ev.fault          = static_cast<uint8_t>(tracker.fault);
+        ev.previous_fault = static_cast<uint8_t>(tracker.fault);
+        ev.fault_name     = rover_fault::to_string(tracker.fault);
+        ev.recovery       = static_cast<uint8_t>(rover_fault::recovery_for(tracker.fault));
+        pending_fault_events_.push_back(ev);
+    }
+    tracker.health_valid = health_valid;
+
+    if (!health_valid) {
+        // Fault codes are meaningless without feedback. Hold the last known
+        // fault so recovery is detected correctly once frames resume.
+        tracker.seen = true;
+        return;
+    }
+
+    if (tracker.seen && current != tracker.fault) {
+        const bool was_fault = rover_fault::is_fault(tracker.fault);
+        const bool is_now    = rover_fault::is_fault(current);
+
+        // NONE <-> NOT_ENABLED is an ordinary enable/disable, not a fault edge.
+        if (was_fault || is_now) {
+            ev.event = !was_fault
+                ? indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_ENTER
+                : (!is_now ? indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CLEAR
+                           : indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CHANGE);
+            ev.fault          = static_cast<uint8_t>(current);
+            ev.previous_fault = static_cast<uint8_t>(tracker.fault);
+            ev.fault_name     = rover_fault::to_string(current);
+            ev.recovery       = static_cast<uint8_t>(rover_fault::recovery_for(current));
+            pending_fault_events_.push_back(ev);
+        }
+    }
+
+    tracker.fault = current;
+    tracker.seen  = true;
+
+    // Bound the queue. If the executor thread ever stalls while a fault is
+    // flapping, read() would otherwise grow this without limit at 100 Hz.
+    // Dropping the oldest keeps the most recent picture, which is what an
+    // operator needs; the count of drops is not worth tracking here because
+    // reaching this at all means something upstream is already broken.
+    if (pending_fault_events_.size() > kMaxPendingFaultEvents) {
+        pending_fault_events_.erase(pending_fault_events_.begin());
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -676,8 +812,11 @@ void RoverHardwareInterface::publish_chassis_status()
         m.voltage = kNaN;
         m.current = kNaN;
         m.temperature = static_cast<float>(s.t_mos);
-        m.mode = s.valid ? 3u : 0u;
-        m.fault_code = (s.valid && s.err > 0x1u) ? s.err : 0x00u;
+        // Gate on the ERR nibble, not just feedback presence: a motor that has
+        // faulted out is no longer running in mode 3, and reporting otherwise
+        // makes a dead motor look commanded.
+        m.mode = (s.valid && s.err == damiao_protocol::ERR_ENABLED) ? 3u : 0u;
+        m.fault_code = (s.valid && s.err > damiao_protocol::ERR_ENABLED) ? s.err : 0x00u;
         m.health_valid = s.valid;
         m.enabled = motors_enabled_ && s.valid && s.err == 0x1;
         msg.motors.push_back(m);
@@ -707,13 +846,19 @@ void RoverHardwareInterface::publish_diagnostics()
         } else if (s.fault_code != 0) {
             st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
             std::string f;
-            if (s.fault_code & 0x01) f += "voltage ";
-            if (s.fault_code & 0x02) f += "current ";
-            if (s.fault_code & 0x04) f += "temperature ";
-            if (s.fault_code & 0x08) f += "encoder ";
-            if (s.fault_code & 0x40) f += "hardware ";
-            if (s.fault_code & 0x80) f += "software ";
+            if (s.fault_code & steadywin_protocol::FAULT_VOLTAGE)     f += "voltage ";
+            if (s.fault_code & steadywin_protocol::FAULT_CURRENT)     f += "current ";
+            if (s.fault_code & steadywin_protocol::FAULT_TEMPERATURE) f += "temperature ";
+            if (s.fault_code & steadywin_protocol::FAULT_ENCODER)     f += "encoder ";
+            if (s.fault_code & steadywin_protocol::FAULT_HARDWARE)    f += "hardware ";
+            if (s.fault_code & steadywin_protocol::FAULT_SOFTWARE)    f += "software ";
             st.message = "FAULT: " + f;
+        } else if (s.mode == steadywin_protocol::MODE_OFF) {
+            // This motor sets no fault bit when it silently stops accepting
+            // commands — it just drops to mode 0. Checking fault_code alone
+            // would report it as OK.
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            st.message = "Not enabled (mode 0)";
         } else {
             st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
             st.message = "OK";
@@ -730,13 +875,21 @@ void RoverHardwareInterface::publish_diagnostics()
         const auto & s = drive_state_[i];
         diagnostic_msgs::msg::DiagnosticStatus st;
         st.name = st.hardware_id = std::string("damiao/drive_") + kNames[i];
+        const auto fault = damiao_protocol::translateFault(s.err);
         if (!s.valid) {
             st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN; st.message = "No feedback";
-        } else if (s.err == 0x1) {
+        } else if (s.err == damiao_protocol::ERR_ENABLED) {
             st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;   st.message = "Enabled";
+        } else if (s.err == damiao_protocol::ERR_DISABLED) {
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN; st.message = "Disabled";
         } else {
-            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN; st.message = "Disabled or fault";
+            // A real fault, named. "Disabled or fault" told us nothing during
+            // the field test — which of the seven codes it was is the whole
+            // question when a drive motor goes red mid-run.
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+            st.message = std::string("FAULT: ") + rover_fault::to_string(fault);
         }
+        st.values.push_back(kv("fault",      rover_fault::to_string(fault)));
         st.values.push_back(kv("pos_rad",    std::to_string(s.pos)));
         st.values.push_back(kv("vel_rad_s",  std::to_string(s.vel)));
         st.values.push_back(kv("tor_Nm",     std::to_string(s.tor)));
@@ -746,6 +899,35 @@ void RoverHardwareInterface::publish_diagnostics()
         arr.status.push_back(st);
     }
     diagnostics_pub_->publish(arr);
+}
+
+// publish_fault_events — drain the queue filled by read()
+//
+// Runs on hw_node_'s executor, not the control loop. Faults are rare, so this
+// finds an empty queue on essentially every tick; the cost of checking is a
+// mutex acquisition, and the benefit is that rclcpp publishing (which
+// allocates) never runs inside read().
+
+void RoverHardwareInterface::publish_fault_events()
+{
+    if (!fault_event_pub_) return;
+
+    std::vector<indomitus_interfaces::msg::FaultEvent> events;
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        if (pending_fault_events_.empty()) return;
+        events.swap(pending_fault_events_);
+    }
+
+    for (const auto & ev : events) {
+        fault_event_pub_->publish(ev);
+        if (ev.event == indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_ENTER) {
+            RCLCPP_ERROR(logger_, "[RoverHW] %s FAULT: %s (raw 0x%02X)",
+                ev.component.c_str(), ev.fault_name.c_str(), ev.raw_code);
+        } else if (ev.event == indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CLEAR) {
+            RCLCPP_INFO(logger_, "[RoverHW] %s fault cleared", ev.component.c_str());
+        }
+    }
 }
 
 }  // namespace rover_hardware_interface

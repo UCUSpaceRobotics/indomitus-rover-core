@@ -17,6 +17,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "indomitus_interfaces/msg/chassis_status.hpp"
+#include "indomitus_interfaces/msg/fault_event.hpp"
 #include "indomitus_interfaces/srv/set_steer_zero.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_srvs/srv/set_bool.hpp"
@@ -101,6 +102,35 @@ private:
 
     void publish_chassis_status();
     void publish_diagnostics();
+    void publish_fault_events();
+
+    // Fault detection
+    //
+    // Detection runs in read() at the control rate, because that is the only
+    // place that observes every feedback update and can hold a consistent
+    // snapshot of all motors. Publishing is deferred to a timer on hw_node_:
+    // rclcpp publishing allocates, and a stall in read() longer than the Damiao
+    // TIMEOUT register would provoke the very comm-loss fault we are reporting.
+
+    struct FaultTracker {
+        rover_fault::Fault fault{rover_fault::Fault::NONE};
+        bool health_valid{true};
+        bool seen{false};
+    };
+
+    /// Compare one motor's current condition against its tracker and queue an
+    /// event if it changed. Caller must hold feedback_mutex_.
+    void detect_fault_transition(
+        std::size_t index, bool is_steer,
+        rover_fault::Fault current, bool health_valid, uint8_t raw_code);
+
+    std::array<FaultTracker, NUM_WHEELS> steer_fault_;
+    std::array<FaultTracker, NUM_WHEELS> drive_fault_;
+
+    /// Queued under feedback_mutex_ by read(), drained by publish_fault_events().
+    /// Faults are rare, so this is empty on essentially every cycle.
+    std::vector<indomitus_interfaces::msg::FaultEvent> pending_fault_events_;
+    static constexpr std::size_t kMaxPendingFaultEvents{256};
 
     rclcpp::Logger logger_{rclcpp::get_logger("RoverHardware")};
     rclcpp::Clock::SharedPtr clock_{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)};
@@ -157,6 +187,7 @@ private:
 
     rclcpp::Publisher<indomitus_interfaces::msg::ChassisStatus>::SharedPtr chassis_status_pub_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr    diagnostics_pub_;
+    rclcpp::Publisher<indomitus_interfaces::msg::FaultEvent>::SharedPtr    fault_event_pub_;
 
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr                  motor_enable_srv_;
     rclcpp::Service<indomitus_interfaces::srv::SetSteerZero>::SharedPtr set_steer_zero_srv_;
@@ -164,11 +195,15 @@ private:
     rclcpp::TimerBase::SharedPtr status_poll_timer_;      ///< 1 Hz  — 0xAE + 0xA3 query
     rclcpp::TimerBase::SharedPtr chassis_status_timer_;   ///< 10 Hz — /chassis/motor_states
     rclcpp::TimerBase::SharedPtr diagnostics_timer_;      ///< 1 Hz  — /diagnostics
+    rclcpp::TimerBase::SharedPtr fault_event_timer_;      ///< 20 Hz — /fault_events drain
     rclcpp::TimerBase::SharedPtr watchdog_timer_;         ///< 10 Hz — cmd_vel timeout guard
 
     // Runtime state
 
-    bool         motors_enabled_{false};
+    /// Written by service callbacks and the lifecycle transitions, read by the
+    /// control thread in read()/write() and by three timer callbacks. Atomic
+    /// because those are different threads; a plain bool here is a data race.
+    std::atomic<bool> motors_enabled_{false};
     rclcpp::Time last_write_time_;
     static constexpr double kWatchdogTimeoutSec{0.5};  ///< zero commands if write() stalls
 };

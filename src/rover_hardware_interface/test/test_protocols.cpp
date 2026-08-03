@@ -322,6 +322,90 @@ TEST(FixedPoint, ClampsBelowMin) {
     EXPECT_EQ(lo, 0u);
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Fault translation — vendor code → neutral taxonomy
+//
+// These tables are transcribed from the vendor manuals and are the kind of
+// thing that rots without notice, so they are pinned here.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(DamiaoFault, StatesAreNotFaults) {
+    // The vendor calls this field "ERR", but 0x0/0x1 are operating states.
+    // Treating them as faults would report every healthy motor as broken.
+    EXPECT_EQ(damiao_protocol::translateFault(0x1), rover_fault::Fault::NONE);
+    EXPECT_EQ(damiao_protocol::translateFault(0x0), rover_fault::Fault::NOT_ENABLED);
+    EXPECT_FALSE(rover_fault::is_fault(rover_fault::Fault::NONE));
+    EXPECT_FALSE(rover_fault::is_fault(rover_fault::Fault::NOT_ENABLED));
+}
+
+TEST(DamiaoFault, DocumentedCodesMapToTaxonomy) {
+    EXPECT_EQ(damiao_protocol::translateFault(0x8), rover_fault::Fault::OVERVOLTAGE);
+    EXPECT_EQ(damiao_protocol::translateFault(0x9), rover_fault::Fault::UNDERVOLTAGE);
+    EXPECT_EQ(damiao_protocol::translateFault(0xA), rover_fault::Fault::OVERCURRENT);
+    EXPECT_EQ(damiao_protocol::translateFault(0xB), rover_fault::Fault::OVERTEMP);  // MOS
+    EXPECT_EQ(damiao_protocol::translateFault(0xC), rover_fault::Fault::OVERTEMP);  // coil
+    EXPECT_EQ(damiao_protocol::translateFault(0xD), rover_fault::Fault::COMM_LOSS);
+    EXPECT_EQ(damiao_protocol::translateFault(0xE), rover_fault::Fault::OVERLOAD);
+}
+
+TEST(DamiaoFault, ReservedCodesSurfaceAsUnknownNotHealthy) {
+    for (uint8_t err = 0x2; err <= 0x7; ++err) {
+        EXPECT_EQ(damiao_protocol::translateFault(err), rover_fault::Fault::UNKNOWN)
+            << "reserved code 0x" << std::hex << int(err) << " must not read as healthy";
+    }
+    EXPECT_TRUE(rover_fault::is_fault(rover_fault::Fault::UNKNOWN));
+}
+
+TEST(SteadywinFault, ModeZeroIsDetectedWithoutAnyFaultBit) {
+    // This motor sets no fault bit when it silently stops accepting commands;
+    // it only drops to mode 0. Checking fault_code alone reads it as healthy.
+    EXPECT_EQ(steadywin_protocol::translateFault(0x00, 0),
+              rover_fault::Fault::NOT_ENABLED);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x00, 4), rover_fault::Fault::NONE);
+}
+
+TEST(SteadywinFault, BitsMapToTaxonomy) {
+    // Bit0 covers both over- and undervoltage: the protocol does not
+    // distinguish, so it must not claim to.
+    EXPECT_EQ(steadywin_protocol::translateFault(0x01, 4), rover_fault::Fault::VOLTAGE);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x02, 4), rover_fault::Fault::OVERCURRENT);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x04, 4), rover_fault::Fault::OVERTEMP);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x08, 4), rover_fault::Fault::ENCODER);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x40, 4), rover_fault::Fault::HARDWARE);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x80, 4), rover_fault::Fault::SOFTWARE);
+}
+
+TEST(SteadywinFault, MultipleBitsResolveToSaferRecovery) {
+    // When several bits are set the result must pick the condition whose
+    // recovery policy is the most conservative, never the most convenient.
+    EXPECT_EQ(steadywin_protocol::translateFault(0x06, 4), rover_fault::Fault::OVERTEMP);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x44, 4), rover_fault::Fault::HARDWARE);
+    EXPECT_EQ(rover_fault::recovery_for(rover_fault::Fault::OVERTEMP),
+              rover_fault::Recovery::THERMAL);
+}
+
+TEST(FaultRecovery, PhysicalFaultsAreNeverAutoRetried) {
+    // Retrying into an overtemperature or a hardware fault damages hardware.
+    EXPECT_EQ(rover_fault::recovery_for(rover_fault::Fault::ENCODER),
+              rover_fault::Recovery::LATCH);
+    EXPECT_EQ(rover_fault::recovery_for(rover_fault::Fault::HARDWARE),
+              rover_fault::Recovery::LATCH);
+    EXPECT_EQ(rover_fault::recovery_for(rover_fault::Fault::UNKNOWN),
+              rover_fault::Recovery::LATCH);
+    // Communication loss is cheap and safe to retry.
+    EXPECT_EQ(rover_fault::recovery_for(rover_fault::Fault::COMM_LOSS),
+              rover_fault::Recovery::IMMEDIATE);
+}
+
+TEST(FaultRecovery, ObservedFieldFaultIsClassified) {
+    // The fault seen on all four steer motors at ~71 V bus.
+    const auto f = steadywin_protocol::translateFault(0x01, 4);
+    EXPECT_EQ(f, rover_fault::Fault::VOLTAGE);
+    EXPECT_EQ(rover_fault::recovery_for(f), rover_fault::Recovery::LIMITED);
+    EXPECT_STREQ(rover_fault::to_string(f), "voltage");
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
