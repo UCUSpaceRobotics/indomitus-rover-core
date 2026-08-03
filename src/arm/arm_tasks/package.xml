@@ -17,12 +17,16 @@
 <exec_depend>trajectory_msgs</exec_depend>
 <exec_depend>std_msgs</exec_depend>
 <exec_depend>std_srvs</exec_depend>
+<exec_depend>action_msgs</exec_depend>
 <exec_depend>control_msgs</exec_depend>
 <exec_depend>builtin_interfaces</exec_depend>
+<exec_depend>moveit_servo</exec_depend>
+<exec_depend>arm_moveit_config</exec_depend>
 
 <exec_depend>arm_description</exec_depend>
 
 <exec_depend>python3-evdev</exec_depend>
+<exec_depend>joy</exec_depend>
 
 <test_depend>ament_copyright</test_depend>
 <test_depend>ament_flake8</test_depend>

@@ -3,11 +3,20 @@
 
   <xacro:arg name="use_fake_hardware" default="true"/>
   <xacro:arg name="end_effector" default="jaw"/>
+  <xacro:arg name="sim" default="false"/>
+  <!-- camera:=false drops the simulated camera sensor (the URDF link and
+       frames stay). Camera rendering is the main real-time-factor cost
+       when the GPU isn't doing the rendering. -->
+  <xacro:arg name="camera" default="true"/>
 
   <xacro:macro name="indomitus_arm" params="parent_link *origin">
 
     <xacro:property name="mesh_path" value="package://arm_description/meshes"/>
     <xacro:property name="stl_scale" value="0.001 0.001 0.001"/>
+
+    <material name="light_grey">
+      <color rgba="0.7 0.7 0.7 1.0"/>
+    </material>
 
     <xacro:macro name="dummy_inertia" params="mass">
       <inertial>
@@ -26,6 +35,7 @@
     <link name="arm_mount_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_mount.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_mount.stl" scale="${stl_scale}"/></geometry>
@@ -44,6 +54,7 @@
     <link name="arm_base_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_base.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_base.stl" scale="${stl_scale}"/></geometry>
@@ -62,6 +73,7 @@
     <link name="arm_shoulder_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_shoulder.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_shoulder.stl" scale="${stl_scale}"/></geometry>
@@ -80,6 +92,7 @@
     <link name="arm_forearm_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_forearm.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_forearm.stl" scale="${stl_scale}"/></geometry>
@@ -98,6 +111,7 @@
     <link name="arm_wrist_1_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_wrist_1.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_wrist_1.stl" scale="${stl_scale}"/></geometry>
@@ -116,6 +130,7 @@
     <link name="arm_wrist_2_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/arm_wrist_2.stl" scale="${stl_scale}"/></geometry>
+        <material name="light_grey"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/arm_wrist_2.stl" scale="${stl_scale}"/></geometry>
@@ -135,6 +150,7 @@
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
         <visual>
           <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
+          <material name="light_grey"/>
         </visual>
         <collision>
           <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
@@ -185,14 +201,27 @@
       </collision>
     </link>
 
+    <joint name="arm_camera_optical_joint" type="fixed">
+      <parent link="arm_camera_link"/>
+      <child link="arm_camera_optical_frame"/>
+      <origin xyz="0 0 0.03" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <link name="arm_camera_optical_frame"/>
+
     <ros2_control name="ArmSystem" type="system">
       <hardware>
-        <xacro:if value="$(arg use_fake_hardware)">
-          <plugin>mock_components/GenericSystem</plugin>
+        <xacro:if value="$(arg sim)">
+          <plugin>gz_ros2_control/GazeboSimSystem</plugin>
         </xacro:if>
-        <xacro:unless value="$(arg use_fake_hardware)">
-          <plugin>arm_hardware_interface/ArmCanSystem</plugin>
-          <param name="can_interface">can0</param>
+        <xacro:unless value="$(arg sim)">
+          <xacro:if value="$(arg use_fake_hardware)">
+            <plugin>mock_components/GenericSystem</plugin>
+          </xacro:if>
+          <xacro:unless value="$(arg use_fake_hardware)">
+            <plugin>arm_hardware_interface/ArmCanSystem</plugin>
+            <param name="can_interface">can0</param>
+          </xacro:unless>
         </xacro:unless>
       </hardware>
       <xacro:macro name="arm_joint_control" params="joint_name">
@@ -213,6 +242,109 @@
       <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"/>
       <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint"/>
     </ros2_control>
+
+    <xacro:if value="$(arg sim)">
+      <gazebo>
+        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+          <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
+        </plugin>
+      </gazebo>
+
+      <gazebo reference="arm_mount_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_base_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_shoulder_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_forearm_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_wrist_1_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_wrist_2_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <gazebo reference="arm_end_effector_link">
+        <visual>
+          <material>
+            <ambient>0.7 0.7 0.7 1.0</ambient>
+            <diffuse>0.7 0.7 0.7 1.0</diffuse>
+            <specular>0.3 0.3 0.3 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <xacro:if value="$(arg camera)">
+      <gazebo reference="arm_camera_link">
+        <sensor name="arm_camera" type="camera">
+          <pose>0 0 0.03 0 0 0</pose>
+          <camera>
+            <optical_frame_id>arm_camera_optical_frame</optical_frame_id>
+            <horizontal_fov>1.047</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>15</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>30</update_rate>
+          <visualize>true</visualize>
+          <topic>arm_camera/image_raw</topic>
+        </sensor>
+      </gazebo>
+      </xacro:if>
+    </xacro:if>
 
   </xacro:macro>
 </robot>
