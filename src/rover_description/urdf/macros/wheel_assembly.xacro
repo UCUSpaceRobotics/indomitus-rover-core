@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find rover_description)/urdf/macros/inertia_macros.xacro"/>
+
+  <xacro:macro name="wheel_assembly" params="prefix parent x_sign y_sign">
+
+    <!-- ===== WHEEL MOUNT (steering knuckle) ===== -->
+    <link name="${prefix}_wheel_mount_link">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="${wheel_mount_mass}"/>
+        <xacro:box_inertia m="${wheel_mount_mass}" x="${wheel_mount_length}" y="${wheel_mount_width}" z="${wheel_mount_height}"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 ${wheel_mount_hub_offset * y_sign} ${wheel_mount_visual_z}" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://rover_description/meshes/suspension/wheel_mount.stl" scale="1 ${y_sign} 1"/>
+        </geometry>
+        <material name="orange_mount"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 -0.137" rpy="0 0 0"/>
+        <geometry>
+          <box size="${wheel_mount_length} ${wheel_mount_width} ${wheel_mount_height}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- Attaches at the wheel-mount hub position on the rocker's end -->
+    <joint name="${prefix}_wheel_mount_joint" type="revolute">
+      <parent link="${parent}"/>
+      <child link="${prefix}_wheel_mount_link"/>
+      <origin xyz="${x_sign * (rocker_length / 2.0 - rocker_mount_x_offset)} ${rocker_hub_y} ${rocker_hub_z}" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${-steering_limit}" upper="${steering_limit}" effort="${steering_effort}" velocity="${steering_velocity}"/>
+      <dynamics damping="0.5" friction="0.3"/>
+    </joint>
+
+    <!-- ===== WHEEL ===== -->
+    <link name="${prefix}_wheel_link">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="${wheel_mass}"/>
+        <xacro:cylinder_inertia m="${wheel_mass}" r="${wheel_radius}" h="${wheel_width}"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 ${wheel_hub_offset * y_sign} 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://rover_description/meshes/suspension/wheel.stl" scale="1 ${y_sign} 1"/>
+        </geometry>
+        <material name="dark_wheel"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi / 2.0 * y_sign} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- Axle position relative to the steering bore -->
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="${prefix}_wheel_mount_link"/>
+      <child link="${prefix}_wheel_link"/>
+      <origin xyz="0 ${axle_lateral_offset * y_sign} -${wheel_mount_drop}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit effort="${drive_effort}" velocity="${drive_velocity}"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+
+    <gazebo reference="${prefix}_wheel_link">
+      <mu1>${wheel_mu1}</mu1>
+      <mu2>${wheel_mu2}</mu2>
+      <kp>${wheel_kp}</kp>
+      <kd>${wheel_kd}</kd>
+    </gazebo>
+
+  </xacro:macro>
+
+</robot>
