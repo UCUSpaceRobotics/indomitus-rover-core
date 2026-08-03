@@ -26,8 +26,16 @@ map            (not yet published — reserved for future Nav2/AMCL)
 | Transform | Owning Node | Package | Config |
 |---|---|---|---|
 | `odom -> base_link` | `ekf_node` (`robot_localization`) | `rover_localization` | `config/ekf_filter.yaml` — `publish_tf: true`, `world_frame: odom` |
-| `base_link -> *` (all links derived from URDF) | `robot_state_publisher` | `rover_description` | driven by `/joint_states` + URDF kinematics; launched via `robot_state_publisher.launch.py` |
+| `base_link -> *` (all links derived from URDF, including the arm when `mount_arm:=true`) | `robot_state_publisher` | `rover_description` | driven by `/joint_states` + URDF kinematics; launched via `robot_state_publisher.launch.py` |
 | `map -> odom` | *not yet implemented* | — | Reserved for a future localization node (e.g. Nav2's AMCL or a second EKF instance). Do **not** enable `publish_tf` on more than one node targeting this transform. |
+| `world -> panel_base_link -> *` (panel base + switch/breaker links) | `robot_state_publisher` | `panel_description` | driven by `/joint_states` + `panel_standalone.urdf.xacro`; verified via `panel_bringup/panel_standalone.launch.py`. When spawned inside `rover_sim/sim_gz_full.launch.py` this is intended to run under a `panel` namespace instead (`panel/joint_states`, `panel/*` frames) -- **not yet verified**, see [`panel_sim.md`](../panel/panel_sim.md). |
+
+The panel's TF tree is **not** connected to the rover's (`panel_base_link`
+has no common ancestor with `base_link`). This is intentional: on the real
+field the panel is a stationary object the rover drives up to, not a rigid
+part of it, so its pose relative to the rover is something perception
+(camera/fiducials) will need to establish at runtime -- not a fixed static
+transform baked into the URDF.
 
 ## Non-owners (explicitly verified)
 

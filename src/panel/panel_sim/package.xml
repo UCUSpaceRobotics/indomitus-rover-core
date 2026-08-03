@@ -1,34 +1,36 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>rover_description</name>
-
+  <name>panel_sim</name>
   <version>0.0.0</version>
   <description>
-    URDF/xacro robot description for the Indomitus rover,
-    including links, joints, sensors and visual meshes.
+    Gazebo simulation package for the ERC equipment/switch panel,
+    including a standalone world, model spawn and ROS-Gazebo bridge
+    configuration for the panel's passive switch/button joints.
   </description>
   <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- URDF Description -->
-  <exec_depend>xacro</exec_depend>
+  <!-- Interfaces -->
+  <depend>sensor_msgs</depend>
 
-  <!-- Optional arm mount (mount_arm:=true), see rover.urdf.xacro -->
-  <exec_depend>arm_description</exec_depend>
-
-  <!-- Launch files -->
+  <!-- Launch infrastructure -->
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
-  <!-- robot_state_publisher.launch.py runs -->
-  <exec_depend>robot_state_publisher</exec_depend>
+  <!-- Internal packages -->
+  <exec_depend>panel_description</exec_depend>
 
-  <!-- ROS2 Control -->
-  <exec_depend>ros2_control</exec_depend>
-  <exec_depend>rover_hardware_interface</exec_depend>
+  <!-- State publisher -->
+  <depend>xacro</depend>
+  <depend>robot_state_publisher</depend>
+
+  <!-- Simulation -->
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
