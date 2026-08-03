@@ -49,16 +49,15 @@ class FaultLoggerNode(Node):
 
         self.declare_parameter('topic', '/chassis/motor_states')
         self.declare_parameter('log_dir', '~/.ros/rover_faults')
-        self.declare_parameter('log_name', 'faults.jsonl')
+        self.declare_parameter('log_prefix', 'faults')
         self.declare_parameter('max_bytes', 5 * 1024 * 1024)
         self.declare_parameter('backup_count', 3)
 
         topic = self.get_parameter('topic').value
-        log_dir = self.get_parameter('log_dir').value
-        log_name = self.get_parameter('log_name').value
 
         self._log = EventLog(
-            path='{}/{}'.format(log_dir.rstrip('/'), log_name),
+            directory=self.get_parameter('log_dir').value,
+            prefix=self.get_parameter('log_prefix').value,
             max_bytes=int(self.get_parameter('max_bytes').value),
             backup_count=int(self.get_parameter('backup_count').value),
         )

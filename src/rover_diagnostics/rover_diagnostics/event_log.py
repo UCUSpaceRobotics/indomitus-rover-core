@@ -11,6 +11,7 @@ Events are low-frequency (fault transitions only), so the cost of fsync per
 event is irrelevant.
 """
 
+import datetime
 import json
 import math
 import os
@@ -33,15 +34,28 @@ def _sanitize(value):
 
 
 class EventLog:
-    """Writes one JSON object per line to a rotating file."""
+    """Writes one JSON object per line to a per-session, rotating file.
 
-    def __init__(self, path, max_bytes=5 * 1024 * 1024, backup_count=3):
-        self._path = os.path.expanduser(path)
+    Each session gets its own ``<prefix>_<UTC timestamp>.jsonl``, chosen once at
+    construction and never recomputed, so a session can be handed over as a
+    single self-contained file and a crash can never interleave two sessions in
+    one log.
+    """
+
+    def __init__(self, directory, prefix='faults', max_bytes=5 * 1024 * 1024,
+                 backup_count=3):
+        self._dir = os.path.expanduser(directory)
         self._max_bytes = max_bytes
         self._backup_count = backup_count
         self._file = None
 
-        os.makedirs(os.path.dirname(self._path) or '.', exist_ok=True)
+        os.makedirs(self._dir, exist_ok=True)
+
+        # UTC, matching the t_wall field inside the file, so the name and the
+        # first line always agree regardless of the machine's timezone.
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
+        self._path = os.path.join(self._dir, '{}_{}.jsonl'.format(prefix, stamp))
+
         self._open()
 
     def _open(self):
