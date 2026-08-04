@@ -25,6 +25,26 @@
       <color rgba="0.5 0.5 0.55 1.0"/>
     </material>
 
+    <material name="power_switch_pink">
+      <color rgba="0.83 0.42 0.5 1.0"/>
+    </material>
+
+    <material name="breaker_white">
+      <color rgba="0.92 0.92 0.92 1.0"/>
+    </material>
+
+    <material name="indicator_green">
+      <color rgba="0.25 0.85 0.3 1.0"/>
+    </material>
+
+    <material name="socket_grey">
+      <color rgba="0.65 0.65 0.68 1.0"/>
+    </material>
+
+    <material name="marker_black">
+      <color rgba="0.03 0.03 0.03 1.0"/>
+    </material>
+
     <xacro:macro name="dummy_inertia" params="mass">
       <inertial>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -70,7 +90,7 @@
     <link name="panel_main_switch_1_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/main_switch.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="power_switch_pink"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/main_switch.stl" scale="${stl_scale}"/></geometry>
@@ -93,7 +113,7 @@
     <link name="panel_main_switch_2_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/main_switch.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="power_switch_pink"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/main_switch.stl" scale="${stl_scale}"/></geometry>
@@ -231,7 +251,7 @@
     <link name="panel_breaker_1_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -253,7 +273,7 @@
     <link name="panel_breaker_2_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -276,7 +296,7 @@
     <link name="panel_breaker_3_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -299,7 +319,7 @@
     <link name="panel_breaker_4_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -322,7 +342,7 @@
     <link name="panel_breaker_5_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -345,7 +365,7 @@
     <link name="panel_breaker_6_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -368,7 +388,7 @@
     <link name="panel_breaker_7_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -391,7 +411,7 @@
     <link name="panel_breaker_8_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -414,7 +434,7 @@
     <link name="panel_breaker_9_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -437,7 +457,7 @@
     <link name="panel_breaker_10_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -460,7 +480,7 @@
     <link name="panel_breaker_11_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -483,7 +503,7 @@
     <link name="panel_breaker_12_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -506,7 +526,7 @@
     <link name="panel_breaker_13_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -529,7 +549,7 @@
     <link name="panel_breaker_14_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -552,7 +572,7 @@
     <link name="panel_breaker_15_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -575,7 +595,7 @@
     <link name="panel_breaker_16_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
@@ -598,13 +618,101 @@
     <link name="panel_breaker_17_link">
       <visual>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
-        <material name="panel_grey"/>
+        <material name="breaker_white"/>
       </visual>
       <collision>
         <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
       </collision>
       <xacro:dummy_inertia mass="0.01"/>
     </link>
+
+
+    <!-- ===================== INDICATOR LIGHTS (primitive, no STL) =====================
+         Row of 5 status LEDs above the breaker row, per "All of the five
+         indicators are lit up" in the Expected Results. No source mesh for
+         these exists, so they're flat green boxes flush with the panel
+         face — positioned/sized by eye against the reference render, same
+         placeholder-until-verified caveat as everything else in this file. -->
+    <xacro:macro name="panel_indicator" params="suffix x z">
+      <joint name="panel_indicator_${suffix}_joint" type="fixed">
+        <parent link="panel_base_link"/>
+        <child link="panel_indicator_${suffix}_link"/>
+        <origin xyz="${x} -0.003 ${z}" rpy="0 0 0"/>
+      </joint>
+      <link name="panel_indicator_${suffix}_link">
+        <visual>
+          <geometry><box size="0.022 0.004 0.014"/></geometry>
+          <material name="indicator_green"/>
+        </visual>
+        <collision>
+          <geometry><box size="0.022 0.004 0.014"/></geometry>
+        </collision>
+        <xacro:dummy_inertia mass="0.001"/>
+      </link>
+    </xacro:macro>
+
+    <xacro:panel_indicator suffix="1" x="-0.119578" z="0.365"/>
+    <xacro:panel_indicator suffix="2" x="-0.059789" z="0.365"/>
+    <xacro:panel_indicator suffix="3" x="0"         z="0.365"/>
+    <xacro:panel_indicator suffix="4" x="0.059789"  z="0.365"/>
+    <xacro:panel_indicator suffix="5" x="0.119578"  z="0.365"/>
+
+
+    <!-- ===================== SOCKETS (primitive, no STL) =====================
+         The two IEC320 C14 plug sockets ("insert the plug into one of the
+         two sockets"), placed left of the pink rotary power switches at the
+         same row height (panel_main_switch_1/2 are at z=0.109905). Small
+         grey cylinders standing proud of the panel face. -->
+    <xacro:macro name="panel_socket" params="suffix x z">
+      <joint name="panel_socket_${suffix}_joint" type="fixed">
+        <parent link="panel_base_link"/>
+        <child link="panel_socket_${suffix}_link"/>
+        <origin xyz="${x} -0.006 ${z}" rpy="${pi/2} 0 0"/>
+      </joint>
+      <link name="panel_socket_${suffix}_link">
+        <visual>
+          <geometry><cylinder radius="0.012" length="0.012"/></geometry>
+          <material name="socket_grey"/>
+        </visual>
+        <collision>
+          <geometry><cylinder radius="0.012" length="0.012"/></geometry>
+        </collision>
+        <xacro:dummy_inertia mass="0.005"/>
+      </link>
+    </xacro:macro>
+
+    <xacro:panel_socket suffix="1" x="-0.10" z="0.109905"/>
+    <xacro:panel_socket suffix="2" x="-0.06" z="0.109905"/>
+
+
+    <!-- ===================== ArUco MARKER MOUNTS (primitive, no STL) =====================
+         Flat black squares for pose-detection markers ("AruCo detection"
+         in the scoring sheet). Three of the four corners are marked in the
+         reference render (top-left, top-right, bottom-left) — the actual
+         ArUco pattern (numbered tag) is applied as a texture/decal on top
+         of this base square by whichever code renders/prints the markers;
+         this link is just the physical black mount square. -->
+    <xacro:macro name="panel_marker" params="suffix x z">
+      <joint name="panel_marker_${suffix}_joint" type="fixed">
+        <parent link="panel_base_link"/>
+        <child link="panel_marker_${suffix}_link"/>
+        <origin xyz="${x} -0.003 ${z}" rpy="0 0 0"/>
+      </joint>
+      <link name="panel_marker_${suffix}_link">
+        <visual>
+          <geometry><box size="0.04 0.002 0.04"/></geometry>
+          <material name="marker_black"/>
+        </visual>
+        <collision>
+          <geometry><box size="0.04 0.002 0.04"/></geometry>
+        </collision>
+        <xacro:dummy_inertia mass="0.001"/>
+      </link>
+    </xacro:macro>
+
+    <xacro:panel_marker suffix="top_left"    x="-0.135" z="0.415"/>
+    <xacro:panel_marker suffix="top_right"   x="0.135"  z="0.415"/>
+    <xacro:panel_marker suffix="bottom_left" x="-0.135" z="0.035"/>
 
 
     <xacro:if value="$(arg sim)">
