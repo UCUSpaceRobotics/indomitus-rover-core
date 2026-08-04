@@ -76,6 +76,8 @@ def generate_launch_description() -> LaunchDescription:
                 os.environ.get('GZ_SIM_RESOURCE_PATH', ''),
                 ':',
                 os.path.dirname(rover_description_share),
+                ':',
+                os.path.join(rover_sim_share, 'models'),
             ]
         ),
 
