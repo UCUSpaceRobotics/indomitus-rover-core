@@ -22,12 +22,13 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 
+#include "rover_hardware_interface/can_bus.hpp"
+#include "rover_hardware_interface/constants.hpp"
 #include "rover_hardware_interface/damiao_protocol.hpp"
+#include "rover_hardware_interface/fault_detector.hpp"
 #include "rover_hardware_interface/steadywin_protocol.hpp"
 
 namespace rover_hardware_interface {
-
-constexpr std::size_t NUM_WHEELS = 4;
 
 class RoverHardwareInterface : public hardware_interface::SystemInterface
 {
@@ -51,7 +52,7 @@ public:
 
     hardware_interface::CallbackReturn on_cleanup(
         const rclcpp_lifecycle::State& previous_state) override;
-    
+
     hardware_interface::CallbackReturn on_shutdown(
         const rclcpp_lifecycle::State& previous_state) override;
 
@@ -73,25 +74,6 @@ public:
         const rclcpp::Duration & period) override;
 
 private:
-    // SocketCAN
-
-    enum class CanSendResult { OK, WOULD_BLOCK, BUS_DOWN, ERROR };
-    enum class CanBusState { OK, ERROR_WARNING, ERROR_PASSIVE, BUS_OFF };
-    std::atomic<CanBusState> bus_state_{CanBusState::OK};
-    std::atomic<int> tx_error_count_{0};
-    std::atomic<int> rx_error_count_{0};
-    std::atomic<int> tx_dropped_{0};   ///< frames lost to a full TX queue
-
-    void on_can_error(const struct can_frame & frame);
-    bool open_can_socket();
-    void close_can_socket();
-    CanSendResult send_can_frame(uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended = false);
-
-    std::mutex can_tx_mutex_;
-
-    void rx_thread_fn();
-    void dispatch_can_frame(const struct can_frame & frame);
-
     void send_enable_frames();
     void send_disable_frames();
     void send_shutdown_frames();   ///< zero → settle → disable (called from on_deactivate)
@@ -112,42 +94,27 @@ private:
     void publish_diagnostics();
     void publish_fault_events();
 
-    // Fault detection
-    //
-    // Detection runs in read() at the control rate, because that is the only
-    // place that observes every feedback update and can hold a consistent
-    // snapshot of all motors. Publishing is deferred to a timer on hw_node_:
-    // rclcpp publishing allocates, and a stall in read() longer than the Damiao
-    // TIMEOUT register would provoke the very comm-loss fault we are reporting.
-
-    struct FaultTracker {
-        rover_fault::Fault fault{rover_fault::Fault::NONE};
-        bool health_valid{true};
-        bool seen{false};
-    };
-
-    /// Compare one motor's current condition against its tracker and queue an
-    /// event if it changed. Caller must hold feedback_mutex_.
-    void detect_fault_transition(
-        std::size_t index, bool is_steer,
-        rover_fault::Fault current, bool health_valid, uint8_t raw_code);
-
-    /// Same edge-triggering for the transport itself. The bus is a faultable
-    /// component like any motor, so it flows through the same event pipeline
-    /// and every downstream consumer handles it with no new code.
-    void detect_can_bus_fault();
-
-    std::array<FaultTracker, NUM_WHEELS> steer_fault_;
-    std::array<FaultTracker, NUM_WHEELS> drive_fault_;
-    FaultTracker bus_fault_;
-
-    /// Queued under feedback_mutex_ by read(), drained by publish_fault_events().
-    /// Faults are rare, so this is empty on essentially every cycle.
-    std::vector<indomitus_interfaces::msg::FaultEvent> pending_fault_events_;
-    static constexpr std::size_t kMaxPendingFaultEvents{256};
-
+    // logger_/clock_ must stay declared before can_bus_/fault_detector_:
+    // members initialize in declaration order, and both are constructed
+    // from these two.
     rclcpp::Logger logger_{rclcpp::get_logger("RoverHardware")};
     rclcpp::Clock::SharedPtr clock_{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)};
+
+    // CAN transport (socket, RX thread, bus health) — see CanBus. Frame
+    // routing to a motor's decoder stays here: that's protocol/motor
+    // knowledge the transport itself shouldn't have.
+    CanBus can_bus_{logger_, clock_};
+
+    void dispatch_can_frame(const struct can_frame & frame);
+
+    // Fault detection — edge-triggering and event queuing live in
+    // FaultDetector; read() just feeds it a snapshot every cycle, because
+    // that is the only place that observes every feedback update and can
+    // hold a consistent view of all motors. Publishing is deferred to a
+    // timer on hw_node_: rclcpp publishing allocates, and a stall in read()
+    // longer than the Damiao TIMEOUT register would provoke the very
+    // comm-loss fault we are reporting.
+    FaultDetector fault_detector_{clock_};
 
     rclcpp::Node::SharedPtr hw_node_;
     rclcpp::executors::SingleThreadedExecutor::SharedPtr hw_executor_;
@@ -188,12 +155,6 @@ private:
     std::array<steadywin_protocol::MotorState, NUM_WHEELS> steer_state_{};
     std::array<damiao_protocol::MotorState,    NUM_WHEELS> drive_state_{};
 
-    // Concurrency & Hardware
-
-    int can_fd_{-1};
-    std::atomic<bool> rx_running_{false};
-    std::thread       rx_thread_;
-
     // ─────────────────────────────────────────────────────────────────────────
     // ROS 2 interfaces
     // (hardware plugins share the lifecycle node provided by controller_manager)
@@ -218,6 +179,14 @@ private:
     /// control thread in read()/write() and by three timer callbacks. Atomic
     /// because those are different threads; a plain bool here is a data race.
     std::atomic<bool> motors_enabled_{false};
+
+    /// Set in on_activate(), cleared in on_deactivate()/on_shutdown(). read()
+    /// is called by controller_manager as soon as the component is merely
+    /// configured (inactive) — before on_activate() has ever opened the CAN
+    /// socket — so "socket not open" is only a real fault once we know we
+    /// should have one.
+    std::atomic<bool> activated_{false};
+
     rclcpp::Time last_write_time_;
     static constexpr double kWatchdogTimeoutSec{0.5};  ///< zero commands if write() stalls
 };

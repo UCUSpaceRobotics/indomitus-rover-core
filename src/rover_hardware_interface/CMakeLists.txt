@@ -18,6 +18,8 @@ find_package(indomitus_interfaces REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rover_hardware_interface.cpp
+  src/can_bus.cpp
+  src/fault_detector.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
