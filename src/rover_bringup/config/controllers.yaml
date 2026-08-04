@@ -11,7 +11,10 @@ controller_manager:
 
     swerve_controller:
       type: rover_controller/RoverSwerveController
-    
+
+    swerve_controller_test:
+      type: rover_controller/RoverSwerveControllerTest
+
     odometry_controller:
       type: rover_controller/RoverOdometryController
 
@@ -38,6 +41,50 @@ swerve_controller:
     max_steer_rate_deg: 120.0 # degrees/s
     max_linear_speed:  1.0
     max_angular_speed: 1.0
+
+    # Geometry
+    wheelbase:     0.842   # meters, front-to-rear axle distance
+    track_width:   0.682   # meters, left-to-right wheel distance
+    wheel_radius:  0.157   # meters
+
+swerve_controller_test:
+  ros__parameters:
+    drive_joint_names:
+      - fl_wheel_joint
+      - fr_wheel_joint
+      - bl_wheel_joint
+      - br_wheel_joint
+    steer_joint_names:
+      - fl_wheel_mount_joint
+      - fr_wheel_mount_joint
+      - bl_wheel_mount_joint
+      - br_wheel_mount_joint
+
+    # Dynamics — applied to the twist magnitude only, never to vx/vy/wz apart.
+    max_accel: 0.6
+    max_decel: 1.2
+    cmd_vel_timeout_s: 0.5
+
+    # Kinematics restriction. Note there is no max_angular_speed: clamping wz
+    # would silently tighten the turn radius as speed drops.
+    max_steer_deg: 135.0
+    max_steer_rate_deg: 120.0 # degrees/s
+    max_linear_speed:  1.0
+
+    # Shape smoothing — see twist_shape.hpp.
+    #   theta = crab direction, phi = turn tightness = atan(d * 1/R)
+    # phi covers the whole range from straight (0) to spin-in-place (pi/2), so
+    # 0.54 rad/s is roughly a curvature rate of 1.0 (1/m)/s near straight and
+    # takes ~2.9 s to sweep from driving straight into a full spin.
+    max_theta_rate_rad: 1.5708   # pi/2
+    max_phi_rate_rad:   0.54
+
+    # 0.0 = auto: the wheel half-diagonal, hypot(wheelbase, track_width)/2.
+    rotation_scale_length: 0.0
+
+    # Below this the wheels steer but the drives stay at zero — this is what
+    # makes a near-zero Twist a pure "point the wheels here" command.
+    park_speed: 0.001
 
     # Geometry
     wheelbase:     0.842   # meters, front-to-rear axle distance

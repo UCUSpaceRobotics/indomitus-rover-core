@@ -2,6 +2,7 @@
 """
 Joystick Interpreter Node.
 """
+import math
 
 import rclpy
 from rclpy.node import Node
@@ -101,6 +102,24 @@ class JoystickInterpreterNode(Node):
         self._scale_vy = float(declare_and_get('scale_linear.y', 0.5))
         self._scale_wz = float(declare_and_get('scale_angular.yaw', 1.0))
 
+        # L2 / R2 — spin-in-place while in curvature mode.
+        self._axis_l2 = int(declare_and_get('axis_trigger.l2', 4))
+        self._axis_r2 = int(declare_and_get('axis_trigger.r2', 5))
+        self._trigger_deadzone = float(declare_and_get('trigger_deadzone', 0.15))
+        self._scale_rotate     = float(declare_and_get('scale_rotate', 1.0))
+
+        # Tightest turn the right stick can ask for, as curvature 1/R at full
+        # deflection. 2.0 means R = 0.5 m, an ICR inside the wheelbase.
+        self._max_curvature = float(declare_and_get('max_curvature', 2.0))
+
+        # Token speed used to command a wheel angle while standing still —
+        # see the RIDING branch of _publish_timer_cb.
+        self._angle_probe_speed = float(declare_and_get('angle_probe_speed', 1e-5))
+
+        # Which swerve controller this joystick drives. Switching to
+        # 'swerve_controller_test' also repoints the compact-mode service.
+        self._controller_name = str(declare_and_get('controller_name', 'swerve_controller'))
+
         self._granny_scale = float(declare_and_get('granny_speed_scale', 0.1))
         self._granny_mode = False
 
@@ -119,7 +138,10 @@ class JoystickInterpreterNode(Node):
         self.raw_vx: float = 0.0
         self.raw_vy: float = 0.0
         self.raw_wz: float = 0.0
+        self.raw_steer: float = 0.0
+        self.raw_rot: float = 0.0
 
+        self._row_twist_mode: bool = True
         self._compact_mode: bool = False
 
         self._traffic_red    = False
@@ -146,7 +168,8 @@ class JoystickInterpreterNode(Node):
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
         self._publish_timer = self.create_timer(1.0 / max(0.001, self._cmd_pub_rate), self._publish_timer_cb)
-        self._compact_mode_client = self.create_client(SetBool, '/swerve_controller/set_compact_mode')
+        self._compact_mode_client = self.create_client(
+            SetBool, f'/{self._controller_name}/set_compact_mode')
 
         self._spotlight = BoolLight(self, self.create_client(SetBool, '/lights/spotlight'), 'spotlight')
         self._beautiful = BoolLight(self, self.create_client(SetBool, '/lights/beautiful'), 'beautiful')
@@ -159,6 +182,7 @@ class JoystickInterpreterNode(Node):
         self._toggles = [
             ButtonToggle(declare_and_get('vy_toggle_button', 8), self._on_vy_toggle_pressed),
             ButtonToggle(declare_and_get('motor_toggle_button', 9), self._toggle_motors),
+            ButtonToggle(declare_and_get('raw_twist_mode_button', 3), self._on_raw_twist_mode_toggle_pressed),
             ButtonToggle(declare_and_get('compact_mode_button', 1), self._toggle_compact_mode),
             ButtonToggle(declare_and_get('granny_button', 10), self._on_granny_toggle_pressed),
             ButtonToggle(declare_and_get('spotlight_button', 4), self._spotlight.toggle),
@@ -174,7 +198,8 @@ class JoystickInterpreterNode(Node):
             f'JoystickInterpreter started — '
             f'vy_toggle_button={self._toggles[0].button_index}, '
             f'motor_toggle_button={self._toggles[1].button_index}, '
-            f'vy_enabled={self._vy_enabled}'
+            f'vy_enabled={self._vy_enabled}, '
+            f'controller={self._controller_name}'
         )
 
     def _on_joy(self, msg: Joy):
@@ -192,6 +217,25 @@ class JoystickInterpreterNode(Node):
         self.raw_vx = msg.axes[self._axis_vx] * self._scale_vx
         self.raw_vy = msg.axes[self._axis_vy] * self._scale_vy if self._vy_enabled else 0.0
         self.raw_wz = msg.axes[self._axis_wz] * self._scale_wz
+        # Kept unscaled: in curvature mode this stick sets a radius, not a
+        # yaw rate, so scale_angular does not apply to it.
+        self.raw_steer = msg.axes[self._axis_wz]
+        self.raw_rot = self._trigger_diff(msg.axes)
+
+    def _trigger_diff(self, axes) -> float:
+        """L2 minus R2, deadzoned. Positive = L2 = counter-clockwise spin.
+
+        Both triggers rest at 0.0 and reach 1.0 fully pressed. Reading the
+        *difference* rather than either trigger alone also means a driver that
+        rests them somewhere else can't cause trouble: a shared rest offset
+        cancels out, so a wrong rest value can never produce a standing spin
+        command — only a halved or mirrored response.
+        """
+        def value(index: int) -> float:
+            return axes[index] if index < len(axes) else 0.0
+
+        diff = value(self._axis_l2) - value(self._axis_r2)
+        return 0.0 if abs(diff) < self._trigger_deadzone else diff
 
     def _publish_timer_cb(self):
         """Publish the latest known command at a fixed rate (default 20 Hz),
@@ -202,10 +246,42 @@ class JoystickInterpreterNode(Node):
 
         vx = self.raw_vx
         vy = self.raw_vy
-        wz = self.raw_wz
-        
-        if not self._vy_enabled:
-            wz = self._apply_swerve_wz_correction(self.raw_vx, self.raw_vy, self.raw_wz)
+
+        if self._row_twist_mode:
+            wz = self.raw_wz
+            if not self._vy_enabled:
+                # Only raw mode needs this. swerve_controller has no notion of
+                # a signed travel direction, so wz must be flipped by hand when
+                # driving backwards. Curvature mode below targets
+                # swerve_controller_test, which handles the sign intrinsically.
+                wz = self._apply_swerve_wz_correction(vx, vy, wz)
+
+        elif self.raw_rot != 0.0:
+            # ROTATING — a trigger is held, so the left stick is ignored and
+            # vx/vy are driven to *exactly* zero. That is what places the twist
+            # on the spin-in-place pole; a leftover 0.01 of stick would ask for
+            # a very tight turn instead of a spin.
+            vx = 0.0
+            vy = 0.0
+            wz = self.raw_rot * self._scale_rotate
+
+        else:
+            # RIDING — right stick sets the turn radius and only the radius.
+            target_curvature = self.raw_steer * self._max_curvature
+            v_total = math.hypot(vx, vy)
+
+            if v_total < 1e-3 and target_curvature != 0.0:
+                # Standing still with a radius dialled in. Send a token speed
+                # so the twist still carries a *direction*:
+                # swerve_controller_test normalises the twist, recovering the
+                # same wheel geometry at any scale, and holds the drives at
+                # zero below park_speed. Net effect is the wheels steer to the
+                # commanded radius with the rover staying put.
+                vx = self._angle_probe_speed
+                vy = 0.0
+                wz = vx * target_curvature
+            else:
+                wz = v_total * target_curvature
 
         if self._granny_mode:
             vx *= self._granny_scale
@@ -286,6 +362,11 @@ class JoystickInterpreterNode(Node):
             request, lambda f: self._on_motor_toggle_result(f, target_enabled))
         if not started:
             self.get_logger().warn('Motor enable service busy or not available yet')
+    
+    def _on_raw_twist_mode_toggle_pressed(self):
+        self._row_twist_mode = not self._row_twist_mode
+        state_str = 'RAW TWIST (Direct)' if self._row_twist_mode else 'PROCESSED (Curvature)'
+        self.get_logger().info(f'Switching to {state_str} mode')
 
     def _toggle_compact_mode(self):
         target = not self._compact_mode
@@ -330,15 +411,15 @@ class JoystickInterpreterNode(Node):
             return
         req = SwitchController.Request()
         if activate:
-            req.activate_controllers = ['swerve_controller']
+            req.activate_controllers = [self._controller_name]
             req.deactivate_controllers = []
         else:
             req.activate_controllers = []
-            req.deactivate_controllers = ['swerve_controller']
+            req.deactivate_controllers = [self._controller_name]
         req.strictness = SwitchController.Request.BEST_EFFORT
         self._controller_state_client.call_async(req).add_done_callback(
             lambda f: self.get_logger().info(
-                f'swerve_controller → {"active" if activate else "inactive"}'))
+                f'{self._controller_name} → {"active" if activate else "inactive"}'))
 
     def _on_traffic_result(self, future, color: str, desired: bool):
         try:

@@ -12,7 +12,31 @@ joystick_interpreter:
       yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise)
     scale_angular:
       yaw: 1.0
-    
+
+    # --- SPIN IN PLACE (L2 / R2) ---
+    # Curvature mode only; inert in raw twist mode. Holding a trigger overrides
+    # the left stick and commands a pure spin. Speed comes from L2 minus R2,
+    # so pressing both cancels and a shared rest offset can't creep.
+    axis_trigger:
+      l2: 4   # positive difference -> counter-clockwise
+      r2: 5
+    trigger_deadzone: 0.15
+    scale_rotate: 1.0        # rad/s at full trigger
+
+    # Curvature 1/R at full right-stick deflection, in curvature mode.
+    # 2.0 -> R = 0.5 m, which puts the turn centre inside the wheelbase.
+    max_curvature: 2.0
+
+    # Token speed used to steer the wheels while parked, in curvature mode with
+    # the left stick centred. Must stay below the controller's park_speed
+    # (0.001) so the drives stay at zero.
+    angle_probe_speed: 0.00001
+
+    # Which controller the motor toggle activates and where compact mode is
+    # sent. Set to swerve_controller_test for the shape-smoothing controller.
+    controller_name: swerve_controller
+
+
     # --- GRANNY MODE ---
     granny_speed_scale: 0.1
     granny_button: 0

@@ -20,6 +20,7 @@ find_package(tf2_ros REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/swerve_controller.cpp
+  src/swerve_controller_test.cpp
   src/odometry_controller.cpp
 )
 
