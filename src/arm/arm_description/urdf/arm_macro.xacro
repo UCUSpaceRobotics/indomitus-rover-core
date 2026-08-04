@@ -223,7 +223,7 @@
     <joint name="arm_camera_joint" type="fixed">
       <parent link="arm_end_effector_link"/>
       <child link="arm_camera_link"/>
-      <origin xyz="-0.00110236 -0.0683370 -0.0340064" rpy="${pi} 0 ${-pi/2}"/>
+      <origin xyz="0.0012919902801513672 0.07102805376052856 0.03884565830230713" rpy="0 ${-pi/2} ${-pi/2}"/>
     </joint>
 
     <link name="arm_camera_link">
@@ -283,6 +283,26 @@
       <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"/>
       <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"/>
       <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint"/>
+
+      <!-- Only the right finger joint needs a ros2_control interface: the
+           left one is a <mimic> of it, computed automatically (by
+           robot_state_publisher for TF, and by the planning scene monitor
+           for collision state) from the right joint's reported position —
+           it doesn't need its own state/command interface. Without this,
+           joint_state_broadcaster never reports arm_jaw_gripper_finger_right_joint
+           at all, and the planning scene monitor (used by both move_group
+           and Servo) considers the robot's state permanently incomplete,
+           which silently blocks all motion. -->
+      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+        <joint name="arm_jaw_gripper_finger_right_joint">
+          <command_interface name="position">
+            <param name="min">0</param>
+            <param name="max">${finger_stroke}</param>
+          </command_interface>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:if>
     </ros2_control>
 
     <xacro:if value="$(arg sim)">
