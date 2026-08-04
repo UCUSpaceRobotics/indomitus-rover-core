@@ -8,17 +8,6 @@
 #include <thread>
 #include <limits>
 
-#include <errno.h>
-#include <fcntl.h>
-#include <net/if.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <linux/can.h>
-#include <linux/can/error.h>   // CAN_ERR_* classes and CAN_ERR_CRTL_* bits
-#include <linux/can/raw.h>
-
 #include "pluginlib/class_list_macros.hpp"
 
 constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
@@ -206,10 +195,10 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
             auto f1 = steadywin_protocol::buildStatusQueryFrame(steer_ids_[i]);
             auto f2 = steadywin_protocol::buildAbsAngleQueryFrame(steer_ids_[i]);
             auto f3 = damiao_protocol::buildReadRegisterFrame(drive_ids_[i], 80);
-            send_can_frame(f1.id, f1.data.data(), f1.dlc);
-            send_can_frame(f2.id, f2.data.data(), f2.dlc);
+            can_bus_.send(f1.id, f1.data.data(), f1.dlc);
+            can_bus_.send(f2.id, f2.data.data(), f2.dlc);
             // Damiao register read uses extended frame (0x7FF workaround)
-            send_can_frame(f3.id, f3.data.data(), f3.dlc, f3.is_extended);
+            can_bus_.send(f3.id, f3.data.data(), f3.dlc, f3.is_extended);
         }
     });
 
@@ -238,8 +227,8 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
         for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
             auto f1 = steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f);
             auto f2 = damiao_protocol::buildVelocityFrame(drive_ids_[i], 0.0f);
-            send_can_frame(f1.id, f1.data.data(), f1.dlc);
-            send_can_frame(f2.id, f2.data.data(), f2.dlc);
+            can_bus_.send(f1.id, f1.data.data(), f1.dlc);
+            can_bus_.send(f2.id, f2.data.data(), f2.dlc);
         }
     });
 
@@ -251,13 +240,15 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
 hardware_interface::CallbackReturn
 RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State& /*prev*/)
 {
-    if (!open_can_socket()) {
+    if (!can_bus_.open(can_interface_)) {
         return hardware_interface::CallbackReturn::ERROR;
     }
 
     // Start receive thread before enabling motors so we don't miss early feedback
-    rx_running_.store(true);
-    rx_thread_ = std::thread(&RoverHardwareInterface::rx_thread_fn, this);
+    can_bus_.start_rx([this](const struct can_frame & frame) {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        dispatch_can_frame(frame);
+    });
 
     last_write_time_ = clock_->now();
     send_enable_frames();
@@ -272,13 +263,8 @@ RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State& /*prev*/)
 {
     send_shutdown_frames();
 
-    // Stop rx thread
-    rx_running_.store(false);
-    if (rx_thread_.joinable()) {
-        rx_thread_.join();
-    }
-
-    close_can_socket();
+    can_bus_.stop_rx();
+    can_bus_.close();
     RCLCPP_INFO(logger_, "[RoverHW] Deactivated.");
     return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -316,12 +302,8 @@ RoverHardwareInterface::on_shutdown(const rclcpp_lifecycle::State& /*prev*/)
     }
 
     // just in case
-    rx_running_.store(false);
-    if (rx_thread_.joinable()) {
-        rx_thread_.join();
-    }
-
-    close_can_socket();
+    can_bus_.stop_rx();
+    can_bus_.close();
 
     // just in case
     if (hw_executor_) {
@@ -361,21 +343,15 @@ RoverHardwareInterface::read(
     // place with a consistent snapshot of all motors at a fixed rate, and a
     // motor that has gone silent produces no frames to trigger the RX path.
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const auto & s = steer_state_[i];
-        detect_fault_transition(
-            i, /*is_steer=*/true,
-            steadywin_protocol::translateFault(s.fault_code, s.mode),
-            s.diag_valid, s.fault_code);
+        fault_detector_.detect_steer_fault(
+            i, steer_state_[i], steer_joint_names_[i], steer_ids_[i], motors_enabled_);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const auto & d = drive_state_[i];
-        detect_fault_transition(
-            i, /*is_steer=*/false,
-            damiao_protocol::translateFault(d.err),
-            d.valid, d.err);
+        fault_detector_.detect_drive_fault(
+            i, drive_state_[i], drive_joint_names_[i], drive_ids_[i], motors_enabled_);
     }
 
-    detect_can_bus_fault();
+    fault_detector_.detect_bus_fault(can_bus_.state(), can_interface_, motors_enabled_);
 
     // A single motor fault must not tear down the hardware component: returning
     // ERROR here would deactivate all eight motors and the telemetry with them,
@@ -386,152 +362,10 @@ RoverHardwareInterface::read(
     // own when the interface has restart-ms set, and the motors have their own
     // failsafes. Tearing down the component on a transient bus-off would turn a
     // self-healing fault into one that needs an operator to re-activate.
-    if (can_fd_ < 0) {
+    if (!can_bus_.is_open()) {
         return hardware_interface::return_type::ERROR;
     }
     return hardware_interface::return_type::OK;
-}
-
-// detect_can_bus_fault — edge-trigger the transport
-//
-// Caller must hold feedback_mutex_ (queues onto pending_fault_events_).
-
-void RoverHardwareInterface::detect_can_bus_fault()
-{
-    rover_fault::Fault current = rover_fault::Fault::NONE;
-    switch (bus_state_.load()) {
-        case CanBusState::BUS_OFF:        current = rover_fault::Fault::CAN_BUS_OFF;       break;
-        case CanBusState::ERROR_PASSIVE:  current = rover_fault::Fault::CAN_ERROR_PASSIVE; break;
-        // Error-warning is a counter threshold, not a loss of function: the
-        // controller is still transmitting normally. Reporting it as a fault
-        // would cry wolf on a bus that is merely busy.
-        case CanBusState::ERROR_WARNING:
-        case CanBusState::OK:             current = rover_fault::Fault::NONE;              break;
-    }
-
-    if (bus_fault_.seen && current == bus_fault_.fault) return;
-
-    if (bus_fault_.seen) {
-        indomitus_interfaces::msg::FaultEvent ev;
-        ev.header.stamp = clock_->now();
-        ev.component = "chassis/" + can_interface_;
-        ev.vendor    = "socketcan";
-        ev.esc_id    = 0;
-        ev.raw_code  = static_cast<uint8_t>(bus_state_.load());
-        ev.event = !rover_fault::is_fault(bus_fault_.fault)
-            ? indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_ENTER
-            : (!rover_fault::is_fault(current)
-                   ? indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CLEAR
-                   : indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CHANGE);
-        ev.fault          = static_cast<uint8_t>(current);
-        ev.previous_fault = static_cast<uint8_t>(bus_fault_.fault);
-        ev.fault_name     = rover_fault::to_string(current);
-        ev.recovery       = static_cast<uint8_t>(rover_fault::recovery_for(current));
-        // The bus has no kinematics; the counters are what explain it, and they
-        // ride in the diagnostics entry alongside.
-        ev.position = ev.velocity = ev.torque = kNaN;
-        ev.temperature = ev.voltage = ev.current = kNaN;
-        ev.mode    = static_cast<uint8_t>(bus_state_.load());
-        ev.enabled = motors_enabled_;
-        pending_fault_events_.push_back(ev);
-    }
-
-    bus_fault_.fault = current;
-    bus_fault_.seen  = true;
-}
-
-// detect_fault_transition — edge-trigger one motor, queue an event if changed
-//
-// Caller must hold feedback_mutex_.
-
-void RoverHardwareInterface::detect_fault_transition(
-    std::size_t index, bool is_steer,
-    rover_fault::Fault current, bool health_valid, uint8_t raw_code)
-{
-    static constexpr std::array<const char *, NUM_WHEELS> kNames = {"FL","FR","RL","RR"};
-
-    auto & tracker = is_steer ? steer_fault_[index] : drive_fault_[index];
-
-    indomitus_interfaces::msg::FaultEvent ev;
-    ev.header.stamp = clock_->now();
-    ev.component = std::string(is_steer ? "chassis/steer_" : "chassis/drive_") + kNames[index];
-    ev.joint_name = is_steer ? steer_joint_names_[index] : drive_joint_names_[index];
-    ev.vendor     = is_steer ? "steadywin" : "damiao";
-    ev.esc_id     = is_steer ? steer_ids_[index] : drive_ids_[index];
-    ev.raw_code   = raw_code;
-
-    if (is_steer) {
-        const auto & s = steer_state_[index];
-        ev.position    = s.pos_valid ? s.pos_rad : kNaN;
-        ev.velocity    = kNaN;   // not reported by this vendor
-        ev.torque      = kNaN;
-        ev.temperature = static_cast<float>(s.temperature);
-        ev.voltage     = s.voltage;
-        ev.current     = s.bus_current;
-        ev.mode        = s.mode;
-    } else {
-        const auto & d = drive_state_[index];
-        ev.position    = d.valid ? d.pos : kNaN;
-        ev.velocity    = d.valid ? d.vel : kNaN;
-        ev.torque      = d.valid ? d.tor : kNaN;
-        ev.temperature = static_cast<float>(d.t_mos);
-        ev.voltage     = kNaN;   // not reported by this vendor
-        ev.current     = kNaN;
-        ev.mode        = (d.valid && d.err == damiao_protocol::ERR_ENABLED) ? 3u : 0u;
-    }
-    ev.enabled = motors_enabled_;
-
-    // Feedback presence is tracked separately from faults: a motor that has
-    // dropped off the bus reports no fault code at all, so without this it
-    // would be indistinguishable from a healthy one.
-    if (tracker.seen && health_valid != tracker.health_valid) {
-        ev.event = health_valid
-            ? indomitus_interfaces::msg::FaultEvent::EVENT_SIGNAL_OK
-            : indomitus_interfaces::msg::FaultEvent::EVENT_SIGNAL_LOST;
-        ev.fault          = static_cast<uint8_t>(tracker.fault);
-        ev.previous_fault = static_cast<uint8_t>(tracker.fault);
-        ev.fault_name     = rover_fault::to_string(tracker.fault);
-        ev.recovery       = static_cast<uint8_t>(rover_fault::recovery_for(tracker.fault));
-        pending_fault_events_.push_back(ev);
-    }
-    tracker.health_valid = health_valid;
-
-    if (!health_valid) {
-        // Fault codes are meaningless without feedback. Hold the last known
-        // fault so recovery is detected correctly once frames resume.
-        tracker.seen = true;
-        return;
-    }
-
-    if (tracker.seen && current != tracker.fault) {
-        const bool was_fault = rover_fault::is_fault(tracker.fault);
-        const bool is_now    = rover_fault::is_fault(current);
-
-        // NONE <-> NOT_ENABLED is an ordinary enable/disable, not a fault edge.
-        if (was_fault || is_now) {
-            ev.event = !was_fault
-                ? indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_ENTER
-                : (!is_now ? indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CLEAR
-                           : indomitus_interfaces::msg::FaultEvent::EVENT_FAULT_CHANGE);
-            ev.fault          = static_cast<uint8_t>(current);
-            ev.previous_fault = static_cast<uint8_t>(tracker.fault);
-            ev.fault_name     = rover_fault::to_string(current);
-            ev.recovery       = static_cast<uint8_t>(rover_fault::recovery_for(current));
-            pending_fault_events_.push_back(ev);
-        }
-    }
-
-    tracker.fault = current;
-    tracker.seen  = true;
-
-    // Bound the queue. If the executor thread ever stalls while a fault is
-    // flapping, read() would otherwise grow this without limit at 100 Hz.
-    // Dropping the oldest keeps the most recent picture, which is what an
-    // operator needs; the count of drops is not worth tracking here because
-    // reaching this at all means something upstream is already broken.
-    if (pending_fault_events_.size() > kMaxPendingFaultEvents) {
-        pending_fault_events_.erase(pending_fault_events_.begin());
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -559,10 +393,10 @@ RoverHardwareInterface::write(
             drive_ids_[i],
             static_cast<float>(drive_cmd_[i]) * kDriveSigns[i]);
 
-        if (send_can_frame(steer_f.id, steer_f.data.data(), steer_f.dlc)
-                != CanSendResult::OK) ++failed;
-        if (send_can_frame(drive_f.id, drive_f.data.data(), drive_f.dlc)
-                != CanSendResult::OK) ++failed;
+        if (can_bus_.send(steer_f.id, steer_f.data.data(), steer_f.dlc)
+                != CanBus::SendResult::OK) ++failed;
+        if (can_bus_.send(drive_f.id, drive_f.data.data(), drive_f.dlc)
+                != CanBus::SendResult::OK) ++failed;
     }
 
     // A whole cycle failing to reach any motor is the signature that matters:
@@ -577,166 +411,10 @@ RoverHardwareInterface::write(
     return hardware_interface::return_type::OK;
 }
 
-// SocketCAN — open / close / send
-
-void RoverHardwareInterface::on_can_error(const struct can_frame & frame)
-{
-    // frame.data[1] holds controller-problem bits when CAN_ERR_CRTL is set
-    if (frame.can_id & CAN_ERR_BUSOFF) {
-        bus_state_.store(CanBusState::BUS_OFF);
-        RCLCPP_ERROR(logger_, "[RoverHW] CAN bus-off detected on %s", can_interface_.c_str());
-    } else if (frame.can_id & CAN_ERR_CRTL) {
-        if (frame.data[1] & CAN_ERR_CRTL_TX_PASSIVE ||
-            frame.data[1] & CAN_ERR_CRTL_RX_PASSIVE) {
-            bus_state_.store(CanBusState::ERROR_PASSIVE);
-            RCLCPP_WARN(logger_, "[RoverHW] CAN controller error-passive");
-        } else if (frame.data[1] & CAN_ERR_CRTL_TX_WARNING ||
-                   frame.data[1] & CAN_ERR_CRTL_RX_WARNING) {
-            bus_state_.store(CanBusState::ERROR_WARNING);
-        }
-        tx_error_count_.store(frame.data[6]);
-        rx_error_count_.store(frame.data[7]);
-    } else if (frame.can_id & CAN_ERR_RESTARTED) {
-        bus_state_.store(CanBusState::OK);
-        RCLCPP_INFO(logger_, "[RoverHW] CAN interface auto-restarted, bus recovered");
-    }
-}
-
-bool RoverHardwareInterface::open_can_socket()
-{
-    can_fd_ = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-    if (can_fd_ < 0) {
-        RCLCPP_ERROR(logger_,
-            "[RoverHW] socket(PF_CAN) failed: %s", std::strerror(errno));
-        return false;
-    }
-
-    can_err_mask_t err_mask = CAN_ERR_TX_TIMEOUT | CAN_ERR_LOSTARB | CAN_ERR_CRTL |
-        CAN_ERR_PROT | CAN_ERR_TRX | CAN_ERR_ACK | CAN_ERR_BUSOFF  |
-        CAN_ERR_BUSERROR | CAN_ERR_RESTARTED;
-    setsockopt(can_fd_, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &err_mask, sizeof(err_mask));
-
-    // Bind to the named CAN interface
-    struct ifreq ifr{};
-    std::strncpy(ifr.ifr_name, can_interface_.c_str(), IFNAMSIZ - 1);
-    if (ioctl(can_fd_, SIOCGIFINDEX, &ifr) < 0) {
-        RCLCPP_ERROR(logger_,
-            "[RoverHW] ioctl SIOCGIFINDEX failed for '%s': %s",
-            can_interface_.c_str(), std::strerror(errno));
-        close(can_fd_); can_fd_ = -1;
-        return false;
-    }
-
-    struct sockaddr_can addr{};
-    addr.can_family  = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
-    if (bind(can_fd_, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-        RCLCPP_ERROR(logger_,
-            "[RoverHW] bind() failed: %s", std::strerror(errno));
-        close(can_fd_); can_fd_ = -1;
-        return false;
-    }
-
-    // Disable loopback so we don't receive our own TX frames
-    int loopback = 0;
-    setsockopt(can_fd_, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &loopback, sizeof(loopback));
-
-    // rx_thread uses blocking recv() — no need to set O_NONBLOCK on the fd
-    // write() / send_can_frame() are non-blocking by nature for CAN frames
-
-    RCLCPP_INFO(logger_,
-        "[RoverHW] SocketCAN opened: %s (fd=%d)", can_interface_.c_str(), can_fd_);
-    return true;
-}
-
-void RoverHardwareInterface::close_can_socket()
-{
-    if (can_fd_ >= 0) {
-        close(can_fd_);
-        can_fd_ = -1;
-        RCLCPP_INFO(logger_, "[RoverHW] SocketCAN closed.");
-    }
-}
-
-// Return type must be qualified: a leading return type on an out-of-class
-// member definition is not looked up in class scope, and CanSendResult is a
-// nested type.
-RoverHardwareInterface::CanSendResult RoverHardwareInterface::send_can_frame(
-    uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended)
-{
-    // Socket not open — same practical meaning to a caller as the bus being
-    // gone: there is no transport.
-    if (can_fd_ < 0) return CanSendResult::BUS_DOWN;
-
-    struct can_frame frame{};
-    frame.can_id  = is_extended ? (id | CAN_EFF_FLAG) : (id & CAN_SFF_MASK);
-    frame.can_dlc = dlc;
-    std::memcpy(frame.data, data, dlc);
-
-    std::lock_guard<std::mutex> lock(can_tx_mutex_);
-    const ssize_t nbytes = ::write(can_fd_, &frame, sizeof(frame));
-    if (nbytes == static_cast<ssize_t>(sizeof(frame))) {
-        return CanSendResult::OK;
-    }
-
-    if (errno == ENOBUFS || errno == EAGAIN) {
-        // TX queue full. Transient, but not nothing: a sustained burst of these
-        // means frames are being dropped, and 200 ms of dropped frames is
-        // exactly what trips the Damiao TIMEOUT register into a comm-loss
-        // fault. Silence here would hide the cause of the fault we then report.
-        tx_dropped_.fetch_add(1);
-        RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
-            "[RoverHW] CAN TX queue full (id=0x%X), frame dropped — %d total",
-            id, tx_dropped_.load());
-        return CanSendResult::WOULD_BLOCK;
-    }
-    if (errno == ENETDOWN) {
-        bus_state_.store(CanBusState::BUS_OFF);
-        return CanSendResult::BUS_DOWN;
-    }
-    
-    RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
-        "[RoverHW] send_can_frame id=0x%X failed: %s", id, std::strerror(errno));
-    return CanSendResult::ERROR;
-}
-
-// rx_thread_fn — blocking receive loop
-//
-// Runs in a dedicated thread so it doesn't block the control loop.
-// Writes decoded state into steer_state_/drive_state_ under feedback_mutex_.
-
-void RoverHardwareInterface::rx_thread_fn()
-{
-    struct can_frame frame{};
-
-    while (rx_running_.load()) {
-        const ssize_t nbytes = ::read(can_fd_, &frame, sizeof(frame));
-
-        if (nbytes < 0) {
-            if (errno == EINTR) continue;  // interrupted by signal — retry
-            if (!rx_running_.load()) break; // socket closed during shutdown
-            RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
-                "[RoverHW] CAN recv error: %s", std::strerror(errno));
-            continue;
-        }
-
-        if (nbytes != static_cast<ssize_t>(sizeof(frame))) continue;
-
-        if (frame.can_id & CAN_ERR_FLAG) {
-            on_can_error(frame);
-            continue;  // don't pass error frames to dispatch_can_frame
-        }
-
-        // Strip flags from CAN ID before dispatch
-        const uint32_t raw_id = frame.can_id & CAN_EFF_MASK;
-        frame.can_id = raw_id;
-
-        std::lock_guard<std::mutex> lock(feedback_mutex_);
-        dispatch_can_frame(frame);
-    }
-}
-
 // dispatch_can_frame — route one frame to the right motor decoder
+//
+// Called from CanBus's RX thread via the callback given to start_rx().
+// Caller (on_activate's lambda) holds feedback_mutex_.
 
 void RoverHardwareInterface::dispatch_can_frame(const struct can_frame& frame)
 {
@@ -798,23 +476,23 @@ void RoverHardwareInterface::send_enable_frames()
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = steadywin_protocol::buildClearFaultFrame(steer_ids_[i]);
-        send_can_frame(f.id, f.data.data(), f.dlc);
+        can_bus_.send(f.id, f.data.data(), f.dlc);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = steadywin_protocol::buildAbsPositionFrame(steer_ids_[i], 0.0f);
-        send_can_frame(f.id, f.data.data(), f.dlc);
+        can_bus_.send(f.id, f.data.data(), f.dlc);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = damiao_protocol::buildWriteRegisterUint32Frame(drive_ids_[i], 9, 200u);
-        send_can_frame(f.id, f.data.data(), f.dlc, f.is_extended);
+        can_bus_.send(f.id, f.data.data(), f.dlc, f.is_extended);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = damiao_protocol::buildSetModeFrame(drive_ids_[i], 3);
-        send_can_frame(f.id, f.data.data(), f.dlc, f.is_extended);
+        can_bus_.send(f.id, f.data.data(), f.dlc, f.is_extended);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = damiao_protocol::buildEnableFrame(drive_ids_[i]);
-        send_can_frame(f.id, f.data.data(), f.dlc);
+        can_bus_.send(f.id, f.data.data(), f.dlc);
     }
 
     motors_enabled_ = true;
@@ -827,11 +505,11 @@ void RoverHardwareInterface::send_disable_frames()
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = steadywin_protocol::buildDisableFrame(steer_ids_[i]);
-        send_can_frame(f.id, f.data.data(), f.dlc);
+        can_bus_.send(f.id, f.data.data(), f.dlc);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = damiao_protocol::buildDisableFrame(drive_ids_[i]);
-        send_can_frame(f.id, f.data.data(), f.dlc);
+        can_bus_.send(f.id, f.data.data(), f.dlc);
     }
 
     motors_enabled_ = false;
@@ -868,7 +546,7 @@ void RoverHardwareInterface::on_set_steer_zero(
 
     auto zero_one = [&](std::size_t i) {
         auto f = steadywin_protocol::buildSetOriginFrame(steer_ids_[i]);
-        send_can_frame(f.id, f.data.data(), f.dlc);
+        can_bus_.send(f.id, f.data.data(), f.dlc);
         zeroed += kNames[i]; zeroed += '(';
         zeroed += std::to_string(steer_ids_[i]); zeroed += ") ";
         RCLCPP_INFO(logger_, "[RoverHW] Set steer zero: %s (id=%d)",
@@ -965,30 +643,30 @@ void RoverHardwareInterface::publish_diagnostics()
     {
         diagnostic_msgs::msg::DiagnosticStatus st;
         st.name = st.hardware_id = "can/" + can_interface_;
-        const auto state = bus_state_.load();
+        const auto state = can_bus_.state();
         switch (state) {
-            case CanBusState::BUS_OFF:
+            case CanBus::BusState::BUS_OFF:
                 st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
                 st.message = "BUS-OFF — no frames reach any motor";
                 break;
-            case CanBusState::ERROR_PASSIVE:
+            case CanBus::BusState::ERROR_PASSIVE:
                 st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
                 st.message = "Error-passive — controller degraded";
                 break;
-            case CanBusState::ERROR_WARNING:
+            case CanBus::BusState::ERROR_WARNING:
                 st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
                 st.message = "Error counters elevated";
                 break;
-            case CanBusState::OK:
+            case CanBus::BusState::OK:
                 st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
                 st.message = "OK";
                 break;
         }
-        st.values.push_back(kv("tx_error_count", std::to_string(tx_error_count_.load())));
-        st.values.push_back(kv("rx_error_count", std::to_string(rx_error_count_.load())));
+        st.values.push_back(kv("tx_error_count", std::to_string(can_bus_.tx_error_count())));
+        st.values.push_back(kv("rx_error_count", std::to_string(can_bus_.rx_error_count())));
         // Cumulative, not a rate: a value that climbs during a manoeuvre is the
         // evidence that the bus is saturating.
-        st.values.push_back(kv("tx_dropped",     std::to_string(tx_dropped_.load())));
+        st.values.push_back(kv("tx_dropped",     std::to_string(can_bus_.tx_dropped())));
         arr.status.push_back(st);
     }
 
@@ -1060,20 +738,16 @@ void RoverHardwareInterface::publish_diagnostics()
 // publish_fault_events — drain the queue filled by read()
 //
 // Runs on hw_node_'s executor, not the control loop. Faults are rare, so this
-// finds an empty queue on essentially every tick; the cost of checking is a
-// mutex acquisition, and the benefit is that rclcpp publishing (which
-// allocates) never runs inside read().
+// finds an empty queue on essentially every tick; the benefit of draining via
+// FaultDetector's own internal lock (rather than feedback_mutex_) is that
+// rclcpp publishing (which allocates) never runs inside read().
 
 void RoverHardwareInterface::publish_fault_events()
 {
     if (!fault_event_pub_) return;
 
-    std::vector<indomitus_interfaces::msg::FaultEvent> events;
-    {
-        std::lock_guard<std::mutex> lock(feedback_mutex_);
-        if (pending_fault_events_.empty()) return;
-        events.swap(pending_fault_events_);
-    }
+    auto events = fault_detector_.drain_events();
+    if (events.empty()) return;
 
     for (const auto & ev : events) {
         fault_event_pub_->publish(ev);
