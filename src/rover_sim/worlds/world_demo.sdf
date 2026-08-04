@@ -162,7 +162,7 @@
     </include> -->
 
     <include>
-      <uri>model://mars_yard</uri>
+      <uri>model://mars_yard_2025</uri>
     </include>
 
   </world>

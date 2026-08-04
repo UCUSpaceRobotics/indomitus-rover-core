@@ -1,13 +1,13 @@
 <?xml version="1.0" ?>
 <sdf version="1.6">
-  <model name="mars_yard">
+  <model name="mars_yard_2025">
     <static>true</static> 
 
     <link name="map_link">
       <collision name="collision">
         <geometry>
           <mesh>
-            <uri>model://mars_yard/meshes/mars_yard_2025_medium_resolution.obj</uri>
+            <uri>model://mars_yard_2025/meshes/mars_yard_2025_medium_resolution.obj</uri>
           </mesh>
         </geometry>
       </collision>
@@ -15,7 +15,7 @@
       <visual name="visual">
         <geometry>
           <mesh>
-            <uri>model://mars_yard/meshes/mars_yard_2025_medium_resolution.obj</uri>
+            <uri>model://mars_yard_2025/meshes/mars_yard_2025_medium_resolution.obj</uri>
           </mesh>
         </geometry>
         <material>

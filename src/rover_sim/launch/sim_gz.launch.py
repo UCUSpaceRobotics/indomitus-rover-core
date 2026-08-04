@@ -1,4 +1,5 @@
 import os
+import shutil
 from string import Template
 
 from ament_index_python.packages import get_package_share_directory
@@ -60,6 +61,62 @@ def make_spawn_node() -> Node:
     )
 
 
+def setup_dynamic_map(context, rover_sim_share: str) -> list:
+    resolution = LaunchConfiguration("map_resolution").perform(context)
+
+    source_meshes_dir = os.path.join(rover_sim_share, 'models', 'mars_yard_2025', 'meshes')
+    tmp_model_dir = '/tmp/sim_models/mars_yard_2025'
+    tmp_meshes_dir = os.path.join(tmp_model_dir, 'meshes')
+
+    os.makedirs(tmp_meshes_dir, exist_ok=True)
+
+    selected_obj = os.path.join(source_meshes_dir, f'mars_yard_2025_{resolution}_resolution.obj')
+    target_obj = os.path.join(tmp_meshes_dir, 'mars_yard_2025.obj')
+
+    if os.path.exists(selected_obj):
+        shutil.copy(selected_obj, target_obj)
+    else:
+        raise RuntimeError(f"Resolution file not found: {selected_obj}")
+
+    shutil.copy(
+        os.path.join(rover_sim_share, 'models', 'mars_yard_2025', 'model.config'),
+        os.path.join(tmp_model_dir, 'model.config')
+    )
+
+    sdf_content = f"""<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="mars_yard_2025">
+    <static>true</static>
+    <link name="map_link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://mars_yard_2025/meshes/mars_yard_2025.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://mars_yard_2025/meshes/mars_yard_2025.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.6 0.3 0.1 1</ambient>
+          <diffuse>0.7 0.35 0.15 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
+"""
+    with open(os.path.join(tmp_model_dir, 'model.sdf'), 'w') as f:
+        f.write(sdf_content)
+
+    return []
+
+
 def generate_launch_description() -> LaunchDescription:
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share         = get_package_share_directory('rover_sim')
@@ -70,6 +127,14 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('world_name', default_value='world_demo'),
         DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
 
+        DeclareLaunchArgument(
+            'map_resolution',
+            default_value='high',
+            description='Options: low, medium, high, ultra'
+        ),
+
+        OpaqueFunction(function=setup_dynamic_map, kwargs={'rover_sim_share': rover_sim_share}),
+
         SetEnvironmentVariable(
             name='GZ_SIM_RESOURCE_PATH',
             value=[
@@ -77,7 +142,7 @@ def generate_launch_description() -> LaunchDescription:
                 ':',
                 os.path.dirname(rover_description_share),
                 ':',
-                os.path.join(rover_sim_share, 'models'),
+                '/tmp/sim_models',
             ]
         ),
 
