@@ -196,6 +196,25 @@ public:
         return current_;
     }
 
+    /**
+     * Jump straight to `target`, ignoring the rate limits.
+     *
+     * Only legitimate while the drives are at zero. Rate-limiting the shape is
+     * what stops the wheels fighting the ground mid-manoeuvre; with no torque
+     * being delivered there is nothing to fight, and the steering joints are
+     * still rate-limited by the controller's own step_angle(). Snapping lets a
+     * standing rover pivot straight to where it is actually going instead of
+     * tracking a sweep it is not travelling along.
+     */
+    TwistShape snap(TwistShape target)
+    {
+        target = resolve_antipode(target, current_);
+        current_.theta = wrap_pi(target.theta);
+        current_.phi   = clamp(target.phi, -M_PI / 2.0, M_PI / 2.0);
+        current_.m     = target.m;
+        return current_;
+    }
+
     const TwistShape & current() const { return current_; }
 
     void reset()

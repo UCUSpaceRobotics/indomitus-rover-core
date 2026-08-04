@@ -71,6 +71,7 @@ swerve_controller_test:
     max_phi_rate_rad:   0.54
     rotation_scale_length: 0.0   # auto = wheel half-diagonal
     park_speed: 0.001
+    idle_home_delay: 0.5         # negative disables return-to-zero
 
     # The swerve_controller block above omits these and silently takes the
     # code defaults (1.20 / 0.80 / 0.15); set them here to match odometry.

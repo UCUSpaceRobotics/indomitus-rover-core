@@ -108,6 +108,14 @@ private:
     WheelData current_angles_{WheelData::filled(0.0)};   ///< integrated steering command
     WheelData measured_angles_{WheelData::filled(0.0)};  ///< hardware feedback
 
+    /// Steering target chosen last cycle. A wheel pointing at angle a with
+    /// speed +s is physically identical to one at a±180 with speed −s, and the
+    /// IK picks between those two afresh every cycle against the *moving*
+    /// joint position — which lets the choice flip mid-manoeuvre and send a
+    /// wheel the long way round with its drive reversing. Keeping the previous
+    /// target as the reference instead makes the choice continuous.
+    WheelData committed_angles_{WheelData::filled(0.0)};
+
     /// Latest twist off /cmd_vel, stored raw — nothing is clamped on the way
     /// in. Limiting wz here would silently change the turn radius, which is
     /// exactly the geometry this controller exists to keep stable.
@@ -115,9 +123,14 @@ private:
     double raw_vy_{0.0};
     double raw_wz_{0.0};
 
-    /// Latest commanded shape. Held across an empty Twist so the wheels keep
-    /// their angle while the speed ramps out instead of snapping to straight.
+    /// Latest commanded shape. Held across an empty Twist until the idle timer
+    /// expires, so the wheels keep their angle through the deceleration rather
+    /// than pivoting while still rolling.
     TwistShape target_shape_{};
+
+    /// Idle tracking for the return-to-zero behaviour.
+    bool         idle_{false};
+    rclcpp::Time idle_since_{0, 0, RCL_ROS_TIME};
 
     rclcpp::Time last_cmd_vel_time_{0, 0, RCL_ROS_TIME};
 
@@ -141,6 +154,10 @@ private:
     /// Below this magnitude the wheels still steer but the drives are held at
     /// zero, which is what turns a near-zero Twist into an angle-only command.
     double park_speed_{1e-3};             // m/s
+
+    /// Seconds of continuous idle before the wheels return to zero. Negative
+    /// disables homing, leaving them wherever they were last commanded.
+    double idle_home_delay_{1.0};         // s
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr         compact_srv_;

@@ -94,7 +94,7 @@ def generate_launch_description() -> LaunchDescription:
         include_launch('rover_bringup', 'control.launch.py', {
             'use_sim': 'true',
             'controllers_yaml': controllers_yaml_path,
-            'controllers': 'joint_state_broadcaster swerve_controller odometry_controller diff_bar_effort_controller',
+            'controllers': 'joint_state_broadcaster swerve_controller_test odometry_controller diff_bar_effort_controller',
         }),
 
         include_launch('rover_localization', 'ekf.launch.py', {

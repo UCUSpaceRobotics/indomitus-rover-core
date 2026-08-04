@@ -86,6 +86,13 @@ swerve_controller_test:
     # makes a near-zero Twist a pure "point the wheels here" command.
     park_speed: 0.001
 
+    # Seconds of doing nothing (empty cmd_vel AND stopped) before the wheels
+    # return to zero. The delay stops a brief pause between commands from
+    # snapping them straight and back. Negative disables homing.
+    # An angle-only command does not count as idle, so parking the wheels at
+    # an angle on purpose still works.
+    idle_home_delay: 0.5
+
     # Geometry
     wheelbase:     0.842   # meters, front-to-rear axle distance
     track_width:   0.682   # meters, left-to-right wheel distance

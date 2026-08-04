@@ -89,7 +89,8 @@ RoverSwerveControllerTest::on_activate(const rclcpp_lifecycle::State & /*previou
     // Start the integrated steering command from where the joints actually are,
     // so activation never commands a jump.
     read_measured_angles();
-    current_angles_ = measured_angles_;
+    current_angles_   = measured_angles_;
+    committed_angles_ = measured_angles_;
 
     last_cmd_vel_time_ = get_node()->get_clock()->now();
 
@@ -97,6 +98,11 @@ RoverSwerveControllerTest::on_activate(const rclcpp_lifecycle::State & /*previou
     magnitude_limiter_.reset(0.0);
     target_shape_ = TwistShape{};
     raw_vx_ = raw_vy_ = raw_wz_ = 0.0;
+
+    // Activation counts as the start of an idle period, so the wheels home
+    // once after idle_home_delay rather than immediately on activation.
+    idle_       = false;
+    idle_since_ = last_cmd_vel_time_;
 
     RCLCPP_INFO(get_node()->get_logger(), "[SwerveControllerTest] Activated.");
     return controller_interface::CallbackReturn::SUCCESS;
@@ -160,12 +166,39 @@ RoverSwerveControllerTest::update(
     // Step 1: Split the commanded twist into shape + magnitude.
     const TwistShape incoming = decompose(raw_vx_, raw_vy_, raw_wz_, rotation_scale_);
 
+    // "Doing nothing" means a genuinely empty twist *and* a rover that has
+    // finished stopping. Both halves matter:
+    //   · a near-zero twist is not empty — it is an angle-only command, and
+    //     homing on it would fight the very thing it asks for
+    //   · an empty twist while still rolling is a deceleration, and pivoting
+    //     the wheels mid-roll would scrub them
+    const bool commanded_empty = (incoming.m <= 0.0);
+    const bool stopped = std::abs(magnitude_limiter_.current()) < park_speed_;
+
+    if (commanded_empty && stopped) {
+        if (!idle_) {
+            idle_       = true;
+            idle_since_ = time;
+        }
+    } else {
+        idle_ = false;
+    }
+
+    const bool home_wheels =
+        idle_ && idle_home_delay_ >= 0.0 &&
+        (time - idle_since_).seconds() >= idle_home_delay_;
+
     if (incoming.m > 0.0) {
         target_shape_ = incoming;
+    } else if (home_wheels) {
+        // Straight-ahead shape at zero speed. The IK turns that into zero
+        // steering angles (or the compact-mode offsets), and the smoother
+        // walks there at the usual rates — no separate homing path needed.
+        target_shape_ = TwistShape{};
     } else {
-        // Empty twist carries no direction. Keep pointing where we were and
-        // just ask for zero speed — otherwise "stop" would mean "snap the
-        // wheels to straight", which is a pivot nobody asked for.
+        // Stopping, but not idle long enough to home yet. Keep pointing where
+        // we were and just ask for zero speed, so a brief pause between
+        // commands doesn't snap the wheels straight and back.
         target_shape_.m = 0.0;
     }
 
@@ -174,8 +207,16 @@ RoverSwerveControllerTest::update(
     // Step 2: Smooth. The shape slews on the sphere; the magnitude runs
     // through its own accel/decel limiter. Because the two are independent, a
     // pure throttle change leaves every steering angle untouched.
-    const TwistShape resolved = shape_smoother_->step(target_shape_, dt);
-    const double magnitude    = magnitude_limiter_.update(resolved.m, dt);
+    //
+    // Standing still is the exception: the shape rate limit exists to stop the
+    // wheels fighting the ground, and a stopped rover has no ground fight to
+    // pick. Snapping lets it pivot straight to the manoeuvre it is about to
+    // start rather than tracking a sweep along a path it is not travelling.
+    const TwistShape resolved = stopped
+        ? shape_smoother_->snap(target_shape_)
+        : shape_smoother_->step(target_shape_, dt);
+
+    const double magnitude = magnitude_limiter_.update(resolved.m, dt);
 
     // Step 3: Run IK at a fixed nominal magnitude rather than the real one.
     //
@@ -188,11 +229,49 @@ RoverSwerveControllerTest::update(
     shape_unit(resolved, ux, uy, uz);
 
     const double nominal = max_linear_;
-    const auto [work_angles, nominal_speeds] = kinematics_->ik_full(
+    const auto ik = kinematics_->ik_full(
         ux * nominal,
         uy * nominal,
         uz * nominal / rotation_scale_,
         current_angles_);
+
+    // Step 3b: Pick which of the two equivalent representations of each wheel
+    // to actually command. (angle a, speed +s) and (angle a±180, speed −s)
+    // describe the same physical wheel motion, so the choice is free — but it
+    // is not free to keep *changing*.
+    //
+    // While driving, stay continuous with the target chosen last cycle. The IK
+    // picks afresh each cycle against current_angles_, which is itself moving,
+    // so its choice can flip part-way through a manoeuvre and send one wheel
+    // 213° around with its drive reversing while the others move 39°.
+    //
+    // While stopped, re-pick freely against the actual joint position instead.
+    // A 180° jump costs nothing when no torque is being delivered, and it buys
+    // the short way round: entering a spin from a standstill becomes a 51°
+    // pivot rather than a 129° sweep that ends up near the steering limit.
+    WheelData work_angles, nominal_speeds;
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        const double a0 = ik.angles[i];
+        const double s0 = ik.speeds[i];
+        const double a1 = (a0 < 0.0) ? a0 + M_PI : a0 - M_PI;
+
+        const bool a0_ok = std::abs(a0) <= max_steer_ + 1e-9;
+        const bool a1_ok = std::abs(a1) <= max_steer_ + 1e-9;
+
+        const double reference = stopped ? current_angles_[i] : committed_angles_[i];
+
+        bool take_alt;
+        if (a0_ok && a1_ok) {
+            take_alt = std::abs(a1 - reference) < std::abs(a0 - reference);
+        } else {
+            // Only one representation is reachable, so there is no choice.
+            take_alt = a1_ok && !a0_ok;
+        }
+
+        work_angles[i]    = take_alt ? a1 : a0;
+        nominal_speeds[i] = take_alt ? -s0 : s0;
+        committed_angles_[i] = work_angles[i];
+    }
 
     // Below park_speed the wheels still track the commanded angle but the
     // drives are held at zero — this is what lets a near-zero Twist act as a
@@ -255,6 +334,7 @@ void RoverSwerveControllerTest::declare_parameters()
     declare_param("max_theta_rate_rad",    M_PI / 2.0);
     declare_param("max_phi_rate_rad",      0.55);
     declare_param("park_speed",            0.001);
+    declare_param("idle_home_delay",       1.0);
 
     declare_param("steer_joint_names",
         std::vector<std::string>{"fl_wheel_mount_joint", "fr_wheel_mount_joint",
@@ -283,6 +363,7 @@ bool RoverSwerveControllerTest::read_parameters()
     max_theta_rate_  = node->get_parameter("max_theta_rate_rad").as_double();
     max_phi_rate_    = node->get_parameter("max_phi_rate_rad").as_double();
     park_speed_      = node->get_parameter("park_speed").as_double();
+    idle_home_delay_ = node->get_parameter("idle_home_delay").as_double();
 
     // Auto: the wheel half-diagonal. Picking that length makes the magnitude
     // equal the corner wheels' ground speed during a spin and the chassis speed
