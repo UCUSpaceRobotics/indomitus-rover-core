@@ -55,7 +55,11 @@ def make_spawn_node() -> Node:
         arguments=[
             '-name', LaunchConfiguration('model_name'),
             '-topic', 'robot_description',
+<<<<<<< HEAD
             '-x', '0.0', '-y', '0.0', '-z', '3.5',
+=======
+            '-x', '0.0', '-y', '3.0', '-z', '1.0',
+>>>>>>> b5ca72b (refactor: update rover urdf and remove large map)
         ],
         output='screen',
     )
@@ -130,7 +134,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             'map_resolution',
             default_value='high',
-            description='Options: low, medium, high, ultra'
+            description='Options: low, medium, high'
         ),
 
         OpaqueFunction(function=setup_dynamic_map, kwargs={'rover_sim_share': rover_sim_share}),
