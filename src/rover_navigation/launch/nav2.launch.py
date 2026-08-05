@@ -5,7 +5,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, NotEqualsSubstitution, IfElseSubstitution
 from launch_ros.actions import Node
 
 
@@ -31,11 +31,18 @@ def generate_launch_description():
         description="The topic Nav2 will publish its velocity commands to. Defaults to cmd_vel_nav for twist_mux routing.",
     )
 
-    nav2_params_file_val = LaunchConfiguration("params_file")
+    nav2_params_file_val = LaunchConfiguration("params_file") 
     nav2_params_file_arg = DeclareLaunchArgument(
         "params_file",
         default_value=nav2_default_config,
         description="Full path to the ROS 2 parameters file to override default params",
+    )
+
+    is_params_file_present = NotEqualsSubstitution(nav2_params_file_val, "")
+    nav2_config = IfElseSubstitution(
+        is_params_file_present,
+        if_value=nav2_params_file_val,
+        else_value=nav2_default_config,
     )
 
     lc_navigation = [
@@ -56,7 +63,7 @@ def generate_launch_description():
             executable="planner_server",
             name="planner_server",
             output="screen",
-            parameters=[nav2_params_file_val, {"use_sim_time": use_sim_val}],
+            parameters=[nav2_config, {"use_sim_time": use_sim_val}],
         ),
 
         Node(
@@ -64,7 +71,7 @@ def generate_launch_description():
             executable="controller_server",
             name="controller_server",
             output="screen",
-            parameters=[nav2_params_file_val, {"use_sim_time": use_sim_val}],
+            parameters=[nav2_config, {"use_sim_time": use_sim_val}],
             remappings=[("cmd_vel", cmd_vel_topic_val)],
         ),
 
@@ -73,7 +80,7 @@ def generate_launch_description():
             executable="behavior_server",
             name="behavior_server",
             output="screen",
-            parameters=[nav2_params_file_val, {"use_sim_time": use_sim_val}],
+            parameters=[nav2_config, {"use_sim_time": use_sim_val}],
             remappings=[("cmd_vel", cmd_vel_topic_val)],
         ),
 
@@ -83,7 +90,7 @@ def generate_launch_description():
             name="bt_navigator",
             output="screen",
             parameters=[
-                nav2_params_file_val,
+                nav2_config,
                 {
                     "use_sim_time": use_sim_val,
                     "default_nav_to_pose_bt_xml": nav_to_pose_bt,
@@ -97,7 +104,7 @@ def generate_launch_description():
             executable="waypoint_follower",
             name="waypoint_follower",
             output="screen",
-            parameters=[nav2_params_file_val, {"use_sim_time": use_sim_val}],
+            parameters=[nav2_config, {"use_sim_time": use_sim_val}],
         ),
 
         Node(
