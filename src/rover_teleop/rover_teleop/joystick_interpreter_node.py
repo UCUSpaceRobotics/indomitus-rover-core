@@ -234,7 +234,7 @@ class JoystickInterpreterNode(Node):
         def value(index: int) -> float:
             return axes[index] if index < len(axes) else 0.0
 
-        diff = value(self._axis_l2) - value(self._axis_r2)
+        diff = value(self._axis_r2) - value(self._axis_l2)
         return 0.0 if abs(diff) < self._trigger_deadzone else diff
 
     def _publish_timer_cb(self):
@@ -250,10 +250,12 @@ class JoystickInterpreterNode(Node):
         if self._row_twist_mode:
             wz = self.raw_wz
             if not self._vy_enabled:
-                # Only raw mode needs this. swerve_controller has no notion of
-                # a signed travel direction, so wz must be flipped by hand when
-                # driving backwards. Curvature mode below targets
-                # swerve_controller_test, which handles the sign intrinsically.
+                # Raw mode only. Same intent as v_signed in the RIDING branch
+                # below — keep the turn centre on the same side of the rover
+                # when reversing — but done as a correction after the fact,
+                # because here wz comes straight off the stick and was never
+                # derived from a speed. No controller can infer this for us:
+                # by the time the Twist exists the driver's intent is gone.
                 wz = self._apply_swerve_wz_correction(vx, vy, wz)
 
         elif self.raw_rot != 0.0:
@@ -268,7 +270,15 @@ class JoystickInterpreterNode(Node):
         else:
             # RIDING — right stick sets the turn radius and only the radius.
             target_curvature = self.raw_steer * self._max_curvature
-            v_total = math.hypot(vx, vy)
+
+            # Signed, not hypot(): the yaw rate has to reverse along with the
+            # direction of travel. hypot() is always positive, so reversing
+            # would keep wz pointing the same way and swing the turn centre
+            # across to the other side of the rover — the wheels mirror and the
+            # radius appears to flip sign. A car does not do that: hold the
+            # wheel still, back up, and the steering stays exactly where it is.
+            v_total  = math.hypot(vx, vy)
+            v_signed = -v_total if vx < 0.0 else v_total
 
             if v_total < 1e-3 and target_curvature != 0.0:
                 # Standing still with a radius dialled in. Send a token speed
@@ -281,7 +291,7 @@ class JoystickInterpreterNode(Node):
                 vy = 0.0
                 wz = vx * target_curvature
             else:
-                wz = v_total * target_curvature
+                wz = v_signed * target_curvature
 
         if self._granny_mode:
             vx *= self._granny_scale
@@ -454,7 +464,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

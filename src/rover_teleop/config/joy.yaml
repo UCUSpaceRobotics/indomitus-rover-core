@@ -34,7 +34,7 @@ joystick_interpreter:
 
     # Which controller the motor toggle activates and where compact mode is
     # sent. Set to swerve_controller_test for the shape-smoothing controller.
-    controller_name: swerve_controller
+    controller_name: swerve_controller_test
 
 
     # --- GRANNY MODE ---

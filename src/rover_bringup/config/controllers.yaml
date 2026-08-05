@@ -77,7 +77,13 @@ swerve_controller_test:
     # 0.54 rad/s is roughly a curvature rate of 1.0 (1/m)/s near straight and
     # takes ~2.9 s to sweep from driving straight into a full spin.
     max_theta_rate_rad: 1.5708   # pi/2
-    max_phi_rate_rad:   0.54
+    # Ceiling set by the steering joints, not by taste: one radian of phi asks
+    # for up to 2.10 rad of wheel angle (measured worst case over the sweep),
+    # and max_steer_rate_deg is 120 deg/s = 2.09 rad/s, so 2.09/2.10 = 1.0.
+    # Above this the shape target outruns the joints, the alignment scale cuts
+    # the drives, and it lurches instead of steering faster. To go quicker,
+    # raise max_steer_rate_deg first, then re-derive this.
+    max_phi_rate_rad:   1.0
 
     # 0.0 = auto: the wheel half-diagonal, hypot(wheelbase, track_width)/2.
     rotation_scale_length: 0.0
@@ -91,7 +97,7 @@ swerve_controller_test:
     # snapping them straight and back. Negative disables homing.
     # An angle-only command does not count as idle, so parking the wheels at
     # an angle on purpose still works.
-    idle_home_delay: 0.5
+    idle_home_delay: 0.0
 
     # Geometry
     wheelbase:     0.842   # meters, front-to-rear axle distance

@@ -68,7 +68,9 @@ swerve_controller_test:
     max_steer_rate_deg: 90.0
 
     max_theta_rate_rad: 1.5708   # pi/2
-    max_phi_rate_rad:   0.54
+    # 0.74, not the 1.0 used on hardware: same 2.10 gain from phi to wheel
+    # angle, but sim's max_steer_rate_deg is 90 (1.571 rad/s), so 1.571/2.10.
+    max_phi_rate_rad:   0.74
     rotation_scale_length: 0.0   # auto = wheel half-diagonal
     park_speed: 0.001
     idle_home_delay: 0.5         # negative disables return-to-zero
