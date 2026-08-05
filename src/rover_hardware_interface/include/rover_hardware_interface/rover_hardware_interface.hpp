@@ -179,6 +179,14 @@ private:
     /// control thread in read()/write() and by three timer callbacks. Atomic
     /// because those are different threads; a plain bool here is a data race.
     std::atomic<bool> motors_enabled_{false};
+
+    /// Set in on_activate(), cleared in on_deactivate()/on_shutdown(). read()
+    /// is called by controller_manager as soon as the component is merely
+    /// configured (inactive) — before on_activate() has ever opened the CAN
+    /// socket — so "socket not open" is only a real fault once we know we
+    /// should have one.
+    std::atomic<bool> activated_{false};
+
     rclcpp::Time last_write_time_;
     static constexpr double kWatchdogTimeoutSec{0.5};  ///< zero commands if write() stalls
 };

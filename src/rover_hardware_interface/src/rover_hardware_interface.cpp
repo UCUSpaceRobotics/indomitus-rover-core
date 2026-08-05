@@ -253,6 +253,7 @@ RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State& /*prev*/)
     last_write_time_ = clock_->now();
     send_enable_frames();
 
+    activated_ = true;
     RCLCPP_INFO(logger_, "[RoverHW] Activated on %s.", can_interface_.c_str());
     return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -261,6 +262,7 @@ RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State& /*prev*/)
 hardware_interface::CallbackReturn
 RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State& /*prev*/)
 {
+    activated_ = false;
     send_shutdown_frames();
 
     can_bus_.stop_rx();
@@ -296,6 +298,8 @@ RoverHardwareInterface::on_cleanup(const rclcpp_lifecycle::State& /*prev*/)
 hardware_interface::CallbackReturn
 RoverHardwareInterface::on_shutdown(const rclcpp_lifecycle::State& /*prev*/)
 {
+    activated_ = false;
+
     // just in case
     if (motors_enabled_) {
         send_shutdown_frames();
@@ -362,7 +366,12 @@ RoverHardwareInterface::read(
     // own when the interface has restart-ms set, and the motors have their own
     // failsafes. Tearing down the component on a transient bus-off would turn a
     // self-healing fault into one that needs an operator to re-activate.
-    if (!can_bus_.is_open()) {
+    //
+    // Gated on activated_: controller_manager calls read() as soon as the
+    // component is merely configured (inactive), before on_activate() has
+    // opened the socket. Without this gate the component would fault itself
+    // out on its very first read cycle and never get a chance to activate.
+    if (activated_ && !can_bus_.is_open()) {
         return hardware_interface::return_type::ERROR;
     }
     return hardware_interface::return_type::OK;
