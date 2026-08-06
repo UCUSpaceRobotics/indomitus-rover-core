@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(rover_controller)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
+  add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
 endif()
 
 find_package(ament_cmake REQUIRED)
@@ -27,6 +27,13 @@ add_library(${PROJECT_NAME} SHARED
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+)
+
+# Eigen as SYSTEM so its own warnings stay out of our build log. On the Jetson,
+# Eigen's NEON backend memcpy's into a non-trivial wrapper type and trips
+# -Wclass-memaccess dozens of times, which is noise we cannot act on. SYSTEM
+# silences the header without disabling the warning for our code.
+target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC
   ${EIGEN3_INCLUDE_DIRS}
 )
 
@@ -36,7 +43,7 @@ endif()
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
-ament_target_dependencies(${PROJECT_NAME}
+ament_target_dependencies(${PROJECT_NAME} SYSTEM PUBLIC
   rclcpp
   rclcpp_lifecycle
   hardware_interface

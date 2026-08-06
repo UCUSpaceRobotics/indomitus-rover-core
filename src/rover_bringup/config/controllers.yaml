@@ -100,9 +100,9 @@ swerve_controller_test:
     idle_home_delay: 0.0
 
     # Geometry
-    wheelbase:     0.842   # meters, front-to-rear axle distance
-    track_width:   0.682   # meters, left-to-right wheel distance
-    wheel_radius:  0.157   # meters
+    wheelbase:     0.801   # meters, front-to-rear axle distance
+    track_width:   0.645   # meters, left-to-right wheel distance
+    wheel_radius:  0.153   # meters
 
 odometry_controller:
   ros__parameters:
