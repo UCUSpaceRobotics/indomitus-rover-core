@@ -141,7 +141,7 @@
     <joint name="arm_wrist_2_end_effector_joint" type="revolute">
       <parent link="arm_wrist_2_link"/>
       <child link="arm_end_effector_link"/>
-      <origin xyz="0.0323 0 -0.035" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <origin xyz="0.0323 0 -0.035" rpy="${pi/2} 0 ${pi/2}"/>
       <axis xyz="0 0 1"/>
       <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
@@ -223,13 +223,13 @@
     <joint name="arm_camera_joint" type="fixed">
       <parent link="arm_end_effector_link"/>
       <child link="arm_camera_link"/>
-      <origin xyz="0.0012919902801513672 0.07102805376052856 0.03884565830230713" rpy="0 ${-pi/2} ${-pi/2}"/>
+      <origin xyz="0.0012604892253875732 -0.045 0.07839690148830414" rpy="0 ${-pi/2} ${pi/2}"/>
     </joint>
 
     <link name="arm_camera_link">
       <visual>
         <geometry>
-          <box size="0.06 0.06 0.03"/>
+          <box size="0.06 0.06 0.06"/>
         </geometry>
         <material name="camera_blue">
           <color rgba="0.0 0.0 1.0 1.0"/>
@@ -238,7 +238,7 @@
 
       <collision>
         <geometry>
-          <box size="0.06 0.06 0.03"/>
+          <box size="0.06 0.06 0.06"/>
         </geometry>
       </collision>
     </link>
@@ -246,7 +246,7 @@
     <joint name="arm_camera_optical_joint" type="fixed">
       <parent link="arm_camera_link"/>
       <child link="arm_camera_optical_frame"/>
-      <origin xyz="0 0 0.03" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
     </joint>
 
     <link name="arm_camera_optical_frame"/>
@@ -407,7 +407,7 @@
       <xacro:if value="$(arg camera)">
       <gazebo reference="arm_camera_link">
         <sensor name="arm_camera" type="camera">
-          <pose>0 0 0.03 0 0 0</pose>
+          <pose>0.045 0 0 0 0 0</pose>
           <camera>
             <optical_frame_id>arm_camera_optical_frame</optical_frame_id>
             <horizontal_fov>1.047</horizontal_fov>
