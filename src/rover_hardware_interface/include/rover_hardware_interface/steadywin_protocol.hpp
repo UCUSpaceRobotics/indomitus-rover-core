@@ -19,20 +19,32 @@ constexpr uint8_t FAULT_ENCODER     = 0x08;
 constexpr uint8_t FAULT_HARDWARE    = 0x40;
 constexpr uint8_t FAULT_SOFTWARE    = 0x80;
 
+// Bits 4-5 are not documented in V3.06b0. They must never be set; if firmware
+// starts using them, the value has a meaning we do not know.
+constexpr uint8_t FAULT_KNOWN_MASK    = FAULT_VOLTAGE | FAULT_CURRENT | FAULT_TEMPERATURE |
+                                        FAULT_ENCODER | FAULT_HARDWARE | FAULT_SOFTWARE;
+constexpr uint8_t FAULT_RESERVED_MASK = static_cast<uint8_t>(~FAULT_KNOWN_MASK);
+
 /// Map the fault bitmask + operating mode onto the vendor-neutral taxonomy.
 /// Several bits can be set at once; the most severe wins, since the caller
 /// gets a single Fault and recovery policy must key off the worst condition.
 /// Bit0 covers both over- and undervoltage — the protocol does not
 /// distinguish, so it maps to the deliberately ambiguous VOLTAGE value.
+/// Reserved bits map to UNKNOWN rather than NONE, matching the Damiao
+/// treatment of its reserved codes: an undocumented bit is a fault we cannot
+/// name, and reporting it as healthy is the one answer that is certainly wrong.
 inline rover_fault::Fault translateFault(uint8_t fault_code, uint8_t mode)
 {
-    if (fault_code & FAULT_HARDWARE)    return rover_fault::Fault::HARDWARE;
-    if (fault_code & FAULT_SOFTWARE)    return rover_fault::Fault::SOFTWARE;
-    if (fault_code & FAULT_ENCODER)     return rover_fault::Fault::ENCODER;
-    if (fault_code & FAULT_TEMPERATURE) return rover_fault::Fault::OVERTEMP;
-    if (fault_code & FAULT_CURRENT)     return rover_fault::Fault::OVERCURRENT;
-    if (fault_code & FAULT_VOLTAGE)     return rover_fault::Fault::VOLTAGE;
-    if (mode == MODE_OFF)               return rover_fault::Fault::NOT_ENABLED;
+    // Documented bits first: when a reserved bit is set alongside a known one,
+    // the known one is the more actionable diagnosis.
+    if (fault_code & FAULT_HARDWARE)      return rover_fault::Fault::HARDWARE;
+    if (fault_code & FAULT_SOFTWARE)      return rover_fault::Fault::SOFTWARE;
+    if (fault_code & FAULT_ENCODER)       return rover_fault::Fault::ENCODER;
+    if (fault_code & FAULT_TEMPERATURE)   return rover_fault::Fault::OVERTEMP;
+    if (fault_code & FAULT_CURRENT)       return rover_fault::Fault::OVERCURRENT;
+    if (fault_code & FAULT_VOLTAGE)       return rover_fault::Fault::VOLTAGE;
+    if (fault_code & FAULT_RESERVED_MASK) return rover_fault::Fault::UNKNOWN;
+    if (mode == MODE_OFF)                 return rover_fault::Fault::NOT_ENABLED;
     return rover_fault::Fault::NONE;
 }
 
