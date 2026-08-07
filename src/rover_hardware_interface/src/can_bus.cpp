@@ -134,9 +134,7 @@ void CanBus::stop_rx()
 {
     rx_running_.store(false);
 
-    // Wake the thread out of poll(). Clearing the flag alone is not enough:
-    // the thread only re-tests it after poll() returns, and on a silent bus
-    // that would be never.
+    // Wake the thread out of poll()
     const int stop_fd = stop_fd_.load();
     if (stop_fd >= 0) {
         const uint64_t one = 1;
@@ -163,12 +161,9 @@ CanBus::SendResult CanBus::send(uint32_t id, const uint8_t * data, uint8_t dlc, 
     frame.can_dlc = dlc;
     std::memcpy(frame.data, data, dlc);
 
-    // The lock spans the fd check and the write so that close() — which takes
-    // the same lock — cannot invalidate the descriptor between them.
     std::lock_guard<std::mutex> lock(tx_mutex_);
 
-    // Socket not open — same practical meaning to a caller as the bus being
-    // gone: there is no transport.
+    // Socket not open
     const int fd = fd_.load();
     if (fd < 0) return SendResult::BUS_DOWN;
 
@@ -180,10 +175,7 @@ CanBus::SendResult CanBus::send(uint32_t id, const uint8_t * data, uint8_t dlc, 
     const int err = (nbytes < 0) ? errno : 0;
 
     if (err == ENOBUFS || err == EAGAIN || err == EWOULDBLOCK) {
-        // TX queue full. Transient, but not nothing: a sustained burst of these
-        // means frames are being dropped, and 200 ms of dropped frames is
-        // exactly what trips the Damiao TIMEOUT register into a comm-loss
-        // fault. Silence here would hide the cause of the fault we then report.
+        // TX queue full
         tx_dropped_.fetch_add(1);
         RCLCPP_WARN_THROTTLE(logger_, *clock_, 1000,
             "[CanBus] CAN TX queue full (id=0x%X), frame dropped — %d total",
@@ -201,11 +193,6 @@ CanBus::SendResult CanBus::send(uint32_t id, const uint8_t * data, uint8_t dlc, 
 }
 
 // rx_thread_fn — poll/read receive loop
-//
-// Runs in a dedicated thread so it doesn't block the control loop. Waits in
-// poll() on the socket plus a stop eventfd, which is what makes shutdown
-// bounded on a silent bus. Error frames update bus_state_/error counters here;
-// everything else is handed to `on_frame` for the caller to decode.
 
 void CanBus::rx_thread_fn(std::function<void(const struct can_frame &)> on_frame)
 {

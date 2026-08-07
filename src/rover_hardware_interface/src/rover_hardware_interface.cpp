@@ -401,20 +401,7 @@ RoverHardwareInterface::read(
 
     fault_detector_.detect_bus_fault(can_bus_.state(), can_interface_, enabled);
 
-    // A single motor fault must not tear down the hardware component: returning
-    // ERROR here would deactivate all eight motors and the telemetry with them,
-    // exactly when the operator needs both. ERROR is reserved for the CAN
-    // socket itself being gone.
-    //
-    // Note bus-off is deliberately NOT an ERROR: the kernel recovers it on its
-    // own when the interface has restart-ms set, and the motors have their own
-    // failsafes. Tearing down the component on a transient bus-off would turn a
-    // self-healing fault into one that needs an operator to re-activate.
-    //
-    // Gated on activated_: controller_manager calls read() as soon as the
-    // component is merely configured (inactive), before on_activate() has
-    // opened the socket. Without this gate the component would fault itself
-    // out on its very first read cycle and never get a chance to activate.
+
     if (activated_ && !can_bus_.is_open()) {
         return hardware_interface::return_type::ERROR;
     }
@@ -423,9 +410,6 @@ RoverHardwareInterface::read(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // write — command interfaces → CAN frames, sent directly via socket
-//
-// Drive sign convention (matches original onWheelTargets):
-//   FL(0): negated   FR(1): normal   RL(2): negated   RR(3): normal
 // ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::return_type
@@ -874,11 +858,6 @@ void RoverHardwareInterface::publish_diagnostics()
 }
 
 // publish_fault_events — drain the queue filled by read()
-//
-// Runs on hw_node_'s executor, not the control loop. Faults are rare, so this
-// finds an empty queue on essentially every tick; the benefit of draining via
-// FaultDetector's own internal lock (rather than feedback_mutex_) is that
-// rclcpp publishing (which allocates) never runs inside read().
 
 void RoverHardwareInterface::publish_fault_events()
 {
