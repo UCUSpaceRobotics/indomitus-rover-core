@@ -357,6 +357,14 @@ TEST(DamiaoFault, ReservedCodesSurfaceAsUnknownNotHealthy) {
     EXPECT_TRUE(rover_fault::is_fault(rover_fault::Fault::UNKNOWN));
 }
 
+TEST(DamiaoFault, TopOfNibbleIsUnknown) {
+    // 0xF is the one value above the documented range. The nibble cannot hold
+    // anything larger, so this is the last case the switch has to survive.
+    EXPECT_EQ(damiao_protocol::translateFault(0xF), rover_fault::Fault::UNKNOWN);
+    EXPECT_EQ(rover_fault::recovery_for(damiao_protocol::translateFault(0xF)),
+              rover_fault::Recovery::LATCH);
+}
+
 TEST(SteadywinFault, ModeZeroIsDetectedWithoutAnyFaultBit) {
     // This motor sets no fault bit when it silently stops accepting commands;
     // it only drops to mode 0. Checking fault_code alone reads it as healthy.
@@ -374,6 +382,24 @@ TEST(SteadywinFault, BitsMapToTaxonomy) {
     EXPECT_EQ(steadywin_protocol::translateFault(0x08, 4), rover_fault::Fault::ENCODER);
     EXPECT_EQ(steadywin_protocol::translateFault(0x40, 4), rover_fault::Fault::HARDWARE);
     EXPECT_EQ(steadywin_protocol::translateFault(0x80, 4), rover_fault::Fault::SOFTWARE);
+}
+
+TEST(SteadywinFault, ReservedBitsSurfaceAsUnknownNotHealthy) {
+    // Bits 4-5 are undocumented in V3.06b0. Reading them as healthy is the one
+    // answer that is certainly wrong, and it is what a bare bit-by-bit check
+    // does by default. Matches the Damiao treatment of its reserved codes.
+    EXPECT_EQ(steadywin_protocol::translateFault(0x10, 4), rover_fault::Fault::UNKNOWN);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x20, 4), rover_fault::Fault::UNKNOWN);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x30, 4), rover_fault::Fault::UNKNOWN);
+    // Even in mode 0, where the code would otherwise report a clean disable.
+    EXPECT_EQ(steadywin_protocol::translateFault(0x10, 0), rover_fault::Fault::UNKNOWN);
+}
+
+TEST(SteadywinFault, DocumentedBitWinsOverReservedBit) {
+    // A named fault is more actionable than "something we cannot name", so a
+    // known bit set alongside a reserved one must still report the known one.
+    EXPECT_EQ(steadywin_protocol::translateFault(0x50, 4), rover_fault::Fault::HARDWARE);
+    EXPECT_EQ(steadywin_protocol::translateFault(0x14, 4), rover_fault::Fault::OVERTEMP);
 }
 
 TEST(SteadywinFault, MultipleBitsResolveToSaferRecovery) {
