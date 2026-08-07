@@ -56,9 +56,6 @@ void FaultDetector::detect_bus_fault(
     switch (state) {
         case CanBus::BusState::BUS_OFF:        current = rover_fault::Fault::CAN_BUS_OFF;       break;
         case CanBus::BusState::ERROR_PASSIVE:  current = rover_fault::Fault::CAN_ERROR_PASSIVE; break;
-        // Error-warning is a counter threshold, not a loss of function: the
-        // controller is still transmitting normally. Reporting it as a fault
-        // would cry wolf on a bus that is merely busy.
         case CanBus::BusState::ERROR_WARNING:
         case CanBus::BusState::OK:             current = rover_fault::Fault::NONE;              break;
     }
@@ -108,24 +105,11 @@ void FaultDetector::detect_motor_fault(
     const std::string & joint_name, uint8_t esc_id, const char * vendor,
     bool motors_enabled, const FreezeFrame & freeze)
 {
-    // ── Decide first, build later ─────────────────────────────────────────────
-    // Everything below this point is POD comparison. The healthy path returns
-    // from here having allocated nothing and locked nothing.
-
-    // Feedback presence is tracked separately from faults: a motor that has
-    // dropped off the bus reports no fault code at all, so without this it
-    // would be indistinguishable from a healthy one.
-    //
-    // The startup edge (never-answered -> first frame) is not a recovery: the
-    // matching SIGNAL_LOST was suppressed, so reporting SIGNAL_OK here would
-    // leave an unpaired "restored" in the log at every activation.
     const bool signal_edge =
         health_valid != tracker.health_valid &&
         (health_valid ? tracker.signal_lost_reported : tracker.seen);
 
-    // Fault codes are meaningless without feedback, so a fault edge is only
-    // considered while the motor is actually talking. NONE <-> NOT_ENABLED is
-    // an ordinary enable/disable, not a fault edge.
+    // Fault codes are meaningless without feedback
     const bool fault_edge =
         health_valid && tracker.seen && current != tracker.fault &&
         (rover_fault::is_fault(tracker.fault) || rover_fault::is_fault(current));
