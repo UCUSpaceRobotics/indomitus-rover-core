@@ -68,25 +68,21 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config
-  DESTINATION share/${PROJECT_NAME}
-)
+if(BUILD_TESTING)
+  # find_package(ament_lint_auto REQUIRED)
+  # set(ament_cmake_copyright_FOUND TRUE)
+  # set(ament_cmake_cpplint_FOUND TRUE)
+  # ament_lint_auto_find_test_dependencies()
 
-# if(BUILD_TESTING)
-#   find_package(ament_lint_auto REQUIRED)
-#   set(ament_cmake_copyright_FOUND TRUE)
-#   set(ament_cmake_cpplint_FOUND TRUE)
-#   ament_lint_auto_find_test_dependencies()
+  find_package(ament_cmake_gtest REQUIRED)
 
-#   find_package(ament_cmake_gtest REQUIRED)
-
-#   ament_add_gtest(test_protocols
-#     test/test_protocols.cpp
-#   )
-#   target_include_directories(test_protocols PRIVATE
-#     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-#   )
-#   ament_target_dependencies(test_protocols can_msgs)
-# endif()
+  ament_add_gtest(test_protocols
+    test/test_protocols.cpp
+  )
+  target_include_directories(test_protocols PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_target_dependencies(test_protocols can_msgs)
+endif()
 
 ament_package()

@@ -9,8 +9,14 @@
       <xacro:unless value="$(arg use_sim)">
         <plugin>rover_hardware_interface/RoverHardwareInterface</plugin>
         <param name="can_interface">$(arg can_interface)</param>
+        <!-- Steadywin steer motor IDs [FL, FR, RL, RR] -->
         <param name="steer_ids">11 13 17 15</param>
+        <!-- Damiao drive motor IDs [FL, FR, RL, RR] -->
         <param name="drive_ids">10 12 16 14</param>
+        <param name="drive_pmax">12.5</param> <!-- rad -->
+        <param name="drive_vmax">50.0</param> <!-- rad/s -->
+        <param name="drive_tmax">20.0</param> <!-- Nm -->
+        <param name="mst_id">0</param>
         <param name="lifecycle_initial_state">inactive</param>
       </xacro:unless>
     </hardware>

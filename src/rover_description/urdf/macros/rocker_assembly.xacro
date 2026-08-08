@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find rover_description)/urdf/macros/inertia_macros.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/wheel_assembly.xacro"/>
+
+  <!-- side: "l" or "r" (used for link/joint naming). y_sign: +1 left, -1 right -->
+  <xacro:macro name="rocker_assembly" params="side y_sign">
+
+    <link name="${side}_rocker_link">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="${rocker_mass}"/>
+        <xacro:box_inertia m="${rocker_mass}" x="${rocker_length}" y="${rocker_width}" z="${rocker_height}"/>
+      </inertial>
+      <visual>
+        <origin xyz="${rocker_mesh_align_xyz}" rpy="0 0 ${-pi / 2.0}"/>
+        <geometry>
+          <mesh filename="package://rover_description/meshes/suspension/rocker.stl" scale="1 1 1"/>
+        </geometry>
+        <material name="grey_structure"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${rocker_length} ${rocker_width} ${rocker_height}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="${side}_rocker_joint" type="revolute">
+      <parent link="suspension_base_axii_link"/>
+      <child link="${side}_rocker_link"/>
+      <origin xyz="0 ${y_sign * track_width / 2.0} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-0.5" upper="0.5" effort="100" velocity="1.0"/>
+      <dynamics damping="0.5" friction="0.1"/>
+    </joint>
+
+    <!-- front wheel (x_sign = +1) -->
+    <xacro:wheel_assembly prefix="f${side}" parent="${side}_rocker_link" x_sign="1" y_sign="${y_sign}"/>
+
+    <!-- rear wheel (x_sign = -1) -->
+    <xacro:wheel_assembly prefix="b${side}" parent="${side}_rocker_link" x_sign="-1" y_sign="${y_sign}"/>
+
+  </xacro:macro>
+
+</robot>
