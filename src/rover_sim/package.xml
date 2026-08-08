@@ -29,7 +29,7 @@
 
   <!-- Internal packages -->
   <exec_depend>rover_bringup</exec_depend>
-  <exec_depend>rover_description</exec_depend>\
+  <exec_depend>rover_description</exec_depend>
   <exec_depend>rover_localization</exec_depend>
   
   <!-- Simulation -->

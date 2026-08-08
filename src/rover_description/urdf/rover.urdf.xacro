@@ -18,6 +18,15 @@
     <color rgba="0.4 0.4 0.4 1"/>
   </material>
 
+  <!-- ===================== BASE FOOTPRINT ===================== -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.42" rpy="0 0 0"/>
+  </joint>
+
   <!-- ===================== BASE ===================== -->
   <link name="base_link">
     <inertial>
@@ -48,11 +57,11 @@
     </collision>
   </link>
 
-<joint name="suspension_base_axii_joint" type="fixed">
-  <parent link="suspension_base_axii_link"/>
-  <child link="base_link"/>
-  <origin xyz="0 0 0" rpy="0 0 0"/>
-</joint>
+  <joint name="suspension_base_axii_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="suspension_base_axii_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
 
   <!-- ===================== MAIN BODY ===================== -->
   <link name="main_body_link">
@@ -77,25 +86,38 @@
   </link>
 
   <joint name="main_body_joint" type="fixed">
-    <parent link="main_body_link"/>
-    <child link="suspension_base_axii_link"/>
-    <origin xyz="0.04 0 -0.05" rpy="0 0 0"/>
+    <parent link="suspension_base_axii_link"/>
+    <child link="main_body_link"/>
+    <origin xyz="-0.04 0 0.05" rpy="0 0 0"/>
   </joint>
 
   <!-- ===================== ZED2i STEREO CAMERA ===================== -->
-  <xacro:include filename="$(find zed_description)/urdf/zed_macro.urdf.xacro" />
-  <xacro:zed_camera name="zed2i" model="zed2i">
-      <gnss_origin>
-          <origin xyz="0 0 0" rpy="0 0 0" />
-      </gnss_origin>
-  </xacro:zed_camera>
+  <xacro:include filename="$(find rover_description)/urdf/stereo_camera.xacro" />
+  <xacro:stereo_camera
+    use_sim="$(arg use_sim)"
+    simulate_rgb="$(arg stereo_camera_simulate_rgb)"
+    simulate_depth="$(arg stereo_camera_simulate_depth)"
+    simulate_imu="$(arg stereo_camera_simulate_imu)"
+  />
 
   <joint name="zed2i_base_joint" type="fixed">
-    <parent link="zed2i_camera_link"/>
-    <child link="main_body_link"/>
-    <origin xyz="-0.2915 0 -0.2644" rpy="0 ${-pi/12} 0"/>
+    <parent link="main_body_link"/>
+    <child link="zed2i_camera_link"/>
+    <origin xyz="0.365 0 0.19" rpy="0 ${pi/12} 0"/>
   </joint>
 
+  <!-- ===================== RPLIDAR S2 ===================== -->
+  <xacro:include filename="$(find rover_description)/urdf/lidar.xacro" />
+  <xacro:lidar
+    use_sim="$(arg use_sim)"
+    simulate_scan="$(arg lidar_simulate_scan)"
+  />
+
+  <joint name="laser_joint" type="fixed">
+    <parent link="main_body_link"/>
+    <child link="laser_link"/>
+    <origin xyz="0 0 0.17" rpy="0 0 0"/>
+  </joint>
 
   <!-- ===================== LEFT ROCKER ===================== -->
   <link name="l_rocker_link">

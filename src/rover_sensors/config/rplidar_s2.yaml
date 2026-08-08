@@ -1,4 +1,4 @@
-rplidar_node:
+/**:
   ros__parameters:
     channel_type: serial
     serial_port: /dev/rplidar-s2

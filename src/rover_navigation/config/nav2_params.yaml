@@ -6,13 +6,13 @@
 
 bt_navigator:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     global_frame: map
-    robot_base_frame: base_link
-    odom_topic: /odom
-    bt_loop_duration: 20
+    robot_base_frame: base_footprint
+    odom_topic: /odometry/filtered
+    bt_loop_duration: 100
     default_server_timeout: 20
-    transform_tolerance: 1.0
+    transform_tolerance: 2.0
     # BT XML paths are injected at launch time.
     default_nav_to_pose_bt_xml: ""
     default_nav_through_poses_bt_xml: ""
@@ -47,13 +47,15 @@ bt_navigator:
 
 controller_server:
   ros__parameters:
-    use_sim_time: true
-    controller_frequency: 20.0
+    use_sim_time: false
+    odom_topic: /odometry/filtered
+    controller_frequency: 10.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 1.0
-    transform_tolerance: 1.0
+    transform_tolerance: 2.0
+    current_goal_checker: "general_goal_checker"
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "general_goal_checker"
     controller_plugins:
@@ -63,7 +65,7 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.15
-      movement_time_allowance: 25.0
+      movement_time_allowance: 15.0
 
     # --- Goal checker ---
     general_goal_checker:
@@ -75,26 +77,26 @@ controller_server:
     # --- MPPI controller ---
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 36
-      model_dt: 0.05
-      batch_size: 2000
+      time_steps: 30
+      model_dt: 0.1
+      batch_size: 1000
       iteration_count: 2
       vx_std: 0.2
       vy_std: 0.05
       wz_std: 0.2
       # Velocity limits.
-      vx_max:  1.0
+      vx_max:  0.5
       vx_min: -0.2
       vy_max:  0.1
       vy_min: -0.1
-      wz_max:  0.8
+      wz_max:  0.7
       # Acceleration limits.
-      ax_max:  1.5
-      ax_min: -1.5
+      ax_max:  0.6
+      ax_min: -0.6
       ay_max:  0.5
-      az_max:  2.0
+      az_max:  1.0
       prune_distance: 3.0
-      transform_tolerance: 1.0
+      transform_tolerance: 2.0
       temperature: 0.5
       gamma: 0.015
       motion_model: "Omni"
@@ -174,17 +176,18 @@ controller_server:
 
 planner_server:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     expected_planner_frequency: 1.0
-    transform_tolerance: 1.0
+    transform_tolerance: 2.0
     planner_plugins:
       - GridBased
     GridBased:
       plugin: "nav2_smac_planner/SmacPlanner2D"
       tolerance: 0.5
-      downsample_costmap: false
+      downsample_costmap: true
+      downsampling_factor: 2
       allow_unknown: true
-      max_iterations: 1000000
+      max_iterations: 200000
       max_on_approach_iterations: 1000
       max_planning_time: 3.0
       cost_travel_multiplier: 20.0
@@ -196,7 +199,7 @@ planner_server:
 
 waypoint_follower:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     loop_rate: 20
     stop_on_failure: true
     waypoint_task_executor_plugin: "wait_at_waypoint"
@@ -210,7 +213,7 @@ waypoint_follower:
 
 behavior_server:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     behavior_plugins:
       - spin
       - backup
@@ -220,15 +223,19 @@ behavior_server:
       plugin: "nav2_behaviors/Spin"
     backup:
       plugin: "nav2_behaviors/BackUp"
+      x_vel_accel_limit: 0.5
+      x_vel_decel_limit: -0.5
     drive_on_heading:
       plugin: "nav2_behaviors/DriveOnHeading"
+      x_vel_accel_limit: 0.5
+      x_vel_decel_limit: -0.5
     wait:
       plugin: "nav2_behaviors/Wait"
     global_frame: odom
-    robot_base_frame: base_link
+    robot_base_frame: base_footprint
     transform_timeout: 0.5
-    simulate_ahead_time: 2.0
-    max_rotational_vel: 0.8
+    simulate_ahead_time: 1.5
+    max_rotational_vel: 1.2
     min_rotational_vel: 0.4
     rotational_acc_lim: 2.0
 
@@ -239,16 +246,16 @@ behavior_server:
 local_costmap:
   local_costmap:
     ros__parameters:
-      use_sim_time: true
+      use_sim_time: false
       update_frequency: 10.0
-      publish_frequency: 5.0
+      publish_frequency: 2.0
       global_frame: odom
-      robot_base_frame: base_link
+      robot_base_frame: base_footprint
       rolling_window: true
       width: 8
       height: 8
       resolution: 0.05
-      transform_tolerance: 1.0
+      transform_tolerance: 2.0
       footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
       footprint_padding: 0.05
       plugins:
@@ -262,34 +269,47 @@ local_costmap:
         z_resolution: 0.05
         z_voxels: 16
         max_obstacle_height: 2.0
-        mark_threshold: 0
-        observation_sources: scan
+        mark_threshold: 2
+        observation_sources: scan pointcloud
         scan:
-          topic: /scan
+          topic: /rplidar/scan_filtered
           sensor_frame: laser_link
           max_obstacle_height: 2.0
+          min_obstacle_height: 0.3
           clearing: true
           marking: true
           data_type: "LaserScan"
           raytrace_max_range: 4.0
-          raytrace_min_range: 0.0
+          raytrace_min_range: 0.4
           obstacle_max_range: 3.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.4
+        pointcloud:
+          topic: /zed2i/points
+          sensor_frame: zed2i_left_camera_frame
+          data_type: "PointCloud2"
+          clearing: true
+          marking: true
+          min_obstacle_height: 0.8
+          max_obstacle_height: 1.5
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.3
+          raytrace_max_range: 4.0
+          raytrace_min_range: 0.3
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 10.0
-        inflation_radius: 0.75
-      always_send_full_costmap: true
+        cost_scaling_factor: 35.0
+        inflation_radius: 0.85
+      always_send_full_costmap: false
 
 global_costmap:
   global_costmap:
     ros__parameters:
-      use_sim_time: true
-      update_frequency: 5.0
-      publish_frequency: 2.0
+      use_sim_time: false
+      update_frequency: 2.0
+      publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: base_link
-      transform_tolerance: 1.0
+      robot_base_frame: base_footprint
+      transform_tolerance: 2.0
       footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
       footprint_padding: 0.15
       resolution: 0.05
@@ -307,22 +327,23 @@ global_costmap:
         combination_method: 0
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /rplidar/scan_filtered
           sensor_frame: laser_link
           max_obstacle_height: 2.0
+          min_obstacle_height: 0.2
           clearing: true
           marking: true
           data_type: "LaserScan"
           raytrace_max_range: 4.0
-          raytrace_min_range: 0.0
+          raytrace_min_range: 0.1
           obstacle_max_range: 3.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.1
           observation_persistence: 0.5
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.5
-        inflation_radius: 0.75
-      always_send_full_costmap: true
+        cost_scaling_factor: 35.0
+        inflation_radius: 0.8
+      always_send_full_costmap: false
 
 # ============================================================
 # LIFECYCLE MANAGERS
@@ -330,7 +351,7 @@ global_costmap:
 
 lifecycle_manager_navigation:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     autostart: true
     node_names:
       - planner_server

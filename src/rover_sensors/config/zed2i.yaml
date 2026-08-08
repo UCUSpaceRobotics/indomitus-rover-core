@@ -34,7 +34,7 @@
             publish_stereo: false # Advertise the stereo image topic that is published only if a node subscribes to it
 
         sensors:
-            publish_imu_tf: true # [overwritten by launch file options] enable/disable the IMU TF broadcasting
+            publish_imu_tf: false # [overwritten by launch file options] enable/disable the IMU TF broadcasting
             sensors_image_sync: false # Synchronize Sensors messages with latest published video/depth message
             sensors_pub_rate: 100. # frequency of publishing of sensors data. MAX: 400. - MIN: grab rate
             publish_imu: true # Advertise the IMU topic that is published only if a node subscribes to it
@@ -79,11 +79,11 @@
             pos_tracking_enabled: true # True to enable positional tracking from start
             pos_tracking_mode: 'AUTO' # 'AUTO' uses the SDK default; also supports 'GEN_1', 'GEN_3'
             imu_fusion: true # enable/disable IMU fusion. When set to false, only the optical odometry will be used.
-            publish_tf: true # [overwritten by launch file options] publish `odom -> camera_link` TF
-            publish_map_tf: true # [overwritten by launch file options] publish `map -> odom` TF
+            publish_tf: false # [overwritten by launch file options] publish `odom -> camera_link` TF
+            publish_map_tf: false # [overwritten by launch file options] publish `map -> odom` TF
             map_frame: 'map'
             odometry_frame: 'odom'
-            area_memory: true # Enable to detect loop closure
+            area_memory: false # Enable to detect loop closure
             enable_localization_only: false # If true, the camera will only localize in the loaded area memory without updating the map with new information.
             reset_odom_with_loop_closure: false # Re-initialize odometry to the last valid pose when loop closure happens (reset camera odometry drift)
             publish_3d_landmarks: false # Publish 3D landmarks used by the positional tracking algorithm
@@ -94,7 +94,7 @@
             initial_base_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # Initial position of the `camera_link` frame in the map -> [X, Y, Z, R, P, Y]
             path_pub_rate: 2.0 # [DYNAMIC] - Camera trajectory publishing frequency. Set to 0 for no limit (= grab_frame_rate).
             path_max_count: -1 # use '-1' for unlimited path size
-            two_d_mode: false # Force navigation on a plane. If true the Z value will be fixed to 'fixed_z_value', roll and pitch to zero
+            two_d_mode: true # Force navigation on a plane. If true the Z value will be fixed to 'fixed_z_value', roll and pitch to zero
             fixed_z_value: 0.0 # Value to be used for Z coordinate if `two_d_mode` is true
             transform_time_offset: 0.0 # The value added to the timestamp of `map->odom` and `odom->camera_link` transform being generated
             publish_odom_pose: true # Advertise the odometry and pose topics that are published only if a node subscribes to them

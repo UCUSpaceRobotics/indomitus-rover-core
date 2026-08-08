@@ -3,6 +3,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, Command
+from launch_ros.parameter_descriptions import ParameterValue
 from rover_bringup.launch_utils import include_launch
 
 
@@ -14,7 +15,6 @@ def generate_launch_description():
         'interface', default_value='can0',
         description='SocketCAN network interface name',
     )
-
 
     robot_description = Command([
         'xacro ',
@@ -30,6 +30,7 @@ def generate_launch_description():
         }),
         include_launch('rover_description', 'robot_state_publisher.launch.py', {
             'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+            'xacro_args': ['use_sim:=false can_interface:=', LaunchConfiguration('interface')]
         }),
         include_launch('rover_bringup', 'control.launch.py', {
             'use_sim': 'false',
@@ -40,5 +41,5 @@ def generate_launch_description():
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
         include_launch('rover_peripherals', 'lighting.launch.py'),
-        include_launch('rover_localization', 'ekf.launch.py')
+        include_launch('rover_localization', 'ekf.launch.py', {'use_sim': 'false'})
     ])
