@@ -42,6 +42,144 @@ static double param_or(const std::unordered_map<std::string, std::string>& param
     try { return std::stod(it->second); } catch (...) { return fallback; }
 }
 
+// param_or() expects a NUMBER (std::stod) — "true"/"false" silently fails to
+// parse and falls back, always. Use this instead for boolean URDF params.
+static bool param_bool(const std::unordered_map<std::string, std::string>& params,
+                       const std::string& key, bool fallback)
+{
+    auto it = params.find(key);
+    if (it == params.end()) return fallback;
+    const std::string& v = it->second;
+    if (v == "true" || v == "1") return true;
+    if (v == "false" || v == "0") return false;
+    return fallback;
+}
+
+// =============================================================================
+// Gravity compensation — minimal hand-rolled 3D math + fixed chain geometry.
+//
+// No new dependency (Eigen/KDL) on purpose: this arm has exactly 6 fixed
+// revolute joints with axes that are always local X or local Z, so plain
+// 3x3 rotation matrices are enough and keep this file self-contained.
+// =============================================================================
+namespace {
+
+using Vec3 = std::array<double, 3>;
+using Mat3 = std::array<double, 9>;  // row-major
+
+constexpr double kPi = 3.14159265358979323846;
+constexpr double kG  = 9.80665;      // m/s^2
+
+Vec3 vec_add(const Vec3& a, const Vec3& b) { return {a[0]+b[0], a[1]+b[1], a[2]+b[2]}; }
+Vec3 vec_sub(const Vec3& a, const Vec3& b) { return {a[0]-b[0], a[1]-b[1], a[2]-b[2]}; }
+Vec3 vec_cross(const Vec3& a, const Vec3& b)
+{
+    return { a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0] };
+}
+double vec_dot(const Vec3& a, const Vec3& b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+
+Mat3 mat_mul(const Mat3& A, const Mat3& B)
+{
+    Mat3 R{};
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c)
+            for (int k = 0; k < 3; ++k)
+                R[r*3+c] += A[r*3+k] * B[k*3+c];
+    return R;
+}
+
+Vec3 mat_vec(const Mat3& A, const Vec3& v)
+{
+    return {
+        A[0]*v[0] + A[1]*v[1] + A[2]*v[2],
+        A[3]*v[0] + A[4]*v[1] + A[5]*v[2],
+        A[6]*v[0] + A[7]*v[1] + A[8]*v[2],
+    };
+}
+
+Mat3 mat_identity() { return {1,0,0, 0,1,0, 0,0,1}; }
+
+// URDF <origin rpy="r p y"> convention: R = Rz(yaw) * Ry(pitch) * Rx(roll)
+Mat3 rot_rpy(double r, double p, double y)
+{
+    const double cr = std::cos(r), sr = std::sin(r);
+    const double cp = std::cos(p), sp = std::sin(p);
+    const double cy = std::cos(y), sy = std::sin(y);
+    const Mat3 Rx = {1,0,0,  0,cr,-sr,  0,sr,cr};
+    const Mat3 Ry = {cp,0,sp,  0,1,0,  -sp,0,cp};
+    const Mat3 Rz = {cy,-sy,0,  sy,cy,0,  0,0,1};
+    return mat_mul(mat_mul(Rz, Ry), Rx);
+}
+
+// Rotation about a LOCAL basis axis — the only two axes used in this URDF.
+Mat3 rot_local_x(double a) { const double c=std::cos(a), s=std::sin(a); return {1,0,0, 0,c,-s, 0,s,c}; }
+Mat3 rot_local_z(double a) { const double c=std::cos(a), s=std::sin(a); return {c,-s,0, s,c,0, 0,0,1}; }
+
+struct JointGeom {
+    Vec3 xyz;         // <origin xyz="...">  — fixed, copied from arm_macro.xacro
+    Vec3 rpy;         // <origin rpy="...">  — fixed, copied from arm_macro.xacro
+    bool axis_is_z;   // true: <axis xyz="0 0 1"/>, false: <axis xyz="1 0 0"/>
+};
+
+// KEEP THIS IN SYNC WITH arm_macro.xacro <joint><origin>/<axis> — nothing
+// enforces that automatically. Index order matches motor_ids_/joint_kp_/etc:
+// 0 mount_base, 1 base_shoulder, 2 shoulder_forearm, 3 forearm_wrist_1,
+// 4 wrist_1_wrist_2, 5 wrist_2_end_effector.
+const std::array<JointGeom, NUM_JOINTS> kJointGeom = {{
+    /*0 mount_base      */ { {0.06,      0.0,      0.021 }, {0.0,          0.0,      0.0        }, true  },
+    /*1 base_shoulder    */ { {-0.040366,-0.000325, 0.103 }, {kPi/3.0,      0.0,     -kPi        }, false },
+    /*2 shoulder_forearm */ { {0.0,       0.3,      0.0   }, {5.0*kPi/12.0, 0.0,      0.0        }, false },
+    /*3 forearm_wrist_1  */ { {-0.0173,   0.3,      0.0   }, {0.0,          kPi/2.0,  0.0        }, true  },
+    /*4 wrist_1_wrist_2  */ { {0.0323,    0.0,     -0.035 }, {-kPi/2.0,     0.0,      kPi/2.0    }, true  },
+    /*5 wrist_2_ee       */ { {0.0323,    0.0,     -0.035 }, {-kPi/2.0,     kPi/2.0, -kPi/2.0    }, true  },
+}};
+
+struct LinkMass {
+    double mass_kg;     // structure only, no motor — see kMotorMass
+    Vec3   com_local;   // COM offset, in the CHILD link's own frame (meters)
+};
+
+struct PointMass {
+    double mass_kg;
+    Vec3   com_local;   // offset from the joint axis to the motor's COM,
+                         // in the frame just BEFORE the joint's own rotation
+                         // (housing/stator side)
+};
+
+// Links and motors are modeled separately: a motor sits on its own joint's
+// axis and creates no moment about its own shaft, so lumping it into a
+// link's COM would misplace that mass.
+//
+// com_local for links 1-4 is a MIDPOINT approximation (half the vector to
+// the next joint's origin, from kJointGeom above) — uniform-mass-distribution
+// assumption, not a measured COM. Good enough for sign/rough magnitude;
+// refine with the balance-point method if more precision is needed.
+//
+// Index 0 (arm_base_link) is unused: mount_base is a vertical-axis yaw
+// joint, so gravity torque there is exactly zero regardless of any mass.
+const std::array<LinkMass, NUM_JOINTS> kLinkMass = {{
+    /*0 arm_base_link         (unused — see note above) */ { 0.0,   {0.0,     0.0,  0.0    } },
+    /*1 arm_shoulder_link                                */ { 0.730, {0.0,     0.15, 0.0    } },
+    /*2 arm_forearm_link                                 */ { 0.630, {-0.00865,0.15, 0.0    } },
+    /*3 arm_wrist_1_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
+    /*4 arm_wrist_2_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
+    /*5 arm_end_effector_link (+ jaw gripper, ~200 g)    */ { 0.200, {0.0,     0.0,  0.0    } },
+}};
+
+// kMotorMass[i] — the motor that drives joint i, pinned at joint i's own axis
+// (index 0 unused, same reason as arm_base_link). Masses from vendor
+// datasheets (960 g Steadywin GIM8115-36 w/driver, 362 g Damiao DM-J4340-2EC).
+const std::array<PointMass, NUM_JOINTS> kMotorMass = {{
+    /*0 motor 20 mount_base      (unused — see note above) */ { 0.0,   {0.0, 0.0, 0.0} },
+    /*1 motor 21 base_shoulder   */ { 0.960, {0.0, 0.0, 0.0} },
+    /*2 motor 22 shoulder_forearm*/ { 0.960, {0.0, 0.0, 0.0} },
+    /*3 motor 23 forearm_wrist_1 */ { 0.362, {0.0, 0.0, 0.0} },
+    /*4 motor 24 wrist_1_wrist_2 */ { 0.362, {0.0, 0.0, 0.0} },
+    /*5 motor 25 wrist_2_ee      */ { 0.362, {0.0, 0.0, 0.0} },
+}};
+
+} // namespace
+
 // =============================================================================
 // Lifecycle
 // =============================================================================
@@ -85,6 +223,8 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
     gain_ramp_secs_        = param_or(info.hardware_parameters, "gain_ramp_secs", gain_ramp_secs_);
     max_cmd_speed_rad_s_   = param_or(info.hardware_parameters, "max_cmd_speed_rad_s", max_cmd_speed_rad_s_);
     feedback_timeout_secs_ = param_or(info.hardware_parameters, "feedback_timeout_secs", feedback_timeout_secs_);
+    gravity_ff_enabled_    = param_bool(info.hardware_parameters, "gravity_ff_enabled", gravity_ff_enabled_);
+    gravity_ff_max_nm_     = param_or(info.hardware_parameters, "gravity_ff_max_nm", gravity_ff_max_nm_);
 
     // ---- Per-joint parameters: direction, offset, kp, kd, motor_id ----
     // These live in arm_macro.xacro so recalibration never requires recompiling.
@@ -129,7 +269,82 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
 
     RCLCPP_INFO(logger_, "ArmCanSystem initialized (CAN: %s, ramp: %.1fs, cmd speed limit: %.2f rad/s)",
                 can_interface_.c_str(), gain_ramp_secs_, max_cmd_speed_rad_s_);
+    RCLCPP_INFO(logger_, "Gravity feed-forward: %s (max %.2f Nm/joint)",
+                gravity_ff_enabled_ ? "ENABLED" : "disabled", gravity_ff_max_nm_);
     return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+std::array<float, NUM_JOINTS> ArmCanSystem::compute_gravity_feedforward() const
+{
+    std::array<float, NUM_JOINTS> tau{};
+    tau.fill(0.0f);
+
+    const Vec3 g_vec = {0.0, 0.0, -kG};   // base frame: +z assumed vertical/up
+
+    // Forward-kinematics chain, base (arm_mount_link) -> end effector, using
+    // the CURRENT measured pose (joint_position_state_, URDF/world convention).
+    Mat3 R = mat_identity();
+    Vec3 p = {0.0, 0.0, 0.0};
+
+    std::array<Vec3, NUM_JOINTS> joint_pos{};   // p_i: joint i's origin, base frame
+    std::array<Vec3, NUM_JOINTS> joint_axis{};  // z_i: joint i's axis,   base frame
+    std::array<Vec3, NUM_JOINTS> link_com{};    // COM of joint i's child link (structure only), base frame
+    std::array<Vec3, NUM_JOINTS> motor_com{};   // COM of the motor driving joint i, base frame
+
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        const auto& jg = kJointGeom[i];
+        const Mat3 R_origin = rot_rpy(jg.rpy[0], jg.rpy[1], jg.rpy[2]);
+        const Mat3 R_pre    = mat_mul(R, R_origin);            // orientation just before this joint's own rotation
+        const Vec3 p_joint  = vec_add(p, mat_vec(R, jg.xyz));  // this joint's origin, base frame
+
+        const Vec3 axis_local = jg.axis_is_z ? Vec3{0.0,0.0,1.0} : Vec3{1.0,0.0,0.0};
+        const Vec3 z_i = mat_vec(R_pre, axis_local);
+
+        const double theta  = joint_position_state_[i];        // measured pose, URDF frame
+        const Mat3 R_theta  = jg.axis_is_z ? rot_local_z(theta) : rot_local_x(theta);
+        const Mat3 R_link   = mat_mul(R_pre, R_theta);          // child link's orientation, base frame
+
+        joint_pos[i]  = p_joint;
+        joint_axis[i] = z_i;
+        link_com[i]   = vec_add(p_joint, mat_vec(R_link, kLinkMass[i].com_local));
+        // Motor i is pinned to its own joint's position; com_local is a small
+        // offset expressed on the housing/stator side (R_pre, not R_link) —
+        // see the assumption noted on PointMass above.
+        motor_com[i]  = vec_add(p_joint, mat_vec(R_pre, kMotorMass[i].com_local));
+
+        R = R_link;   // advance chain for next joint
+        p = p_joint;
+    }
+
+    // tau_i = -g_vec . sum_{k>=i} [ m_link_k * (z_i x (link_com_k - p_i))
+    //                              + m_motor_k * (z_i x (motor_com_k - p_i)) ]
+    // Summing motors over k>=i (not k>i) is deliberate and needs no special
+    // case: for k==i the motor sits ~at p_i itself, so its own contribution
+    // to ITS OWN joint's torque comes out ~0 automatically from the cross
+    // product — it only matters for joints upstream of it (k>i terms below).
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        Vec3 sum{0.0, 0.0, 0.0};
+        for (std::size_t k = i; k < NUM_JOINTS; ++k) {
+            const double m_link  = kLinkMass[k].mass_kg;
+            if (m_link > 0.0) {
+                const Vec3 r       = vec_sub(link_com[k], joint_pos[i]);
+                const Vec3 contrib = vec_cross(joint_axis[i], r);
+                sum = { sum[0] + m_link*contrib[0], sum[1] + m_link*contrib[1], sum[2] + m_link*contrib[2] };
+            }
+            const double m_motor = kMotorMass[k].mass_kg;
+            if (m_motor > 0.0) {
+                const Vec3 r       = vec_sub(motor_com[k], joint_pos[i]);
+                const Vec3 contrib = vec_cross(joint_axis[i], r);
+                sum = { sum[0] + m_motor*contrib[0], sum[1] + m_motor*contrib[1], sum[2] + m_motor*contrib[2] };
+            }
+        }
+        const double tau_urdf  = -vec_dot(g_vec, sum);
+        double tau_motor       = tau_urdf * joint_directions_[i];   // same sign convention as velocity feedforward
+        tau_motor = std::clamp(tau_motor, -gravity_ff_max_nm_, gravity_ff_max_nm_);
+        tau[i] = static_cast<float>(tau_motor);
+    }
+
+    return tau;
 }
 
 std::vector<hardware_interface::StateInterface> ArmCanSystem::export_state_interfaces()
@@ -315,6 +530,9 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
         last_sent_command_[i] = cmd[i];
     }
 
+    const std::array<float, NUM_JOINTS> gravity_tff =
+        gravity_ff_enabled_ ? compute_gravity_feedforward() : std::array<float, NUM_JOINTS>{};
+
     std::lock_guard<std::mutex> lock(can_tx_mutex_);
 
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
@@ -324,10 +542,11 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
         const float target_vel = static_cast<float>(vff * joint_directions_[i]);
         const float kp = static_cast<float>(joint_kp_[i] * ramp);
         const float kd = static_cast<float>(joint_kd_[i] * ramp);
+        const float tff = gravity_tff[i] * static_cast<float>(ramp);  // ramp gravity FF in too — no sudden torque at activation
 
         can_msgs::msg::Frame f = (i < NUM_STEADYWIN)
-            ? sw::build_mit_command_frame(motor_ids_[i], target_pos, target_vel, kp, kd, 0.0f)
-            : dm::build_mit_command_frame(motor_ids_[i], target_pos, target_vel, kp, kd, 0.0f);
+            ? sw::build_mit_command_frame(motor_ids_[i], target_pos, target_vel, kp, kd, tff)
+            : dm::build_mit_command_frame(motor_ids_[i], target_pos, target_vel, kp, kd, tff);
         send_can_frame(f.id, f.data, f.dlc);
     }
 
