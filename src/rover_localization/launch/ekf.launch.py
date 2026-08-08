@@ -12,21 +12,29 @@ def generate_launch_description():
     ekf_real_config = os.path.join(rover_localization_share, 'config', 'ekf.yaml')
     ekf_sim_config = os.path.join(rover_localization_share, 'config', 'ekf_sim.yaml')
 
-    use_sim = LaunchConfiguration('use_sim')
+    use_sim_val = LaunchConfiguration('use_sim')
     use_sim_arg = DeclareLaunchArgument(
         'use_sim',
         default_value='false',
         description='Enable simulation mode (uses sim clock and sim EKF config).',
     )
 
+    output_odom_topic_val = LaunchConfiguration('output_odom_topic')
+    output_odom_topic_arg = DeclareLaunchArgument(
+        'output_odom_topic',
+        default_value='/odom',
+        description='Topic to which EKF node will publish filtered odometry'
+    )
+
     config_file = IfElseSubstitution(
-        use_sim,
-        if_value=ekf_sim_config,
-        else_value=ekf_real_config,
+        use_sim_val,
+        if_true=ekf_sim_config,
+        if_false=ekf_real_config,
     )
 
     return LaunchDescription([
         use_sim_arg,
+        output_odom_topic_arg,
 
         Node(
             package='robot_localization',
@@ -35,7 +43,8 @@ def generate_launch_description():
             output='screen',
             parameters=[
                 config_file,
-                {'use_sim_time': use_sim},
+                {'use_sim_time': use_sim_val},
             ],
+            remappings=[('odometry/filtered', output_odom_topic_val)],
         ),
     ])
