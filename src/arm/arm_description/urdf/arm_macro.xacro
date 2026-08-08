@@ -217,11 +217,11 @@
       <child link="arm_tcp_link"/>
       
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
-        <origin xyz="0 -0.23 0" rpy="0 0 0"/> 
+        <origin xyz="0 -0.0015 0.2072" rpy="0 0 0"/>
       </xacro:if>
       
       <xacro:if value="${'$(arg end_effector)' != 'jaw'}">
-        <origin xyz="0 -0.23 0" rpy="0 0 0"/> 
+        <origin xyz="0 -0.23 0" rpy="0 0 0"/>
       </xacro:if>
     </joint>
 
@@ -253,10 +253,6 @@
     <joint name="arm_camera_optical_joint" type="fixed">
       <parent link="arm_camera_link"/>
       <child link="arm_camera_optical_frame"/>
-      <!-- Matches the Gazebo <sensor>'s own <pose> offset below (both push the
-           optical center 0.045m forward along arm_camera_link's local X, past
-           the placeholder box's front face) so the published TF and the
-           actual render origin agree. -->
       <origin xyz="0.045 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
     </joint>
 
