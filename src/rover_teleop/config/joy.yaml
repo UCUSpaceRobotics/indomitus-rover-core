@@ -36,7 +36,7 @@ joystick_interpreter:
     # sent. swerve_controller_test is the experimental shape-smoothing
     # controller; it is spawned inactive, so pointing this at it is the
     # deliberate opt-in. Leave it on swerve_controller for normal driving.
-    controller_name: swerve_controller
+    controller_name: swerve_controller_test
 
 
     # --- GRANNY MODE ---

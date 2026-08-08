@@ -38,9 +38,9 @@ def generate_launch_description():
             # swerve_controller_test is loaded but left inactive alongside
             # swerve_controller — only one may hold the joints at a time, so
             # switching between them is a switch_controller call.
-            'controllers': 'joint_state_broadcaster swerve_controller '
+            'controllers': 'joint_state_broadcaster '
                            'swerve_controller_test odometry_controller',
-            'inactive_controllers': 'swerve_controller swerve_controller_test',
+            'inactive_controllers': 'swerve_controller_test',
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
         include_launch('rover_peripherals', 'lighting.launch.py'),
