@@ -113,7 +113,7 @@ class Teach(Node):
         goal.trajectory.points = [pt]
         from control_msgs.msg import JointTolerance
         goal.goal_tolerance = [JointTolerance(name=joint, position=GOAL_TOL_RAD)]
-        goal.goal_time_tolerance = Duration(sec=3)
+        goal.goal_time_tolerance = Duration(sec=10)
 
         fut = client.send_goal_async(goal)
         rclpy.spin_until_future_complete(self, fut)

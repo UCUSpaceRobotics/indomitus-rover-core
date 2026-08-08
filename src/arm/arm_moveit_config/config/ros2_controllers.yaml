@@ -42,9 +42,12 @@ indomitus_arm_controller:
     constraints:
       goal_time: 1.0                    # s of slack to reach the final point
       stopped_velocity_tolerance: 0.05  # rad/s considered "stopped" at goal
-      arm_mount_base_joint:            { trajectory: 0.25, goal: 0.03 }
-      arm_base_shoulder_joint:         { trajectory: 0.25, goal: 0.03 }
-      arm_shoulder_forearm_joint:      { trajectory: 0.25, goal: 0.03 }
-      arm_forearm_wrist_1_joint:       { trajectory: 0.25, goal: 0.03 }
-      arm_wrist_1_wrist_2_joint:       { trajectory: 0.25, goal: 0.03 }
-      arm_wrist_2_end_effector_joint:  { trajectory: 0.25, goal: 0.03 }
+      # goal: 0.08 matches teach_poses.py's own GOAL_TOL_RAD — was 0.03,
+      # stricter than the moving joint's own tolerance, which unfairly
+      # failed "held" joints for the transient kick a moving neighbor gives them.
+      arm_mount_base_joint:            { trajectory: 0.25, goal: 0.08 }
+      arm_base_shoulder_joint:         { trajectory: 0.25, goal: 0.08 }
+      arm_shoulder_forearm_joint:      { trajectory: 0.25, goal: 0.08 }
+      arm_forearm_wrist_1_joint:       { trajectory: 0.25, goal: 0.08 }
+      arm_wrist_1_wrist_2_joint:       { trajectory: 0.25, goal: 0.08 }
+      arm_wrist_2_end_effector_joint:  { trajectory: 0.25, goal: 0.08 }
