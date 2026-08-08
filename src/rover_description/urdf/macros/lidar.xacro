@@ -23,7 +23,7 @@
       <visual>
         <origin xyz="0 0 -0.057" rpy="-1.5708 0 3.1416"/>
         <geometry>
-          <mesh filename="package://rover_description/meshes/navigation/lidar/rplidar_s2.stl" scale="0.001 0.001 0.001"/>
+          <mesh filename="package://rover_description/meshes/navigation/rplidar_s2.stl" scale="0.001 0.001 0.001"/>
         </geometry>
         <material name="lidar_black"/>
       </visual>
