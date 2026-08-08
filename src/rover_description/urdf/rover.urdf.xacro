@@ -5,7 +5,8 @@
   <xacro:include filename="$(find rover_description)/urdf/macros/inertia_macros.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/rocker_assembly.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/accessories.xacro"/>
-  <xacro:include filename="$(find rover_description)/urdf/camera.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/stereo_camera.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/lidar.xacro"/>
 
   <!-- ===================== MATERIALS ===================== -->
   <material name="blue_body">
