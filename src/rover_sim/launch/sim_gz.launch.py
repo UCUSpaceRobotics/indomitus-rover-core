@@ -12,6 +12,16 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from rover_bringup.launch_utils import include_launch
 
+def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
+    active_swerve = LaunchConfiguration('swerve_controller').perform(context)
+
+    return [include_launch('rover_bringup', 'control.launch.py', {
+        'use_sim': 'true',
+        'controllers_yaml': controllers_yaml_path,
+        'controllers': 'joint_state_broadcaster odometry_controller diff_bar_effort_controller swerve_controller swerve_controller_test',
+        'inactive_controllers': 'swerve_controller_test' if active_swerve == 'swerve_controller' else 'swerve_controller',
+    })]
+
 
 def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
     world = LaunchConfiguration("world_name").perform(context)
@@ -62,13 +72,19 @@ def make_spawn_node() -> Node:
 
 def generate_launch_description() -> LaunchDescription:
     rover_description_share = get_package_share_directory('rover_description')
-    rover_sim_share         = get_package_share_directory('rover_sim')
+    rover_sim_share = get_package_share_directory('rover_sim')
 
     controllers_yaml_path = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value='world_demo'),
         DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
+        DeclareLaunchArgument(
+            'swerve_controller',
+            default_value='swerve_controller',
+            choices=['swerve_controller', 'swerve_controller_test'],
+            description='Which swerve controller starts active. '
+                        'The other is spawned inactive.'),
 
         SetEnvironmentVariable(
             name='GZ_SIM_RESOURCE_PATH',
@@ -91,11 +107,8 @@ def generate_launch_description() -> LaunchDescription:
                        kwargs={'rover_sim_share': rover_sim_share}),
         make_spawn_node(),
 
-        include_launch('rover_bringup', 'control.launch.py', {
-            'use_sim': 'true',
-            'controllers_yaml': controllers_yaml_path,
-            'controllers': 'joint_state_broadcaster swerve_controller_test odometry_controller diff_bar_effort_controller',
-        }),
+        OpaqueFunction(function=make_control_launch,
+                       kwargs={'controllers_yaml_path': controllers_yaml_path}),
 
         include_launch('rover_localization', 'ekf.launch.py', {
             'use_sim_time': 'true',

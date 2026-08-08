@@ -92,11 +92,21 @@ swerve_controller_test:
     # makes a near-zero Twist a pure "point the wheels here" command.
     park_speed: 0.001
 
+    # Standstill detection, measured at the wheel rim rather than taken from
+    # the magnitude limiter. Everything that may only happen at a standstill —
+    # snapping the shape, homing the wheels — waits on this, so the numbers
+    # decide whether the rover can pivot its wheels while still rolling.
+    # 0.02 m/s is about 0.13 rad/s at this wheel radius, comfortably above
+    # encoder noise and well below a walking pace.
+    standstill_speed: 0.02
+    standstill_hold_s: 0.2
+
     # Seconds of doing nothing (empty cmd_vel AND stopped) before the wheels
     # return to zero. The delay stops a brief pause between commands from
     # snapping them straight and back. Negative disables homing.
     # An angle-only command does not count as idle, so parking the wheels at
-    # an angle on purpose still works.
+    # an angle on purpose still works. 0.0 is safe here only because "stopped"
+    # is now a measured standstill held for standstill_hold_s.
     idle_home_delay: 0.0
 
     # Geometry

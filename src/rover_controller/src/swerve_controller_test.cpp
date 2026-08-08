@@ -1,6 +1,8 @@
 #include "rover_controller/swerve_controller_test.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -13,6 +15,16 @@ PLUGINLIB_EXPORT_CLASS(
     controller_interface::ControllerInterface)
 
 namespace rover_controller {
+
+namespace {
+
+/// Throttle interval for the "something is wrong every cycle" log lines
+constexpr int kFaultLogPeriodMs = 2000;
+
+bool finite_positive(double v) { return std::isfinite(v) && v > 0.0; }
+bool finite_nonneg(double v)   { return std::isfinite(v) && v >= 0.0; }
+
+}  // namespace
 
 
 RoverSwerveControllerTest::RoverSwerveControllerTest()
@@ -48,15 +60,33 @@ RoverSwerveControllerTest::on_configure(const rclcpp_lifecycle::State & /*previo
 
     magnitude_limiter_ = SlewRateLimiter{max_accel_, max_decel_};
 
+    cmd_vel_buffer_.initRT(CmdVelStamped{
+        geometry_msgs::msg::Twist{},
+        get_node()->get_clock()->now()
+    });
+
     cmd_vel_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
         "/cmd_vel",
         rclcpp::SystemDefaultsQoS(),
         [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
-            last_cmd_vel_time_ = get_node()->get_clock()->now();
-            raw_vx_ = msg->linear.x;
-            raw_vy_ = msg->linear.y;
-            raw_wz_ = msg->angular.z;
-        });
+            if (!std::isfinite(msg->linear.x) ||
+                !std::isfinite(msg->linear.y) ||
+                !std::isfinite(msg->angular.z))
+            {
+                RCLCPP_ERROR_THROTTLE(
+                    get_node()->get_logger(), *get_node()->get_clock(), kFaultLogPeriodMs,
+                    "[SwerveControllerTest] Ignoring non-finite /cmd_vel "
+                    "(vx=%.4f vy=%.4f wz=%.4f).",
+                    msg->linear.x, msg->linear.y, msg->angular.z);
+                return;
+            }
+
+            CmdVelStamped stamped;
+            stamped.twist = *msg;
+            stamped.stamp = get_node()->get_clock()->now();
+            cmd_vel_buffer_.writeFromNonRT(stamped);
+        }
+    );
 
     compact_srv_ = get_node()->create_service<std_srvs::srv::SetBool>(
         "~/set_compact_mode",
@@ -65,15 +95,18 @@ RoverSwerveControllerTest::on_configure(const rclcpp_lifecycle::State & /*previo
             std::shared_ptr<std_srvs::srv::SetBool::Response>      res)
         {
             on_set_compact_mode(req, res);
-        });
+        }
+    );
 
     RCLCPP_INFO(get_node()->get_logger(),
         "[SwerveControllerTest] Configured. wheelbase=%.3f m  track=%.3f m  "
         "r_wheel=%.3f m  max_steer=%.1f°  max_v=%.2f m/s  "
-        "rotation_scale=%.3f m  theta_rate=%.2f rad/s  phi_rate=%.2f rad/s",
+        "rotation_scale=%.3f m  theta_rate=%.2f rad/s  phi_rate=%.2f rad/s  "
+        "standstill=%.3f m/s held %.2f s",
         wheelbase_, track_width_, wheel_radius_,
         max_steer_ * 180.0 / M_PI, max_linear_,
-        rotation_scale_, max_theta_rate_, max_phi_rate_);
+        rotation_scale_, max_theta_rate_, max_phi_rate_,
+        standstill_speed_, standstill_hold_);
 
     return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -82,27 +115,43 @@ RoverSwerveControllerTest::on_configure(const rclcpp_lifecycle::State & /*previo
 controller_interface::CallbackReturn
 RoverSwerveControllerTest::on_activate(const rclcpp_lifecycle::State & /*previous_state*/)
 {
-    if (!assign_interfaces()) {
+    if (!bind_interfaces()) {
         return controller_interface::CallbackReturn::ERROR;
     }
 
+    // Settle compact mode first: the offsets it installs define the frame
+    // committed_angles_ is seeded in, just below.
+    apply_pending_compact_mode();
+
     // Start the integrated steering command from where the joints actually are,
     // so activation never commands a jump.
-    read_measured_angles();
-    current_angles_   = measured_angles_;
-    committed_angles_ = measured_angles_;
+    read_feedback();
+    if (!steer_feedback_ok_) {
+        RCLCPP_ERROR(get_node()->get_logger(),
+            "[SwerveControllerTest] Steering feedback is not finite at activation; "
+            "refusing to activate rather than integrating from a bad start.");
+        return controller_interface::CallbackReturn::ERROR;
+    }
+    current_angles_ = measured_angles_;
 
-    last_cmd_vel_time_ = get_node()->get_clock()->now();
+    const WheelData offsets = kinematics_->offset_angles();
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        committed_angles_[i] = measured_angles_[i] - offsets[i];
+    }
+
+    const rclcpp::Time now = get_node()->get_clock()->now();
+
+    cmd_vel_buffer_.initRT(CmdVelStamped{geometry_msgs::msg::Twist{}, now});
 
     shape_smoother_->reset();
     magnitude_limiter_.reset(0.0);
     target_shape_ = TwistShape{};
-    raw_vx_ = raw_vy_ = raw_wz_ = 0.0;
 
-    // Activation counts as the start of an idle period, so the wheels home
-    // once after idle_home_delay rather than immediately on activation.
     idle_       = false;
-    idle_since_ = last_cmd_vel_time_;
+    idle_since_ = now;
+
+    at_rest_       = false;
+    at_rest_since_ = now;
 
     RCLCPP_INFO(get_node()->get_logger(), "[SwerveControllerTest] Activated.");
     return controller_interface::CallbackReturn::SUCCESS;
@@ -121,6 +170,10 @@ RoverSwerveControllerTest::on_deactivate(const rclcpp_lifecycle::State & /*previ
 
     steer_handles_.reset();
     drive_handles_.reset();
+    drive_state_handles_.reset();
+
+    steer_feedback_ok_ = false;
+    drive_feedback_ok_ = false;
 
     RCLCPP_INFO(get_node()->get_logger(), "[SwerveControllerTest] Deactivated.");
     return controller_interface::CallbackReturn::SUCCESS;
@@ -146,6 +199,7 @@ RoverSwerveControllerTest::state_interface_configuration() const
     cfg.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
     for (const auto & name : steer_state_interface_names()) { cfg.names.push_back(name); }
+    for (const auto & name : drive_state_interface_names()) { cfg.names.push_back(name); }
     return cfg;
 }
 
@@ -155,25 +209,49 @@ RoverSwerveControllerTest::update(
     const rclcpp::Time & time,
     const rclcpp::Duration & period)
 {
-    const double dt = period.seconds();
+    const double dt = std::isfinite(period.seconds())
+        ? std::max(0.0, period.seconds())
+        : 0.0;
 
-    read_measured_angles();
+    apply_pending_compact_mode();
 
-    if (cmd_vel_timed_out(time)) {
-        raw_vx_ = raw_vy_ = raw_wz_ = 0.0;
+    read_feedback();
+
+    const CmdVelStamped cmd = *cmd_vel_buffer_.readFromRT();
+
+    double raw_vx = cmd.twist.linear.x;
+    double raw_vy = cmd.twist.linear.y;
+    double raw_wz = cmd.twist.angular.z;
+
+    if (cmd_vel_timed_out(time, cmd.stamp)) {
+        raw_vx = raw_vy = raw_wz = 0.0;
     }
 
     // Step 1: Split the commanded twist into shape + magnitude.
-    const TwistShape incoming = decompose(raw_vx_, raw_vy_, raw_wz_, rotation_scale_);
+    const TwistShape incoming = decompose(raw_vx, raw_vy, raw_wz, rotation_scale_);
 
-    // "Doing nothing" means a genuinely empty twist *and* a rover that has
-    // finished stopping. Both halves matter:
-    //   · a near-zero twist is not empty — it is an angle-only command, and
-    //     homing on it would fight the very thing it asks for
-    //   · an empty twist while still rolling is a deceleration, and pivoting
-    //     the wheels mid-roll would scrub them
     const bool commanded_empty = (incoming.m <= 0.0);
-    const bool stopped = std::abs(magnitude_limiter_.current()) < park_speed_;
+
+    double max_rim_speed = 0.0;
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        max_rim_speed = std::max(
+            max_rim_speed, std::abs(measured_wheel_rates_[i]) * wheel_radius_);
+    }
+
+    const bool cmd_at_rest    = std::abs(magnitude_limiter_.current()) < park_speed_;
+    const bool wheels_at_rest = drive_feedback_ok_ && (max_rim_speed < standstill_speed_);
+
+    if (cmd_at_rest && wheels_at_rest) {
+        if (!at_rest_) {
+            at_rest_       = true;
+            at_rest_since_ = time;
+        }
+    } else {
+        at_rest_ = false;
+    }
+
+    const bool stopped =
+        at_rest_ && (time - at_rest_since_).seconds() >= standstill_hold_;
 
     if (commanded_empty && stopped) {
         if (!idle_) {
@@ -191,14 +269,8 @@ RoverSwerveControllerTest::update(
     if (incoming.m > 0.0) {
         target_shape_ = incoming;
     } else if (home_wheels) {
-        // Straight-ahead shape at zero speed. The IK turns that into zero
-        // steering angles (or the compact-mode offsets), and the smoother
-        // walks there at the usual rates — no separate homing path needed.
         target_shape_ = TwistShape{};
     } else {
-        // Stopping, but not idle long enough to home yet. Keep pointing where
-        // we were and just ask for zero speed, so a brief pause between
-        // commands doesn't snap the wheels straight and back.
         target_shape_.m = 0.0;
     }
 
@@ -249,16 +321,31 @@ RoverSwerveControllerTest::update(
     // A 180° jump costs nothing when no torque is being delivered, and it buys
     // the short way round: entering a spin from a standstill becomes a 51°
     // pivot rather than a 129° sweep that ends up near the steering limit.
+    //
+    // All of this happens in the *steering frame*, with the compact-mode offset
+    // taken back off. The offset is a deliberate ±180° fold of the whole wheel
+    // pod, which is precisely the shift this step exists to undo — decide on
+    // the offset angle and it cancels the fold every cycle, leaving compact
+    // mode a silent no-op. max_steer_ is the IK's own restriction and lives in
+    // the same frame; the joints themselves reach further (±270° in the URDF),
+    // which is what makes the fold possible at all.
+    const WheelData offsets = kinematics_->offset_angles();
+
     WheelData work_angles, nominal_speeds;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const double a0 = ik.angles[i];
+        const double a0 = ik.angles[i] - offsets[i];
         const double s0 = ik.speeds[i];
         const double a1 = (a0 < 0.0) ? a0 + M_PI : a0 - M_PI;
 
         const bool a0_ok = std::abs(a0) <= max_steer_ + 1e-9;
         const bool a1_ok = std::abs(a1) <= max_steer_ + 1e-9;
 
-        const double reference = stopped ? current_angles_[i] : committed_angles_[i];
+        // committed_angles_ is kept in the same steering frame, so toggling
+        // compact mode does not move the reference and cannot make this step
+        // pick the long way round on the cycle the mode changes.
+        const double reference = stopped
+            ? (current_angles_[i] - offsets[i])
+            : committed_angles_[i];
 
         bool take_alt;
         if (a0_ok && a1_ok) {
@@ -268,9 +355,10 @@ RoverSwerveControllerTest::update(
             take_alt = a1_ok && !a0_ok;
         }
 
-        work_angles[i]    = take_alt ? a1 : a0;
-        nominal_speeds[i] = take_alt ? -s0 : s0;
-        committed_angles_[i] = work_angles[i];
+        const double chosen   = take_alt ? a1 : a0;
+        committed_angles_[i]  = chosen;
+        work_angles[i]        = chosen + offsets[i];
+        nominal_speeds[i]     = take_alt ? -s0 : s0;
     }
 
     // Below park_speed the wheels still track the commanded angle but the
@@ -287,21 +375,51 @@ RoverSwerveControllerTest::update(
 
     write_steer_commands(current_angles_);
 
-    // Step 5: Cut drive speed while any wheel is still off-target, so a wheel
-    // that has not caught up yet doesn't scrub. cos⁴ because its derivative is
-    // zero at both ends, making the fade smooth in and out.
-    double align_scale = 1.0;
+    // Step 5: Scale and orient the drives from the *measured* steering error —
+    // one angle source for both decisions, deliberately.
+    //
+    // Both quantities are functions of the same cos(err):
+    //   · cos⁴ cuts speed while a wheel is still off-target, so it doesn't
+    //     scrub. Fourth power because its derivative vanishes at both ends,
+    //     making the fade smooth in and out.
+    //   · a wheel more than 90° from its target points roughly backwards, so it
+    //     has to spin the other way to push the chassis where intended.
+    //
+    // Taking them from different sources — cos⁴ from feedback, the sign from
+    // the integrated command — is what makes lagging feedback dangerous: the
+    // sign flips at the command's 90° while cos⁴ is still near 1 at the
+    // measurement's, and the drive reverses at close to full speed. Sharing
+    // one source ties the flip to the exact point where the scale is zero, so
+    // the drive command stays continuous through it however far behind the
+    // joints are.
+    //
+    // Measured, not commanded, because it is the physical wheel that either
+    // scrubs or pushes. The cost is that lost or lagging feedback cuts the
+    // drives, which is the direction to fail in.
+    double    align_scale = 1.0;
+    WheelData drive_sign  = WheelData::filled(1.0);
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const double c4 = std::pow(std::cos(work_angles[i] - measured_angles_[i]), 4);
-        align_scale = std::min(align_scale, c4);
+        const double cos_err = std::cos(work_angles[i] - measured_angles_[i]);
+        align_scale  = std::min(align_scale, std::pow(cos_err, 4));
+        drive_sign[i] = (cos_err >= 0.0) ? 1.0 : -1.0;
+    }
+
+    if (!steer_feedback_ok_) {
+        // No trustworthy idea where the wheels point, so no idea which way to
+        // drive them. Steering still tracks — current_angles_ is integrated,
+        // not measured — so the joints keep working toward the target.
+        align_scale = 0.0;
+        RCLCPP_ERROR_THROTTLE(
+            get_node()->get_logger(), *get_node()->get_clock(), kFaultLogPeriodMs,
+            "[SwerveControllerTest] Non-finite steering feedback; drives held at zero.");
     }
 
     WheelData speeds;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        speeds[i] = nominal_speeds[i] * speed_gain * align_scale;
+        speeds[i] = nominal_speeds[i] * speed_gain * align_scale * drive_sign[i];
     }
 
-    write_drive_commands(work_angles, speeds);
+    write_drive_commands(speeds);
 
     return controller_interface::return_type::OK;
 }
@@ -334,6 +452,8 @@ void RoverSwerveControllerTest::declare_parameters()
     declare_param("max_theta_rate_rad",    M_PI / 2.0);
     declare_param("max_phi_rate_rad",      0.55);
     declare_param("park_speed",            0.001);
+    declare_param("standstill_speed",      0.02);
+    declare_param("standstill_hold_s",     0.2);
     declare_param("idle_home_delay",       1.0);
 
     declare_param("steer_joint_names",
@@ -363,20 +483,58 @@ bool RoverSwerveControllerTest::read_parameters()
     max_theta_rate_  = node->get_parameter("max_theta_rate_rad").as_double();
     max_phi_rate_    = node->get_parameter("max_phi_rate_rad").as_double();
     park_speed_      = node->get_parameter("park_speed").as_double();
+    standstill_speed_ = node->get_parameter("standstill_speed").as_double();
+    standstill_hold_ = node->get_parameter("standstill_hold_s").as_double();
     idle_home_delay_ = node->get_parameter("idle_home_delay").as_double();
+
+    // Validated before anything derived is computed. A NaN or a negative here
+    // does not stay put: it propagates through the IK into the steering angles
+    // and out to the joints, where the first sign of trouble is the rover
+    // moving. Fail configuration instead — the launch will say so.
+    struct Check {
+        const char * name;
+        double       value;
+        bool         ok;
+    };
+
+    const Check checks[] = {
+        {"wheelbase",             wheelbase_,        finite_positive(wheelbase_)},
+        {"track_width",           track_width_,      finite_positive(track_width_)},
+        {"wheel_radius",          wheel_radius_,     finite_positive(wheel_radius_)},
+        {"max_steer_deg",         max_steer_ * 180.0 / M_PI,      finite_positive(max_steer_)},
+        {"max_steer_rate_deg",    max_steer_rate_ * 180.0 / M_PI, finite_positive(max_steer_rate_)},
+        {"max_linear_speed",      max_linear_,       finite_positive(max_linear_)},
+        {"max_accel",             max_accel_,        finite_positive(max_accel_)},
+        {"max_decel",             max_decel_,        finite_positive(max_decel_)},
+        {"cmd_vel_timeout_s",     cmd_vel_timeout_,  finite_positive(cmd_vel_timeout_)},
+        {"max_theta_rate_rad",    max_theta_rate_,   finite_positive(max_theta_rate_)},
+        {"max_phi_rate_rad",      max_phi_rate_,     finite_positive(max_phi_rate_)},
+        {"park_speed",            park_speed_,       finite_nonneg(park_speed_)},
+        {"standstill_speed",      standstill_speed_, finite_nonneg(standstill_speed_)},
+        {"standstill_hold_s",     standstill_hold_,  finite_nonneg(standstill_hold_)},
+        // Negative is meaningful here — it disables homing — so only the
+        // non-finite case is rejected.
+        {"idle_home_delay",       idle_home_delay_,  std::isfinite(idle_home_delay_)},
+        // 0.0 is the "auto" sentinel, resolved just below.
+        {"rotation_scale_length", rotation_scale_,   finite_nonneg(rotation_scale_)},
+    };
+
+    bool valid = true;
+    for (const auto & check : checks) {
+        if (!check.ok) {
+            RCLCPP_ERROR(node->get_logger(),
+                "[SwerveControllerTest] Parameter '%s' is invalid (%f).",
+                check.name, check.value);
+            valid = false;
+        }
+    }
+    if (!valid) { return false; }
 
     // Auto: the wheel half-diagonal. Picking that length makes the magnitude
     // equal the corner wheels' ground speed during a spin and the chassis speed
     // during translation, so max_accel means one physical thing in both cases.
     if (rotation_scale_ <= 0.0) {
         rotation_scale_ = std::hypot(wheelbase_ / 2.0, track_width_ / 2.0);
-    }
-
-    if (rotation_scale_ <= 0.0 || max_linear_ <= 0.0 || wheel_radius_ <= 0.0) {
-        RCLCPP_ERROR(node->get_logger(),
-            "[SwerveControllerTest] rotation_scale_length, max_linear_speed and "
-            "wheel_radius must all be positive.");
-        return false;
     }
 
     const auto steer_names = node->get_parameter("steer_joint_names").as_string_array();
@@ -428,8 +586,18 @@ RoverSwerveControllerTest::steer_state_interface_names() const
     return names;
 }
 
+std::vector<std::string>
+RoverSwerveControllerTest::drive_state_interface_names() const
+{
+    std::vector<std::string> names;
+    for (const auto & joint : drive_joint_names_) {
+        names.push_back(joint + "/" + hardware_interface::HW_IF_VELOCITY);
+    }
+    return names;
+}
 
-bool RoverSwerveControllerTest::assign_interfaces()
+
+bool RoverSwerveControllerTest::bind_interfaces()
 {
     auto find_cmd = [this](const std::string & full_name)
         -> hardware_interface::LoanedCommandInterface *
@@ -468,37 +636,79 @@ bool RoverSwerveControllerTest::assign_interfaces()
         steer.position_state.emplace_back(*state_iface);
     }
 
-    DriveHandles drive;
+    DriveHandles      drive;
+    DriveStateHandles drive_state;
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         const std::string vel_name =
             drive_joint_names_[i] + "/" + hardware_interface::HW_IF_VELOCITY;
 
-        auto * cmd_iface = find_cmd(vel_name);
-        if (!cmd_iface) {
+        auto * cmd_iface   = find_cmd(vel_name);
+        auto * state_iface = find_state(vel_name);
+
+        if (!cmd_iface || !state_iface) {
             RCLCPP_ERROR(get_node()->get_logger(),
                 "[SwerveControllerTest] Missing interface: %s", vel_name.c_str());
             return false;
         }
 
         drive.velocity_cmd.emplace_back(*cmd_iface);
+        drive_state.velocity_state.emplace_back(*state_iface);
     }
 
-    steer_handles_ = std::move(steer);
-    drive_handles_ = std::move(drive);
+    steer_handles_       = std::move(steer);
+    drive_handles_       = std::move(drive);
+    drive_state_handles_ = std::move(drive_state);
     return true;
 }
 
 
-void RoverSwerveControllerTest::read_measured_angles()
+namespace {
+
+/// One reading off a loaned state interface, distro differences absorbed.
+inline double state_value(hardware_interface::LoanedStateInterface & iface)
 {
-    if (!steer_handles_) { return; }
-    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
 #if defined(JAZZY_OR_LATER)
-        measured_angles_[i] = steer_handles_->position_state[i].get().get_optional().value_or(0.0);
+    // value_or() picks a finite sentinel deliberately: an empty optional means
+    // "no reading this cycle", and the caller's finiteness check would wave a
+    // silent 0.0 through. NaN makes it visible as exactly what it is.
+    return iface.get_optional().value_or(std::numeric_limits<double>::quiet_NaN());
 #else
-        measured_angles_[i] = steer_handles_->position_state[i].get().get_value();
+    return iface.get_value();
 #endif
+}
+
+}  // namespace
+
+
+void RoverSwerveControllerTest::read_feedback()
+{
+    // Both channels are validated wholesale: a partial update would mix this
+    // cycle's readings with the last one's, and the wheels are only comparable
+    // to each other when they come from the same instant.
+    steer_feedback_ok_ = false;
+    drive_feedback_ok_ = false;
+
+    if (steer_handles_) {
+        WheelData fresh;
+        bool ok = true;
+        for (std::size_t i = 0; i < NUM_WHEELS && ok; ++i) {
+            fresh[i] = state_value(steer_handles_->position_state[i].get());
+            ok = std::isfinite(fresh[i]);
+        }
+        if (ok) { measured_angles_ = fresh; }
+        steer_feedback_ok_ = ok;
+    }
+
+    if (drive_state_handles_) {
+        WheelData fresh;
+        bool ok = true;
+        for (std::size_t i = 0; i < NUM_WHEELS && ok; ++i) {
+            fresh[i] = state_value(drive_state_handles_->velocity_state[i].get());
+            ok = std::isfinite(fresh[i]);
+        }
+        if (ok) { measured_wheel_rates_ = fresh; }
+        drive_feedback_ok_ = ok;
     }
 }
 
@@ -507,23 +717,35 @@ void RoverSwerveControllerTest::write_steer_commands(const WheelData & angles)
 {
     if (!steer_handles_) { return; }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        if (!std::isfinite(angles[i])) {
+            RCLCPP_ERROR_THROTTLE(
+                get_node()->get_logger(), *get_node()->get_clock(), kFaultLogPeriodMs,
+                "[SwerveControllerTest] Non-finite steering command for wheel %zu; "
+                "holding last command.", i);
+            continue;   // leave the interface at whatever it last held
+        }
         (void)steer_handles_->position_cmd[i].get().set_value(angles[i]);
     }
 }
 
 
-void RoverSwerveControllerTest::write_drive_commands(
-    const WheelData & work_angles,
-    const WheelData & speeds)
+void RoverSwerveControllerTest::write_drive_commands(const WheelData & speeds)
 {
     if (!drive_handles_) { return; }
 
-    // A wheel more than 90° from its target is pointing roughly backwards, so
-    // it has to spin the other way to push the chassis the intended direction.
+    // Sign and scale were both settled in update(), from one angle source.
+    // Last line of defence before the hardware: a non-finite command here is
+    // unrecoverable, so substitute zero and say so.
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const double cos_err = std::cos(work_angles[i] - current_angles_[i]);
-        const double sign    = (cos_err >= 0.0) ? 1.0 : -1.0;
-        (void)drive_handles_->velocity_cmd[i].get().set_value(speeds[i] * sign);
+        double value = speeds[i];
+        if (!std::isfinite(value)) {
+            RCLCPP_ERROR_THROTTLE(
+                get_node()->get_logger(), *get_node()->get_clock(), kFaultLogPeriodMs,
+                "[SwerveControllerTest] Non-finite drive command for wheel %zu; "
+                "writing zero.", i);
+            value = 0.0;
+        }
+        (void)drive_handles_->velocity_cmd[i].get().set_value(value);
     }
 }
 
@@ -540,6 +762,22 @@ double RoverSwerveControllerTest::step_angle(
 }
 
 
+void RoverSwerveControllerTest::apply_pending_compact_mode()
+{
+    if (!kinematics_) { return; }
+
+    const bool requested = compact_mode_request_.load(std::memory_order_relaxed);
+    if (requested == kinematics_->compact_mode()) { return; }
+
+    // No TRANSIT dance needed: the offset shifts the target angles, and
+    // the cos⁴ alignment scale holds the drives down until they arrive
+    kinematics_->set_compact_mode(requested);
+
+    RCLCPP_INFO(get_node()->get_logger(),
+        "[SwerveControllerTest] Compact mode %s.", requested ? "enabled" : "disabled");
+}
+
+
 void RoverSwerveControllerTest::on_set_compact_mode(
     const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
     std::shared_ptr<std_srvs::srv::SetBool::Response>      response)
@@ -550,26 +788,23 @@ void RoverSwerveControllerTest::on_set_compact_mode(
         return;
     }
 
-    if (request->data == kinematics_->compact_mode()) {
-        response->success = true;
-        response->message = "Already in requested mode";
-        return;
-    }
-
-    // No TRANSIT dance needed: the offset shifts the target angles, and
-    // step_angle() walks the joints over at max_steer_rate_ while the cos⁴
-    // alignment scale holds the drives down until they arrive.
-    kinematics_->set_compact_mode(request->data);
+    const bool previous = compact_mode_request_.exchange(
+        request->data, std::memory_order_relaxed);
 
     response->success = true;
-    response->message = std::string("Compact mode ") +
-                        (kinematics_->compact_mode() ? "enabled" : "disabled");
+    response->message = (previous == request->data)
+        ? "Already in requested mode"
+        : std::string("Compact mode ") + (request->data ? "enabled" : "disabled") +
+          " — wheels will move over at max_steer_rate";
 }
 
 
-bool RoverSwerveControllerTest::cmd_vel_timed_out(const rclcpp::Time & now) const
+bool RoverSwerveControllerTest::cmd_vel_timed_out(
+    const rclcpp::Time & now,
+    const rclcpp::Time & stamp) const
 {
-    return (now - last_cmd_vel_time_).seconds() > cmd_vel_timeout_;
+    if (now.get_clock_type() != stamp.get_clock_type()) { return true; }
+    return (now - stamp).seconds() > cmd_vel_timeout_;
 }
 
 }  // namespace rover_controller

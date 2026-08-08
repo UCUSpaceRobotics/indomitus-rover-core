@@ -39,7 +39,8 @@ Loaded as a ros2_control hardware plugin (`rover_hardware_interface/RoverHardwar
 ## 3. `rover_controller` (C++)
 ros2_control controller plugins implementing swerve-drive kinematics and odometry.
 
-- **`swerve_controller`** — receives `geometry_msgs/Twist` on `/cmd_vel` and computes per-wheel velocity and steering angle targets
+- **`swerve_controller`** — receives `geometry_msgs/Twist` on `/cmd_vel` and computes per-wheel velocity and steering angle targets. The default everywhere.
+- **`swerve_controller_test`** *(experimental)* — same interfaces, but smooths the twist as shape + magnitude instead of vx/vy/wz separately, so a throttle change leaves the steering angles alone. Also reads the drive joints' velocity state, which it uses to detect a real standstill. Always spawned **inactive**; switch to it deliberately with `ros2 control switch_controller --activate swerve_controller_test --deactivate swerve_controller`, or launch the sim with `swerve_controller:=swerve_controller_test`. Only one swerve controller may hold the joints at a time.
 - **`odometry_controller`** — reads wheel feedback and publishes odometry
 - **`ackermann_controller`** *(planned)* — Ackermann steering with fixed rear wheels, only front wheels steer
 - **`dual_ackermann_controller`** *(planned)* — Ackermann steering with symmetric front and rear wheel steering

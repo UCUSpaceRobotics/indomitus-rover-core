@@ -73,6 +73,12 @@ swerve_controller_test:
     max_phi_rate_rad:   0.74
     rotation_scale_length: 0.0   # auto = wheel half-diagonal
     park_speed: 0.001
+
+    # Measured standstill — snapping the shape and homing the wheels both wait
+    # on it, so that neither can happen while the rover is still rolling.
+    standstill_speed: 0.02
+    standstill_hold_s: 0.2
+
     idle_home_delay: 0.5         # negative disables return-to-zero
 
     # The swerve_controller block above omits these and silently takes the

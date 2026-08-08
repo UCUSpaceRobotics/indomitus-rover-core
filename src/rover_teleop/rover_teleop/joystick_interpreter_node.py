@@ -15,6 +15,15 @@ from controller_manager_msgs.srv import SetHardwareComponentState, SwitchControl
 from lifecycle_msgs.msg import State
 
 
+def trigger_diff(axes, l2_index: int, r2_index: int, deadzone: float) -> float:
+    """L2 minus R2, deadzoned. Positive = L2 held = counter-clockwise spin."""
+    def value(index: int) -> float:
+        return axes[index] if 0 <= index < len(axes) else 0.0
+
+    diff = value(l2_index) - value(r2_index)
+    return 0.0 if abs(diff) < deadzone else diff
+
+
 class ButtonToggle:
     """
     Rising-edge detector for a single joystick button.
@@ -223,19 +232,7 @@ class JoystickInterpreterNode(Node):
         self.raw_rot = self._trigger_diff(msg.axes)
 
     def _trigger_diff(self, axes) -> float:
-        """L2 minus R2, deadzoned. Positive = L2 = counter-clockwise spin.
-
-        Both triggers rest at 0.0 and reach 1.0 fully pressed. Reading the
-        *difference* rather than either trigger alone also means a driver that
-        rests them somewhere else can't cause trouble: a shared rest offset
-        cancels out, so a wrong rest value can never produce a standing spin
-        command — only a halved or mirrored response.
-        """
-        def value(index: int) -> float:
-            return axes[index] if index < len(axes) else 0.0
-
-        diff = value(self._axis_r2) - value(self._axis_l2)
-        return 0.0 if abs(diff) < self._trigger_deadzone else diff
+        return trigger_diff(axes, self._axis_l2, self._axis_r2, self._trigger_deadzone)
 
     def _publish_timer_cb(self):
         """Publish the latest known command at a fixed rate (default 20 Hz),

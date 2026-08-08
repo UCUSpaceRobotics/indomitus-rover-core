@@ -14,6 +14,7 @@ find_package(controller_interface REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(realtime_tools REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -52,6 +53,7 @@ ament_target_dependencies(${PROJECT_NAME} SYSTEM PUBLIC
   geometry_msgs
   nav_msgs
   std_srvs
+  realtime_tools
   Eigen3
   tf2_ros
 )
@@ -69,6 +71,7 @@ ament_export_dependencies(
   geometry_msgs
   nav_msgs
   std_srvs
+  realtime_tools
 )
 
 install(TARGETS ${PROJECT_NAME}
@@ -90,6 +93,24 @@ if(BUILD_TESTING)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+
+  # Spins real executors and threads, so it needs headroom over the 60 s default.
+  ament_add_gtest(test_swerve_controller_test
+    test/test_swerve_controller_test.cpp
+    TIMEOUT 180
+  )
+  target_link_libraries(test_swerve_controller_test ${PROJECT_NAME})
+  ament_target_dependencies(test_swerve_controller_test
+    rclcpp
+    rclcpp_lifecycle
+    hardware_interface
+    controller_interface
+    geometry_msgs
+    std_srvs
+    realtime_tools
+  )
 endif()
 
 ament_package()

@@ -33,8 +33,10 @@ joystick_interpreter:
     angle_probe_speed: 0.00001
 
     # Which controller the motor toggle activates and where compact mode is
-    # sent. Set to swerve_controller_test for the shape-smoothing controller.
-    controller_name: swerve_controller_test
+    # sent. swerve_controller_test is the experimental shape-smoothing
+    # controller; it is spawned inactive, so pointing this at it is the
+    # deliberate opt-in. Leave it on swerve_controller for normal driving.
+    controller_name: swerve_controller
 
 
     # --- GRANNY MODE ---
