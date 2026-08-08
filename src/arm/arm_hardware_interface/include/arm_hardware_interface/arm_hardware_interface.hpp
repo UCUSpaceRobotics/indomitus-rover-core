@@ -69,7 +69,13 @@ private:
     void send_enable_frames();     // SW: 0xF0 limits config; DM: 0xFC enable
     void send_disable_frames();    // torqueless MIT first, then SW 0xCF / DM 0xFD
     bool wait_for_all_feedback(double timeout_sec);  // active polling, abort on missing motor
-    void safe_stop();              // best-effort disable used by deactivate/shutdown/error
+    void safe_stop();              // full disable (torqueless) — only for on_error, real faults
+    void stop_holding();           // clean shutdown WITHOUT disabling — see on_deactivate
+
+    // Static gravity compensation: per-joint holding torque (motor frame, Nm,
+    // clamped to gravity_ff_max_nm_) at the current measured pose. See
+    // kLinkMass/kMotorMass and the math helpers atop arm_hardware_interface.cpp.
+    std::array<float, NUM_JOINTS> compute_gravity_feedforward() const;
 
     // Coordinate transforms (URDF <-> motor frame)
     inline double urdf_to_motor(std::size_t i, double urdf_rad) const
@@ -92,6 +98,10 @@ private:
     double gain_ramp_secs_{8.0};        // stiffness ramp 0 -> full after activation
     double max_cmd_speed_rad_s_{0.3};   // rate limiter on out going position commands
     double feedback_timeout_secs_{2.0}; // abort activation if a motor never replies
+
+    // ---- Gravity compensation (feed-forward torque, t_ff in the MIT frame) ----
+    bool   gravity_ff_enabled_{false};
+    double gravity_ff_max_nm_{3.0};     // hard per-joint clamp, well under T_MAX_NM=18
 
     std::array<std::string, NUM_JOINTS> joint_names_;
 

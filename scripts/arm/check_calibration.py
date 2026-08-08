@@ -55,6 +55,11 @@ STEADYWIN_IDS = [20, 21, 22]
 DAMIAO_IDS    = [23, 24, 25]
 ALL_IDS       = STEADYWIN_IDS + DAMIAO_IDS
 
+# The wrist Damiao motors were re-flashed: each answers on its OWN Master ID
+# (0x400 | CAN-ID) instead of the factory-default shared Master ID 0.
+# e.g. motor 23 (0x17) -> replies on 0x417.  {master_id: motor_id}
+DM_MASTER_IDS = {0x400 | mid: mid for mid in DAMIAO_IDS}
+
 JOINT_NAMES = {
     20: "arm_mount_base_joint",
     21: "arm_base_shoulder_joint",
@@ -159,12 +164,10 @@ class Reader:
                 return
             u = (data[1] << 8) | data[2]
             self.raw[can_id] = uint_to_float(u, -SW_POS_MAX_RAD, SW_POS_MAX_RAD, 16)
-        elif (can_id in DAMIAO_IDS or can_id == 0) and dlc >= 6:
-            nib = data[0] & 0x0F
-            mid = can_id if can_id in DAMIAO_IDS else next(
-                (d for d in DAMIAO_IDS if (d & 0x0F) == nib), None)
-            if mid is None:
-                return
+        elif can_id in DM_MASTER_IDS and dlc >= 6:
+            # Re-flashed wrists: each Damiao answers on its own Master ID
+            # (0x400 | CAN-ID), so the sender is known from the frame ID alone.
+            mid = DM_MASTER_IDS[can_id]
             u = (data[1] << 8) | data[2]
             self.raw[mid] = uint_to_float(u, -DM_P_MAX_RAD, DM_P_MAX_RAD, 16)
             self.dm_err[mid] = (data[0] >> 4) & 0x0F

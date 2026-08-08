@@ -20,7 +20,7 @@ Speaks the same protocol subset the hardware interface uses:
     RX id, FF*7+FE -> set zero (reply feedback)
     RX id, FF*7+FB -> clear error
     RX id, MIT 8 bytes -> execute if enabled; reply feedback
-    Reply: StdID=MASTER_ID (0), DLC 8: [0]=id_nibble|err<<4, [1..2]=pos16,
+    Reply: StdID=0x400|id (re-flashed Master ID), DLC 8: [0]=id_nibble|err<<4, [1..2]=pos16,
            [3]=vel[11:4], [4]=vel[3:0]|t[11:8], [5]=t[7:0], [6]=Tmos, [7]=Trotor
 
 Simulated physics: first-order slew toward the commanded position whenever
@@ -47,7 +47,11 @@ import time
 
 STEADYWIN_IDS = [20, 21, 22]
 DAMIAO_IDS    = [23, 24, 25]
-MASTER_ID     = 0x000        # Damiao feedback frame ID (debug-assistant default)
+# Damiao feedback frame ID. The real wrist motors were re-flashed away from the
+# debug-assistant default (shared Master ID 0) to a per-motor 0x400 | CAN-ID,
+# so the simulator mirrors that — otherwise the hardware interface's RX filter
+# would never match the simulated replies.
+MASTER_ID_BASE = 0x400
 
 SW_P, SW_V, SW_T = 95.5, 45.0, 18.0
 DM_P, DM_V, DM_T = 12.5, 45.0, 18.0
@@ -185,7 +189,7 @@ class Sim:
             t & 0xFF,
             35, 38,                                   # plausible temps °C
         ])
-        self.send(MASTER_ID, data)
+        self.send(MASTER_ID_BASE | m.id, data)
 
     def handle_dm(self, m, data):
         if data[:7] == b"\xff" * 7:

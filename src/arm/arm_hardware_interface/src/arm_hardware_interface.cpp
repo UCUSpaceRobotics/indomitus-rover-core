@@ -212,22 +212,31 @@ hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecy
 
 hardware_interface::CallbackReturn ArmCanSystem::on_deactivate(const rclcpp_lifecycle::State&)
 {
-    RCLCPP_WARN(logger_, "Deactivating: motors will be DISABLED and the arm will go limp. "
-                         "Support it or move it to a rest pose first.");
-    safe_stop();
-    RCLCPP_INFO(logger_, "ArmCanSystem deactivated.");
+    RCLCPP_WARN(logger_,
+        "Deactivating WITHOUT disabling: Steadywin motors (base/shoulder/"
+        "elbow) hold their last commanded position indefinitely — they need "
+        "no further CAN traffic to stay stiff. Damiao wrist motors (forearm/"
+        "wrist/end-effector) WILL go limp shortly after this process stops "
+        "sending frames (their own comm-loss watchdog disables them) — "
+        "support the wrist/end-effector before deactivating.");
+    stop_holding();
+    RCLCPP_INFO(logger_, "ArmCanSystem deactivated (motors left enabled, holding last position).");
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::CallbackReturn ArmCanSystem::on_shutdown(const rclcpp_lifecycle::State&)
 {
-    safe_stop();
+    stop_holding();
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::CallbackReturn ArmCanSystem::on_error(const rclcpp_lifecycle::State&)
 {
-    RCLCPP_ERROR(logger_, "on_error: disabling all motors.");
+    // A real fault means we no longer trust our own state (bad feedback,
+    // CAN issues, etc.) — unlike a clean deactivate, holding position here
+    // could mean holding a WRONG position with real torque. Fail-safe: cut
+    // power instead.
+    RCLCPP_ERROR(logger_, "on_error: disabling all motors (fail-safe).");
     safe_stop();
     return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -238,6 +247,21 @@ void ArmCanSystem::safe_stop()
     if (can_fd_ >= 0) {
         send_disable_frames();
     }
+    rx_running_.store(false);
+    if (rx_thread_.joinable()) {
+        rx_thread_.join();
+    }
+    close_can_socket();
+}
+
+void ArmCanSystem::stop_holding()
+{
+    // Deliberately does NOT call send_disable_frames(): Steadywin keeps
+    // executing its last MIT command (position/kp/kd) with no further
+    // traffic required, so it stays holding after this process exits.
+    // Damiao motors will drop out on their own comm-loss watchdog shortly
+    // after we stop streaming — nothing we send here changes that.
+    motors_enabled_.store(false);
     rx_running_.store(false);
     if (rx_thread_.joinable()) {
         rx_thread_.join();
@@ -497,27 +521,27 @@ void ArmCanSystem::rx_thread_fn()
             continue;
         }
 
-        // ---------- Damiao: replies arrive on Master ID (default 0) or,
-        //            depending on configuration, on the motor's own ID -------
-        bool maybe_dm = (raw_id == 0);
+        // ---------- Damiao: replies arrive on that motor's own Master ID,
+        //            0x400 | CAN-ID (these wrists were re-flashed away from
+        //            the factory-default shared Master ID 0) ----------------
         std::size_t dm_idx = NUM_JOINTS;
-        if (!maybe_dm) {
-            for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
-                if (raw_id == motor_ids_[i]) { maybe_dm = true; dm_idx = i; break; }
-            }
+        for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+            if (raw_id == dm::master_id_for(motor_ids_[i])) { dm_idx = i; break; }
         }
-        if (!maybe_dm) continue;
+        if (dm_idx == NUM_JOINTS) continue;
 
         dm::Feedback fb;
         if (!dm::parse_feedback(frame.data, frame.can_dlc, fb)) continue;
 
-        // Identify the motor from data[0]'s low nibble when the reply came on
-        // the shared Master ID 0. (23,24,25 -> nibbles 7,8,9 — unambiguous.)
-        if (dm_idx == NUM_JOINTS) {
-            for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
-                if ((motor_ids_[i] & 0x0F) == fb.motor_id_nibble) { dm_idx = i; break; }
-            }
-            if (dm_idx == NUM_JOINTS) continue;
+        // The Master ID already told us who sent this; data[0]'s low nibble is
+        // only a sanity check that the motor's own CAN-ID matches what we
+        // expect for that slot (catches a mis-flashed / duplicated ID).
+        if ((motor_ids_[dm_idx] & 0x0F) != fb.motor_id_nibble) {
+            RCLCPP_WARN_THROTTLE(logger_, steady_clock, 5000,
+                "Damiao reply on 0x%03X carries CAN-ID nibble %u, expected %u "
+                "(motor %u) — check the motor's flashed ID/Master ID.",
+                raw_id, fb.motor_id_nibble, motor_ids_[dm_idx] & 0x0F, motor_ids_[dm_idx]);
+            continue;
         }
 
         if (fb.err >= 0x8) {

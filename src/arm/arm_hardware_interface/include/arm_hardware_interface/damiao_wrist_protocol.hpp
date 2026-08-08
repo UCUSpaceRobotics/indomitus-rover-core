@@ -10,7 +10,8 @@
 //    Kp range [0,500], Kd range [0,5]. P/V/T ranges (P_MAX, V_MAX, T_MAX) are
 //    CONFIGURABLE in the Damiao debug assistant — the constants below MUST
 //    match what is stored in the motor, or scaling is silently wrong.
-//  * Feedback frame: StdID = Master ID (default 0!), DLC = 8:
+//  * Feedback frame: StdID = Master ID, DLC = 8. These motors are re-flashed
+//    so Master ID = 0x400 | CAN-ID (per motor), NOT the factory default 0:
 //      D[0] = motor_ID_low_nibble | (ERR << 4)
 //      D[1..2] = POS16 (big-endian), D[3]=VEL[11:4], D[4]=VEL[3:0]|T[11:8],
 //      D[5]=T[7:0], D[6]=T_MOS °C, D[7]=T_Rotor °C
@@ -147,6 +148,16 @@ inline can_msgs::msg::Frame build_set_zero_frame(uint8_t motor_id){ return make_
 /// FF..FB — clear error.
 inline can_msgs::msg::Frame build_clear_error_frame(uint8_t motor_id) { return make_special(motor_id, 0xFB); }
 
+/// These wrist motors were re-flashed so each answers on its OWN
+/// 0x400 | CAN-ID instead of the factory-default shared Master ID 0 (e.g.
+/// motor 23 replies on 0x417) — update this and the RX filter in
+/// arm_hardware_interface.cpp together if a motor's Master ID ever changes.
+constexpr uint32_t MASTER_ID_BASE = 0x400;
+inline constexpr uint32_t master_id_for(uint8_t motor_id)
+{
+    return MASTER_ID_BASE | static_cast<uint32_t>(motor_id);
+}
+
 struct Feedback {
     uint8_t motor_id_nibble{0};  // low 4 bits of the motor CAN ID
     uint8_t err{0};              // see ErrCode
@@ -157,8 +168,10 @@ struct Feedback {
     uint8_t t_rotor_c{0};
 };
 
-/// Parse a Damiao feedback frame. The frame arrives on StdID == Master ID
-/// (default 0) — the motor is identified by the low nibble of data[0].
+/// Parse a Damiao feedback frame. On these (re-flashed) motors the frame
+/// arrives on StdID == master_id_for(motor_id) == 0x400 | CAN-ID, so the
+/// caller already knows which motor sent it; motor_id_nibble is still parsed
+/// out of data[0] and can be used as a cross-check.
 inline bool parse_feedback(const uint8_t* data, uint8_t dlc, Feedback& out)
 {
     if (dlc < 6) return false;
