@@ -175,14 +175,21 @@
       <xacro:property name="finger_right_y" value="0.01072"/>
       <xacro:property name="finger_left_y" value="-0.01378"/>
 
-      <xacro:macro name="jaw_gripper_finger" params="side x_closed y yaw axis_sign">
+      <xacro:macro name="jaw_gripper_finger" params="side x_closed y yaw axis_sign limit_lower limit_upper">
         <joint name="arm_jaw_gripper_finger_${side}_joint" type="prismatic">
           <parent link="arm_end_effector_link"/>
           <child link="arm_jaw_gripper_finger_${side}_link"/>
           <origin xyz="${x_closed} ${y} ${finger_z}" rpy="0 0 ${yaw}"/>
           <axis xyz="${axis_sign} 0 0"/>
-          <limit lower="0" upper="${finger_stroke}" effort="20.0" velocity="0.05"/>
+          <limit lower="${limit_lower}" upper="${limit_upper}" effort="20.0" velocity="0.05"/>
           <xacro:unless value="${side == 'right'}">
+            <!-- Right and left are mirror images (180 deg about Z), so their axes
+                 point opposite ways in the parent frame — multiplier=-1.0 makes
+                 them slide apart symmetrically as the right joint opens, rather
+                 than translating together with a fixed gap. Left's own range is
+                 shifted negative to match, since its opening motion is the
+                 mirror of right's (mimic must stay within the child's own
+                 declared limits). -->
             <mimic joint="arm_jaw_gripper_finger_right_joint" multiplier="-1.0" offset="0.0"/>
           </xacro:unless>
         </joint>
@@ -201,8 +208,8 @@
 
       <!-- Same part mounted twice: "left" is the "right" finger rotated 180 deg about Z,
            so both slide outward along their own local +X (axis) to open — no mirrored mesh needed. -->
-      <xacro:jaw_gripper_finger side="right" x_closed="${finger_x_closed}"  y="${finger_right_y}" yaw="0"      axis_sign="-1"/>
-      <xacro:jaw_gripper_finger side="left"  x_closed="${-finger_x_closed}" y="${finger_left_y}"  yaw="${pi}" axis_sign="1"/>
+      <xacro:jaw_gripper_finger side="right" x_closed="${finger_x_closed}"  y="${finger_right_y}" yaw="0"      axis_sign="-1" limit_lower="0"                limit_upper="${finger_stroke}"/>
+      <xacro:jaw_gripper_finger side="left"  x_closed="${-finger_x_closed}" y="${finger_left_y}"  yaw="${pi}" axis_sign="1"  limit_lower="${-finger_stroke}" limit_upper="0"/>
     </xacro:if>
 
     <joint name="arm_tcp_joint" type="fixed">
@@ -246,7 +253,11 @@
     <joint name="arm_camera_optical_joint" type="fixed">
       <parent link="arm_camera_link"/>
       <child link="arm_camera_optical_frame"/>
-      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <!-- Matches the Gazebo <sensor>'s own <pose> offset below (both push the
+           optical center 0.045m forward along arm_camera_link's local X, past
+           the placeholder box's front face) so the published TF and the
+           actual render origin agree. -->
+      <origin xyz="0.045 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
     </joint>
 
     <link name="arm_camera_optical_frame"/>
