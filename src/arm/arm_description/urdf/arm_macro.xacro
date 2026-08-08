@@ -263,37 +263,58 @@
           <xacro:unless value="$(arg use_fake_hardware)">
             <plugin>arm_hardware_interface/ArmCanSystem</plugin>
             <param name="can_interface">can0</param>
+            <!-- Stiffness ramps 0 -> 100% over this many seconds after activation -->
+            <param name="gain_ramp_secs">15.0</param>
+            <!-- Hard rate limiter on outgoing position commands (rad/s) —
+                 even a wrong/hostile command can't move a joint faster than this. -->
+            <param name="max_cmd_speed_rad_s">1.0</param>
+            <!-- Activation aborts if any motor is silent for this long -->
+            <param name="feedback_timeout_secs">2.0</param>
+            <param name="gravity_ff_enabled">true</param>
+            <param name="gravity_ff_max_nm">8.0</param>
           </xacro:unless>
         </xacro:unless>
       </hardware>
-      <xacro:macro name="arm_joint_control" params="joint_name">
+      <!-- ======================= CALIBRATION =======================
+           direction : +1 if pushing the joint in its URDF-positive direction
+                       (right-hand rule about the <axis>) makes the RAW motor
+                       angle increase; -1 otherwise.
+           offset    : the RAW motor angle (rad) measured when the arm is
+                       physically in the URDF zero pose. If you save the motor
+                       zero (0xB1 / FF..FE) at that pose, offset = 0.0.
+           kp / kd   : MIT gains, tuned on real hardware.
+           Re-verify with scripts/check_calibration.py (torqueless) after any
+           mesh/geometry change that alters a joint's <axis>.
+           ============================================================= -->
+      <xacro:macro name="arm_joint_control" params="joint_name motor_id direction offset kp kd">
         <joint name="${joint_name}">
           <command_interface name="position">
             <param name="min">${-pi}</param>
             <param name="max">${pi}</param>
           </command_interface>
+          <command_interface name="velocity"/>
           <state_interface name="position"/>
           <state_interface name="velocity"/>
+          <param name="motor_id">${motor_id}</param>
+          <param name="direction">${direction}</param>
+          <param name="offset">${offset}</param>
+          <param name="kp">${kp}</param>
+          <param name="kd">${kd}</param>
         </joint>
       </xacro:macro>
 
-      <xacro:arm_joint_control joint_name="arm_mount_base_joint"/>
-      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"/>
-      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"/>
-      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"/>
-      <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"/>
-      <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint"/>
+      <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="0.0"  kp="60.0"  kd="4.0"/>
+      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="1" offset="0.0"  kp="80.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="-1"  offset="0.0" kp="60.0" kd="4.0"/>
+      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="0.0"  kp="15.0"  kd="3.0"/>
+      <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="-1"  offset="0.0"     kp="15.0"  kd="3.0"/>
+      <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0"     kp="10.0"  kd="3.0"/>
 
-      <!-- Only the right finger joint needs a ros2_control interface: the
-           left one is a <mimic> of it, computed automatically (by
-           robot_state_publisher for TF, and by the planning scene monitor
-           for collision state) from the right joint's reported position —
-           it doesn't need its own state/command interface. Without this,
-           joint_state_broadcaster never reports arm_jaw_gripper_finger_right_joint
-           at all, and the planning scene monitor (used by both move_group
-           and Servo) considers the robot's state permanently incomplete,
-           which silently blocks all motion. -->
-      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+      <!-- Only the right finger needs an interface: left is a <mimic> of it.
+           sim/fake only — ArmCanSystem hardcodes NUM_JOINTS=6 and has no
+           motor for the gripper yet; claiming this joint on real hardware
+           causes "Expected 6 joints, got 7" and a crash on activation. -->
+      <xacro:if value="${('$(arg end_effector)' == 'jaw') and (('$(arg sim)' == 'true') or ('$(arg use_fake_hardware)' == 'true'))}">
         <joint name="arm_jaw_gripper_finger_right_joint">
           <command_interface name="position">
             <param name="min">0</param>
