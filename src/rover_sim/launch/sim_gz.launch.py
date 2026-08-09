@@ -112,7 +112,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
         DeclareLaunchArgument(
             'swerve_controller',
-            default_value=DEFAULT_SWERVE_CONTROLLER,
+            default_value=EXPERIMENTAL_SWERVE_CONTROLLER,
             choices=list(SWERVE_CONTROLLERS),
             description='Which swerve controller starts active. '
                         'The other is spawned inactive.'),
