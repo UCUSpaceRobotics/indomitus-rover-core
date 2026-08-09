@@ -39,8 +39,14 @@ Loaded as a ros2_control hardware plugin (`rover_hardware_interface/RoverHardwar
 ## 3. `rover_controller` (C++)
 ros2_control controller plugins implementing swerve-drive kinematics and odometry.
 
-- **`swerve_controller`** — receives `geometry_msgs/Twist` on `/cmd_vel` and computes per-wheel velocity and steering angle targets. The default everywhere.
-- **`swerve_controller_test`** *(experimental)* — same interfaces, but smooths the twist as shape + magnitude instead of vx/vy/wz separately, so a throttle change leaves the steering angles alone. Also reads the drive joints' velocity state, which it uses to detect a real standstill. Always spawned **inactive**; switch to it deliberately with `ros2 control switch_controller --activate swerve_controller_test --deactivate swerve_controller`, or launch the sim with `swerve_controller:=swerve_controller_test`. Only one swerve controller may hold the joints at a time.
+Both swerve controllers claim the same joints, so **only one may be active at a time**. Both are spawned in simulation and on hardware; switching between them is a `switch_controller` call, never an activation on its own:
+
+```
+ros2 control switch_controller --activate swerve_controller --deactivate swerve_controller_test
+```
+
+- **`swerve_controller_test`** — the current default, and the controller the rover is migrating to. Receives `geometry_msgs/Twist` on `/cmd_vel` and computes per-wheel velocity and steering angle targets, smoothing the twist as *shape + magnitude* rather than vx/vy/wz separately, so a throttle change leaves the steering angles alone. Also reads the drive joints' velocity state, which it uses to detect a real standstill. Active by default in the sim (`swerve_controller:=swerve_controller` to launch on the old one); on hardware it is what the joystick's motor toggle activates, per `controller_name` in `rover_teleop/config/joy.yaml`.
+- **`swerve_controller`** — the previous controller, kept loaded but inactive so a bad run can be switched back without relaunching. Slated for removal once the migration is complete.
 - **`odometry_controller`** — reads wheel feedback and publishes odometry
 - **`ackermann_controller`** *(planned)* — Ackermann steering with fixed rear wheels, only front wheels steer
 - **`dual_ackermann_controller`** *(planned)* — Ackermann steering with symmetric front and rear wheel steering

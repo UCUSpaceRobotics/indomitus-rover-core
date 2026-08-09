@@ -20,6 +20,7 @@ namespace {
 
 /// Throttle interval for the "something is wrong every cycle" log lines
 constexpr int kFaultLogPeriodMs = 2000;
+constexpr double kMaxDt = 0.1;
 
 bool finite_positive(double v) { return std::isfinite(v) && v > 0.0; }
 bool finite_nonneg(double v)   { return std::isfinite(v) && v >= 0.0; }
@@ -100,11 +101,11 @@ RoverSwerveControllerTest::on_configure(const rclcpp_lifecycle::State & /*previo
 
     RCLCPP_INFO(get_node()->get_logger(),
         "[SwerveControllerTest] Configured. wheelbase=%.3f m  track=%.3f m  "
-        "r_wheel=%.3f m  max_steer=%.1f°  max_v=%.2f m/s  "
+        "r_wheel=%.3f m  max_steer=%.1f°  max_joint=%.1f°  max_v=%.2f m/s  "
         "rotation_scale=%.3f m  theta_rate=%.2f rad/s  phi_rate=%.2f rad/s  "
         "standstill=%.3f m/s held %.2f s",
         wheelbase_, track_width_, wheel_radius_,
-        max_steer_ * 180.0 / M_PI, max_linear_,
+        max_steer_ * 180.0 / M_PI, max_joint_angle_ * 180.0 / M_PI, max_linear_,
         rotation_scale_, max_theta_rate_, max_phi_rate_,
         standstill_speed_, standstill_hold_);
 
@@ -210,7 +211,7 @@ RoverSwerveControllerTest::update(
     const rclcpp::Duration & period)
 {
     const double dt = std::isfinite(period.seconds())
-        ? std::max(0.0, period.seconds())
+        ? clamp(period.seconds(), 0.0, kMaxDt)
         : 0.0;
 
     apply_pending_compact_mode();
@@ -311,24 +312,6 @@ RoverSwerveControllerTest::update(
     // to actually command. (angle a, speed +s) and (angle a±180, speed −s)
     // describe the same physical wheel motion, so the choice is free — but it
     // is not free to keep *changing*.
-    //
-    // While driving, stay continuous with the target chosen last cycle. The IK
-    // picks afresh each cycle against current_angles_, which is itself moving,
-    // so its choice can flip part-way through a manoeuvre and send one wheel
-    // 213° around with its drive reversing while the others move 39°.
-    //
-    // While stopped, re-pick freely against the actual joint position instead.
-    // A 180° jump costs nothing when no torque is being delivered, and it buys
-    // the short way round: entering a spin from a standstill becomes a 51°
-    // pivot rather than a 129° sweep that ends up near the steering limit.
-    //
-    // All of this happens in the *steering frame*, with the compact-mode offset
-    // taken back off. The offset is a deliberate ±180° fold of the whole wheel
-    // pod, which is precisely the shift this step exists to undo — decide on
-    // the offset angle and it cancels the fold every cycle, leaving compact
-    // mode a silent no-op. max_steer_ is the IK's own restriction and lives in
-    // the same frame; the joints themselves reach further (±270° in the URDF),
-    // which is what makes the fold possible at all.
     const WheelData offsets = kinematics_->offset_angles();
 
     WheelData work_angles, nominal_speeds;
@@ -337,8 +320,13 @@ RoverSwerveControllerTest::update(
         const double s0 = ik.speeds[i];
         const double a1 = (a0 < 0.0) ? a0 + M_PI : a0 - M_PI;
 
-        const bool a0_ok = std::abs(a0) <= max_steer_ + 1e-9;
-        const bool a1_ok = std::abs(a1) <= max_steer_ + 1e-9;
+        auto reachable = [&](double a) {
+            return std::abs(a) <= max_steer_ + 1e-9 &&
+                   std::abs(a + offsets[i]) <= max_joint_angle_ + 1e-9;
+        };
+
+        const bool a0_ok = reachable(a0);
+        const bool a1_ok = reachable(a1);
 
         // committed_angles_ is kept in the same steering frame, so toggling
         // compact mode does not move the reference and cannot make this step
@@ -355,10 +343,14 @@ RoverSwerveControllerTest::update(
             take_alt = a1_ok && !a0_ok;
         }
 
-        const double chosen   = take_alt ? a1 : a0;
-        committed_angles_[i]  = chosen;
-        work_angles[i]        = chosen + offsets[i];
-        nominal_speeds[i]     = take_alt ? -s0 : s0;
+        const double chosen = take_alt ? a1 : a0;
+
+        const double work = clamp(
+            chosen + offsets[i], -max_joint_angle_, max_joint_angle_);
+
+        committed_angles_[i] = work - offsets[i];
+        work_angles[i]       = work;
+        nominal_speeds[i]    = take_alt ? -s0 : s0;
     }
 
     // Below park_speed the wheels still track the commanded angle but the
@@ -442,6 +434,7 @@ void RoverSwerveControllerTest::declare_parameters()
     declare_param("wheel_radius",          0.15);
     declare_param("max_steer_deg",         90.0);
     declare_param("max_steer_rate_deg",    45.0);
+    declare_param("max_joint_angle_deg",   270.0);
     declare_param("max_linear_speed",      0.50);
     declare_param("max_accel",             0.20);
     declare_param("max_decel",             0.50);
@@ -474,6 +467,7 @@ bool RoverSwerveControllerTest::read_parameters()
     wheel_radius_    = node->get_parameter("wheel_radius").as_double();
     max_steer_       = node->get_parameter("max_steer_deg").as_double()      * M_PI / 180.0;
     max_steer_rate_  = node->get_parameter("max_steer_rate_deg").as_double() * M_PI / 180.0;
+    max_joint_angle_ = node->get_parameter("max_joint_angle_deg").as_double() * M_PI / 180.0;
     max_linear_      = node->get_parameter("max_linear_speed").as_double();
     max_accel_       = node->get_parameter("max_accel").as_double();
     max_decel_       = node->get_parameter("max_decel").as_double();
@@ -503,6 +497,8 @@ bool RoverSwerveControllerTest::read_parameters()
         {"wheel_radius",          wheel_radius_,     finite_positive(wheel_radius_)},
         {"max_steer_deg",         max_steer_ * 180.0 / M_PI,      finite_positive(max_steer_)},
         {"max_steer_rate_deg",    max_steer_rate_ * 180.0 / M_PI, finite_positive(max_steer_rate_)},
+        {"max_joint_angle_deg",   max_joint_angle_ * 180.0 / M_PI,
+                                  finite_positive(max_joint_angle_)},
         {"max_linear_speed",      max_linear_,       finite_positive(max_linear_)},
         {"max_accel",             max_accel_,        finite_positive(max_accel_)},
         {"max_decel",             max_decel_,        finite_positive(max_decel_)},
@@ -529,6 +525,15 @@ bool RoverSwerveControllerTest::read_parameters()
         }
     }
     if (!valid) { return false; }
+
+    if (max_steer_ + max_joint_angle_ < 2.0 * M_PI) {
+        RCLCPP_WARN(node->get_logger(),
+            "[SwerveControllerTest] max_steer_deg (%.1f) + max_joint_angle_deg "
+            "(%.1f) is under 360; in compact mode some steering angles are "
+            "reachable by neither wheel representation and will be clamped at "
+            "the joint limit.",
+            max_steer_ * 180.0 / M_PI, max_joint_angle_ * 180.0 / M_PI);
+    }
 
     // Auto: the wheel half-diagonal. Picking that length makes the magnitude
     // equal the corner wheels' ground speed during a spin and the chassis speed

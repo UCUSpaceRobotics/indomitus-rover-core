@@ -71,6 +71,13 @@ swerve_controller_test:
     max_steer_rate_deg: 120.0 # degrees/s
     max_linear_speed:  1.0
 
+    # The steering joints' own travel, from the URDF (±4.71238898 rad = ±270°).
+    # A different limit from max_steer_deg, in a different frame: that one
+    # restricts the kinematic angle, and compact mode folds ±180° on top of it.
+    # 135 + 180 = 315 would overrun the joint, so the controller checks the
+    # post-fold angle against this and clamps. Keep in step with the URDF.
+    max_joint_angle_deg: 270.0
+
     # Shape smoothing — see twist_shape.hpp.
     #   theta = crab direction, phi = turn tightness = atan(d * 1/R)
     # phi covers the whole range from straight (0) to spin-in-place (pi/2), so

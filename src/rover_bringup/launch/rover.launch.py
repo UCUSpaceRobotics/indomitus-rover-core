@@ -35,11 +35,8 @@ def generate_launch_description():
             'use_sim': 'false',
             'robot_description': robot_description,
             'controllers_yaml': os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
-            # swerve_controller_test is loaded but left inactive alongside
-            # swerve_controller — only one may hold the joints at a time, so
-            # switching between them is a switch_controller call.
-            'controllers': 'joint_state_broadcaster '
-                           'swerve_controller_test odometry_controller',
+            'controllers': 'joint_state_broadcaster odometry_controller '
+                           'swerve_controller_test',
             'inactive_controllers': 'swerve_controller_test',
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),

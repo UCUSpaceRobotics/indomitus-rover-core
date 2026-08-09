@@ -219,6 +219,7 @@ private:
     double wheel_radius_{0.15};
     double max_steer_{M_PI / 2.0};        // rad
     double max_steer_rate_{M_PI / 4.0};   // rad/s
+    double max_joint_angle_{4.71238898};  // rad (±270°)
     double max_linear_{0.5};              // m/s
     double max_accel_{0.2};
     double max_decel_{0.5};

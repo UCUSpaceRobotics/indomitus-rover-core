@@ -133,10 +133,24 @@ inline double shape_dot(const TwistShape & a, const TwistShape & b)
  * flipped; it describes travelling the same path backwards, which needs the
  * same steering angles. Choosing the near one keeps the wheels still through a
  * forward/reverse change.
+ *
+ * @param flip_margin  Hysteresis on the decision, as a cosine. The two
+ *        hemispheres meet where the target sits exactly 90° from the reference,
+ *        and *there the choice is a coin toss on the last bit of the dot
+ *        product* — but the two answers differ by a full sign flip on m. A
+ *        target hovering near orthogonal (crabbing while turning, or a nav
+ *        stack dithering around a heading) would otherwise alternate between
+ *        +m and −m cycle to cycle, and the magnitude limiter would faithfully
+ *        drive the wheels through a commanded reversal each time. Requiring the
+ *        target to be this far *past* orthogonal before flipping means the
+ *        hemisphere, once chosen, is sticky through the ambiguous band. The
+ *        cost is that a genuine reversal is recognised a few degrees late,
+ *        which the shape smoother absorbs.
  */
-inline TwistShape resolve_antipode(TwistShape target, const TwistShape & reference)
+inline TwistShape resolve_antipode(
+    TwistShape target, const TwistShape & reference, double flip_margin = 0.0)
 {
-    if (shape_dot(target, reference) >= 0.0) { return target; }
+    if (shape_dot(target, reference) >= -flip_margin) { return target; }
 
     target.theta = wrap_pi(target.theta + M_PI);
     target.phi   = -target.phi;
@@ -157,6 +171,8 @@ inline TwistShape resolve_antipode(TwistShape target, const TwistShape & referen
  */
 class ShapeSmoother {
 public:
+    static constexpr double kFlipMargin = 0.087;
+
     ShapeSmoother(double max_theta_rate, double max_phi_rate)
     : max_theta_rate_(max_theta_rate),
       max_phi_rate_(max_phi_rate)
@@ -170,7 +186,7 @@ public:
      */
     TwistShape step(TwistShape target, double dt)
     {
-        target = resolve_antipode(target, current_);
+        target = resolve_antipode(target, current_, kFlipMargin);
 
         // theta is circular; take the short way round.
         const double d_theta = wrap_pi(target.theta - current_.theta);
@@ -208,7 +224,7 @@ public:
      */
     TwistShape snap(TwistShape target)
     {
-        target = resolve_antipode(target, current_);
+        target = resolve_antipode(target, current_, kFlipMargin);
         current_.theta = wrap_pi(target.theta);
         current_.phi   = clamp(target.phi, -M_PI / 2.0, M_PI / 2.0);
         current_.m     = target.m;

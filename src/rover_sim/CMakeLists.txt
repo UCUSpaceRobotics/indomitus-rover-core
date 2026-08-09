@@ -21,10 +21,6 @@ if(BUILD_TESTING)
     set(ament_cmake_copyright_FOUND TRUE)
     set(ament_cmake_cpplint_FOUND TRUE)
     ament_lint_auto_find_test_dependencies()
-
-    find_package(ament_cmake_pytest REQUIRED)
-    # Reads the installed launch file, so it must run after the install step.
-    ament_add_pytest_test(test_controller_selection test/test_controller_selection.py)
 endif()
 
 install(

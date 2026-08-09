@@ -18,39 +18,20 @@ BASE_CONTROLLERS = (
     'diff_bar_effort_controller',
 )
 
-DEFAULT_SWERVE_CONTROLLER = 'swerve_controller'
-EXPERIMENTAL_SWERVE_CONTROLLER = 'swerve_controller_test'
-SWERVE_CONTROLLERS = (DEFAULT_SWERVE_CONTROLLER, EXPERIMENTAL_SWERVE_CONTROLLER)
-
-
-def resolve_controllers(active_swerve: str) -> tuple[str, str]:
-    """
-    Split the controller set into what gets spawned and what stays inactive.
-
-    Both swerve controllers are always spawned so either can be switched to at
-    runtime, but only ``active_swerve`` starts active — the other holds no
-    joints. Returns ``(controllers, inactive_controllers)`` as the
-    space-separated strings control.launch.py expects.
-    """
-    if active_swerve not in SWERVE_CONTROLLERS:
-        raise RuntimeError(
-            f"unknown swerve controller '{active_swerve}'; "
-            f"expected one of {', '.join(SWERVE_CONTROLLERS)}")
-
-    inactive = [name for name in SWERVE_CONTROLLERS if name != active_swerve]
-
-    return ' '.join(BASE_CONTROLLERS + SWERVE_CONTROLLERS), ' '.join(inactive)
+LEGACY_SWERVE_CONTROLLER = 'swerve_controller'
+SHAPE_SWERVE_CONTROLLER = 'swerve_controller_test'
+SWERVE_CONTROLLERS = (LEGACY_SWERVE_CONTROLLER, SHAPE_SWERVE_CONTROLLER)
+DEFAULT_SWERVE_CONTROLLER = SHAPE_SWERVE_CONTROLLER
 
 
 def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
-    active_swerve = LaunchConfiguration('swerve_controller').perform(context)
-    controllers, inactive_controllers = resolve_controllers(active_swerve)
+    swerve_controller = LaunchConfiguration('swerve_controller').perform(context)
 
     return [include_launch('rover_bringup', 'control.launch.py', {
         'use_sim': 'true',
         'controllers_yaml': controllers_yaml_path,
-        'controllers': controllers,
-        'inactive_controllers': inactive_controllers,
+        'controllers': f'{swerve_controller} ' + ' '.join(BASE_CONTROLLERS),
+        'inactive_controllers': '',
     })]
 
 
@@ -112,7 +93,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
         DeclareLaunchArgument(
             'swerve_controller',
-            default_value=EXPERIMENTAL_SWERVE_CONTROLLER,
+            default_value=DEFAULT_SWERVE_CONTROLLER,
             choices=list(SWERVE_CONTROLLERS),
             description='Which swerve controller starts active. '
                         'The other is spawned inactive.'),

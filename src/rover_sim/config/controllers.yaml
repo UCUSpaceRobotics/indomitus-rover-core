@@ -67,6 +67,11 @@ swerve_controller_test:
     max_steer_deg: 135.0
     max_steer_rate_deg: 90.0
 
+    # The steering joints' own travel, from the URDF. max_steer_deg restricts
+    # the kinematic angle; compact mode folds ±180° on top of that, and the sum
+    # is what the joint actually sees. Checked and clamped by the controller.
+    max_joint_angle_deg: 270.0
+
     max_theta_rate_rad: 1.5708   # pi/2
     # 0.74, not the 1.0 used on hardware: same 2.10 gain from phi to wheel
     # angle, but sim's max_steer_rate_deg is 90 (1.571 rad/s), so 1.571/2.10.
