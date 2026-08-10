@@ -55,6 +55,7 @@ from std_msgs.msg import Int8
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
+from control_msgs.msg import JointJog
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 import evdev
@@ -77,6 +78,8 @@ SAFE_POSE_JOINTS = [
     'arm_wrist_1_wrist_2_joint',
     'arm_wrist_2_end_effector_joint',
 ]
+
+ROLL_JOINT_NAME = 'arm_wrist_2_end_effector_joint'
 
 SERVO_STATUS_INVALID                              = -1
 SERVO_STATUS_OK                                    = 0
@@ -142,8 +145,10 @@ class ServoController(Node):
         self.wx = 0.0
         self.wy = 0.0
         self.wz = 0.0
+        self._roll_was_active = False
 
         self._pub = self.create_publisher(TwistStamped, 'servo_node/delta_twist_cmds', 10)
+        self._joint_jog_pub = self.create_publisher(JointJog, 'servo_node/delta_joint_cmds', 10)
         self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
         self._stop_client  = self.create_client(Trigger, 'servo_node/stop_servo')
         self._traj_client  = ActionClient(
@@ -396,20 +401,43 @@ class ServoController(Node):
         self._servo_status = code
 
     def _publish(self):
-        """Publish the current velocity state as a stamped Twist message.
+        """Publish the current velocity state, routing roll through joint space.
 
-        Called periodically by the internal timer at ``publish_rate`` Hz;
-        builds a ``TwistStamped`` message from the current ``vx``..``wz``
-        attributes, stamps it with the current time and ``command_frame``,
-        and publishes it.
+        Called periodically by the internal timer at ``publish_rate`` Hz.
+        MoveIt Servo acts on whichever command type (Cartesian twist or
+        joint jog) arrived most recently, so the two can't be combined
+        within one cycle: while ``wx`` (roll) is nonzero, only a
+        ``JointJog`` for ``ROLL_JOINT_NAME`` is published and the other
+        five axes are held for that tick; otherwise a ``TwistStamped``
+        carries ``vx``..``vz``/``wy``/``wz`` as before (``wx`` is always
+        0 there, since roll never travels this path).
         """
+        if self.wx != 0.0:
+            self._roll_was_active = True
+            msg = JointJog()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.joint_names = [ROLL_JOINT_NAME]
+            msg.velocities = [self.wx]
+            msg.duration = 1.0 / self._publish_rate
+            self._joint_jog_pub.publish(msg)
+            return
+
+        if self._roll_was_active:
+            self._roll_was_active = False
+            halt = JointJog()
+            halt.header.stamp = self.get_clock().now().to_msg()
+            halt.joint_names = [ROLL_JOINT_NAME]
+            halt.velocities = [0.0]
+            halt.duration = 1.0 / self._publish_rate
+            self._joint_jog_pub.publish(halt)
+
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self._command_frame
         msg.twist.linear.x  = self.vx
         msg.twist.linear.y  = self.vy
         msg.twist.linear.z  = self.vz
-        msg.twist.angular.x = self.wx
+        msg.twist.angular.x = 0.0
         msg.twist.angular.y = self.wy
         msg.twist.angular.z = self.wz
         self._pub.publish(msg)
@@ -477,8 +505,6 @@ class KeyboardInputLoop:
         self._exit_event = threading.Event()
         self._device = None
         self._read_thread = None
-        # Direction keys are ignored until Servo is running (see
-        # _read_loop) — pressing them earlier can't move the arm anyway.
         self._servo_started = False
 
     def _open_device(self) -> bool:
