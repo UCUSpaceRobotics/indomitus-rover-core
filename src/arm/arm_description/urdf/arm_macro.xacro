@@ -318,14 +318,10 @@
       <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0"     kp="10.0"  kd="3.0"/>
 
       <!-- Only the right finger needs an interface: left is a <mimic> of it.
-           sim/fake only — ArmCanSystem hardcodes NUM_JOINTS=6 and has no motor
-           for the gripper, so claiming this joint on real hardware fails with
-           "Expected 6 joints, got 7". Trade-off: on real hardware the finger is
-           then absent from joint_state_broadcaster, so the planning scene monitor
-           sees an incomplete state and silently blocks move_group/Servo motion.
-           Real-hardware Servo will need the gripper in its own
-           mock_components/GenericSystem <ros2_control> block. -->
-      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+           Excluded on real hardware — ArmCanSystem hardcodes NUM_JOINTS=6 and
+           would fail with "Expected 6 joints, got 7"; the JawGripperStub
+           component below covers that case instead. -->
+      <xacro:if value="${('$(arg end_effector)' == 'jaw') and (('$(arg sim)' == 'true') or ('$(arg use_fake_hardware)' == 'true'))}">
         <joint name="arm_jaw_gripper_finger_right_joint">
           <command_interface name="position">
             <param name="min">0</param>
@@ -336,6 +332,31 @@
         </joint>
       </xacro:if>
     </ros2_control>
+
+    <!-- There is no gripper motor on the real arm yet, but the finger joint must
+         still report state: without it joint_state_broadcaster never publishes
+         the joint, the planning scene monitor sees an incomplete robot state,
+         and move_group/Servo silently refuse to move. GenericSystem echoes
+         commands back as state, so the joint exists for MoveIt while nothing
+         physical moves. Replace with the real gripper hardware plugin once the
+         motor is wired up. -->
+    <xacro:if value="${('$(arg end_effector)' == 'jaw') and ('$(arg sim)' == 'false') and ('$(arg use_fake_hardware)' == 'false')}">
+      <ros2_control name="JawGripperStub" type="system">
+        <hardware>
+          <plugin>mock_components/GenericSystem</plugin>
+        </hardware>
+        <joint name="arm_jaw_gripper_finger_right_joint">
+          <command_interface name="position">
+            <param name="min">0</param>
+            <param name="max">${finger_stroke}</param>
+          </command_interface>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+          <state_interface name="velocity"/>
+        </joint>
+      </ros2_control>
+    </xacro:if>
 
     <xacro:if value="$(arg sim)">
       <gazebo>
