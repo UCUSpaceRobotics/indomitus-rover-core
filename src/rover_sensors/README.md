@@ -15,7 +15,7 @@ Currently supported sensors:
 | Sensor     | Node           | Launch file            | Documentation |
 | ---------- | -------------- | ---------------------- | ---------------------- |
 | RPLIDAR S2 | `rplidar_node` | `rplidar_s2.launch.py` | [rplidar_s2.md](docs/rplidar_s2.md) |
-| ZED2i Stereo Camera | `zed_camera` | `zed2i.launch.py` | - |
+| ZED2i Stereo Camera | `zed_camera` | `zed2i.launch.py` | [zed2i.md](docs/zed2i.md) |
 
 Additional nodes:
 | Node               | Launch file             | Description |
