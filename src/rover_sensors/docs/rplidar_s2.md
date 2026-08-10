@@ -15,7 +15,6 @@ The driver executable comes from the upstream Slamtec `sllidar_ros2` package, wh
 ```text
 src/rover_sensors/launch/rplidar_s2_launch.py
 src/rover_sensors/config/rplidar_s2.yaml
-
 ```
 
 The launched executable is `sllidar_node`, but the node is named `rplidar_node` in our launch file so the YAML parameter namespace matches rover naming.
@@ -30,28 +29,24 @@ Setting up udev rules ensures the LiDAR is consistently recognized at the same d
 
 ```bash
 sudo nano /etc/udev/rules.d/99-rplidar-s2.rules
-
 ```
 
 **2. Add the following line, then save and exit:**
 
 ```text
 KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", SYMLINK+="rplidar-s2"
-
 ```
 
 **3. Apply the changes:**
 
 ```bash
 sudo udevadm control --reload-rules && sudo udevadm trigger
-
 ```
 
 **4. Verify the setup:**
 
 ```bash
 ls -l /dev/rplidar-s2
-
 ```
 
 > **Success:** The output will display a symlink pointing to your active USB port (e.g., `lrwxrwxrwx ... /dev/rplidar-s2 -> ttyUSB0`).
@@ -62,21 +57,18 @@ ls -l /dev/rplidar-s2
 
 ```bash
 ros2 launch rover_sensors rplidar_s2.launch.py
-
 ```
 
 By default, the launch file reads:
 
 ```text
 share/rover_sensors/config/rplidar_s2.yaml
-
 ```
 
 The tracked source file is:
 
 ```text
 src/rover_sensors/config/rplidar_s2.yaml
-
 ```
 
 Current rover defaults (utilizing the udev rule):
@@ -86,7 +78,6 @@ serial_port: /dev/rplidar-s2
 serial_baudrate: 1000000
 frame_id: laser_link
 scan_mode: DenseBoost
-
 ```
 
 ---
@@ -99,7 +90,6 @@ For `RPLIDAR S2`, the current default scan mode is:
 
 ```text
 DenseBoost
-
 ```
 
 Supported scan modes:
@@ -136,35 +126,30 @@ After launching the node, open another terminal and run:
 
 ```bash
 ros2 topic list
-
 ```
 
 You should see a scan topic, usually:
 
 ```text
 /scan
-
 ```
 
 Check the scan data:
 
 ```bash
 ros2 topic echo /scan
-
 ```
 
 Check the message type:
 
 ```bash
 ros2 topic info /scan
-
 ```
 
 Expected message type:
 
 ```text
 sensor_msgs/msg/LaserScan
-
 ```
 
 ---
@@ -184,7 +169,6 @@ If no LiDAR is connected to the PC (or the symlink failed to create), the node m
 
 ```text
 Error, unexpected error, code: 80008004
-
 ```
 
 This usually means that the driver cannot communicate with the device.
@@ -202,7 +186,6 @@ Check:
 ```bash
 ros2 topic list
 ros2 topic echo /scan
-
 ```
 
 Also check:
