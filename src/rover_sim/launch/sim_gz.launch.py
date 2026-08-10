@@ -136,7 +136,9 @@ def setup_dynamic_map(context, rover_sim_share: str, launch_tmp_dir: str) -> lis
           </mesh>
         </geometry>
       </collision>
+
       <visual name="visual">
+        <cast_shadows>false</cast_shadows>
         <geometry>
           <mesh>
             <uri>model://mars_yard_2025/meshes/mars_yard_2025.obj</uri>
@@ -148,6 +150,7 @@ def setup_dynamic_map(context, rover_sim_share: str, launch_tmp_dir: str) -> lis
           <specular>0.1 0.1 0.1 1</specular>
         </material>
       </visual>
+
     </link>
   </model>
 </sdf>
@@ -206,17 +209,17 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             'spawn_x', 
             default_value='0.0', 
-            description='Initial X coordinate (in meters) for spawning the robot in the global world frame.',
+            description='Initial X coordinate (in meters) for spawning the robot in the global world frame. (Default: 0.0)',
         ),
         DeclareLaunchArgument(
             'spawn_y', 
-            default_value='0.0', 
-            description='Initial Y coordinate (in meters) for spawning the robot in the global world frame.',
+            default_value='3.0', 
+            description='Initial Y coordinate (in meters) for spawning the robot in the global world frame. (Default: 3.0)',
         ),
         DeclareLaunchArgument(
             'spawn_z', 
-            default_value='2.0', 
-            description='Initial Z coordinate (in meters) for spawning the robot in the global world frame. Set higher than ground level.',
+            default_value='0.5', 
+            description='Initial Z coordinate (in meters) for spawning the robot in the global world frame. Set higher than ground level. (Default: 0.5)',
         ),
         DeclareLaunchArgument(
             'map_resolution',
