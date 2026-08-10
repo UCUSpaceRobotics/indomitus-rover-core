@@ -28,8 +28,8 @@ def generate_launch_description():
 
     config_file = IfElseSubstitution(
         use_sim_val,
-        if_true=ekf_sim_config,
-        if_false=ekf_real_config,
+        if_value=ekf_sim_config,
+        else_value=ekf_real_config,
     )
 
     return LaunchDescription([
