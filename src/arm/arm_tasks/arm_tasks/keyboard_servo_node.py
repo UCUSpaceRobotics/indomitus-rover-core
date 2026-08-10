@@ -20,6 +20,14 @@ Controls:
     r      — move to safe pose + start servo
     ESC/x  — exit
 
+Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller):
+    Right stick      — forward/back, left/right  (X / Y axis)
+    Left stick       — yaw / pitch
+    L2 / R2          — roll
+    L2 / R2, Y held  — up / down
+    A                — move to safe pose + start servo
+    X                — exit
+
 Usage:
     Real hardware / RViz mock-hardware demo (wall clock, conservative speeds):
         ros2 run arm_tasks keyboard_servo_node
@@ -27,6 +35,10 @@ Usage:
     Gazebo sim (sim clock + faster speeds, see arm_sim/config/keyboard_servo_sim.yaml):
         ros2 run arm_tasks keyboard_servo_node --ros-args \\
             --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
+
+    Gamepad, any target (start the joystick driver first, then this node):
+        ros2 run joy joy_node
+        ros2 run arm_tasks gamepad_servo_node
 """
 
 import sys
@@ -38,10 +50,12 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import TwistStamped
+from sensor_msgs.msg import Joy
 from std_msgs.msg import Int8
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
+from control_msgs.msg import JointJog
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 import evdev
@@ -64,6 +78,8 @@ SAFE_POSE_JOINTS = [
     'arm_wrist_1_wrist_2_joint',
     'arm_wrist_2_end_effector_joint',
 ]
+
+ROLL_JOINT_NAME = 'arm_wrist_2_end_effector_joint'
 
 SERVO_STATUS_INVALID                              = -1
 SERVO_STATUS_OK                                    = 0
@@ -129,8 +145,10 @@ class ServoController(Node):
         self.wx = 0.0
         self.wy = 0.0
         self.wz = 0.0
+        self._roll_was_active = False
 
         self._pub = self.create_publisher(TwistStamped, 'servo_node/delta_twist_cmds', 10)
+        self._joint_jog_pub = self.create_publisher(JointJog, 'servo_node/delta_joint_cmds', 10)
         self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
         self._stop_client  = self.create_client(Trigger, 'servo_node/stop_servo')
         self._traj_client  = ActionClient(
@@ -383,20 +401,43 @@ class ServoController(Node):
         self._servo_status = code
 
     def _publish(self):
-        """Publish the current velocity state as a stamped Twist message.
+        """Publish the current velocity state, routing roll through joint space.
 
-        Called periodically by the internal timer at ``publish_rate`` Hz;
-        builds a ``TwistStamped`` message from the current ``vx``..``wz``
-        attributes, stamps it with the current time and ``command_frame``,
-        and publishes it.
+        Called periodically by the internal timer at ``publish_rate`` Hz.
+        MoveIt Servo acts on whichever command type (Cartesian twist or
+        joint jog) arrived most recently, so the two can't be combined
+        within one cycle: while ``wx`` (roll) is nonzero, only a
+        ``JointJog`` for ``ROLL_JOINT_NAME`` is published and the other
+        five axes are held for that tick; otherwise a ``TwistStamped``
+        carries ``vx``..``vz``/``wy``/``wz`` as before (``wx`` is always
+        0 there, since roll never travels this path).
         """
+        if self.wx != 0.0:
+            self._roll_was_active = True
+            msg = JointJog()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.joint_names = [ROLL_JOINT_NAME]
+            msg.velocities = [self.wx]
+            msg.duration = 1.0 / self._publish_rate
+            self._joint_jog_pub.publish(msg)
+            return
+
+        if self._roll_was_active:
+            self._roll_was_active = False
+            halt = JointJog()
+            halt.header.stamp = self.get_clock().now().to_msg()
+            halt.joint_names = [ROLL_JOINT_NAME]
+            halt.velocities = [0.0]
+            halt.duration = 1.0 / self._publish_rate
+            self._joint_jog_pub.publish(halt)
+
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self._command_frame
         msg.twist.linear.x  = self.vx
         msg.twist.linear.y  = self.vy
         msg.twist.linear.z  = self.vz
-        msg.twist.angular.x = self.wx
+        msg.twist.angular.x = 0.0
         msg.twist.angular.y = self.wy
         msg.twist.angular.z = self.wz
         self._pub.publish(msg)
@@ -464,6 +505,7 @@ class KeyboardInputLoop:
         self._exit_event = threading.Event()
         self._device = None
         self._read_thread = None
+        self._servo_started = False
 
     def _open_device(self) -> bool:
         """Open the evdev keyboard device at ``self._device_path``.
@@ -536,6 +578,7 @@ class KeyboardInputLoop:
         if self._controller.move_to_safe_pose():
             print('Starting servo...')
             self._controller.start_servo()
+            self._servo_started = True
         else:
             print('Safe pose failed — Servo not started.')
 
@@ -570,6 +613,14 @@ class KeyboardInputLoop:
                     continue
 
                 if code not in self._DIRECTIONS:
+                    continue
+
+                # Direction keys are ignored entirely until Servo has
+                # started — _handle_safe_pose clears _pressed anyway, so
+                # tracking presses before that point would just be
+                # discarded, and set_velocity()'d twists Servo isn't
+                # listening to yet would have nothing to show for it.
+                if not self._servo_started:
                     continue
 
                 if value == self._KEYSTATE_DOWN:
@@ -627,22 +678,335 @@ class KeyboardInputLoop:
                 termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_term_settings)
 
 
-def main():
-    """Entry point: initialize ROS2, run the keyboard input loop, and clean up.
+GAMEPAD_HELP = """
+╔══════════════════════════════════════════════╗
+║      Gamepad Servo Control (camera frame)    ║
+╠══════════════════════════════════════════════╣
+║  Right stick      — forward / back (X)       ║
+║                     left / right   (Y)       ║
+║  Left stick       — yaw                      ║
+║                     pitch                    ║
+║  L2 / R2          — roll                     ║
+║  L2 / R2, Y held  — up / down      (Z)       ║
+║  A                — safe pose + servo        ║
+║  X                — exit                     ║
+╚══════════════════════════════════════════════╝
+"""
 
-    Initializes rclpy, creates the ``ServoController`` node, spins it in a
-    background daemon thread, then runs the blocking ``KeyboardInputLoop``
-    on the main thread. On exit (normal, via ESC/X, or ``KeyboardInterrupt``),
-    stops any motion, confirms Servo has stopped, destroys the node, and
-    shuts down rclpy.
+
+class GamepadInputLoop:
+    """Reads sensor_msgs/Joy messages and drives a ``ServoController``.
+
+    Replaces the raw-keyboard evdev input of ``KeyboardInputLoop`` with a
+    subscription to the ``joy`` package's ``/joy`` topic (published by
+    ``ros2 run joy joy_node``) — as this module's docstring already
+    promises, ``ServoController`` itself needs no changes.
+
+    Axis/button indices and rest values below were established by
+    watching `ros2 topic echo /joy` live with this controller over
+    Bluetooth:
+
+    * Axes 0/1 (left stick) and 2/3 (right stick) rest at 0.0, X left =
+      +1.0, X right = -1.0, Y forward = +1.0, Y back = -1.0.
+    * Axes 4 and 5 (L2 / R2) rest at **+1.0** (released) and go to
+      **-1.0** at full press — the opposite convention from the sticks.
+      ``_trigger_amount`` below converts that to the same "0 at rest"
+      shape as everything else in this class expects.
+    * Buttons 0/2/3 are A/X/Y.
     """
-    rclpy.init()
-    controller = ServoController()
 
+    AXIS_LEFT_X = 0     # yaw
+    AXIS_LEFT_Y = 1     # pitch
+    AXIS_RIGHT_X = 2    # left / right
+    AXIS_RIGHT_Y = 3    # forward / back
+    AXIS_L2 = 4         # roll (normal) / up (Y held)
+    AXIS_R2 = 5         # roll (normal) / down (Y held)
+
+    BUTTON_SAFE_POSE = 0   # 'A' — move to safe pose + start servo
+    BUTTON_Y = 3           # 'Y' — held to shift L2 / R2 from roll to up / down
+    BUTTON_EXIT = 2        # 'X' — exit
+
+    _DEADZONE = 0.2
+    _JOY_TIMEOUT_SEC = 0.2
+    _WATCHDOG_PERIOD_SEC = 0.1
+
+    def __init__(self, controller: 'ServoController'):
+        """Store a reference to the controller and subscribe to ``/joy``.
+
+        Args:
+            controller: The ``ServoController`` node that will receive
+                velocity commands derived from gamepad input. Its own
+                ``create_subscription`` is reused for the ``/joy`` topic
+                so the callback runs on the node's existing executor —
+                no separate thread is needed, unlike the keyboard's
+                blocking evdev read loop.
+        """
+        self._controller = controller
+        self._linear_speed = controller.linear_speed
+        self._angular_speed = controller.angular_speed
+        self._exit_event = threading.Event()
+        # None means "no trustworthy baseline yet" — the first message
+        # after startup or a /joy dropout only seeds this, it never
+        # fires a rising-edge action (a gamepad can report a stale
+        # "pressed" button on that first message, which was causing
+        # spurious exits).
+        self._prev_buttons = None
+        self._shift_armed = {self.BUTTON_Y: False}
+        self._safe_pose_running = threading.Lock()
+        self._safe_pose_active = False
+        self._prev_active = (False,) * 6
+
+        # Teleop (axes -> velocity) is locked out until the first
+        # safe-pose move (A) completes — Servo hasn't been started yet
+        # at that point, so nothing would move anyway, and the arm's
+        # real-world pose is unknown to this process until then. This
+        # is a one-time latch: once armed it stays armed, including
+        # across /joy dropouts (e.g. a Bluetooth reconnect) — there is
+        # no re-arm button and no trip back to the fixed safe pose.
+        self._last_joy_time = None
+        self._joy_silent = False
+        self._teleop_locked = True
+
+        # A dropout does not re-lock teleop, but it does set this: the
+        # first /joy message(s) after a dropout can report stale values
+        # (observed live: full deflection with nothing touched) — likely
+        # a freshly re-created Bluetooth HID device reporting a default
+        # before its first real report arrives. So we force zero
+        # velocity and wait, with no timeout, until one message reports
+        # everything centered/released, then resume from wherever the
+        # arm already is.
+        self._joy_settling = False
+
+        self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
+        self._watchdog_timer = controller.create_timer(
+            self._WATCHDOG_PERIOD_SEC, self._check_joy_timeout
+        )
+
+    @classmethod
+    def _deadzone(cls, value: float) -> float:
+        """Zero out small stick values so resting drift doesn't creep the arm."""
+        return 0.0 if abs(value) < cls._DEADZONE else value
+
+    def _axis(self, axes, index: int) -> float:
+        """Return ``axes[index]`` with deadzone applied, or 0.0 if out of range."""
+        if index >= len(axes):
+            return 0.0
+        return self._deadzone(axes[index])
+
+    def _trigger_amount(self, axes, index: int) -> float:
+        """Return how far a trigger (L2/R2) is pressed: 0.0 (released) .. 1.0 (full press).
+
+        ``joy_node`` reports these axes resting at +1.0 and going to
+        -1.0 at full press — inverted and offset from every other axis
+        in this class, which rests at 0.0. Remapping it here means the
+        deadzone, the settle-guard's "must be centered" check, and
+        ``_route``'s arming logic can all keep treating 0.0 as "at
+        rest" uniformly, without special-casing these two axes.
+        """
+        if index >= len(axes):
+            return 0.0
+        amount = (1.0 - axes[index]) / 2.0
+        return 0.0 if amount < self._DEADZONE else amount
+
+    def _button_pressed(self, buttons, index: int) -> bool:
+        """Return True if ``buttons[index]`` is currently held down."""
+        return index < len(buttons) and buttons[index] == 1
+
+    def _button_rising_edge(self, buttons, index: int) -> bool:
+        """Return True if ``buttons[index]`` was just pressed this message.
+
+        Requires a real previous reading — see ``_prev_buttons`` in
+        ``__init__`` for why ``None`` (no baseline yet) always reports
+        no edge rather than comparing against an assumed all-zero state.
+        """
+        if self._prev_buttons is None:
+            return False
+        was_pressed = index < len(self._prev_buttons) and self._prev_buttons[index] == 1
+        return self._button_pressed(buttons, index) and not was_pressed
+
+    def _route(self, shift_button: int, held: bool, raw_value: float):
+        """Route one combined trigger value to a (normal, shifted) pair.
+
+        While ``shift_button`` is not held, ``raw_value`` is returned as
+        ``(raw_value, 0.0)``. While held, it's routed to the second slot
+        instead — but only once ``raw_value`` has passed back through the
+        deadzone since the button was pressed (i.e. L2/R2 have been let
+        go back to neutral at least once since Y was pressed), returning
+        ``(0.0, 0.0)`` until then. This is what prevents an already-held
+        trigger from producing a velocity jump the instant Y is pressed.
+        Disarmed again as soon as ``shift_button`` is released.
+        """
+        if not held:
+            self._shift_armed[shift_button] = False
+            return raw_value, 0.0
+        if not self._shift_armed[shift_button]:
+            if raw_value == 0.0:
+                self._shift_armed[shift_button] = True
+            return 0.0, 0.0
+        return 0.0, raw_value
+
+    @staticmethod
+    def _active_label(vx, vy, vz, wx, wy, wz, y_held: bool) -> str:
+        """Describe which physical control(s) are driving a nonzero command.
+
+        Mirrors KeyboardInputLoop's per-key name in the feedback line,
+        generalized to gamepad axes (several of which can be active at
+        once, e.g. a diagonally-pushed stick).
+        """
+        parts = []
+        if vx or vy:
+            parts.append('right stick')
+        if wy or wz:
+            parts.append('left stick')
+        if wx:
+            parts.append('L2/R2')
+        if vz:
+            parts.append('Y+L2/R2')
+        return '+'.join(parts) if parts else ('Y' if y_held else 'idle')
+
+    def _check_joy_timeout(self):
+        """Stop the arm if no ``/joy`` message has arrived recently.
+
+        Runs on the node's own timer, independent of message arrival, so
+        a disconnected controller or a dead ``joy_node`` can't
+        leave the last commanded velocity republishing forever — Servo's
+        own command timeout does not help here because ServoController
+        keeps re-publishing that last twist every tick regardless of
+        whether new input has arrived. This only zeroes the current
+        command; it does not lock teleop out, so control resumes on its
+        own the moment ``/joy`` messages start arriving again (e.g. a
+        Bluetooth reconnect) — no separate re-arm step.
+        """
+        if self._last_joy_time is None:
+            return
+        elapsed = (self._controller.get_clock().now() - self._last_joy_time).nanoseconds / 1e9
+        if elapsed > self._JOY_TIMEOUT_SEC:
+            if not self._joy_silent:
+                self._joy_silent = True
+                self._joy_settling = True
+                self._prev_buttons = None
+                self._controller.get_logger().warn(
+                    f'/joy timed out after {elapsed:.2f}s — stopping arm.'
+                )
+            self._controller.stop()
+
+    def _on_joy(self, msg: Joy):
+        """Translate one Joy snapshot into a velocity command and edge-triggered actions."""
+        axes = msg.axes
+        buttons = msg.buttons
+
+        if self._joy_silent:
+            self._joy_silent = False
+            self._controller.get_logger().info('/joy resumed.')
+        self._last_joy_time = self._controller.get_clock().now()
+
+        # Button edges are always processed, even while teleop is locked
+        # out — buttons are digital (no analog drift), and the safe-pose
+        # button is the only way to clear the lock, so it must keep
+        # working while locked or the arm could never be armed at all.
+        safe_pose_pressed = self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE)
+        exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
+        self._prev_buttons = list(buttons)
+
+        if exit_pressed:
+            self._exit_event.set()
+
+        if safe_pose_pressed:
+            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+
+        if self._teleop_locked or self._safe_pose_active:
+            self._controller.stop()
+            return
+
+        if self._joy_settling:
+            centered = (
+                all(
+                    self._axis(axes, i) == 0.0
+                    for i in (self.AXIS_LEFT_X, self.AXIS_LEFT_Y,
+                              self.AXIS_RIGHT_X, self.AXIS_RIGHT_Y)
+                )
+                and self._trigger_amount(axes, self.AXIS_L2) == 0.0
+                and self._trigger_amount(axes, self.AXIS_R2) == 0.0
+            )
+            self._controller.stop()
+            if centered:
+                self._joy_settling = False
+                self._controller.get_logger().info('Sticks centered — resuming control.')
+            return
+
+        vy = self._axis(axes, self.AXIS_RIGHT_X) * self._linear_speed
+        vx = self._axis(axes, self.AXIS_RIGHT_Y) * self._linear_speed
+
+        wz = self._axis(axes, self.AXIS_LEFT_X) * self._angular_speed
+        wy = self._axis(axes, self.AXIS_LEFT_Y) * self._angular_speed
+
+        trigger_diff = self._trigger_amount(axes, self.AXIS_R2) - self._trigger_amount(axes, self.AXIS_L2)
+        y_held = self._button_pressed(buttons, self.BUTTON_Y)
+        roll, updown = self._route(self.BUTTON_Y, y_held, trigger_diff)
+        wx = roll * self._angular_speed
+        vz = updown * self._linear_speed
+
+        self._controller.set_velocity(vx, vy, vz, wx, wy, wz)
+
+        active = (vx != 0.0, vy != 0.0, vz != 0.0, wx != 0.0, wy != 0.0, wz != 0.0)
+        if active != self._prev_active and any(active):
+            label = self._active_label(vx, vy, vz, wx, wy, wz, y_held)
+            print(f'{label} vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
+                  f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
+        self._prev_active = active
+
+    def _handle_safe_pose(self):
+        """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
+
+        Guarded by a non-blocking lock so a second button press while a
+        move is already in progress is ignored instead of racing a
+        redundant safe-pose goal against the first. Also sets
+        ``_safe_pose_active`` for the duration so ``_on_joy`` ignores
+        stick/trigger input while it's set — otherwise a stick held
+        during the move would resume Cartesian motion the instant
+        ``start_servo()`` re-enables Servo, before the operator has a
+        chance to let go.
+
+        This is also the only place ``_teleop_locked`` is cleared (see
+        its declaration in ``__init__``).
+        """
+        if not self._safe_pose_running.acquire(blocking=False):
+            return
+        self._safe_pose_active = True
+        try:
+            self._controller.stop()
+            print('Moving to safe pose...')
+            if self._controller.move_to_safe_pose():
+                print('Starting servo...')
+                self._controller.start_servo()
+                self._teleop_locked = False
+                self._controller.get_logger().info('Teleop enabled.')
+            else:
+                print('Safe pose failed — Servo not started.')
+        finally:
+            self._safe_pose_active = False
+            self._safe_pose_running.release()
+
+    def run(self):
+        """Print the help banner and block until the exit button is pressed."""
+        print(GAMEPAD_HELP)
+        try:
+            self._exit_event.wait()
+        finally:
+            print('\nExiting...')
+            self._controller.stop()
+
+
+def _run_teleop(controller: 'ServoController', input_loop) -> None:
+    """Spin ``controller`` in a background thread and run ``input_loop`` until exit.
+
+    Shared by ``main`` (keyboard) and ``main_gamepad`` (gamepad): both
+    input loops expose the same ``run()`` contract (block until an exit
+    condition, leave the controller stopped), so the ROS lifecycle
+    around them doesn't need to be duplicated per input source.
+    """
     spin_thread = threading.Thread(target=rclpy.spin, args=(controller,), daemon=True)
     spin_thread.start()
-
-    input_loop = KeyboardInputLoop(controller)
 
     try:
         input_loop.run()
@@ -657,6 +1021,27 @@ def main():
             )
         controller.destroy_node()
         rclpy.shutdown()
+
+
+def main():
+    """Entry point: initialize ROS2, run the keyboard input loop, and clean up.
+
+    See ``_run_teleop`` for the shared spin/cleanup lifecycle.
+    """
+    rclpy.init()
+    controller = ServoController()
+    _run_teleop(controller, KeyboardInputLoop(controller))
+
+
+def main_gamepad():
+    """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
+
+    Requires a running ``joy`` publisher (``ros2 run joy joy_node``).
+    See ``_run_teleop`` for the shared spin/cleanup lifecycle.
+    """
+    rclpy.init()
+    controller = ServoController()
+    _run_teleop(controller, GamepadInputLoop(controller))
 
 
 if __name__ == '__main__':

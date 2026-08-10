@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===================== MATH HELPERS ===================== -->
+  <xacro:property name="M_PI" value="${pi}"/>
+  <xacro:property name="M_PI_2" value="${pi / 2.0}"/>
+
+  <!-- ===================== CHASSIS LAYOUT ===================== -->
+  <xacro:property name="wheelbase" value="0.842"/>     <!-- front-to-rear axle distance -->
+  <xacro:property name="track_width" value="0.682"/>   <!-- left-to-right rocker pivot distance -->
+
+  <!-- ===================== MAIN BODY ===================== -->
+  <xacro:property name="body_length" value="0.603"/>   <!-- X -->
+  <xacro:property name="body_width" value="0.583"/>    <!-- Y -->
+  <xacro:property name="body_height" value="0.246"/>   <!-- Z -->
+  <xacro:property name="body_mass" value="40.0"/>
+
+  <!-- ===================== SUSPENSION BASE AXII ===================== -->
+  <xacro:property name="axii_length" value="0.1"/>
+  <xacro:property name="axii_width" value="0.68"/>
+  <xacro:property name="axii_height" value="0.05"/>
+  <xacro:property name="axii_mass" value="0.5"/>
+
+  <!-- ===================== ROCKER ===================== -->
+  <!-- Geometry -->
+  <xacro:property name="rocker_length" value="0.902"/>  <!-- X -->
+  <xacro:property name="rocker_width" value="0.0995"/>  <!-- Y -->
+  <xacro:property name="rocker_height" value="0.187"/>  <!-- Z -->
+  <xacro:property name="rocker_mass" value="1.0"/>
+
+  <!-- Mesh alignment: centers rocker.stl on the rocker link's own origin -->
+  <xacro:property name="rocker_mesh_align_xyz" value="0 0.0001 0.0"/>
+
+  <!-- Wheel-mount attachment point: where the wheel_mount hub attaches to the rocker's end,
+       relative to the rocker's pivot origin -->
+  <xacro:property name="rocker_mount_x_offset" value="0.050"/>
+  <xacro:property name="rocker_hub_y" value="-0.0258"/>
+  <xacro:property name="rocker_hub_z" value="-0.1140"/>
+
+  <!-- ===================== WHEEL MOUNT (steering knuckle) ===================== -->
+  <!-- Geometry -->
+  <xacro:property name="wheel_mount_length" value="0.150"/>
+  <xacro:property name="wheel_mount_width" value="0.144"/>
+  <xacro:property name="wheel_mount_height" value="0.274"/>
+  <xacro:property name="wheel_mount_mass" value="0.162"/>
+
+  <!-- Mesh alignment: centers wheel_mount.stl's steering bore on the link's own origin -->
+  <xacro:property name="wheel_mount_hub_offset" value="0.1253"/>
+  <xacro:property name="wheel_mount_visual_z" value="-0.1814"/>
+
+  <!-- Wheel attachment point: axle position relative to the steering bore -->
+  <xacro:property name="wheel_mount_drop" value="0.1857"/>
+  <xacro:property name="axle_lateral_offset" value="-0.0168"/>
+
+  <!-- ===================== WHEEL ===================== -->
+  <!-- Geometry -->
+  <xacro:property name="wheel_radius" value="0.16"/>
+  <xacro:property name="wheel_width" value="0.12"/>
+  <xacro:property name="wheel_mass" value="0.5"/>
+
+  <!-- Mesh alignment: centers wheel.stl on the wheel link's own origin -->
+  <xacro:property name="wheel_hub_offset" value="0.151"/>
+
+  <!-- ===================== JOINT LIMITS ===================== -->
+  <xacro:property name="steering_limit" value="${3.0 * pi / 2.0}"/>  <!-- +/-270 deg -->
+  <xacro:property name="steering_effort" value="500"/>
+  <xacro:property name="steering_velocity" value="2"/>
+
+  <xacro:property name="drive_effort" value="100"/>
+  <xacro:property name="drive_velocity" value="10"/>
+
+  <!-- ===================== WHEEL GROUND CONTACT FRICTION ===================== -->
+  <xacro:property name="wheel_mu1" value="1.0"/>
+  <xacro:property name="wheel_mu2" value="1.0"/>
+  <xacro:property name="wheel_kp" value="1000000.0"/>
+  <xacro:property name="wheel_kd" value="1.0"/>
+
+</robot>
