@@ -126,4 +126,5 @@
       <origin xyz="0.2 0 0.1" rpy="0 0 0"/>
     </xacro:indomitus_arm>
   </xacro:if>
+
 </robot>
