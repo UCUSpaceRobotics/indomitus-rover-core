@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(rover_localization)
+project(rover_aruco)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
@@ -31,6 +31,10 @@ endif()
 # Install launch files
 install(DIRECTORY launch config
     DESTINATION share/${PROJECT_NAME}
+)
+
+install(PROGRAMS launch/calibrate_camera.py
+    DESTINATION lib/${PROJECT_NAME}
 )
 
 # Install package resource marker for ament index visibility
