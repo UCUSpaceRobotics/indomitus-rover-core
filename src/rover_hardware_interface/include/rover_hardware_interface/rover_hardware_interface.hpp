@@ -76,7 +76,11 @@ public:
 private:
     void send_enable_frames();
     void send_disable_frames();
-    void send_shutdown_frames();   ///< zero → settle → disable (called from on_deactivate)
+    void send_shutdown_frames();   ///< disable → settle → disable (called from on_deactivate)
+
+    /// One pass of disable frames over every steer and drive motor.
+    /// Caller must hold tx_sequence_mutex_.
+    void send_disable_burst();
 
     // Service callbacks
 
@@ -179,6 +183,17 @@ private:
     /// control thread in read()/write() and by three timer callbacks. Atomic
     /// because those are different threads; a plain bool here is a data race.
     std::atomic<bool> motors_enabled_{false};
+
+    /// Serializes whole multi-frame TX sequences against each other — not
+    /// individual frames, which CanBus already guards with its own tx_mutex_.
+    /// What matters on disable is that no command frame reaches a motor after
+    /// its disable frame: such a frame re-arms the Damiao TIMEOUT watchdog
+    /// (register 9, 200 ms) on a motor nothing will talk to again, and the
+    /// motor then faults itself out with COMM_LOSS (ERR 0xD). Without this,
+    /// the last drive in drive_ids_ loses that race almost every time — its
+    /// disable is the last frame of the disable burst and its command the last
+    /// frame of the write() cycle, so any overlap at all is enough.
+    std::mutex tx_sequence_mutex_;
 
     /// Set in on_activate(), cleared in on_deactivate()/on_shutdown(). read()
     /// is called by controller_manager as soon as the component is merely

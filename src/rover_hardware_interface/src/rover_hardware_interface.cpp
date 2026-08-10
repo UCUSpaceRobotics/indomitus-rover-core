@@ -12,6 +12,10 @@
 
 constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
 
+/// Gap between the two disable bursts — two control cycles at 100 Hz, and far
+/// short of the 200 ms Damiao TIMEOUT register. See send_disable_frames().
+constexpr auto kDisableSettleDelay = std::chrono::milliseconds(20);
+
 PLUGINLIB_EXPORT_CLASS(
     rover_hardware_interface::RoverHardwareInterface,
     hardware_interface::SystemInterface)
@@ -393,6 +397,17 @@ RoverHardwareInterface::write(
 
     if (!motors_enabled_) return hardware_interface::return_type::OK;
 
+    // Held across the whole cycle, not per frame: a disable burst must never
+    // interleave with these frames, or a motor disabled mid-cycle still hears a
+    // command afterwards. See tx_sequence_mutex_.
+    std::lock_guard<std::mutex> tx_lock(tx_sequence_mutex_);
+
+    // Re-checked under the lock. The check above can pass and then a disable
+    // can complete while this cycle waits on the mutex — in which case these
+    // frames would be the last thing the motors hear, which is precisely the
+    // fault this lock exists to prevent.
+    if (!motors_enabled_) return hardware_interface::return_type::OK;
+
     std::size_t failed = 0;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto steer_f = steadywin_protocol::buildAbsPositionFrame(
@@ -508,10 +523,8 @@ void RoverHardwareInterface::send_enable_frames()
     RCLCPP_INFO(logger_, "[RoverHW] All motors enabled");
 }
 
-void RoverHardwareInterface::send_disable_frames()
+void RoverHardwareInterface::send_disable_burst()
 {
-    RCLCPP_INFO(logger_, "[RoverHW] Disabling all motors");
-
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         auto f = steadywin_protocol::buildDisableFrame(steer_ids_[i]);
         can_bus_.send(f.id, f.data.data(), f.dlc);
@@ -520,18 +533,42 @@ void RoverHardwareInterface::send_disable_frames()
         auto f = damiao_protocol::buildDisableFrame(drive_ids_[i]);
         can_bus_.send(f.id, f.data.data(), f.dlc);
     }
+}
 
+void RoverHardwareInterface::send_disable_frames()
+{
+    RCLCPP_INFO(logger_, "[RoverHW] Disabling all motors");
+
+    // Cleared before anything is sent, not after. write(), the watchdog timer
+    // and the status poll all gate on this flag, so clearing it first stops any
+    // *new* command sequence from starting; tx_sequence_mutex_ then handles the
+    // one that may already be in flight.
     motors_enabled_ = false;
+
+    {
+        std::lock_guard<std::mutex> tx_lock(tx_sequence_mutex_);
+        send_disable_burst();
+    }
+
+    // Sent a second time because tx_sequence_mutex_ only orders frames as far
+    // as the socket. Below it, a CAN controller arbitrates its TX mailboxes by
+    // frame ID: a disable (ID = esc_id, e.g. 14) outranks a velocity command
+    // (ID = 0x200 + esc_id) queued before it, so the command can still reach
+    // the wire after the disable. One repeat, after everything from the last
+    // command cycle has certainly drained, restores the invariant that the last
+    // frame every motor hears is a disable — well inside the 200 ms TIMEOUT
+    // window, so the watchdog never fires.
+    std::this_thread::sleep_for(kDisableSettleDelay);
+    {
+        std::lock_guard<std::mutex> tx_lock(tx_sequence_mutex_);
+        send_disable_burst();
+    }
+
     RCLCPP_INFO(logger_, "[RoverHW] All motors disabled");
 }
 
 void RoverHardwareInterface::send_shutdown_frames()
 {
-    if (!motors_enabled_) {
-        send_disable_frames();
-        return;
-    }
-
     send_disable_frames();
 }
 
