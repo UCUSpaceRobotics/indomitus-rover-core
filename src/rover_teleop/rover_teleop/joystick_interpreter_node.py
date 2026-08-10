@@ -20,7 +20,7 @@ def trigger_diff(axes, l2_index: int, r2_index: int, deadzone: float) -> float:
     def value(index: int) -> float:
         return axes[index] if 0 <= index < len(axes) else 0.0
 
-    diff = value(l2_index) - value(r2_index)
+    diff = value(r2_index) - value(l2_index)
     return 0.0 if abs(diff) < deadzone else diff
 
 
