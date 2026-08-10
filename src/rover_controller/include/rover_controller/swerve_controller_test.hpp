@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // swerve_controller_test.hpp
 //
-// Experimental 4-wheel swerve controller. Same interfaces, same kinematics and
+// The rover's 4-wheel swerve controller. Same interfaces, same kinematics and
 // same joint handling as RoverSwerveController — the one thing it does
 // differently is *what it smooths*.
 //
@@ -28,16 +28,13 @@
 //     construction. The per-joint step_angle() limit and the cos⁴ alignment
 //     scale remain as the anti-scrub safety net.
 //
-// Commands, topic and services are identical to RoverSwerveController so the
-// two are drop-in swappable via switch_controller. The one difference in what
+// Commands, topic and services are identical to RoverSwerveController, so the
+// two are drop-in interchangeable at launch. The one difference in what
 // is claimed: this controller also reads the drive joints' *velocity state*,
 // because standstill has to be decided on measured wheel motion — the magnitude
 // limiter only reports what was asked for, and "asked for zero" is the start of
 // stopping, not the end of it. Both the real hardware interface and the Gazebo
-// system export those, so nothing else has to change to switch controllers.
-//
-// This controller is experimental and is not the default anywhere. Load it
-// alongside swerve_controller and switch to it deliberately.
+// system export those, so nothing else has to change to swap controllers.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <array>

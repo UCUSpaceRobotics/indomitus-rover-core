@@ -95,8 +95,8 @@ def generate_launch_description() -> LaunchDescription:
             'swerve_controller',
             default_value=DEFAULT_SWERVE_CONTROLLER,
             choices=list(SWERVE_CONTROLLERS),
-            description='Which swerve controller starts active. '
-                        'The other is spawned inactive.'),
+            description='Which swerve controller to spawn. It comes up active; '
+                        'the other is not loaded at all.'),
 
         SetEnvironmentVariable(
             name='GZ_SIM_RESOURCE_PATH',

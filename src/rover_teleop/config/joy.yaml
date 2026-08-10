@@ -14,9 +14,7 @@ joystick_interpreter:
       yaw: 1.0
 
     # --- SPIN IN PLACE (L2 / R2) ---
-    # Curvature mode only; inert in raw twist mode. Holding a trigger overrides
-    # the left stick and commands a pure spin. Speed comes from L2 minus R2,
-    # so pressing both cancels and a shared rest offset can't creep.
+    # Curvature mode only
     axis_trigger:
       l2: 4   # positive difference -> counter-clockwise
       r2: 5
@@ -27,15 +25,10 @@ joystick_interpreter:
     # 2.0 -> R = 0.5 m, which puts the turn centre inside the wheelbase.
     max_curvature: 2.0
 
-    # Token speed used to steer the wheels while parked, in curvature mode with
-    # the left stick centred. Must stay below the controller's park_speed
-    # (0.001) so the drives stay at zero.
+    # Token speed used to steer the wheels while parked. Must stay
+    # below the controller's park_speed (0.001)
     angle_probe_speed: 0.00001
 
-    # Which controller the motor toggle activates and where compact mode is
-    # sent. swerve_controller_test is the experimental shape-smoothing
-    # controller; it is spawned inactive, so pointing this at it is the
-    # deliberate opt-in. Leave it on swerve_controller for normal driving.
     controller_name: swerve_controller_test
 
 
