@@ -1,13 +1,13 @@
 # rover_sensors/config/scan_filter.yaml
 
-laser_filter_node:
+/**/laser_filter_node:
   ros__parameters:
     filter1:
       name: range_filter
       type: laser_filters/LaserScanRangeFilter
       params:
         use_message_range_limits: false
-        lower_threshold: 0.6
+        lower_threshold: 0.45
         upper_threshold: 18.0
         lower_replacement_value: .nan
         upper_replacement_value: .nan
