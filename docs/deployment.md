@@ -1,26 +1,28 @@
-### Quick Deployment Guide
+# Quick Deployment Guide
 
-To deploy code to the rover computer, ensure your laptop is connected to Wi-Fi with internet access, the Jetson is turned on, and either its hotspot is active or you are connected to it via ethernet cable (in case of the ethernet everything need to be set up according to the ...). Open a terminal and run the deployment script from the root of the repository:
+To deploy code to the rover computer, ensure your laptop is connected to Wi-Fi with internet access, the Jetson is turned on, and either its hotspot is active or you are connected to it via an Ethernet cable (in the Ethernet case, everything needs to be set up according to [ssh.md](./networking/ssh.md)). Open a terminal and run the deployment script from the root of the repository:
 
 ```bash
 ./scripts/deploy_to_rover.sh [MODE] [OPTIONS]
 ```
 
-#### Available Deployment Modes (Subcommands)
+
+## Available Deployment Modes
 
 Choose your deployment strategy based on the type of changes you just made. You must specify exactly one mode.
 
 **Native Remote Build (`remote-build`)**
 
 * **When to use:** You modified the `Dockerfile`, system dependencies, or want to test unpushed system-level changes safely.
-* **What it does:** Syncs your entire local repository to the Jetson, and natively builds the ARM64 image directly on the rover's hardware using Compose. This completely bypasses all local emulator bugs.
-* **Prerequisites:** Jetson either connected to the router with ethernet cable or you are connected to Jetson with ethernet cable and set up internet forwarding over ethernet connection (refer to ...)
+* **What it does:** Syncs your entire local repository to the Jetson, and natively builds the ARM64 image directly on the rover's hardware using Compose.
+* **Prerequisites:** The Jetson is either connected to a router with an Ethernet cable, or you are connected directly to the Jetson with an Ethernet cable and have set up internet forwarding over that connection (refer to the **Laptop Setup** section in [ssh.md](./networking/ssh.md)).
 
 **Pull & Bridge (`pull`)**
 
-* **When to use:** You want to deploy a pre-built stable image and clean code directly from GitHub (develop/main branch). Or you have manually activated workflow on your branch and want to deploy it.
-* **What it does:** Pulls an image from GHCR, intelligently extracts the exact commit SHA from the image metadata, clones a clean codebase from GitHub, transfers everything over the hotspot, and restarts the container.
-* **Pro-Tip: Offload Builds to GitHub Actions** You can build your images in the cloud instead of locally by utilizing GitHub Actions. First, push your branch to GitHub, navigate to the **Actions** tab, and select the **Publish Production And Development Images** workflow on the left. Click the **Run workflow** dropdown, choose your branch, and click the green button to trigger the cloud build. Once the build is successfully finished, you can deploy the new image to the Jetson using the script's pull mode. For example, use `--tag <branch-name>-prod` (ensuring any slashes in your branch name are replaced with dashes, like `--tag feature-shared-some-feature-prod`) to deploy the image and the code for the commit on which image was built.
+* **When to use:** You want to deploy a pre-built stable image and clean code directly from GitHub (develop/main branch). Or you have manually activated workflow on your branch and want to deploy it for testing.
+* **What it does:** Pulls an image from GHCR, extracts the exact commit SHA from the image metadata, clones a clean codebase from GitHub, transfers everything over the hotspot, and restarts the container.
+
+> **Pro-Tip: Offload Builds to GitHub Actions** You can build your images in the cloud instead of locally by using GitHub Actions. First, push your branch to GitHub, then open the [GitHub Actions page](https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml). Click the **Run workflow** dropdown, choose your branch, and click the green button to trigger the cloud build. Once the build finishes successfully, you can deploy the new image to the Jetson using the script's pull mode. For example, use `--tag <branch-name>-prod` (ensuring any slashes in your branch name are replaced with dashes, like `--tag feature-shared-some-feature-prod`) to deploy the image and the code for the commit on which the image was built.
 
 **Rapid Source Sync (`sync-src`)**
 
@@ -30,7 +32,7 @@ Choose your deployment strategy based on the type of changes you just made. You 
 **Infrastructure Sync (`sync-docker-compose`)**
 
 * **When to use:** You only modified the `docker-compose.prod.yaml` file.
-* **What it does:** Transfers the compose file and cleanly restarts the container infrastructure.
+* **What it does:** Transfers the compose file and restarts the container infrastructure.
 
 **Local Cross-Compile (`local-build`) — ⚠️ DEPRECATED**
 
@@ -51,6 +53,11 @@ Choose your deployment strategy based on the type of changes you just made. You 
 > 
 > *Note: You need to do this only for the `local-build` mode.*
 
----
-
 > For further details, read the [documentation](./scripts/deploy_to_rover.md) for the deployment script.
+
+
+## Ethernet Connection
+
+For faster file transfers, we recommend connecting your laptop to the Jetson via Ethernet (if possible). To use this method, connect the cable and append the `--eth` flag when running the script.
+
+> Note: Your laptop requires additional setup before you can use Ethernet mode. To do this, refer to the **Laptop Setup** section in the [ssh.md](./networking/ssh.md)

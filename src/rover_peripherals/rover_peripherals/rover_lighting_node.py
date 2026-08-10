@@ -219,9 +219,14 @@ class LightsCanNode(Node):
 
         with self._resp_lock:
             if self._resp_pending_cmd is None or cmd != self._resp_pending_cmd:
+                expected_str = (
+                    f"0x{self._resp_pending_cmd:02X}"
+                    if self._resp_pending_cmd is not None
+                    else "None"
+                )
                 self.get_logger().warn(
                     f"Unexpected response cmd=0x{cmd:02X}, "
-                    f"expected=0x{self._resp_pending_cmd:02X}, ignoring"
+                    f"expected={expected_str}, ignoring"
                 )
                 return
             self._resp_status = status
@@ -243,7 +248,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

@@ -1,148 +1,44 @@
-# rover_bringup/launch/rover.launch.py
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler, EmitEvent
-from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution
-from launch.events import matches_action
-from launch_ros.actions import LifecycleNode, Node
-from launch_ros.event_handlers import OnStateTransition
-from launch_ros.events.lifecycle import ChangeState
-from lifecycle_msgs.msg import Transition
-
-
-def lifecycle_sequence(node):
-    return [
-        EmitEvent(event=ChangeState(
-            lifecycle_node_matcher=matches_action(node),
-            transition_id=Transition.TRANSITION_CONFIGURE,
-        )),
-        RegisterEventHandler(OnStateTransition(
-            target_lifecycle_node=node,
-            goal_state='inactive',
-            entities=[EmitEvent(event=ChangeState(
-                lifecycle_node_matcher=matches_action(node),
-                transition_id=Transition.TRANSITION_ACTIVATE,
-            ))],
-        )),
-    ]
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, Command
+from rover_bringup.launch_utils import include_launch
 
 
 def generate_launch_description():
-
-    rover_description_dir = get_package_share_directory('rover_description')
-    rover_bringup_dir     = get_package_share_directory('rover_bringup')
-
-    twist_mux_config = PathJoinSubstitution([
-        rover_bringup_dir,
-        'config',
-        'twist_mux.yaml',
-    ])
+    rover_bringup_share = get_package_share_directory('rover_bringup')
+    rover_description_share = get_package_share_directory('rover_description')
 
     interface_arg = DeclareLaunchArgument(
         'interface', default_value='can0',
         description='SocketCAN network interface name',
     )
 
-    # --- ros2_socketcan (для інших нод, не для hardware interface) ---
-    sender_node = LifecycleNode(
-        package='ros2_socketcan',
-        executable='socket_can_sender_node_exe',
-        name='socket_can_sender',
-        namespace='',
-        parameters=[{'interface': LaunchConfiguration('interface'), 'timeout_sec': 0.01}],
-        output='screen',
-    )
 
-    receiver_node = LifecycleNode(
-        package='ros2_socketcan',
-        executable='socket_can_receiver_node_exe',
-        name='socket_can_receiver',
-        namespace='',
-        parameters=[{
-            'interface': LaunchConfiguration('interface'),
-            'interval_sec': 0.01,
-        }],
-        output='screen',
-    )
-
-    # --- ros2_control ---
     robot_description = Command([
         'xacro ',
-        os.path.join(rover_bringup_dir, 'urdf', 'rover_real.urdf.xacro'),
+        os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+        ' use_sim:=false',
         ' can_interface:=', LaunchConfiguration('interface'),
     ])
 
-    robot_state_publisher = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        parameters=[{'robot_description': robot_description}],
-        output='screen',
-    )
-
-    controller_manager = Node(
-        package='controller_manager',
-        executable='ros2_control_node',
-        parameters=[
-            {'robot_description': robot_description},
-            os.path.join(rover_bringup_dir, 'config', 'controllers.yaml'),
-        ],
-        output='screen',
-    )
-
-    joint_state_broadcaster_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['joint_state_broadcaster'],
-        output='screen',
-    )
-
-    swerve_controller_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['swerve_controller', '--inactive'],
-        output='screen',
-    )
-
-    odometry_controller_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['odometry_controller'],
-        output='screen',
-    )
-
-    lighting_node = Node(
-        package='rover_peripherals',
-        executable='rover_lighting_node',
-        name='lights_can_node',
-        output='screen',
-    )
-
-    twist_mux_node = Node(
-        package='twist_mux',
-        executable='twist_mux',
-        name='twist_mux',
-        output='screen',
-        parameters=[twist_mux_config],
-        remappings=[
-            ('/cmd_vel_out', '/cmd_vel'),
-        ]
-    )
-
     return LaunchDescription([
         interface_arg,
-        # socketcan
-        sender_node,
-        receiver_node,
-        *lifecycle_sequence(sender_node),
-        *lifecycle_sequence(receiver_node),
-        # ros2_control
-        robot_state_publisher,
-        controller_manager,
-        joint_state_broadcaster_spawner,
-        swerve_controller_spawner,
-        odometry_controller_spawner,
-        # peripherals
-        twist_mux_node,
-        lighting_node,
+        include_launch('rover_bringup', 'can.launch.py', {
+            'interface': LaunchConfiguration('interface'),
+        }),
+        include_launch('rover_description', 'robot_state_publisher.launch.py', {
+            'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+        }),
+        include_launch('rover_bringup', 'control.launch.py', {
+            'use_sim': 'false',
+            'robot_description': robot_description,
+            'controllers_yaml': os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
+            'controllers': 'joint_state_broadcaster swerve_controller odometry_controller',
+            'inactive_controllers': 'swerve_controller',
+        }),
+        include_launch('rover_bringup', 'twist_mux.launch.py'),
+        include_launch('rover_peripherals', 'lighting.launch.py'),
+        include_launch('rover_localization', 'ekf.launch.py')
     ])

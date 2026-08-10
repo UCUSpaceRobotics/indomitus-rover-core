@@ -21,6 +21,8 @@ setup(
     entry_points={
         'console_scripts': [
             'teach_poses = arm_tasks.teach_poses:main',
+            'keyboard_servo_node = arm_tasks.keyboard_servo_node:main',
+            'gamepad_servo_node = arm_tasks.keyboard_servo_node:main_gamepad',
         ],
     },
 )

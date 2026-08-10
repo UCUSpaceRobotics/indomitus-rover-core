@@ -175,14 +175,21 @@
       <xacro:property name="finger_right_y" value="0.01072"/>
       <xacro:property name="finger_left_y" value="-0.01378"/>
 
-      <xacro:macro name="jaw_gripper_finger" params="side x_closed y yaw axis_sign">
+      <xacro:macro name="jaw_gripper_finger" params="side x_closed y yaw axis_sign limit_lower limit_upper">
         <joint name="arm_jaw_gripper_finger_${side}_joint" type="prismatic">
           <parent link="arm_end_effector_link"/>
           <child link="arm_jaw_gripper_finger_${side}_link"/>
           <origin xyz="${x_closed} ${y} ${finger_z}" rpy="0 0 ${yaw}"/>
           <axis xyz="${axis_sign} 0 0"/>
-          <limit lower="0" upper="${finger_stroke}" effort="20.0" velocity="0.05"/>
+          <limit lower="${limit_lower}" upper="${limit_upper}" effort="20.0" velocity="0.05"/>
           <xacro:unless value="${side == 'right'}">
+            <!-- Right and left are mirror images (180 deg about Z), so their axes
+                 point opposite ways in the parent frame — multiplier=-1.0 makes
+                 them slide apart symmetrically as the right joint opens, rather
+                 than translating together with a fixed gap. Left's own range is
+                 shifted negative to match, since its opening motion is the
+                 mirror of right's (mimic must stay within the child's own
+                 declared limits). -->
             <mimic joint="arm_jaw_gripper_finger_right_joint" multiplier="-1.0" offset="0.0"/>
           </xacro:unless>
         </joint>
@@ -201,8 +208,8 @@
 
       <!-- Same part mounted twice: "left" is the "right" finger rotated 180 deg about Z,
            so both slide outward along their own local +X (axis) to open — no mirrored mesh needed. -->
-      <xacro:jaw_gripper_finger side="right" x_closed="${finger_x_closed}"  y="${finger_right_y}" yaw="0"      axis_sign="-1"/>
-      <xacro:jaw_gripper_finger side="left"  x_closed="${-finger_x_closed}" y="${finger_left_y}"  yaw="${pi}" axis_sign="1"/>
+      <xacro:jaw_gripper_finger side="right" x_closed="${finger_x_closed}"  y="${finger_right_y}" yaw="0"      axis_sign="-1" limit_lower="0"                limit_upper="${finger_stroke}"/>
+      <xacro:jaw_gripper_finger side="left"  x_closed="${-finger_x_closed}" y="${finger_left_y}"  yaw="${pi}" axis_sign="1"  limit_lower="${-finger_stroke}" limit_upper="0"/>
     </xacro:if>
 
     <joint name="arm_tcp_joint" type="fixed">
@@ -210,11 +217,11 @@
       <child link="arm_tcp_link"/>
       
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
-        <origin xyz="0 -0.23 0" rpy="0 0 0"/> 
+        <origin xyz="0 -0.0015 0.2072" rpy="0 0 0"/>
       </xacro:if>
       
       <xacro:if value="${'$(arg end_effector)' != 'jaw'}">
-        <origin xyz="0 -0.23 0" rpy="0 0 0"/> 
+        <origin xyz="0 -0.23 0" rpy="0 0 0"/>
       </xacro:if>
     </joint>
 
@@ -223,13 +230,13 @@
     <joint name="arm_camera_joint" type="fixed">
       <parent link="arm_end_effector_link"/>
       <child link="arm_camera_link"/>
-      <origin xyz="0.0012919902801513672 0.07102805376052856 0.03884565830230713" rpy="0 ${-pi/2} ${-pi/2}"/>
+      <origin xyz="0.0012604892253875732 -0.045 0.07839690148830414" rpy="0 ${-pi/2} ${pi/2}"/>
     </joint>
 
     <link name="arm_camera_link">
       <visual>
         <geometry>
-          <box size="0.06 0.06 0.03"/>
+          <box size="0.06 0.06 0.06"/>
         </geometry>
         <material name="camera_blue">
           <color rgba="0.0 0.0 1.0 1.0"/>
@@ -238,7 +245,7 @@
 
       <collision>
         <geometry>
-          <box size="0.06 0.06 0.03"/>
+          <box size="0.06 0.06 0.06"/>
         </geometry>
       </collision>
     </link>
@@ -246,7 +253,7 @@
     <joint name="arm_camera_optical_joint" type="fixed">
       <parent link="arm_camera_link"/>
       <child link="arm_camera_optical_frame"/>
-      <origin xyz="0 0 0.03" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <origin xyz="0.045 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
     </joint>
 
     <link name="arm_camera_optical_frame"/>
@@ -311,10 +318,14 @@
       <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0"     kp="10.0"  kd="3.0"/>
 
       <!-- Only the right finger needs an interface: left is a <mimic> of it.
-           sim/fake only — ArmCanSystem hardcodes NUM_JOINTS=6 and has no
-           motor for the gripper yet; claiming this joint on real hardware
-           causes "Expected 6 joints, got 7" and a crash on activation. -->
-      <xacro:if value="${('$(arg end_effector)' == 'jaw') and (('$(arg sim)' == 'true') or ('$(arg use_fake_hardware)' == 'true'))}">
+           sim/fake only — ArmCanSystem hardcodes NUM_JOINTS=6 and has no motor
+           for the gripper, so claiming this joint on real hardware fails with
+           "Expected 6 joints, got 7". Trade-off: on real hardware the finger is
+           then absent from joint_state_broadcaster, so the planning scene monitor
+           sees an incomplete state and silently blocks move_group/Servo motion.
+           Real-hardware Servo will need the gripper in its own
+           mock_components/GenericSystem <ros2_control> block. -->
+      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
         <joint name="arm_jaw_gripper_finger_right_joint">
           <command_interface name="position">
             <param name="min">0</param>
@@ -428,7 +439,7 @@
       <xacro:if value="$(arg camera)">
       <gazebo reference="arm_camera_link">
         <sensor name="arm_camera" type="camera">
-          <pose>0 0 0.03 0 0 0</pose>
+          <pose>0.045 0 0 0 0 0</pose>
           <camera>
             <optical_frame_id>arm_camera_optical_frame</optical_frame_id>
             <horizontal_fov>1.047</horizontal_fov>

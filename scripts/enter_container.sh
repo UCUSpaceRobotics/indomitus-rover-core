@@ -38,6 +38,7 @@ run_local() {
   local COMPOSE_FILE="docker-compose.yaml"
   local ROS_DISTRO="humble"
   local WORKSPACE_DIR="/opt/ws"
+  local HARDWARE_WORKSPACE_DIR="/opt/hw_ws"
 
   show_local_help() {
     cat << EOF
@@ -46,20 +47,20 @@ Usage: $0 local [OPTIONS]
 Ensures the local development container is running and opens an interactive terminal.
 
 Options:
-  -n, --name NAME         Docker container name (Default: ${CONTAINER_NAME})
-  -c, --compose FILE      Path to Compose file, relative to repo root (Default: ${COMPOSE_FILE})
-  -r, --ros-distro DIST   ROS 2 distribution name (Default: ${ROS_DISTRO})
-  -w, --workspace DIR     ROS 2 workspace path inside container (Default: ${WORKSPACE_DIR})
-  -h, --help              Display this help message and exit
+  -name NAME          Docker container name (Default: ${CONTAINER_NAME})
+  --compose FILE      Path to Compose file, relative to repo root (Default: ${COMPOSE_FILE})
+  --ros-distro DIST   ROS 2 distribution name (Default: ${ROS_DISTRO})
+  --workspace DIR     ROS 2 workspace path inside container (Default: ${WORKSPACE_DIR})
+  -h, --help          Display this help message and exit
 EOF
   }
 
   while [[ "$#" -gt 0 ]]; do
     case $1 in
-      -n|--name)       [[ "$#" -ge 2 ]] || error "$1 requires an argument."; CONTAINER_NAME="$2"; shift 2;;
-      -c|--compose)    [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
-      -r|--ros-distro) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; ROS_DISTRO="$2"; shift 2;;
-      -w|--workspace)  [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WORKSPACE_DIR="$2"; shift 2;;
+      --name)       [[ "$#" -ge 2 ]] || error "$1 requires an argument."; CONTAINER_NAME="$2"; shift 2;;
+      --compose)    [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
+      --ros-distro) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; ROS_DISTRO="$2"; shift 2;;
+      --workspace)  [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WORKSPACE_DIR="$2"; shift 2;;
       -h|--help)       show_local_help; exit 0;;
       *)               error "Unknown option: $1\nRun '$0 local --help' for usage." ;;
     esac
@@ -95,7 +96,7 @@ EOF
   echo -e "Type \e[33mexit\e[0m to leave."
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
-  docker exec -it "$CONTAINER_NAME" bash -lc "source /opt/ros/${ROS_DISTRO}/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && exec bash -i"
+  docker exec -it "$CONTAINER_NAME" bash -lc "source /opt/ros/${ROS_DISTRO}/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && source ${HARDWARE_WORKSPACE_DIR}/install/setup.bash && exec bash -i"
 
   echo -e "\n\e[32m[DONE]\e[0m Session closed."
 }
@@ -106,12 +107,17 @@ EOF
 run_rover() {
   # Defaults
   local JETSON_USER="indomitus-rover"
-  local JETSON_IP="10.42.0.1"
+  local JETSON_HOTSPOT_IP="10.42.0.1"
+  local JETSON_ETHERNET_IP="indomitus-rover-computer.local"
+  local JETSON_IP="${JETSON_HOTSPOT_IP}"
   local REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
   local CONTAINER_NAME="rover_prod"
   local COMPOSE_FILE="docker-compose.prod.yaml"
+  local WORKSPACE_DIR="/opt/ws"
+  local HARDWARE_WORKSPACE_DIR="/opt/hw_ws"
   local WIFI_SSID="IndomitusRover"
   local WIFI_PASS="12345678"
+  local USE_ETH=false
 
   show_rover_help() {
     cat << EOF
@@ -121,28 +127,32 @@ Connects to the rover computer, starts the production Docker container (if neede
 and opens an interactive terminal inside the remote container.
 
 Options:
-  -u, --user USER       Jetson SSH username (Default: ${JETSON_USER})
-  -i, --ip IP           Jetson IP address (Default: ${JETSON_IP})
-  -d, --dir DIR         Remote deployment directory (Default: ${REMOTE_DIR})
-  -n, --name NAME       Docker container name (Default: ${CONTAINER_NAME})
-  -c, --compose FILE    Path to Compose file (Default: ${COMPOSE_FILE})
-  -w, --ssid SSID       Wi-Fi SSID of the Jetson hotspot (Default: ${WIFI_SSID})
-  -p, --pass PASS       Wi-Fi password for the hotspot (Default: ${WIFI_PASS})
+  --eth                 Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
+  --user USER           Jetson SSH username (Default: ${JETSON_USER})
+  --ip IP               Jetson IP address (Default: ${JETSON_IP})
+  --dir DIR             Remote deployment directory (Default: ${REMOTE_DIR})
+  --name NAME           Docker container name (Default: ${CONTAINER_NAME})
+  --compose FILE        Path to Compose file (Default: ${COMPOSE_FILE})
+  --workspace DIR       ROS 2 workspace path inside container (Default: ${WORKSPACE_DIR})
+  --ssid SSID           Wi-Fi SSID of the Jetson hotspot (Default: ${WIFI_SSID})
+  --pass PASS           Wi-Fi password for the hotspot (Default: ${WIFI_PASS})
   -h, --help            Display this help message and exit
 EOF
   }
 
   while [[ "$#" -gt 0 ]]; do
     case $1 in
-      -u|--user)    [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
-      -i|--ip)      [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
-      -d|--dir)     [[ "$#" -ge 2 ]] || error "$1 requires an argument."; REMOTE_DIR="$2"; shift 2;;
-      -n|--name)    [[ "$#" -ge 2 ]] || error "$1 requires an argument."; CONTAINER_NAME="$2"; shift 2;;
-      -c|--compose) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
-      -w|--ssid)    [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
-      -p|--pass)    [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
-      -h|--help)    show_rover_help; exit 0;;
-      *)            error "Unknown option: $1\nRun '$0 rover --help' for usage." ;;
+      --eth) USE_ETH=true; JETSON_IP="${JETSON_ETHERNET_IP}"; shift 1;;
+      --user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
+      --ip) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
+      --dir) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; REMOTE_DIR="$2"; shift 2;;
+      --name) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; CONTAINER_NAME="$2"; shift 2;;
+      --compose) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
+      --workspace) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WORKSPACE_DIR="$2"; shift 2;;
+      --ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
+      --pass) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
+      --help) show_rover_help; exit 0;;
+      *) error "Unknown option: $1\nRun '$0 rover --help' for usage." ;;
     esac
   done
 
@@ -153,14 +163,14 @@ EOF
   if ! command -v ssh >/dev/null 2>&1; then error "SSH client is not installed."; fi
 
   step "Verifying Network Connection..."
-  if [ -n "$WIFI_SSID" ]; then
+  if [ -n "$WIFI_SSID" ] && [ "$USE_ETH" = false ]; then
     if command -v nmcli >/dev/null 2>&1; then
       local CURRENT_SSID
       CURRENT_SSID=$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes' | cut -d: -f2 || true)
       if [ "$CURRENT_SSID" = "$WIFI_SSID" ]; then
         echo -e "\e[32m[INFO]\e[0m Already connected to network: ${WIFI_SSID}"
       else
-        echo "Attempting to automatically connect to Wi-Fi network: ${WIFI_SSID}..."
+        echo "Attempting to automatically connect to Wi-Fi network (you may do it manually): ${WIFI_SSID}..."
         if [ -n "$WIFI_PASS" ]; then
           nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASS" >/dev/null 2>&1 || true
         else
@@ -175,7 +185,7 @@ EOF
         if [ "$CURRENT_SSID" = "$WIFI_SSID" ]; then
           echo -e "\e[32m[INFO]\e[0m Already connected to network: ${WIFI_SSID}"
         else
-          echo "Attempting to automatically connect to Wi-Fi network: ${WIFI_SSID}..."
+          echo "Attempting to automatically connect to Wi-Fi network (you may do it manually): ${WIFI_SSID}..."
           if [ -n "$WIFI_PASS" ]; then
             networksetup -setairportnetwork "$WIFI_IFACE" "$WIFI_SSID" "$WIFI_PASS" >/dev/null 2>&1 || true
           else
@@ -186,7 +196,7 @@ EOF
     else
       echo -e "\e[33m[WARNING]\e[0m OS not supported for auto-connect. Please switch to '${WIFI_SSID}' manually."
     fi
-  else
+  elif [ "$USE_ETH" = false ]; then
     echo -e "Please switch your Wi-Fi network to the rover computer hotspot now."
   fi
 
@@ -229,7 +239,7 @@ EOF
   echo -e "Type \e[33mexit\e[0m to leave."
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
-  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash"
+  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -lc 'source /opt/ros/humble/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && source ${HARDWARE_WORKSPACE_DIR}/install/setup.bash && exec bash -i'"
 
   echo -e "\n\e[32m[DONE]\e[0m Session closed."
 }

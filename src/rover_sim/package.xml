@@ -14,12 +14,13 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>pluginlib</depend>
+  <depend>controller_interface</depend>
+  <depend>hardware_interface</depend>
 
   <!-- Interfaces -->
   <depend>geometry_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>sensor_msgs</depend>
-  <depend>indomitus_interfaces</depend>
 
   <!-- Launch infrastructure -->
   <exec_depend>ament_index_python</exec_depend>
@@ -28,14 +29,8 @@
 
   <!-- Internal packages -->
   <exec_depend>rover_bringup</exec_depend>
-  <exec_depend>rover_description</exec_depend>
-
-  <!-- State publisher -->
-  <depend>xacro</depend>
-  <depend>robot_state_publisher</depend>
-  
-  <!-- ROS2 Control -->
-  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>rover_description</exec_depend>\
+  <exec_depend>rover_localization</exec_depend>
   
   <!-- Simulation -->
   <depend>ros_gz_sim</depend>
