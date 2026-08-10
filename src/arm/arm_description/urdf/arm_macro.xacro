@@ -278,7 +278,12 @@
             <!-- Activation aborts if any motor is silent for this long -->
             <param name="feedback_timeout_secs">2.0</param>
             <param name="gravity_ff_enabled">true</param>
-            <param name="gravity_ff_max_nm">8.0</param>
+            <!-- ~3.8 kg hangs below the shoulder with its COM ~0.3 m out, so the
+                 holding torque there reaches ~11 Nm on extended poses. The two
+                 motor families are an order of magnitude apart: Steadywin is
+                 rated 48 Nm, Damiao only 9 Nm continuous. -->
+            <param name="gravity_ff_max_nm_steadywin">20.0</param>
+            <param name="gravity_ff_max_nm_damiao">6.0</param>
           </xacro:unless>
         </xacro:unless>
       </hardware>
@@ -289,7 +294,10 @@
            offset    : the RAW motor angle (rad) measured when the arm is
                        physically in the URDF zero pose. If you save the motor
                        zero (0xB1 / FF..FE) at that pose, offset = 0.0.
-           kp / kd   : MIT gains, tuned on real hardware.
+           kp / kd   : MIT gains, tuned on real hardware. The protocol packs
+                       these into 12 bits over [0,500] and [0,5], and anything
+                       above those is clamped silently — a kd of 6 reads back
+                       as 5 with no warning anywhere.
            Re-verify with scripts/check_calibration.py (torqueless) after any
            mesh/geometry change that alters a joint's <axis>.
            ============================================================= -->
@@ -310,12 +318,12 @@
         </joint>
       </xacro:macro>
 
-      <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="0.0"  kp="60.0"  kd="4.0"/>
-      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="1" offset="0.0"  kp="80.0" kd="5.0"/>
-      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="-1"  offset="0.0" kp="60.0" kd="4.0"/>
-      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="0.0"  kp="15.0"  kd="3.0"/>
-      <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="-1"  offset="0.0"     kp="15.0"  kd="3.0"/>
-      <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0"     kp="10.0"  kd="3.0"/>
+      <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="0.0"  kp="200.0"  kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="1" offset="0.0"  kp="300.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="-1"  offset="0.0" kp="280.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="0.0"  kp="50.0"  kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="-1"  offset="0.0"     kp="50.0"  kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0"     kp="40.0"  kd="5.0"/>
 
       <!-- Only the right finger needs an interface: left is a <mimic> of it.
            Excluded on real hardware — ArmCanSystem hardcodes NUM_JOINTS=6 and

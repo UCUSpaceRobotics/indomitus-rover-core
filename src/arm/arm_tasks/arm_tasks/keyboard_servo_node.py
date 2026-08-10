@@ -69,6 +69,10 @@ DEFAULT_COMMAND_FRAME = 'arm_camera_link'
 DEFAULT_SAFE_POSE     = [0.0, 1.2, -1.0, 0.8, 0.5, 0.0]
 DEFAULT_KEYBOARD_DEVICE_PATH = '/dev/input/event3'
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
+# The safe-pose move goes straight to the trajectory controller, so none of
+# Servo's velocity scaling applies — this duration is the only thing bounding
+# how fast the arm swings, however far it has to travel.
+DEFAULT_SAFE_POSE_DURATION = 6.0
 
 SAFE_POSE_JOINTS = [
     'arm_mount_base_joint',
@@ -130,6 +134,7 @@ class ServoController(Node):
         self.declare_parameter('safe_pose',     DEFAULT_SAFE_POSE)
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
+        self.declare_parameter('safe_pose_duration', DEFAULT_SAFE_POSE_DURATION)
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -138,6 +143,7 @@ class ServoController(Node):
         self._safe_pose     = list(self.get_parameter('safe_pose').value)
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
+        self._safe_pose_duration   = self.get_parameter('safe_pose_duration').value
 
         self.vx = 0.0
         self.vy = 0.0
@@ -285,7 +291,10 @@ class ServoController(Node):
         point = JointTrajectoryPoint()
         point.positions = self._safe_pose
         point.velocities = [0.0] * len(self._safe_pose)
-        point.time_from_start = Duration(sec=3)
+        point.time_from_start = Duration(
+            sec=int(self._safe_pose_duration),
+            nanosec=int((self._safe_pose_duration % 1.0) * 1e9),
+        )
         traj.points = [point]
 
         goal = FollowJointTrajectory.Goal()

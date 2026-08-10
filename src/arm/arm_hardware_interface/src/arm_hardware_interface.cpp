@@ -27,7 +27,6 @@ namespace arm_hardware_interface {
 namespace sw = steadywin_protocol;
 namespace dm = damiao_wrist_protocol;
 
-// Smooth 0->1 ramp (smoothstep) for stiffness ramping after enable.
 static inline double smoothstep01(double t)
 {
     t = std::clamp(t, 0.0, 1.0);
@@ -163,7 +162,7 @@ const std::array<LinkMass, NUM_JOINTS> kLinkMass = {{
     /*2 arm_forearm_link                                 */ { 0.630, {-0.00865,0.15, 0.0    } },
     /*3 arm_wrist_1_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
     /*4 arm_wrist_2_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
-    /*5 arm_end_effector_link (+ jaw gripper, ~200 g)    */ { 0.200, {0.0,     0.0,  0.0    } },
+    /*5 arm_end_effector_link (+ jaw gripper, ~200 g)    */ { 0.200, {0.0,     0.0,  0.06   } },
 }};
 
 // kMotorMass[i] — the motor that drives joint i, pinned at joint i's own axis
@@ -224,7 +223,8 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
     max_cmd_speed_rad_s_   = param_or(info.hardware_parameters, "max_cmd_speed_rad_s", max_cmd_speed_rad_s_);
     feedback_timeout_secs_ = param_or(info.hardware_parameters, "feedback_timeout_secs", feedback_timeout_secs_);
     gravity_ff_enabled_    = param_bool(info.hardware_parameters, "gravity_ff_enabled", gravity_ff_enabled_);
-    gravity_ff_max_nm_     = param_or(info.hardware_parameters, "gravity_ff_max_nm", gravity_ff_max_nm_);
+    gravity_ff_max_nm_sw_  = param_or(info.hardware_parameters, "gravity_ff_max_nm_steadywin", gravity_ff_max_nm_sw_);
+    gravity_ff_max_nm_dm_  = param_or(info.hardware_parameters, "gravity_ff_max_nm_damiao", gravity_ff_max_nm_dm_);
 
     // ---- Per-joint parameters: direction, offset, kp, kd, motor_id ----
     // These live in arm_macro.xacro so recalibration never requires recompiling.
@@ -269,8 +269,9 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
 
     RCLCPP_INFO(logger_, "ArmCanSystem initialized (CAN: %s, ramp: %.1fs, cmd speed limit: %.2f rad/s)",
                 can_interface_.c_str(), gain_ramp_secs_, max_cmd_speed_rad_s_);
-    RCLCPP_INFO(logger_, "Gravity feed-forward: %s (max %.2f Nm/joint)",
-                gravity_ff_enabled_ ? "ENABLED" : "disabled", gravity_ff_max_nm_);
+    RCLCPP_INFO(logger_, "Gravity feed-forward: %s (max %.2f Nm Steadywin, %.2f Nm Damiao)",
+                gravity_ff_enabled_ ? "ENABLED" : "disabled",
+                gravity_ff_max_nm_sw_, gravity_ff_max_nm_dm_);
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -340,7 +341,8 @@ std::array<float, NUM_JOINTS> ArmCanSystem::compute_gravity_feedforward() const
         }
         const double tau_urdf  = -vec_dot(g_vec, sum);
         double tau_motor       = tau_urdf * joint_directions_[i];   // same sign convention as velocity feedforward
-        tau_motor = std::clamp(tau_motor, -gravity_ff_max_nm_, gravity_ff_max_nm_);
+        const double clamp_nm = gravity_ff_max_nm(i);
+        tau_motor = std::clamp(tau_motor, -clamp_nm, clamp_nm);
         tau[i] = static_cast<float>(tau_motor);
     }
 
@@ -388,10 +390,9 @@ hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecy
     //    (enabled but torqueless until its first MIT command).
     send_enable_frames();
 
-    // 2) ACTIVELY poll every motor for its true position. Motors only reply
-    //    when spoken to — the old passive 200 ms wait received nothing, left
-    //    the state at 0, and caused the startup jump. If any motor stays
-    //    silent, we ABORT instead of guessing.
+    // 2) ACTIVELY poll every motor for its true position: they only reply when
+    //    spoken to, and waiting passively leaves the state at 0, which makes
+    //    the first command jump the arm. Abort rather than guess.
     if (!wait_for_all_feedback(feedback_timeout_secs_)) {
         RCLCPP_FATAL(logger_,
             "Not all motors reported their position — REFUSING to enable torque "
@@ -565,8 +566,8 @@ bool ArmCanSystem::open_can_socket()
         return false;
     }
 
-    // Receive timeout so rx_thread_fn can notice rx_running_ == false and the
-    // deactivate path never hangs on join() (the old blocking read could).
+    // Receive timeout so rx_thread_fn can notice rx_running_ == false; a
+    // blocking read would hang the deactivate path on join().
     struct timeval tv{};
     tv.tv_sec = 0; tv.tv_usec = 100000;   // 100 ms
     setsockopt(can_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -724,9 +725,9 @@ void ArmCanSystem::rx_thread_fn()
         }
         if (is_sw) {
             sw::Feedback fb;
-            // parse_feedback filters out 0xF0/0xB1/etc. replies whose bytes
-            // [1..2] are NOT a position (the old code misread the 0xF0 config
-            // echo as ~92 rad and glitched the joint state).
+            // parse_feedback rejects 0xF0/0xB1/etc. replies whose bytes [1..2]
+            // are not a position — decoded as one, the 0xF0 config echo reads
+            // as ~92 rad and glitches the joint state.
             if (sw::parse_feedback(frame.data, frame.can_dlc, fb)) {
                 if (fb.fault) {
                     RCLCPP_WARN_THROTTLE(logger_, steady_clock, 2000,

@@ -30,7 +30,7 @@ indomitus_arm_controller:
       - velocity
 
     # Goals may name a subset of joints; the JTC holds the rest at their
-    # current position. Makes single-joint test moves (step 6) trivial.
+    # current position, which is what makes single-joint test moves possible.
     allow_partial_joints_goal: true
 
     # On goal cancel / controller stop, ramp to hold over this time instead
@@ -41,10 +41,13 @@ indomitus_arm_controller:
     # pulling harder toward an unreachable trajectory.
     constraints:
       goal_time: 1.0                    # s of slack to reach the final point
-      stopped_velocity_tolerance: 0.05  # rad/s considered "stopped" at goal
-      # goal: 0.08 matches teach_poses.py's own GOAL_TOL_RAD — was 0.03,
-      # stricter than the moving joint's own tolerance, which unfairly
-      # failed "held" joints for the transient kick a moving neighbor gives them.
+      # Velocity feedback is 12-bit over +-45 rad/s, so it quantizes to
+      # 0.022 rad/s steps: a joint at rest reports 0.011 and can read 0.033 or
+      # 0.055 on noise. 0.05 fell between two of those levels and failed goals
+      # on stationary joints. Keep this above a few quantization steps.
+      stopped_velocity_tolerance: 0.15  # rad/s considered "stopped" at goal
+      # Matches teach_poses.py's own GOAL_TOL_RAD. Anything stricter fails
+      # "held" joints for the transient kick a moving neighbour gives them.
       arm_mount_base_joint:            { trajectory: 0.25, goal: 0.08 }
       arm_base_shoulder_joint:         { trajectory: 0.25, goal: 0.08 }
       arm_shoulder_forearm_joint:      { trajectory: 0.25, goal: 0.08 }

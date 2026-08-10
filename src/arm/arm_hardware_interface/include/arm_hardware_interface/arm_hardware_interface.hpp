@@ -72,9 +72,9 @@ private:
     void safe_stop();              // full disable (torqueless) — only for on_error, real faults
     void stop_holding();           // clean shutdown WITHOUT disabling — see on_deactivate
 
-    // Static gravity compensation: per-joint holding torque (motor frame, Nm,
-    // clamped to gravity_ff_max_nm_) at the current measured pose. See
-    // kLinkMass/kMotorMass and the math helpers atop arm_hardware_interface.cpp.
+    // Static gravity compensation: per-joint holding torque (motor frame, Nm)
+    // at the current measured pose, clamped per motor family. See kLinkMass /
+    // kMotorMass and the math helpers atop arm_hardware_interface.cpp.
     std::array<float, NUM_JOINTS> compute_gravity_feedforward() const;
 
     // Coordinate transforms (URDF <-> motor frame)
@@ -101,7 +101,13 @@ private:
 
     // ---- Gravity compensation (feed-forward torque, t_ff in the MIT frame) ----
     bool   gravity_ff_enabled_{false};
-    double gravity_ff_max_nm_{3.0};     // hard per-joint clamp, well under T_MAX_NM=18
+    // Per-joint clamps, split by motor family: the Steadywin joints (0..2)
+    // carry the arm and are rated 48 Nm, the Damiao wrists (3..5) only 9 Nm
+    // continuous, so one shared limit would be either useless or unsafe.
+    double gravity_ff_max_nm_sw_{20.0};
+    double gravity_ff_max_nm_dm_{6.0};
+    inline double gravity_ff_max_nm(std::size_t i) const
+    { return i < NUM_STEADYWIN ? gravity_ff_max_nm_sw_ : gravity_ff_max_nm_dm_; }
 
     std::array<std::string, NUM_JOINTS> joint_names_;
 

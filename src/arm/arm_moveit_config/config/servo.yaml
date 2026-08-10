@@ -23,7 +23,11 @@ moveit_servo:
       rotational: 0.2
       joint: 0.2
 
-    override_velocity_scaling_factor: 0.5
+    # Servo re-anchors to the measured pose every cycle, so the per-cycle step
+    # (velocity ceiling * publish_period) is all the position error the MIT loop
+    # ever sees. Below ~0.02 rad that error cannot produce enough torque to break
+    # static friction, the joint never moves, and the command never accumulates.
+    override_velocity_scaling_factor: 1.0
 
     command_in_type: speed_units
     command_out_type: trajectory_msgs/JointTrajectory
@@ -43,11 +47,14 @@ moveit_servo:
     self_collision_proximity_threshold: 0.01
     scene_collision_proximity_threshold: 0.02
 
-    lower_singularity_threshold: 100.0
-    hard_stop_singularity_threshold: 200.0
+    # Near a singularity the inverse Jacobian turns a tiny Cartesian request
+    # into huge joint velocities. These are the MoveIt defaults; raising them
+    # far above this effectively disables the protection.
+    lower_singularity_threshold: 17.0
+    hard_stop_singularity_threshold: 30.0
     leaving_singularity_threshold_multiplier: 2.0
 
-    joint_limit_margin: 0.02
+    joint_limit_margin: 0.1
 
     is_primary_planning_scene_monitor: false
     monitored_planning_scene_topic: /monitored_planning_scene

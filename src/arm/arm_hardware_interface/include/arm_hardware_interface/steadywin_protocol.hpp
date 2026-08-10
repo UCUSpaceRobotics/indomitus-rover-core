@@ -31,12 +31,15 @@
 namespace arm_hardware_interface {
 namespace steadywin_protocol {
 
-// These MUST match what is configured in the motor via the 0xF0 command.
-// Factory defaults are 95.5 rad / 45.00 rad/s / 18.00 Nm — we re-send them
-// on every activation so the scaling is always consistent.
+// These MUST match what is configured in the motor via the 0xF0 command; we
+// re-send them on every activation so the scaling is always consistent.
+// T_MAX is raised from the 18.00 Nm factory default to the motor's 48 Nm
+// rating — it is the scaling of the 12-bit torque field, so it must never be
+// changed here without the motor being reconfigured in the same breath, or
+// every commanded torque is silently off by the ratio of the two values.
 constexpr float P_MAX_RAD = 95.5f;
 constexpr float V_MAX_RPS = 45.0f;
-constexpr float T_MAX_NM  = 18.0f;
+constexpr float T_MAX_NM  = 48.0f;
 
 constexpr float KP_MAX = 500.0f;
 constexpr float KD_MAX = 5.0f;
