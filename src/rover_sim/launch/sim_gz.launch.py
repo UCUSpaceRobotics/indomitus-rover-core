@@ -14,6 +14,25 @@ from launch_ros.actions import Node
 from rover_bringup.launch_utils import include_launch
 
 
+def setup_environment() -> list:
+    """Auto-detects host OS graphics and network issues, applying fixes instantly to the Python environment."""
+
+    # 1. IPC / Networking Fix (Forces local ZeroMQ. Prevents GUI black screen & spawner deaf loops)
+    os.environ['GZ_IP'] = '127.0.0.1'
+    os.environ['IGN_IP'] = '127.0.0.1'
+
+    # 2. Wayland GUI Crash Workaround (Forces X11 backend for Qt)
+    if os.environ.get('XDG_SESSION_TYPE', '') == 'wayland' or os.environ.get('WAYLAND_DISPLAY'):
+        os.environ['QT_QPA_PLATFORM'] = 'xcb'
+
+    # 3. Nvidia Optimus & EGL Deadlock Workaround (Prevents EGL dri2 crash)
+    nvidia_egl_path = '/usr/share/glvnd/egl_vendor.d/10_nvidia.json'
+    if os.path.exists(nvidia_egl_path):
+        os.environ['__NV_PRIME_RENDER_OFFLOAD'] = '1'
+        os.environ['__GLX_VENDOR_LIBRARY_NAME'] = 'nvidia'
+        os.environ['__EGL_VENDOR_LIBRARY_FILENAMES'] = nvidia_egl_path
+
+
 def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
     world = LaunchConfiguration("world_name").perform(context)
     model = LaunchConfiguration("model_name").perform(context)
@@ -111,6 +130,7 @@ def setup_dynamic_map(context, rover_sim_share: str) -> list:
   </model>
 </sdf>
 """
+
     with open(os.path.join(tmp_model_dir, 'model.sdf'), 'w') as f:
         f.write(sdf_content)
 
@@ -118,6 +138,8 @@ def setup_dynamic_map(context, rover_sim_share: str) -> list:
 
 
 def generate_launch_description() -> LaunchDescription:
+    setup_environment()
+
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share         = get_package_share_directory('rover_sim')
 
