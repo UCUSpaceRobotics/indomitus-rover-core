@@ -24,6 +24,16 @@ from launch.substitutions import (
 from launch_ros.actions import Node
 from rover_bringup.launch_utils import include_launch
 
+BASE_CONTROLLERS = (
+    "joint_state_broadcaster",
+    "odometry_controller",
+    "diff_bar_effort_controller",
+)
+
+LEGACY_SWERVE_CONTROLLER = "swerve_controller"
+SHAPE_SWERVE_CONTROLLER = "swerve_controller_test"
+SWERVE_CONTROLLERS = (LEGACY_SWERVE_CONTROLLER, SHAPE_SWERVE_CONTROLLER)
+DEFAULT_SWERVE_CONTROLLER = SHAPE_SWERVE_CONTROLLER
 
 # List of available worlds.
 SUPPORTED_WORLDS = ["mars_yard", "nav2_test_world"]
@@ -55,6 +65,17 @@ def setup_environment() -> list:
         os.environ["__NV_PRIME_RENDER_OFFLOAD"] = "1"
         os.environ["__GLX_VENDOR_LIBRARY_NAME"] = "nvidia"
         os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] = nvidia_egl_path
+
+
+def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
+    swerve_controller = LaunchConfiguration("swerve_controller").perform(context)
+
+    return [include_launch("rover_bringup", "control.launch.py", {
+        "use_sim": "true",
+        "controllers_yaml": controllers_yaml_path,
+        "controllers": f"{swerve_controller} " + " ".join(BASE_CONTROLLERS),
+        "inactive_controllers": "",
+    })]
 
 
 def generate_bridge_and_rsp(context, rover_sim_share: str, rover_description_share: str, controllers_yaml_path: str, launch_tmp_dir: str, world_name_sub, model_name_sub, extra_xacro_args_sub) -> list:
@@ -220,6 +241,12 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription([
         DeclareLaunchArgument(
+            "swerve_controller",
+            default_value=DEFAULT_SWERVE_CONTROLLER,
+            choices=list(SWERVE_CONTROLLERS),
+            description="Which swerve controller to spawn. It comes up active; "
+                        "the other is not loaded at all."),
+        DeclareLaunchArgument(
             "world_name",
             default_value="mars_yard",
             description=f"Gazebo world file to load (without .sdf extension). Available options: {SUPPORTED_WORLDS}."
@@ -278,15 +305,12 @@ def generate_launch_description() -> LaunchDescription:
             actions=[make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub)]
         ),
 
-        include_launch("rover_bringup", "control.launch.py", {
-            "use_sim_time": "true",
-            "controllers_yaml": controllers_yaml_path,
-            "controllers": "joint_state_broadcaster swerve_controller odometry_controller diff_bar_effort_controller",
-        }),
-
         include_launch("rover_localization", "ekf.launch.py", {
             "use_sim_time": "true",
         }),
+
+        OpaqueFunction(function=make_control_launch,
+                       kwargs={"controllers_yaml_path": controllers_yaml_path}),
 
         include_launch("rover_bringup", "twist_mux.launch.py", {
             "use_sim_time": "true",

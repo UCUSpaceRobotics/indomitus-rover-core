@@ -11,7 +11,10 @@ controller_manager:
 
     swerve_controller:
       type: rover_controller/RoverSwerveController
-    
+
+    swerve_controller_test:
+      type: rover_controller/RoverSwerveControllerTest
+
     odometry_controller:
       type: rover_controller/RoverOdometryController
 
@@ -35,8 +38,8 @@ swerve_controller:
       - br_wheel_mount_joint
 
     # Dynamics
-    max_accel: 0.3
-    max_decel: 0.6
+    max_accel: 0.6
+    max_decel: 1.2
     cmd_vel_timeout_s: 0.5
 
     # Kinematics restriction
@@ -49,6 +52,80 @@ swerve_controller:
     wheelbase:     0.842   # meters, front-to-rear axle distance
     track_width:   0.682   # meters, left-to-right wheel distance
     wheel_radius:  0.157   # meters
+
+swerve_controller_test:
+  ros__parameters:
+    drive_joint_names:
+      - fl_wheel_joint
+      - fr_wheel_joint
+      - bl_wheel_joint
+      - br_wheel_joint
+    steer_joint_names:
+      - fl_wheel_mount_joint
+      - fr_wheel_mount_joint
+      - bl_wheel_mount_joint
+      - br_wheel_mount_joint
+
+    # Dynamics — applied to the twist magnitude only, never to vx/vy/wz apart.
+    max_accel: 0.6
+    max_decel: 1.2
+    cmd_vel_timeout_s: 0.5
+
+    # Kinematics restriction. Note there is no max_angular_speed: clamping wz
+    # would silently tighten the turn radius as speed drops.
+    max_steer_deg: 135.0
+    max_steer_rate_deg: 120.0 # degrees/s
+    max_linear_speed:  1.0
+
+    # The steering joints' own travel, from the URDF (±4.71238898 rad = ±270°).
+    # A different limit from max_steer_deg, in a different frame: that one
+    # restricts the kinematic angle, and compact mode folds ±180° on top of it.
+    # 135 + 180 = 315 would overrun the joint, so the controller checks the
+    # post-fold angle against this and clamps. Keep in step with the URDF.
+    max_joint_angle_deg: 270.0
+
+    # Shape smoothing — see twist_shape.hpp.
+    #   theta = crab direction, phi = turn tightness = atan(d * 1/R)
+    # phi covers the whole range from straight (0) to spin-in-place (pi/2), so
+    # 0.54 rad/s is roughly a curvature rate of 1.0 (1/m)/s near straight and
+    # takes ~2.9 s to sweep from driving straight into a full spin.
+    max_theta_rate_rad: 1.5708   # pi/2
+    # Ceiling set by the steering joints, not by taste: one radian of phi asks
+    # for up to 2.10 rad of wheel angle (measured worst case over the sweep),
+    # and max_steer_rate_deg is 120 deg/s = 2.09 rad/s, so 2.09/2.10 = 1.0.
+    # Above this the shape target outruns the joints, the alignment scale cuts
+    # the drives, and it lurches instead of steering faster. To go quicker,
+    # raise max_steer_rate_deg first, then re-derive this.
+    max_phi_rate_rad:   1.0
+
+    # 0.0 = auto: the wheel half-diagonal, hypot(wheelbase, track_width)/2.
+    rotation_scale_length: 0.0
+
+    # Below this the wheels steer but the drives stay at zero — this is what
+    # makes a near-zero Twist a pure "point the wheels here" command.
+    park_speed: 0.001
+
+    # Standstill detection, measured at the wheel rim rather than taken from
+    # the magnitude limiter. Everything that may only happen at a standstill —
+    # snapping the shape, homing the wheels — waits on this, so the numbers
+    # decide whether the rover can pivot its wheels while still rolling.
+    # 0.02 m/s is about 0.13 rad/s at this wheel radius, comfortably above
+    # encoder noise and well below a walking pace.
+    standstill_speed: 0.02
+    standstill_hold_s: 0.2
+
+    # Seconds of doing nothing (empty cmd_vel AND stopped) before the wheels
+    # return to zero. The delay stops a brief pause between commands from
+    # snapping them straight and back. Negative disables homing.
+    # An angle-only command does not count as idle, so parking the wheels at
+    # an angle on purpose still works. 0.0 is safe here only because "stopped"
+    # is now a measured standstill held for standstill_hold_s.
+    idle_home_delay: 0.0
+
+    # Geometry
+    wheelbase:     0.801   # meters, front-to-rear axle distance
+    track_width:   0.645   # meters, left-to-right wheel distance
+    wheel_radius:  0.153   # meters
 
 odometry_controller:
   ros__parameters:

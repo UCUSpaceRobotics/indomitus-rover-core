@@ -18,6 +18,8 @@ find_package(indomitus_interfaces REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rover_hardware_interface.cpp
+  src/can_bus.cpp
+  src/fault_detector.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -83,6 +85,29 @@ if(BUILD_TESTING)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
   ament_target_dependencies(test_protocols can_msgs)
+
+  # Edge-triggering behaviour: pure logic, no hardware, no ROS graph.
+  ament_add_gtest(test_fault_detector
+    test/test_fault_detector.cpp
+  )
+  target_include_directories(test_fault_detector PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  target_link_libraries(test_fault_detector ${PROJECT_NAME})
+  ament_target_dependencies(test_fault_detector
+    rclcpp can_msgs indomitus_interfaces)
+
+  # Socket lifecycle. Skips itself when no CAN interface is available, so it is
+  # a no-op in a container without vcan rather than a failure.
+  ament_add_gtest(test_can_bus
+    test/test_can_bus.cpp
+    TIMEOUT 60
+  )
+  target_include_directories(test_can_bus PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  target_link_libraries(test_can_bus ${PROJECT_NAME})
+  ament_target_dependencies(test_can_bus rclcpp)
 endif()
 
 ament_package()
