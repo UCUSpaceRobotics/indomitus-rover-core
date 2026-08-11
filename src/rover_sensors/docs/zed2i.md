@@ -4,8 +4,9 @@ This document outlines the configuration, launch instructions, and data capabili
 
 **Official Documentation Resources:**
 
-* [ZED ROS 2 Wrapper Repository](https://github.com/stereolabs/zed-ros2-wrapper)
+* [ZED2I Datasheet](https://cdn.sanity.io/files/s18ewfw4/staging/f6eb2a45caad4faa16149f747b765864a337ae91.pdf/ZED-2i-Datasheet.pdf)
 * [ZED ROS 2 Integration Docs](https://docs.stereolabs.com/docs/integrations/ros-2)
+* [ZED ROS 2 Wrapper Repository](https://github.com/stereolabs/zed-ros2-wrapper)
 
 
 ---
