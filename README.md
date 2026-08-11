@@ -68,13 +68,6 @@ This section describes how to start the rover when it is controlled by the Jetso
 
 Follow the steps described in the [QUICKSTART](QUICKSTART.md) to power on and operate the rover.
 
-The steps below are currently irrelevant:
-
-1. ~~**Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button.~~
-2. ~~**Turn on the joystick:** Power on the red joystick. It will automatically connect to the rover's computer.~~
-3. ~~**Verify the joystick connection:** Wait for the joystick LEDs to stop blinking and turn solid white, indicating a successful connection.~~
-4. ~~**Control the rover:** The launch file that initializes all the required nodes will run automatically. No further action is needed, and you are now ready to drive the rover using the joystick.~~
-
 ### Starting the Laptop-Controlled Rover
 
 Follow these steps to power on and operate the rover using a laptop:
@@ -124,7 +117,9 @@ Follow these steps to power on and operate the rover using a laptop:
 To power down the rover, perform **one** of the following actions:
 
 * **Use the power switch:** Rotate the blue switch on the back of the rover counterclockwise.
-* ~~**Use the Emergency Stop:** Press one of the two red buttons on the top of the rover.~~
+* **Use the Emergency Stop:** Press one of the two red buttons on the top of the rover.
+
+> **Note:** To restart the rover after the emergency button has been pressed, you must first release the button by rotating it counterclockwise.
 
 
 ### Current System Credentials and Network Info
