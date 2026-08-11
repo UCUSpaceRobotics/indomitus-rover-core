@@ -10,17 +10,17 @@ if(BUILD_TESTING)
 endif()
 
 # Install launch files
-install(DIRECTORY launch config
+install(DIRECTORY launch/ config/ resource/
     DESTINATION share/${PROJECT_NAME}
+)
+
+install(FILES README.md
+    DESTINATION share/${PROJECT_NAME}
+    OPTIONAL
 )
 
 install(PROGRAMS launch/calibrate_camera.py
     DESTINATION lib/${PROJECT_NAME}
-)
-
-# Install package resource marker for ament index visibility
-install(DIRECTORY resource
-    DESTINATION share/${PROJECT_NAME}
 )
 
 ament_package()

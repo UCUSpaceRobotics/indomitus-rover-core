@@ -9,12 +9,7 @@ if(BUILD_TESTING)
 endif()
 
 # Install launch, config, and behavior tree directories
-install(DIRECTORY launch config behaviour_trees
-    DESTINATION share/${PROJECT_NAME}
-)
-
-# Install package resource marker for ament index visibility
-install(DIRECTORY resource
+install(DIRECTORY launch/ config/ behaviour_trees/ resource/
     DESTINATION share/${PROJECT_NAME}
 )
 

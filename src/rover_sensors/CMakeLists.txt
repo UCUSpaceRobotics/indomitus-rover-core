@@ -9,28 +9,20 @@ if(BUILD_TESTING)
 endif()
 
 install(
-  DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}
-)
-
-install(
-  DIRECTORY config
-  DESTINATION share/${PROJECT_NAME}
-)
-
-install(
-  DIRECTORY resource
+  DIRECTORY launch/ config/ resource/
   DESTINATION share/${PROJECT_NAME}
 )
 
 install(
   DIRECTORY docs/
   DESTINATION share/${PROJECT_NAME}
+  OPTIONAL
 )
 
 install(
   FILES README.md
   DESTINATION share/${PROJECT_NAME}
+  OPTIONAL
 )
 
 ament_package()

@@ -23,8 +23,14 @@ if(BUILD_TESTING)
 endif()
 
 install(
-    DIRECTORY launch worlds config models
+    DIRECTORY launch/ worlds/ config/ models/
     DESTINATION share/${PROJECT_NAME}
+)
+
+install(
+    FILES README.md
+    DESTINATION share/${PROJECT_NAME}
+    OPTIONAL
 )
 
 add_library(rover_sim_controller SHARED

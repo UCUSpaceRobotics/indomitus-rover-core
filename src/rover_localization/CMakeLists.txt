@@ -9,12 +9,7 @@ if(BUILD_TESTING)
 endif()
 
 # Install launch and config directories
-install(DIRECTORY launch config
-    DESTINATION share/${PROJECT_NAME}
-)
-
-# Install package resource marker for ament index visibility
-install(DIRECTORY resource
+install(DIRECTORY launch/ config/ resource/
     DESTINATION share/${PROJECT_NAME}
 )
 

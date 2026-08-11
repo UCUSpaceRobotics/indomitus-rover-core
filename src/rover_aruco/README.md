@@ -1,81 +1,91 @@
-# Monocular Camera Calibration & ArUco Debug Guide
+# Rover Monocular Camera Calibration & ArUco Tracking Guide
 
-This guide outlines how to use the local debug launch setup and perform offline intrinsic calibration for a monocular camera. Intrinsic calibration estimates focal lengths, the optical center, and lens distortion, which are required for accurate ArUco marker pose and distance estimations.
+This guide outlines how to configure, launch, and verify the ArUco marker tracking system for rover localization, as well as perform offline intrinsic calibration for a monocular camera. Accurate intrinsic calibration (focal length, optical center, and lens distortion) is required for precise marker pose and distance estimations.
 
-## ArUco Debug Launch Configuration
+## 1. Launch Configurations
 
-The `aruco_debug.launch.py` file starts a local USB camera node and the ArUco tracker, primarily used for laptop or bench testing when no external driver is running. Start it using:
+Depending on your environment, you can run the tracker standalone (for production) or alongside a local camera node (for debugging).
+
+### Production Launch
+
+Starts only the `aruco_tracker` node. A separate camera driver must already be running and publishing image and calibration topics.
+
+```bash
+ros2 launch rover_localization aruco.launch.py
+```
+
+### Debug Launch
+
+Starts a local USB camera node alongside the `aruco_tracker`. This is primarily used for laptop or bench testing when no external driver is running.
 
 ```bash
 ros2 launch rover_aruco aruco_debug.launch.py
 ```
 
-### Nodes and Parameters
+## 2. Node Parameters & Topics
 
-* **`/camera/usb_cam`**: Configured via `config/usb_cam_params.yaml`.
+### The `aruco_tracker` Node
+
+Configured via `config/aruco_params.yaml`.
+
+* **`cam_base_topic`:** Image topic base used by the tracker (Default: `/camera/image_raw`).
+* **`marker_size`:** Physical marker side length in meters (Default: `0.05`).
+* **`marker_dict`:** OpenCV ArUco dictionary used by the printed marker (Default: `4X4_50`).
+* **`publish_tf`:** Publishes detected marker poses to TF when enabled (Default: `true`).
+
+### The `/camera/usb_cam` Node (Debug Only)
+
+Configured via `config/usb_cam_params.yaml`.
+
 * **Device:** `/dev/video0`.
 * **Stream:** `640x480` resolution, `30.0` FPS, `yuyv2rgb` pixel format, and `mmap` I/O method.
 * **Identifiers:** `laptop_camera` for the camera name, and `camera` for the frame ID.
-* **`/aruco_tracker`**: Configured via `config/aruco_params.yaml`.
-* **Targeting:** Subscribes to `/camera/image_raw`.
-* **Detection:** Uses a physical `marker_size` of `0.05` meters and the `4X4_50` `marker_dict`.
-* **Output:** `publish_tf` is set to `true` to broadcast detected marker poses.
+* **Calibration:** Defaults to `config/approx_laptop_camera.yaml`. Because its distortion coefficients are zero, it is only suitable for basic pipeline testing.
 
+### System Topics
 
-### Expected Topics
-
-* `/camera/image_raw`: Image stream.
-* `/camera/camera_info`: Camera calibration data.
-* `/aruco_detections`: Detected marker IDs and poses.
-* `/aruco_tracker/debug`: Debug images overlaying marker axes.
-
-
-> **Calibration Note:** By default, the launch uses `config/approx_laptop_camera.yaml`. Because its distortion coefficients are all zero, it is only suitable for basic pipeline testing and must be replaced with measured calibration before evaluating pose accuracy.
-
+* **`/camera/image_raw` (Input):** Camera image stream. The image header must have a valid `frame_id`.
+* **`/camera/camera_info` (Input):** Camera calibration data from the same camera namespace.
+* **`/aruco_detections` (Output):** Detected marker IDs and poses.
+* **`/aruco_tracker/debug` (Output):** Debug image overlaying detected marker axes on top of the feed.
+* **`/tf` (Output):** Marker transforms (only if `publish_tf` is true).
 
 ---
 
-## ArUco Calibration
+## 3. Pipeline Verification Checklist
 
-### 1. Prepare for Calibration
+After starting your preferred launch file, point the camera at a configured marker and verify the data flow:
+
+* **Verify image stream:** Run `ros2 topic hz /camera/image_raw`.
+* **Verify camera calibration:** Run `ros2 topic echo /camera/camera_info --once`.
+* **Verify marker detections:** Run `ros2 topic echo /aruco_detections --once`.
+* **Verify TF broadcasts:** Run `ros2 topic echo /tf --once` (if `publish_tf` is enabled).
+* **Visual validation:** Run `rviz2`, then select **Add > By topic > /aruco_detections/camera** (Note: this image path does not appear in standard topic lists). A working setup shows the webcam image and a bounding box over the detected marker. A **No Image** warning indicates a problem in the camera or detection pipeline.
+
+---
+
+## 4. ArUco Camera Calibration Guide
 
 The package provides `calibrate_camera.py`, an offline utility that reads saved chessboard images and generates OpenCV parameters. It does not capture images or configure `usb_cam` automatically.
 
-#### Equipment & Dependencies
+### Step 1: Prepare the Setup
 
-* Final rover camera, lens, and a rigid, flat chessboard target.
-* Measuring tools (calipers/ruler) to measure a printed square.
+* Clean the lens and mount the production camera rigidly to avoid cable strain.
+* Set the camera to its exact production resolution and field-of-view mode. Disable autofocus, establish the final lens focus, and prefer fixed exposure and white balance.
+* Count the *inner corners* of your flat chessboard target (e.g., a 10x7 square board has 9 columns and 6 rows of inner corners).
+* Measure several printed squares, divide to find the average, and record the side length in meters.
 * Install dependencies: `rosdep install --from-paths src --ignore-src --rosdistro humble -r -y`.
 
+### Step 2: Collect the Dataset
 
-#### Chessboard Configuration
-
-* **Grid Size:** Count the *inner corners*, not the printed squares (e.g., a 10x7 square board has 9 columns and 6 rows of inner corners).
-* **Square Size:** Measure several printed squares, divide to find the average, and record the side length in meters.
-
-
-#### Lock the Setup
-
-* Clean the lens and mount the camera rigidly to avoid cable strain.
-* Set the camera to its exact production resolution and field-of-view mode.
-* Disable autofocus, establish final lens focus, and prefer fixed exposure and white balance.
-
----
-
-### 2. Collect the Dataset
-
-Save unedited, lossless frames (PNG or BMP) from the production stream into a dedicated directory, such as `media/calibration/rover_front_2026-07-19`.
-
-Capture **25 to 40 sharp, diverse observations**, ensuring the entire chessboard is visible in every frame. Reject frames with motion blur, glare, or heavy occlusion. Ensure the dataset includes:
+Save **25 to 40 unedited, lossless frames (PNG or BMP)** from the production stream into a dedicated directory (e.g., `media/calibration/rover_front_2026-07-19`). Reject any frames with motion blur, glare, or heavy occlusion. Ensure the dataset includes:
 
 * **Full Image Coverage:** Board placed centered, at all four edges, and in all four corners. Edge observations are critical for estimating distortion.
 * **Varied Tilt:** Board parallel to the sensor, and tilted 15 to 30 degrees toward/away on all four sides.
 * **Varied Distance:** Close (board fills the frame), medium (fills half), and far (fills 1/4 to 1/3).
 * **Varied Rotation:** Normal orientation, and 20 to 45 degrees clockwise and counter-clockwise.
 
----
-
-### 3. Run the Calibration Utility
+### Step 3: Run the Calibration Utility
 
 Build the workspace and run the utility, replacing the arguments with your measured values and paths:
 
@@ -93,15 +103,9 @@ ros2 run rover_aruco calibrate_camera.py \
   --show
 ```
 
-* The `--show` flag briefly displays each accepted image; press `q` or `Esc` to skip.
-* The script requires exactly one consistent image resolution and a minimum of five accepted images to output the `.npz` archive.
-* A good calibration typically produces a sub-pixel RMS reprojection error below `0.5`, but do not rely on RMS alone if edge coverage is poor.
+> **Note:** The `--show` flag briefly displays each accepted image; press `q` or `Esc` to skip. A good calibration typically produces a sub-pixel RMS reprojection error below `0.5`, but do not rely on RMS alone if edge coverage is poor.
 
----
-
-### 4. Integrate & Validate Calibration
-
-#### Convert to ROS YAML
+### Step 4: Convert to ROS YAML
 
 The utility outputs an OpenCV `.npz` archive. You must manually map this to a ROS YAML file:
 
@@ -112,18 +116,15 @@ The utility outputs an OpenCV `.npz` archive. You must manually map this to a RO
 * Transfer intrinsic values to the 3x4 `projection_matrix`.
 * Ensure `camera_name` matches your driver configuration.
 
-Store the YAML in `src/rover_aruco/config/` and update your launch files to point to it.
+Store the YAML in `src/rover_aruco/config/` and update your camera launch files to point to it.
 
-
-#### Validation Checks
+### Step 5: Post-Calibration Validation
 
 * **Intrinsics:** Run `ros2 topic echo /camera/camera_info --once` to confirm the new metrics are publishing.
 * **Rectification:** Use `image_proc` to rectify the image and verify that straight physical lines remain straight near the image boundaries.
 * **ArUco Pose:** Test a marker matching your configured `marker_size`. Confirm that the pose does not jump erratically and that the depth estimate aligns with physical tape measurements.
 
----
-
-### 5. Record-Keeping and Recalibration
+### Step 6: Record-Keeping and Recalibration
 
 When submitting calibration data, document the camera hardware, device path, driver settings, chessboard metrics, accepted observation count, RMS, and validation evidence.
 
@@ -133,4 +134,5 @@ A calibration profile belongs to a specific physical camera and lens state. You 
 * The camera module, lens, or lens position (e.g., after an impact or disassembly).
 * Manual focus settings.
 * Image resolution, binning, crop, digital zoom, or field-of-view modes.
-(Note: Altering the frame rate generally does not invalidate intrinsics).
+
+*(Note: Altering the frame rate generally does not invalidate intrinsics).*
