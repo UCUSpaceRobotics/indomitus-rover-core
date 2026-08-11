@@ -85,17 +85,40 @@ def generate_panel_bridge_config(context, panel_sim_share: str) -> list[Node]:
 def make_panel_nodes(panel_description_share: str) -> list:
     xacro_file = os.path.join(panel_description_share, 'urdf', 'panel_standalone.urdf.xacro')
 
+    # panel_x/y/z/yaw are the same launch args passed to panel_spawn below --
+    # the published world -> panel_base_link TF must match where the model
+    # is actually spawned in Gazebo, or perception/planning against the
+    # panel will be working off a stale pose.
     panel_description_content = ParameterValue(
-        Command(['xacro ', xacro_file, ' sim:=true']),
+        Command([
+            'xacro ', xacro_file, ' sim:=true',
+            ' panel_x:=', LaunchConfiguration('panel_x'),
+            ' panel_y:=', LaunchConfiguration('panel_y'),
+            ' panel_z:=', LaunchConfiguration('panel_z'),
+            ' panel_yaw:=', LaunchConfiguration('panel_yaw'),
+        ]),
         value_type=str,
     )
 
+    # frame_prefix makes the published frame IDs actually be panel/* (the
+    # namespace alone only namespaces topics, not tf2 frame_id strings), and
+    # remapping tf/tf_static back onto the global topics puts those prefixed
+    # frames on the one shared TF tree instead of an isolated panel/tf that
+    # no other node's TransformListener would ever see by default.
     panel_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         namespace='panel',
         output='screen',
-        parameters=[{'robot_description': panel_description_content, 'use_sim_time': True}],
+        parameters=[{
+            'robot_description': panel_description_content,
+            'use_sim_time': True,
+            'frame_prefix': 'panel/',
+        }],
+        remappings=[
+            ('/panel/tf', '/tf'),
+            ('/panel/tf_static', '/tf_static'),
+        ],
     )
 
     panel_spawn = Node(

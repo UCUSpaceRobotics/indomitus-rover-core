@@ -244,7 +244,7 @@
       <child link="panel_breaker_1_link"/>
       <origin xyz="-0.150607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -266,7 +266,7 @@
       <child link="panel_breaker_2_link"/>
       <origin xyz="-0.132607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -289,7 +289,7 @@
       <child link="panel_breaker_3_link"/>
       <origin xyz="-0.114607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -312,7 +312,7 @@
       <child link="panel_breaker_4_link"/>
       <origin xyz="-0.096607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -335,7 +335,7 @@
       <child link="panel_breaker_5_link"/>
       <origin xyz="-0.078607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -358,7 +358,7 @@
       <child link="panel_breaker_6_link"/>
       <origin xyz="-0.060607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -381,7 +381,7 @@
       <child link="panel_breaker_7_link"/>
       <origin xyz="-0.042607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -404,7 +404,7 @@
       <child link="panel_breaker_8_link"/>
       <origin xyz="-0.024607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -427,7 +427,7 @@
       <child link="panel_breaker_9_link"/>
       <origin xyz="-0.006607 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -450,7 +450,7 @@
       <child link="panel_breaker_10_link"/>
       <origin xyz="0.011393 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -473,7 +473,7 @@
       <child link="panel_breaker_11_link"/>
       <origin xyz="0.029393 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -496,7 +496,7 @@
       <child link="panel_breaker_12_link"/>
       <origin xyz="0.047393 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -519,7 +519,7 @@
       <child link="panel_breaker_13_link"/>
       <origin xyz="0.065393 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -542,7 +542,7 @@
       <child link="panel_breaker_14_link"/>
       <origin xyz="0.083393 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -565,7 +565,7 @@
       <child link="panel_breaker_15_link"/>
       <origin xyz="0.101393 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -588,7 +588,7 @@
       <child link="panel_breaker_16_link"/>
       <origin xyz="0.119393 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 
@@ -611,7 +611,7 @@
       <child link="panel_breaker_17_link"/>
       <origin xyz="0.137393 0.000926 0.305081" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${pi/6}" upper="${pi/2}" effort="5.0" velocity="2.0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
       <dynamics damping="0.02" friction="0.02"/>
     </joint>
 

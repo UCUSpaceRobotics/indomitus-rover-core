@@ -10,6 +10,9 @@ from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 
 WORLD_NAME = "panel_sim_world"  # must match the <world name="..."> in worlds/empty.sdf
+PANEL_SPAWN_Z = "0.2"  # passed to both the spawn and the xacro robot_description below,
+                        # so the published world -> panel_base_link TF matches where the
+                        # model is actually spawned instead of staying at the URDF's identity
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -34,7 +37,7 @@ def generate_launch_description() -> LaunchDescription:
     ign_resource_path = os.pathsep.join(filter(None, [resource_path_root, existing_ign_path]))
 
     robot_description_content = ParameterValue(
-        Command(["xacro ", xacro_file, " sim:=true"]),
+        Command(["xacro ", xacro_file, " sim:=true panel_z:=", PANEL_SPAWN_Z]),
         value_type=str,
     )
 
@@ -56,7 +59,7 @@ def generate_launch_description() -> LaunchDescription:
         package="ros_gz_sim",
         executable="create",
         arguments=[
-            "-topic", "robot_description", "-name", "indomitus_panel", "-z", "0.2",
+            "-topic", "robot_description", "-name", "indomitus_panel", "-z", PANEL_SPAWN_Z,
             "--ros-args", "--log-level", "debug",
         ],
         output="screen",
