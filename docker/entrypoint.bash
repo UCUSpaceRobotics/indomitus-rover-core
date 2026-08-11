@@ -13,9 +13,9 @@ source_if_exists() {
 
 # -------------------- ROS2 Workspace Setup --------------------
 
-TARGET_ROS_DISTRO="humble"
-HW_WS="/opt/hw_ws"
-WS="/opt/ws"
+TARGET_ROS_DISTRO="${TARGET_ROS_DISTRO:-humble}"
+HW_WS="${HW_WS:-/opt/hw_ws}"
+WS="${WS:-/opt/ws}"
 
 source_if_exists "/opt/ros/${TARGET_ROS_DISTRO}/setup.bash"
 source_if_exists "${HW_WS}/install/setup.bash"
