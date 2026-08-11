@@ -252,3 +252,7 @@ colcon_defaults.yaml
 # Code formating
 .clang-format
 .pre-commit-config.yaml
+
+# Big maps
+src/rover_sim/models/mars_yard_2025/meshes/mars_yard_2025_very_high_resolution.obj
+src/rover_sim/models/mars_yard_2025/meshes/mars_yard_2025_ultra_resolution.obj
