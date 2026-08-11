@@ -1,0 +1,750 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- sim:=true enables the Gazebo-only blocks (joint state publishing for
+       the passive switch/breaker joints). The panel has no ros2_control
+       hardware of its own: switches are passive bodies the arm interacts
+       with via contact physics, not actuated joints. -->
+  <xacro:arg name="sim" default="false"/>
+
+  <xacro:macro name="indomitus_panel" params="parent_link *origin">
+
+    <xacro:property name="mesh_path" value="package://panel_description/meshes"/>
+    <xacro:property name="stl_scale" value="0.001 0.001 0.001"/>
+
+    <!-- Component placement (x along panel width, z up the panel face) is a
+         placeholder spread across the board, inferred only from each STL's
+         own bounding box: there is no source CAD assembly telling us the
+         real mounting holes. panel.stl's dominant flat face sits at
+         y ~= -0.015 m (found by a vertex-density check of the mesh), which
+         is assumed to be the front the arm approaches; verify this visually
+         in RViz/Gazebo and adjust these origins once the real layout is
+         confirmed. -->
+
+    <material name="panel_grey">
+      <color rgba="0.5 0.5 0.55 1.0"/>
+    </material>
+
+    <material name="power_switch_pink">
+      <color rgba="0.83 0.42 0.5 1.0"/>
+    </material>
+
+    <material name="breaker_white">
+      <color rgba="0.92 0.92 0.92 1.0"/>
+    </material>
+
+    <material name="indicator_green">
+      <color rgba="0.25 0.85 0.3 1.0"/>
+    </material>
+
+    <material name="socket_grey">
+      <color rgba="0.65 0.65 0.68 1.0"/>
+    </material>
+
+    <material name="marker_black">
+      <color rgba="0.03 0.03 0.03 1.0"/>
+    </material>
+
+    <xacro:macro name="dummy_inertia" params="mass">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="${mass}"/>
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
+      </inertial>
+    </xacro:macro>
+
+    <!-- ===================== BASE PLATE ===================== -->
+    <joint name="panel_mount_joint" type="fixed">
+      <xacro:insert_block name="origin"/>
+      <parent link="${parent_link}"/>
+      <child link="panel_base_link"/>
+    </joint>
+
+    <link name="panel_base_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/panel.stl" scale="${stl_scale}"/></geometry>
+        <material name="panel_grey"/>
+      </visual>
+      <collision>
+        <!-- panel.stl is a heavy (231k-triangle) non-convex mesh: DART
+             either takes very long to build a convex decomposition for it
+             or refuses it outright, which was making the whole model fail
+             to spawn. A box is cheap and this link is static anyway. -->
+        <origin xyz="0 0.013 0.225" rpy="0 0 0"/>
+        <geometry><box size="0.33 0.072 0.45"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="3.0"/>
+    </link>
+
+    <!-- ===================== MAIN SWITCH 1 (main_switch.stl) ===================== -->
+    <!-- Large toggle/rotary switch, ~65x65x29 mm. -->
+    <joint name="panel_main_switch_1_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_main_switch_1_link"/>
+      <origin xyz="0.042355 -0.0059 0.109905" rpy="${pi/2} ${-pi/2} 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${-pi/2}" upper="0" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <link name="panel_main_switch_1_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/main_switch.stl" scale="${stl_scale}"/></geometry>
+        <material name="power_switch_pink"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/main_switch.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.05"/>
+    </link>
+
+
+    <!-- ===================== MAIN SWITCH 2 (main_switch.stl) ===================== -->
+    <!-- Large toggle/rotary switch, ~65x65x29 mm. -->
+    <joint name="panel_main_switch_2_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_main_switch_2_link"/>
+      <origin xyz="0.122355 -0.0059 0.109905" rpy="${pi/2} ${-pi/2} 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${-pi/2}" upper="0" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <link name="panel_main_switch_2_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/main_switch.stl" scale="${stl_scale}"/></geometry>
+        <material name="power_switch_pink"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/main_switch.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.05"/>
+    </link>
+
+
+    <!-- ===================== SWITCH 1 (switch.stl) ===================== -->
+    <!-- Medium toggle switch, ~38x46x29 mm. -->
+    <joint name="panel_switch_1_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_switch_1_link"/>
+      <origin xyz="0.119578 0 0.20797" rpy="0 0 ${pi}"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${-pi/2}" upper="0" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <link name="panel_switch_1_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+        <material name="panel_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.03"/>
+    </link>
+
+
+    <!-- ===================== SWITCH 2 (switch.stl) ===================== -->
+    <!-- Medium toggle switch, ~38x46x29 mm. -->
+    <joint name="panel_switch_2_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_switch_2_link"/>
+      <origin xyz="0.059789 0 0.20797" rpy="0 0 ${pi}"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${-pi/2}" upper="0" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <link name="panel_switch_2_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+        <material name="panel_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.03"/>
+    </link>
+
+
+    <!-- ===================== SWITCH 3 (switch.stl) ===================== -->
+    <!-- Medium toggle switch, ~38x46x29 mm. -->
+    <joint name="panel_switch_3_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_switch_3_link"/>
+      <origin xyz="0 0 0.20797" rpy="0 0 ${pi}"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${-pi/2}" upper="0" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <link name="panel_switch_3_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+        <material name="panel_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.03"/>
+    </link>
+
+
+    <!-- ===================== SWITCH 4 (switch.stl) ===================== -->
+    <!-- Medium toggle switch, ~38x46x29 mm. -->
+    <joint name="panel_switch_4_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_switch_4_link"/>
+      <origin xyz="-0.059789 0 0.20797" rpy="0 0 ${pi}"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${-pi/2}" upper="0" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <link name="panel_switch_4_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+        <material name="panel_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.03"/>
+    </link>
+
+
+    <!-- ===================== SWITCH 5 (switch.stl) ===================== -->
+    <!-- Medium toggle switch, ~38x46x29 mm. -->
+    <joint name="panel_switch_5_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_switch_5_link"/>
+      <origin xyz="-0.119578 0 0.20797" rpy="0 0 ${pi}"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${-pi/2}" upper="0" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <link name="panel_switch_5_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+        <material name="panel_grey"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/switch.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.03"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 1 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_1_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_1_link"/>
+      <origin xyz="-0.150607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_1_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+    <!-- ===================== BREAKER 2 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_2_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_2_link"/>
+      <origin xyz="-0.132607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_2_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 3 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_3_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_3_link"/>
+      <origin xyz="-0.114607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_3_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 4 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_4_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_4_link"/>
+      <origin xyz="-0.096607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_4_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 5 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_5_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_5_link"/>
+      <origin xyz="-0.078607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_5_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 6 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_6_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_6_link"/>
+      <origin xyz="-0.060607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_6_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 7 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_7_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_7_link"/>
+      <origin xyz="-0.042607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_7_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 8 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_8_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_8_link"/>
+      <origin xyz="-0.024607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_8_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 9 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_9_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_9_link"/>
+      <origin xyz="-0.006607 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_9_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 10 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_10_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_10_link"/>
+      <origin xyz="0.011393 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_10_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 11 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_11_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_11_link"/>
+      <origin xyz="0.029393 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_11_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 12 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_12_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_12_link"/>
+      <origin xyz="0.047393 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_12_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 13 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_13_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_13_link"/>
+      <origin xyz="0.065393 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_13_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 14 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_14_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_14_link"/>
+      <origin xyz="0.083393 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_14_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 15 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_15_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_15_link"/>
+      <origin xyz="0.101393 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_15_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 16 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_16_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_16_link"/>
+      <origin xyz="0.119393 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_16_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== BREAKER 17 (MCB_1P.stl) ===================== -->
+    <!-- Single-pole miniature circuit breaker toggle, ~14x16x16 mm. -->
+    <joint name="panel_breaker_17_joint" type="revolute">
+      <parent link="panel_base_link"/>
+      <child link="panel_breaker_17_link"/>
+      <origin xyz="0.137393 0.000926 0.305081" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="${pi/3}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+
+    <link name="panel_breaker_17_link">
+      <visual>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+        <material name="breaker_white"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_path}/MCB_1P.stl" scale="${stl_scale}"/></geometry>
+      </collision>
+      <xacro:dummy_inertia mass="0.01"/>
+    </link>
+
+
+    <!-- ===================== INDICATOR LIGHTS (primitive, no STL) =====================
+         Row of 5 status LEDs above the breaker row, per "All of the five
+         indicators are lit up" in the Expected Results. No source mesh for
+         these exists, so they're flat green boxes flush with the panel
+         face — positioned/sized by eye against the reference render, same
+         placeholder-until-verified caveat as everything else in this file. -->
+    <xacro:macro name="panel_indicator" params="suffix x z">
+      <joint name="panel_indicator_${suffix}_joint" type="fixed">
+        <parent link="panel_base_link"/>
+        <child link="panel_indicator_${suffix}_link"/>
+        <origin xyz="${x} -0.003 ${z}" rpy="0 0 0"/>
+      </joint>
+      <link name="panel_indicator_${suffix}_link">
+        <visual>
+          <geometry><box size="0.022 0.004 0.014"/></geometry>
+          <material name="indicator_green"/>
+        </visual>
+        <collision>
+          <geometry><box size="0.022 0.004 0.014"/></geometry>
+        </collision>
+        <xacro:dummy_inertia mass="0.001"/>
+      </link>
+    </xacro:macro>
+
+    <xacro:panel_indicator suffix="1" x="-0.119578" z="0.365"/>
+    <xacro:panel_indicator suffix="2" x="-0.059789" z="0.365"/>
+    <xacro:panel_indicator suffix="3" x="0"         z="0.365"/>
+    <xacro:panel_indicator suffix="4" x="0.059789"  z="0.365"/>
+    <xacro:panel_indicator suffix="5" x="0.119578"  z="0.365"/>
+
+
+    <!-- ===================== SOCKETS (primitive, no STL) =====================
+         The two IEC320 C14 plug sockets ("insert the plug into one of the
+         two sockets"), placed left of the pink rotary power switches at the
+         same row height (panel_main_switch_1/2 are at z=0.109905). Small
+         grey cylinders standing proud of the panel face. -->
+    <xacro:macro name="panel_socket" params="suffix x z">
+      <joint name="panel_socket_${suffix}_joint" type="fixed">
+        <parent link="panel_base_link"/>
+        <child link="panel_socket_${suffix}_link"/>
+        <origin xyz="${x} -0.006 ${z}" rpy="${pi/2} 0 0"/>
+      </joint>
+      <link name="panel_socket_${suffix}_link">
+        <visual>
+          <geometry><cylinder radius="0.012" length="0.012"/></geometry>
+          <material name="socket_grey"/>
+        </visual>
+        <collision>
+          <geometry><cylinder radius="0.012" length="0.012"/></geometry>
+        </collision>
+        <xacro:dummy_inertia mass="0.005"/>
+      </link>
+    </xacro:macro>
+
+    <xacro:panel_socket suffix="1" x="-0.10" z="0.109905"/>
+    <xacro:panel_socket suffix="2" x="-0.06" z="0.109905"/>
+
+
+    <!-- ===================== ArUco MARKER MOUNTS (primitive, no STL) =====================
+         Flat black squares for pose-detection markers ("AruCo detection"
+         in the scoring sheet). Three of the four corners are marked in the
+         reference render (top-left, top-right, bottom-left) — the actual
+         ArUco pattern (numbered tag) is applied as a texture/decal on top
+         of this base square by whichever code renders/prints the markers;
+         this link is just the physical black mount square. -->
+    <xacro:macro name="panel_marker" params="suffix x z">
+      <joint name="panel_marker_${suffix}_joint" type="fixed">
+        <parent link="panel_base_link"/>
+        <child link="panel_marker_${suffix}_link"/>
+        <origin xyz="${x} -0.003 ${z}" rpy="0 0 0"/>
+      </joint>
+      <link name="panel_marker_${suffix}_link">
+        <visual>
+          <geometry><box size="0.04 0.002 0.04"/></geometry>
+          <material name="marker_black"/>
+        </visual>
+        <collision>
+          <geometry><box size="0.04 0.002 0.04"/></geometry>
+        </collision>
+        <xacro:dummy_inertia mass="0.001"/>
+      </link>
+    </xacro:macro>
+
+    <xacro:panel_marker suffix="top_left"    x="-0.135" z="0.415"/>
+    <xacro:panel_marker suffix="top_right"   x="0.135"  z="0.415"/>
+    <xacro:panel_marker suffix="bottom_left" x="-0.135" z="0.035"/>
+
+
+    <xacro:if value="$(arg sim)">
+      <!-- panel_base_link only: no gravity, so the board itself neither
+           falls nor tips over on sloped terrain and just sits exactly at
+           its spawn pose (see panel_x/y/z/yaw in sim_gz_full.launch.py).
+           This means that pose must now match the real terrain height by
+           hand: there is no physics settling to correct a wrong z.
+           Switch/breaker links below are untouched, so the arm can still
+           flip them normally. -->
+      <gazebo reference="panel_base_link">
+        <gravity>false</gravity>
+      </gazebo>
+
+      <gazebo reference="panel_base_link">
+        <visual>
+          <material>
+            <ambient>0.5 0.5 0.55 1.0</ambient>
+            <diffuse>0.5 0.5 0.55 1.0</diffuse>
+            <specular>0.2 0.2 0.2 1.0</specular>
+          </material>
+        </visual>
+      </gazebo>
+
+      <!-- No ros2_control block: publishes joint states for the passive
+           switch/breaker joints purely from physics simulation. -->
+      <gazebo>
+        <plugin filename="gz-sim-joint-state-publisher-system"
+                name="gz::sim::systems::JointStatePublisher">
+        </plugin>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+</robot>

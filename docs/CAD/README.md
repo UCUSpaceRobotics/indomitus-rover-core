@@ -18,6 +18,7 @@
 - **FRM** = Frame (Chassis)
 - **SUS** = Suspension
 - **ARM** = Robotic Arm
+- **PNL** = Panel (ERC Equipment/Switch Task Panel — a free-standing environment object, not bolted to the rover)
 - **COT** = Commercial Off-The-Shelf (Purchased/Standard parts)
 
 ### Arm Sub-systems
@@ -28,6 +29,12 @@
 - **JAW** = Jaw (Pinch Gripper)
 - **SMP** = Sampler (Clamshell Scoop / Drill)
 - **PMP** = Pump (Liquid Handling)
+
+### Panel Sub-systems
+- **BDY** = Body (Base Plate)
+- **MSW** = Main Switch (Main Toggle/Rotary Switch)
+- **SWT** = Switch (Toggle Switch)
+- **MCB** = Breaker (Single-Pole Miniature Circuit Breaker)
 
 ### Frame Sub-systems
 - **FME** = Frame Core (Actuall Frame From Aluminium Profiles)

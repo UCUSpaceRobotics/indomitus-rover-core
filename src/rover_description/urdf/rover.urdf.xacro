@@ -7,6 +7,17 @@
   <xacro:include filename="$(find rover_description)/urdf/macros/accessories.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/camera.xacro"/>
 
+  <!-- mount_arm:=true bolts the indomitus_arm (arm_description) onto
+       main_body_link, matching the real hardware where the arm is
+       physically attached to the rover chassis. Defaults to false so
+       existing rover-only bringup/sim behavior is unchanged unless a
+       launch file opts in. The include is unconditional (it only defines
+       the indomitus_arm macro; no links/joints are created until it is
+       invoked below), so arm_description must be present in the overlay
+       the same way it already is for arm_bringup/arm_hardware_interface. -->
+  <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>
+  <xacro:arg name="mount_arm" default="false"/>
+
   <!-- ===================== MATERIALS ===================== -->
   <material name="blue_body">
     <color rgba="0.55 0.56 0.58 1"/>
@@ -106,5 +117,14 @@
   <xacro:towerlight_accessory suffix="r" y_sign="-1"/>
   <xacro:stop_button_accessory suffix="l" y_sign="1"/>
   <xacro:stop_button_accessory suffix="r" y_sign="-1"/>
+
+  <!-- ===================== ARM (OPTIONAL) ===================== -->
+  <!-- Placeholder mount pose; update once the real MR_ARM_ATT attachment
+       point from CAD is known. -->
+  <xacro:if value="$(arg mount_arm)">
+    <xacro:indomitus_arm parent_link="main_body_link">
+      <origin xyz="0.2 0 0.1" rpy="0 0 0"/>
+    </xacro:indomitus_arm>
+  </xacro:if>
 
 </robot>
