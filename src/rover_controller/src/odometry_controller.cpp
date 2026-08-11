@@ -140,7 +140,7 @@ RoverOdometryController::update(
         first_update_ = false;
 
         // Publish the initial pose immediately (rover starts at rest at the
-        // origin) so /odom and odom->base_link exist as soon as the controller
+        // origin) so /odom and odom->base_footprint exist as soon as the controller
         // activates, before any motion occurs.
         publish_odom(0.0, 0.0, 0.0, time);
         return controller_interface::return_type::OK;
