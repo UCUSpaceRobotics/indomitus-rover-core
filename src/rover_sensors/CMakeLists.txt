@@ -9,12 +9,12 @@ if(BUILD_TESTING)
 endif()
 
 install(
-  DIRECTORY launch/ config/ resource/
+  DIRECTORY launch config resource
   DESTINATION share/${PROJECT_NAME}
 )
 
 install(
-  DIRECTORY docs/
+  DIRECTORY docs
   DESTINATION share/${PROJECT_NAME}
   OPTIONAL
 )

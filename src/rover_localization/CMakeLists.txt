@@ -9,7 +9,7 @@ if(BUILD_TESTING)
 endif()
 
 # Install launch and config directories
-install(DIRECTORY launch/ config/ resource/
+install(DIRECTORY launch config resource
     DESTINATION share/${PROJECT_NAME}
 )
 
