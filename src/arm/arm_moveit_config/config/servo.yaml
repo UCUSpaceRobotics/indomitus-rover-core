@@ -31,6 +31,9 @@ moveit_servo:
 
     command_in_type: speed_units
     command_out_type: trajectory_msgs/JointTrajectory
+    # Do not lower: the position error the MIT loop sees is velocity *
+    # publish_period, so a shorter period directly shrinks the available
+    # torque. At 0.01 the arm stopped responding entirely.
     publish_period: 0.034
 
     publish_joint_positions: true

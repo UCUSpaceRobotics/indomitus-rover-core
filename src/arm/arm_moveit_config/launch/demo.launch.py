@@ -57,6 +57,12 @@ def generate_launch_description() -> LaunchDescription:
     servo_yaml = load_yaml("arm_moveit_config", "config/servo.yaml")
     servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
 
+    # Declared on the node root, not under the moveit_servo namespace that
+    # servo.yaml lands in, so it has to be passed separately or it is silently
+    # ignored. Kept near the default: smoothing attenuates the commanded step,
+    # which on this arm just deepens the stick-slip it was meant to cure.
+    smoothing_params = {"butterworth_filter_coeff": 1.5}
+
     servo_node = Node(
         package="moveit_servo",
         executable="servo_node_main",
@@ -67,6 +73,7 @@ def generate_launch_description() -> LaunchDescription:
             moveit_config.robot_description_semantic,
             moveit_config.robot_description_kinematics,
             servo_params,
+            smoothing_params,
         ],
     )
 

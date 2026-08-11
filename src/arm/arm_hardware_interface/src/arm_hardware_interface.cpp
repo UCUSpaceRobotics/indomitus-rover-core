@@ -162,7 +162,11 @@ const std::array<LinkMass, NUM_JOINTS> kLinkMass = {{
     /*2 arm_forearm_link                                 */ { 0.630, {-0.00865,0.15, 0.0    } },
     /*3 arm_wrist_1_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
     /*4 arm_wrist_2_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
-    /*5 arm_end_effector_link (+ jaw gripper, ~200 g)    */ { 0.200, {0.0,     0.0,  0.06   } },
+    // Tuned on the arm, not weighed: this entry absorbs the end effector, jaw
+    // gripper, camera, fasteners and cabling, and compensates for the midpoint
+    // COM approximation used on the links above. Replacing it with the true
+    // gripper mass alone will under-compensate and make the arm sag again.
+    /*5 arm_end_effector_link + everything mounted on it */ { 0.600, {0.0,     0.0,  0.06   } },
 }};
 
 // kMotorMass[i] — the motor that drives joint i, pinned at joint i's own axis
@@ -543,7 +547,8 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
         const float target_vel = static_cast<float>(vff * joint_directions_[i]);
         const float kp = static_cast<float>(joint_kp_[i] * ramp);
         const float kd = static_cast<float>(joint_kd_[i] * ramp);
-        const float tff = gravity_tff[i] * static_cast<float>(ramp);  // ramp gravity FF in too — no sudden torque at activation
+        // Ramped in with the gains — no sudden torque at activation.
+        const float tff = gravity_tff[i] * static_cast<float>(ramp);
 
         can_msgs::msg::Frame f = (i < NUM_STEADYWIN)
             ? sw::build_mit_command_frame(motor_ids_[i], target_pos, target_vel, kp, kd, tff)
