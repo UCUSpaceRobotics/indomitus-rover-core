@@ -22,7 +22,7 @@ def get_parameter_from_yaml(file_path, node_name, parameter_name):
         ) from error
 
 def generate_launch_description():
-    package_name = "rover_localization"
+    package_name = "rover_aruco"
 
     pkg_share = get_package_share_directory(package_name)
 
