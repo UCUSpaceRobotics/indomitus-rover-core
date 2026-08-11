@@ -12,9 +12,9 @@ def generate_launch_description():
     ekf_real_config = os.path.join(rover_localization_share, 'config', 'ekf.yaml')
     ekf_sim_config = os.path.join(rover_localization_share, 'config', 'ekf_sim.yaml')
 
-    use_sim_val = LaunchConfiguration('use_sim')
-    use_sim_arg = DeclareLaunchArgument(
-        'use_sim',
+    use_sim_time_val = LaunchConfiguration('use_sim_time')
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
         default_value='false',
         description='Enable simulation mode (uses sim clock and sim EKF config).',
     )
@@ -27,13 +27,13 @@ def generate_launch_description():
     )
 
     config_file = IfElseSubstitution(
-        use_sim_val,
+        use_sim_time_val,
         if_value=ekf_sim_config,
         else_value=ekf_real_config,
     )
 
     return LaunchDescription([
-        use_sim_arg,
+        use_sim_time_arg,
         output_odom_topic_arg,
 
         Node(
@@ -43,7 +43,7 @@ def generate_launch_description():
             output='screen',
             parameters=[
                 config_file,
-                {'use_sim_time': use_sim_val},
+                {'use_sim_time': use_sim_time_val},
             ],
             remappings=[('odometry/filtered', output_odom_topic_val)],
         ),
