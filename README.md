@@ -302,6 +302,12 @@ Images built locally or by GitHub workflows will use the following tags:
 * **`<branch-name>-dev`** and **`<branch-name>-prod`**: Images built by GitHub workflows when you manually trigger **Publish Production and Development Images** for your branch (slashes in the branch name are replaced with dashes).
 * **`latest-prod`**: Production image built on merge to the main branch.
 
+
+### Aliases
+
+For convenience, the container includes built-in aliases for common ROS 2 commands. You can find the complete list in [aliases.md](./docs/software/aliases.md).
+
+
 ---
 
 
