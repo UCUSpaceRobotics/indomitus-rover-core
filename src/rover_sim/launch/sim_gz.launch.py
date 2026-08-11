@@ -13,6 +13,28 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from rover_bringup.launch_utils import include_launch
 
+BASE_CONTROLLERS = (
+    'joint_state_broadcaster',
+    'odometry_controller',
+    'diff_bar_effort_controller',
+)
+
+LEGACY_SWERVE_CONTROLLER = 'swerve_controller'
+SHAPE_SWERVE_CONTROLLER = 'swerve_controller_test'
+SWERVE_CONTROLLERS = (LEGACY_SWERVE_CONTROLLER, SHAPE_SWERVE_CONTROLLER)
+DEFAULT_SWERVE_CONTROLLER = SHAPE_SWERVE_CONTROLLER
+
+
+def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
+    swerve_controller = LaunchConfiguration('swerve_controller').perform(context)
+
+    return [include_launch('rover_bringup', 'control.launch.py', {
+        'use_sim': 'true',
+        'controllers_yaml': controllers_yaml_path,
+        'controllers': f'{swerve_controller} ' + ' '.join(BASE_CONTROLLERS),
+        'inactive_controllers': '',
+    })]
+
 
 def setup_environment() -> list:
     """Auto-detects host OS graphics and network issues, applying fixes instantly to the Python environment."""
@@ -141,13 +163,19 @@ def generate_launch_description() -> LaunchDescription:
     setup_environment()
 
     rover_description_share = get_package_share_directory('rover_description')
-    rover_sim_share         = get_package_share_directory('rover_sim')
+    rover_sim_share = get_package_share_directory('rover_sim')
 
     controllers_yaml_path = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value='world_demo'),
         DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
+        DeclareLaunchArgument(
+            'swerve_controller',
+            default_value=DEFAULT_SWERVE_CONTROLLER,
+            choices=list(SWERVE_CONTROLLERS),
+            description='Which swerve controller to spawn. It comes up active; '
+                        'the other is not loaded at all.'),
 
         DeclareLaunchArgument(
             'map_resolution',
@@ -180,11 +208,8 @@ def generate_launch_description() -> LaunchDescription:
                        kwargs={'rover_sim_share': rover_sim_share}),
         make_spawn_node(),
 
-        include_launch('rover_bringup', 'control.launch.py', {
-            'use_sim': 'true',
-            'controllers_yaml': controllers_yaml_path,
-            'controllers': 'joint_state_broadcaster swerve_controller odometry_controller diff_bar_effort_controller',
-        }),
+        OpaqueFunction(function=make_control_launch,
+                       kwargs={'controllers_yaml_path': controllers_yaml_path}),
 
         include_launch('rover_localization', 'ekf.launch.py', {
             'use_sim_time': 'true',
