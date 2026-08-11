@@ -2,10 +2,9 @@ ARG UBUNTU_VERSION=22.04
 ARG TARGET_ROS_DISTRO=humble
 ARG BASE_IMAGE_HW_BUILDER="stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04"
 ARG BASE_IMAGE="stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04"
-ARG SIMULATION_PKGS="rover_sim rover_viz arm_sim arm_viz" 
+ARG SIMULATION_PKGS="rover_sim rover_viz arm_sim arm_viz panel_sim"
 ARG HW_WS="/opt/hw_ws"
 ARG WS="/opt/ws"
-
 
 ####################
 # CACHER

@@ -24,17 +24,14 @@ map
 
 ## Ownership table
 
+Here is the combined table keeping everything from `HEAD` and only the `world -> panel/panel_base_link` row from `develop`:
+
 | Transform | Owning Node | Package | Config / Source |
 | --- | --- | --- | --- |
 | `map -> odom` | `async_slam_toolbox_node` | `slam_toolbox` | Launched via `rover_localization/launch/slam.launch.py` using `slam_toolbox_params.yaml`. |
-| `odom -> base_footprint` | `ekf_filter_node` (`robot_localization`) | `rover_localization` | **Real Hardware:** `config/ekf.yaml` (fuses `/wheels/odom` + `/zed2i/odom`).<br>
-
-<br>**Simulation:** `config/ekf_sim.yaml` (fuses only `/wheels/odom`).<br>
-
-<br>Both configurations set `publish_tf: true`, `odom_frame: odom`, `base_link_frame: base_footprint`. |
-| `base_footprint -> *` <br>
-
-<br>*(all static & dynamic links)* | `robot_state_publisher` | `rover_description` | Driven by `/joint_states` + `rover.urdf.xacro`. Launched via `robot_state_publisher.launch.py`. |
+| `odom -> base_footprint` | `ekf_filter_node` (`robot_localization`) | `rover_localization` | **Real Hardware:** `config/ekf.yaml` (fuses `/wheels/odom` + `/zed2i/odom`). **Simulation:** `config/ekf_sim.yaml` (fuses only `/wheels/odom`). Both configurations set `publish_tf: true`, `odom_frame: odom`, `base_link_frame: base_footprint`. |
+| `base_footprint -> *` *(all static & dynamic links)* | `robot_state_publisher` | `rover_description` | Driven by `/joint_states` + `rover.urdf.xacro`. Launched via `robot_state_publisher.launch.py`. |
+| `world -> panel/panel_base_link -> *` (panel base + switch/breaker links) | `robot_state_publisher` | `panel_description` | driven by `/joint_states` + `panel_standalone.urdf.xacro`; verified via `panel_bringup/panel_standalone.launch.py` (there, unprefixed: `world -> panel_base_link`, since standalone has no namespace to collide with). When spawned inside `rover_sim/sim_gz_full.launch.py` it runs under a `panel` namespace with `frame_prefix:='panel/'` set (so frame IDs are actually `panel/panel_base_link` etc., not just the topics) and `tf`/`tf_static` remapped back onto the global `/tf`/`/tf_static` topics, so the prefixed frames land on the one shared TF tree. The `world -> panel/panel_base_link` pose is generated from the same `panel_x`/`panel_y`/`panel_z`/`panel_yaw` launch args passed to the Gazebo spawn, so the two stay in sync -- **not yet verified end-to-end in Gazebo** (blocked on the Gazebo version issue in [`panel_sim.md`](https://www.google.com/search?q=../panel/panel_sim.md)), but the frame-naming and pose-sync code path is in place. |
 
 ## Non-owners (explicitly verified)
 

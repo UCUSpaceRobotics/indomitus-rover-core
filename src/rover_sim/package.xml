@@ -34,6 +34,11 @@
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
 
+  <!-- sim_gz_full.launch.py: combined rover + arm + panel (Runtime only) -->
+  <exec_depend>arm_description</exec_depend>
+  <exec_depend>panel_description</exec_depend>
+  <exec_depend>panel_sim</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <test_depend>ament_cmake_pytest</test_depend>

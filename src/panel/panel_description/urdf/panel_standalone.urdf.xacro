@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<robot name="indomitus_panel" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find panel_description)/urdf/panel_macro.xacro"/>
+
+  <!-- Must match whatever pose the panel is actually spawned at in Gazebo
+       (e.g. sim_gz_full.launch.py's panel_x/panel_y/panel_z/panel_yaw
+       launch args), or the published world -> panel_base_link TF will
+       disagree with where the model physically is. Defaults to identity
+       for standalone visualization (panel_standalone.launch.py), where
+       there is no separate spawn pose to match. -->
+  <xacro:arg name="panel_x" default="0"/>
+  <xacro:arg name="panel_y" default="0"/>
+  <xacro:arg name="panel_z" default="0"/>
+  <xacro:arg name="panel_yaw" default="0"/>
+
+  <link name="world"/>
+
+  <xacro:indomitus_panel parent_link="world">
+    <origin xyz="$(arg panel_x) $(arg panel_y) $(arg panel_z)" rpy="0 0 $(arg panel_yaw)"/>
+  </xacro:indomitus_panel>
+
+</robot>
