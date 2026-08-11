@@ -115,6 +115,13 @@
                 - [Link] MR_COT_MTR_06 (Pump Motor)
 
     
+    - **[Folder] panel**
+        - MR_PNL_00 (Switch Panel Assembly)
+            - MR_PNL_BDY_01 (Base Plate)
+            - MR_PNL_MSW_01 (Main Switch)
+            - MR_PNL_SWT_01 (Toggle Switch)
+            - MR_PNL_MCB_01 (Single-Pole Circuit Breaker)
+
     - **[Folder] COTs**
         - MR_COT_MTR_01 (Drive Motor -- DAMIAO DM-J10010L-2EC)
         - MR_COT_MTR_02 (High-Torque Motor -- SteadyWin8115-36)

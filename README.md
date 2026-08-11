@@ -49,6 +49,8 @@ This file provides all necessary documentation for basic work with the project. 
 - [Hardware](docs/hardware/can_bus.md) — CAN bus wiring
 - [Networking](docs/networking/ssh.md) — SSH connection
 - [Software](docs/software/) — launch, nodes, testing, gazebo
+- [Arm Simulation](docs/arm/arm_sim.md) — arm-only launch modes
+- [Panel Simulation](docs/panel/panel_sim.md) — switch panel launch modes, combined rover+arm+panel sim
 - [Testing](docs/software/testing.md) — code testing and test creation
 - [Scripts](docs/scripts/) — scripts automating workflows
 - [Deployment](docs/deployment.md) — code deployment to the rover
@@ -280,7 +282,7 @@ Depending on your requirements, choose one of the following solutions:
 **Option A: Skip the packages (If you do not need simulations)**
 You can instruct `colcon` to ignore the failing packages and safely build the rest of the workspace:
 ```bash
-colcon build --symlink-install --packages-ignore rover_viz rover_sim arm_viz arm_sim && source install/setup.bash
+colcon build --symlink-install --packages-ignore rover_viz rover_sim arm_viz arm_sim panel_sim && source install/setup.bash
 ```
 
 **Option B: Fix the dependencies (If you need simulations)**

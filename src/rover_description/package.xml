@@ -16,6 +16,9 @@
   <!-- URDF Description -->
   <exec_depend>xacro</exec_depend>
 
+  <!-- Optional arm mount (mount_arm:=true), see rover.urdf.xacro -->
+  <exec_depend>arm_description</exec_depend>
+
   <!-- Launch files -->
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

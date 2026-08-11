@@ -4,6 +4,14 @@
   <xacro:arg name="use_fake_hardware" default="true"/>
   <xacro:arg name="end_effector" default="jaw"/>
   <xacro:arg name="sim" default="false"/>
+  <!-- When the arm is mounted into another robot's URDF (e.g. the rover, see
+       rover_description's mount_arm arg) that outer URDF already adds its
+       own single gz_ros2_control-system plugin covering every <ros2_control>
+       block in the combined model. Set this to false in that case so the
+       arm doesn't register a second, redundant controller_manager plugin
+       for the same Gazebo model. Standalone arm sim (arm_sim) leaves this
+       at the default so it keeps adding its own plugin as before. -->
+  <xacro:arg name="standalone_gz_plugin" default="true"/>
   <!-- camera:=false drops the simulated camera sensor (the URDF link and
        frames stay). Camera rendering is the main real-time-factor cost
        when the GPU isn't doing the rendering. -->
@@ -34,11 +42,11 @@
 
     <link name="arm_mount_link">
       <visual>
-        <geometry><mesh filename="${mesh_path}/arm_mount.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_mount_v2.stl" scale="${stl_scale}"/></geometry>
         <material name="light_grey"/>
       </visual>
       <collision>
-        <geometry><mesh filename="${mesh_path}/arm_mount.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_mount_v2.stl" scale="${stl_scale}"/></geometry>
       </collision>
       <xacro:dummy_inertia mass="1.0"/>
     </link>
@@ -46,18 +54,18 @@
     <joint name="arm_mount_base_joint" type="revolute">
       <parent link="arm_mount_link"/>
       <child link="arm_base_link"/>
-      <origin xyz="0 0 0.018" rpy="0 0 0"/> 
+      <origin xyz="0.06 0 0.021" rpy="0 0 0"/> 
       <axis xyz="0 0 1"/>
       <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_base_link">
       <visual>
-        <geometry><mesh filename="${mesh_path}/arm_base.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_base_v2.stl" scale="${stl_scale}"/></geometry>
         <material name="light_grey"/>
       </visual>
       <collision>
-        <geometry><mesh filename="${mesh_path}/arm_base.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_base_v2.stl" scale="${stl_scale}"/></geometry>
       </collision>
       <xacro:dummy_inertia mass="2.0"/>
     </link>
@@ -65,18 +73,18 @@
     <joint name="arm_base_shoulder_joint" type="revolute">
       <parent link="arm_base_link"/>
       <child link="arm_shoulder_link"/>
-      <origin xyz="0 0.013 0.0945" rpy="0 0 ${-pi/2}"/>
+      <origin xyz="-0.040366 -0.000325 0.103" rpy="${pi/6} 0 ${-pi}"/>
       <axis xyz="1 0 0"/>
-      <limit lower="${-pi/2}" upper="${pi}" effort="100.0" velocity="1.0"/>
+      <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_shoulder_link">
       <visual>
-        <geometry><mesh filename="${mesh_path}/arm_shoulder.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_shoulder_v2.stl" scale="${stl_scale}"/></geometry>
         <material name="light_grey"/>
       </visual>
       <collision>
-        <geometry><mesh filename="${mesh_path}/arm_shoulder.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_shoulder_v2.stl" scale="${stl_scale}"/></geometry>
       </collision>
       <xacro:dummy_inertia mass="1.5"/>
     </link>
@@ -84,18 +92,18 @@
     <joint name="arm_shoulder_forearm_joint" type="revolute">
       <parent link="arm_shoulder_link"/>
       <child link="arm_forearm_link"/>
-      <origin xyz="-0.057 0 0.5" rpy="0 0 0"/>
+      <origin xyz="0 0.3 0" rpy="${5*pi/6} 0 0"/>
       <axis xyz="1 0 0"/>
       <limit lower="${-pi/2}" upper="${pi/2}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_forearm_link">
       <visual>
-        <geometry><mesh filename="${mesh_path}/arm_forearm.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_forearm_v2.stl" scale="${stl_scale}"/></geometry>
         <material name="light_grey"/>
       </visual>
       <collision>
-        <geometry><mesh filename="${mesh_path}/arm_forearm.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_forearm_v2.stl" scale="${stl_scale}"/></geometry>
       </collision>
       <xacro:dummy_inertia mass="1.0"/>
     </link>
@@ -103,18 +111,18 @@
     <joint name="arm_forearm_wrist_1_joint" type="revolute">
       <parent link="arm_forearm_link"/>
       <child link="arm_wrist_1_link"/>
-      <origin xyz="0.002175 0 0.4" rpy="${pi} ${pi} 0"/>
-      <axis xyz="1 0 0"/>
+      <origin xyz="-0.0173 0.3 0" rpy="0 ${pi/2} 0"/>
+      <axis xyz="0 0 1"/>
       <limit lower="${-pi/2}" upper="${pi/2}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_wrist_1_link">
       <visual>
-        <geometry><mesh filename="${mesh_path}/arm_wrist_1.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_wrist_v2.stl" scale="${stl_scale}"/></geometry>
         <material name="light_grey"/>
       </visual>
       <collision>
-        <geometry><mesh filename="${mesh_path}/arm_wrist_1.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_wrist_v2.stl" scale="${stl_scale}"/></geometry>
       </collision>
       <xacro:dummy_inertia mass="0.5"/>
     </link>
@@ -122,18 +130,18 @@
     <joint name="arm_wrist_1_wrist_2_joint" type="revolute">
       <parent link="arm_wrist_1_link"/>
       <child link="arm_wrist_2_link"/>
-      <origin xyz="-0.067825 0 0.0353" rpy="0 ${pi/2} 0"/>
-      <axis xyz="1 0 0"/>
+      <origin xyz="0.0323 0 -0.035" rpy="${-pi/2} 0 ${pi/2}"/>
+      <axis xyz="0 0 1"/>
       <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_wrist_2_link">
       <visual>
-        <geometry><mesh filename="${mesh_path}/arm_wrist_2.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_wrist_v2.stl" scale="${stl_scale}"/></geometry>
         <material name="light_grey"/>
       </visual>
       <collision>
-        <geometry><mesh filename="${mesh_path}/arm_wrist_2.stl" scale="${stl_scale}"/></geometry>
+        <geometry><mesh filename="${mesh_path}/arm_wrist_v2.stl" scale="${stl_scale}"/></geometry>
       </collision>
       <xacro:dummy_inertia mass="0.3"/>
     </link>
@@ -141,19 +149,19 @@
     <joint name="arm_wrist_2_end_effector_joint" type="revolute">
       <parent link="arm_wrist_2_link"/>
       <child link="arm_end_effector_link"/>
-      <origin xyz="-0.067825 0 0.0353" rpy="${-pi/2} 0 ${-pi/2}"/>
-      <axis xyz="0 1 0"/>
+      <origin xyz="0.0323 0 -0.035" rpy="${pi/2} 0 ${pi/2}"/>
+      <axis xyz="0 0 1"/>
       <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_end_effector_link">
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
         <visual>
-          <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
+          <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_v2.stl" scale="${stl_scale}"/></geometry>
           <material name="light_grey"/>
         </visual>
         <collision>
-          <geometry><mesh filename="${mesh_path}/jaw_gripper.stl" scale="${stl_scale}"/></geometry>
+          <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_v2.stl" scale="${stl_scale}"/></geometry>
         </collision>
       </xacro:if>
       
@@ -163,16 +171,65 @@
       <xacro:dummy_inertia mass="0.2"/>
     </link>
 
+    <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+      <!-- From CAD, origin of each finger relative to gripper origin (mm):
+           finger 1 (right): closed (3.5, -10.72, 122.133)  -> open (15.5, -10.72, 122.133)
+           finger 2 (left):  closed (-3.5, 13.78, 122.133)  -> open (-15.5, 13.78, 122.133)
+           X is symmetric (+-3.5mm closed, +-12mm stroke); Y is NOT mirrored between the two
+           fingers on purpose (offset so the finger pads clear each other near full close). -->
+      <xacro:property name="finger_x_closed" value="-0.0035"/>
+      <xacro:property name="finger_stroke" value="0.012"/>
+      <xacro:property name="finger_z" value="0.122133"/>
+      <xacro:property name="finger_right_y" value="0.01072"/>
+      <xacro:property name="finger_left_y" value="-0.01378"/>
+
+      <xacro:macro name="jaw_gripper_finger" params="side x_closed y yaw axis_sign limit_lower limit_upper">
+        <joint name="arm_jaw_gripper_finger_${side}_joint" type="prismatic">
+          <parent link="arm_end_effector_link"/>
+          <child link="arm_jaw_gripper_finger_${side}_link"/>
+          <origin xyz="${x_closed} ${y} ${finger_z}" rpy="0 0 ${yaw}"/>
+          <axis xyz="${axis_sign} 0 0"/>
+          <limit lower="${limit_lower}" upper="${limit_upper}" effort="20.0" velocity="0.05"/>
+          <xacro:unless value="${side == 'right'}">
+            <!-- Right and left are mirror images (180 deg about Z), so their axes
+                 point opposite ways in the parent frame — multiplier=-1.0 makes
+                 them slide apart symmetrically as the right joint opens, rather
+                 than translating together with a fixed gap. Left's own range is
+                 shifted negative to match, since its opening motion is the
+                 mirror of right's (mimic must stay within the child's own
+                 declared limits). -->
+            <mimic joint="arm_jaw_gripper_finger_right_joint" multiplier="-1.0" offset="0.0"/>
+          </xacro:unless>
+        </joint>
+
+        <link name="arm_jaw_gripper_finger_${side}_link">
+          <visual>
+            <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_finger_v2.stl" scale="${stl_scale}"/></geometry>
+            <material name="light_grey"/>
+          </visual>
+          <collision>
+            <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_finger_v2.stl" scale="${stl_scale}"/></geometry>
+          </collision>
+          <xacro:dummy_inertia mass="0.05"/>
+        </link>
+      </xacro:macro>
+
+      <!-- Same part mounted twice: "left" is the "right" finger rotated 180 deg about Z,
+           so both slide outward along their own local +X (axis) to open — no mirrored mesh needed. -->
+      <xacro:jaw_gripper_finger side="right" x_closed="${finger_x_closed}"  y="${finger_right_y}" yaw="0"      axis_sign="-1" limit_lower="0"                limit_upper="${finger_stroke}"/>
+      <xacro:jaw_gripper_finger side="left"  x_closed="${-finger_x_closed}" y="${finger_left_y}"  yaw="${pi}" axis_sign="1"  limit_lower="${-finger_stroke}" limit_upper="0"/>
+    </xacro:if>
+
     <joint name="arm_tcp_joint" type="fixed">
       <parent link="arm_end_effector_link"/>
       <child link="arm_tcp_link"/>
       
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
-        <origin xyz="0 -0.23 0" rpy="0 0 0"/> 
+        <origin xyz="0 -0.0015 0.2072" rpy="0 0 0"/>
       </xacro:if>
       
       <xacro:if value="${'$(arg end_effector)' != 'jaw'}">
-        <origin xyz="0 -0.23 0" rpy="0 0 0"/> 
+        <origin xyz="0 -0.23 0" rpy="0 0 0"/>
       </xacro:if>
     </joint>
 
@@ -181,13 +238,13 @@
     <joint name="arm_camera_joint" type="fixed">
       <parent link="arm_end_effector_link"/>
       <child link="arm_camera_link"/>
-      <origin xyz="-0.00110236 -0.0683370 -0.0340064" rpy="${pi} 0 ${-pi/2}"/>
+      <origin xyz="0.0012604892253875732 -0.045 0.07839690148830414" rpy="0 ${-pi/2} ${pi/2}"/>
     </joint>
 
     <link name="arm_camera_link">
       <visual>
         <geometry>
-          <box size="0.06 0.06 0.03"/>
+          <box size="0.06 0.06 0.06"/>
         </geometry>
         <material name="camera_blue">
           <color rgba="0.0 0.0 1.0 1.0"/>
@@ -196,7 +253,7 @@
 
       <collision>
         <geometry>
-          <box size="0.06 0.06 0.03"/>
+          <box size="0.06 0.06 0.06"/>
         </geometry>
       </collision>
     </link>
@@ -204,7 +261,7 @@
     <joint name="arm_camera_optical_joint" type="fixed">
       <parent link="arm_camera_link"/>
       <child link="arm_camera_optical_frame"/>
-      <origin xyz="0 0 0.03" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <origin xyz="0.045 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
     </joint>
 
     <link name="arm_camera_optical_frame"/>
@@ -241,14 +298,36 @@
       <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"/>
       <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"/>
       <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint"/>
+
+      <!-- Only the right finger joint needs a ros2_control interface: the
+           left one is a <mimic> of it, computed automatically (by
+           robot_state_publisher for TF, and by the planning scene monitor
+           for collision state) from the right joint's reported position —
+           it doesn't need its own state/command interface. Without this,
+           joint_state_broadcaster never reports arm_jaw_gripper_finger_right_joint
+           at all, and the planning scene monitor (used by both move_group
+           and Servo) considers the robot's state permanently incomplete,
+           which silently blocks all motion. -->
+      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+        <joint name="arm_jaw_gripper_finger_right_joint">
+          <command_interface name="position">
+            <param name="min">0</param>
+            <param name="max">${finger_stroke}</param>
+          </command_interface>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:if>
     </ros2_control>
 
     <xacro:if value="$(arg sim)">
-      <gazebo>
-        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-          <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
-        </plugin>
-      </gazebo>
+      <xacro:if value="$(arg standalone_gz_plugin)">
+        <gazebo>
+          <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+            <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
+          </plugin>
+        </gazebo>
+      </xacro:if>
 
       <gazebo reference="arm_mount_link">
         <visual>
@@ -320,10 +399,32 @@
         </visual>
       </gazebo>
 
+      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+        <gazebo reference="arm_jaw_gripper_finger_right_link">
+          <visual>
+            <material>
+              <ambient>0.7 0.7 0.7 1.0</ambient>
+              <diffuse>0.7 0.7 0.7 1.0</diffuse>
+              <specular>0.3 0.3 0.3 1.0</specular>
+            </material>
+          </visual>
+        </gazebo>
+
+        <gazebo reference="arm_jaw_gripper_finger_left_link">
+          <visual>
+            <material>
+              <ambient>0.7 0.7 0.7 1.0</ambient>
+              <diffuse>0.7 0.7 0.7 1.0</diffuse>
+              <specular>0.3 0.3 0.3 1.0</specular>
+            </material>
+          </visual>
+        </gazebo>
+      </xacro:if>
+
       <xacro:if value="$(arg camera)">
       <gazebo reference="arm_camera_link">
         <sensor name="arm_camera" type="camera">
-          <pose>0 0 0.03 0 0 0</pose>
+          <pose>0.045 0 0 0 0 0</pose>
           <camera>
             <optical_frame_id>arm_camera_optical_frame</optical_frame_id>
             <horizontal_fov>1.047</horizontal_fov>

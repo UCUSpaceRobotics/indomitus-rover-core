@@ -13,6 +13,47 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from rover_bringup.launch_utils import include_launch
 
+BASE_CONTROLLERS = (
+    'joint_state_broadcaster',
+    'odometry_controller',
+    'diff_bar_effort_controller',
+)
+
+LEGACY_SWERVE_CONTROLLER = 'swerve_controller'
+SHAPE_SWERVE_CONTROLLER = 'swerve_controller_test'
+SWERVE_CONTROLLERS = (LEGACY_SWERVE_CONTROLLER, SHAPE_SWERVE_CONTROLLER)
+DEFAULT_SWERVE_CONTROLLER = SHAPE_SWERVE_CONTROLLER
+
+
+def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
+    swerve_controller = LaunchConfiguration('swerve_controller').perform(context)
+
+    return [include_launch('rover_bringup', 'control.launch.py', {
+        'use_sim': 'true',
+        'controllers_yaml': controllers_yaml_path,
+        'controllers': f'{swerve_controller} ' + ' '.join(BASE_CONTROLLERS),
+        'inactive_controllers': '',
+    })]
+
+
+def setup_environment() -> list:
+    """Auto-detects host OS graphics and network issues, applying fixes instantly to the Python environment."""
+
+    # 1. IPC / Networking Fix (Forces local ZeroMQ. Prevents GUI black screen & spawner deaf loops)
+    os.environ['GZ_IP'] = '127.0.0.1'
+    os.environ['IGN_IP'] = '127.0.0.1'
+
+    # 2. Wayland GUI Crash Workaround (Forces X11 backend for Qt)
+    if os.environ.get('XDG_SESSION_TYPE', '') == 'wayland' or os.environ.get('WAYLAND_DISPLAY'):
+        os.environ['QT_QPA_PLATFORM'] = 'xcb'
+
+    # 3. Nvidia Optimus & EGL Deadlock Workaround (Prevents EGL dri2 crash)
+    nvidia_egl_path = '/usr/share/glvnd/egl_vendor.d/10_nvidia.json'
+    if os.path.exists(nvidia_egl_path):
+        os.environ['__NV_PRIME_RENDER_OFFLOAD'] = '1'
+        os.environ['__GLX_VENDOR_LIBRARY_NAME'] = 'nvidia'
+        os.environ['__EGL_VENDOR_LIBRARY_FILENAMES'] = nvidia_egl_path
+
 
 def generate_bridge_config(context, rover_sim_share: str) -> list[Node]:
     world = LaunchConfiguration("world_name").perform(context)
@@ -111,6 +152,7 @@ def setup_dynamic_map(context, rover_sim_share: str) -> list:
   </model>
 </sdf>
 """
+
     with open(os.path.join(tmp_model_dir, 'model.sdf'), 'w') as f:
         f.write(sdf_content)
 
@@ -118,14 +160,22 @@ def setup_dynamic_map(context, rover_sim_share: str) -> list:
 
 
 def generate_launch_description() -> LaunchDescription:
+    setup_environment()
+
     rover_description_share = get_package_share_directory('rover_description')
-    rover_sim_share         = get_package_share_directory('rover_sim')
+    rover_sim_share = get_package_share_directory('rover_sim')
 
     controllers_yaml_path = os.path.join(rover_sim_share, 'config', 'controllers.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('world_name', default_value='world_demo'),
         DeclareLaunchArgument('model_name', default_value='indomitus_rover'),
+        DeclareLaunchArgument(
+            'swerve_controller',
+            default_value=DEFAULT_SWERVE_CONTROLLER,
+            choices=list(SWERVE_CONTROLLERS),
+            description='Which swerve controller to spawn. It comes up active; '
+                        'the other is not loaded at all.'),
 
         DeclareLaunchArgument(
             'map_resolution',
@@ -158,11 +208,8 @@ def generate_launch_description() -> LaunchDescription:
                        kwargs={'rover_sim_share': rover_sim_share}),
         make_spawn_node(),
 
-        include_launch('rover_bringup', 'control.launch.py', {
-            'use_sim': 'true',
-            'controllers_yaml': controllers_yaml_path,
-            'controllers': 'joint_state_broadcaster swerve_controller odometry_controller diff_bar_effort_controller',
-        }),
+        OpaqueFunction(function=make_control_launch,
+                       kwargs={'controllers_yaml_path': controllers_yaml_path}),
 
         include_launch('rover_localization', 'ekf.launch.py', {
             'use_sim_time': 'true',

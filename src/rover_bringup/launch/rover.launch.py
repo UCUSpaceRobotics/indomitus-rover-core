@@ -35,10 +35,13 @@ def generate_launch_description():
             'use_sim': 'false',
             'robot_description': robot_description,
             'controllers_yaml': os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
-            'controllers': 'joint_state_broadcaster swerve_controller odometry_controller',
-            'inactive_controllers': 'swerve_controller',
+            'controllers': 'joint_state_broadcaster odometry_controller '
+                           'swerve_controller_test',
+            'inactive_controllers': 'swerve_controller_test',
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
+        include_launch('rover_diagnostics', 'fault_logger.launch.py'),
         include_launch('rover_peripherals', 'lighting.launch.py'),
+        include_launch('rover_peripherals', 'power_monitor_node.launch.py'),
         include_launch('rover_localization', 'ekf.launch.py')
     ])

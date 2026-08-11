@@ -29,15 +29,22 @@
 
   <!-- Internal packages -->
   <exec_depend>rover_bringup</exec_depend>
-  <exec_depend>rover_description</exec_depend>\
+  <exec_depend>rover_description</exec_depend>
   <exec_depend>rover_localization</exec_depend>
-  
+
+  <!-- sim_gz_full.launch.py: combined rover + arm + panel -->
+  <exec_depend>arm_description</exec_depend>
+  <exec_depend>panel_description</exec_depend>
+  <exec_depend>panel_sim</exec_depend>
+
   <!-- Simulation -->
   <depend>ros_gz_sim</depend>
   <depend>ros_gz_bridge</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
