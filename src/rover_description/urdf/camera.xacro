@@ -12,12 +12,12 @@
       </inertial>
 
       <visual>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <origin xyz="0 0 0" rpy="0 0 ${-pi / 2.0}"/>
         <geometry>
-          <box size="0.05 0.05 0.05"/>
+          <mesh filename="package://rover_description/meshes/navigation/ZED2.stl" scale="1 1 1"/>
         </geometry>
-        <material name="camera_visual">
-          <color rgba="0 0 1 1"/>
+        <material name="black_camera">
+          <color rgba="0.1 0.1 0.1 1"/>
         </material>
       </visual>
 
@@ -31,10 +31,11 @@
     <joint name="${tf_prefix}camera_joint" type="fixed">
       <parent link="${tf_prefix}${parent_link}"/>
       <child link="${tf_prefix}camera_link"/>
-      <origin xyz="0.3 0 0.1" rpy="0 0 0"/>
+      <origin xyz="0.298 0 0.085" rpy="0 0 0"/>
     </joint>
 
     <gazebo reference="${tf_prefix}camera_link">
+      <material>Gazebo/Black</material>
       <sensor name="${tf_prefix}camera_rgb" type="camera">
           <always_on>true</always_on>
           <update_rate>30</update_rate>
