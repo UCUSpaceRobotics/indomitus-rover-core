@@ -1,14 +1,5 @@
-"""Append-only JSONL event log with size-based rotation.
-
-Two properties matter more than throughput here:
-
-* Every event is flushed and fsync'd immediately. The failure this log exists
-  to explain is often a brownout, and a buffered write loses precisely the
-  last few events before power is lost -- the ones worth having.
-* The log is size-capped. A full disk is itself a rover failure mode.
-
-Events are low-frequency (fault transitions only), so the cost of fsync per
-event is irrelevant.
+"""
+Append-only JSONL event log with size-based rotation.
 """
 
 import datetime
@@ -18,12 +9,7 @@ import os
 
 
 def _sanitize(value):
-    """Replace non-finite floats with None.
-
-    ``json.dumps`` happily emits bare ``NaN`` and ``Infinity``, which are not
-    valid JSON and break most parsers. MotorStatus uses NaN as its
-    "unavailable" sentinel, so this is a routine case, not an edge case.
-    """
+    """Replace non-finite floats with None."""
     if isinstance(value, float):
         return value if math.isfinite(value) else None
     if isinstance(value, dict):
@@ -34,13 +20,7 @@ def _sanitize(value):
 
 
 class EventLog:
-    """Writes one JSON object per line to a per-session, rotating file.
-
-    Each session gets its own ``<prefix>_<UTC timestamp>.jsonl``, chosen once at
-    construction and never recomputed, so a session can be handed over as a
-    single self-contained file and a crash can never interleave two sessions in
-    one log.
-    """
+    """Writes one JSON object per line to a per-session, rotating file."""
 
     def __init__(self, directory, prefix='faults', max_bytes=5 * 1024 * 1024,
                  backup_count=3):
@@ -51,10 +31,14 @@ class EventLog:
 
         os.makedirs(self._dir, exist_ok=True)
 
-        # UTC, matching the t_wall field inside the file, so the name and the
-        # first line always agree regardless of the machine's timezone.
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
         self._path = os.path.join(self._dir, '{}_{}.jsonl'.format(prefix, stamp))
+
+        suffix = 1
+        while os.path.exists(self._path):
+            self._path = os.path.join(
+                self._dir, '{}_{}-{}.jsonl'.format(prefix, stamp, suffix))
+            suffix += 1
 
         self._open()
 

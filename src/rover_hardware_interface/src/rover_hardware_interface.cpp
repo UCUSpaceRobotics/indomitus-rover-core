@@ -1,5 +1,6 @@
 #include "rover_hardware_interface/rover_hardware_interface.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <sstream>
@@ -91,6 +92,14 @@ hardware_interface::CallbackReturn RoverHardwareInterface::on_init(
 
     if (drive_pmax_ <= 0.0f || drive_vmax_ <= 0.0f || drive_tmax_ <= 0.0f) {
         RCLCPP_ERROR(logger_, "[RoverHW] drive_pmax/vmax/tmax must be > 0");
+        return hardware_interface::CallbackReturn::ERROR;
+    }
+
+    steer_feedback_timeout_ = std::stod(optional_param(info, "steer_feedback_timeout", "3.0"));
+    drive_feedback_timeout_ = std::stod(optional_param(info, "drive_feedback_timeout", "0.5"));
+
+    if (steer_feedback_timeout_ <= 0.0 || drive_feedback_timeout_ <= 0.0) {
+        RCLCPP_ERROR(logger_, "[RoverHW] feedback timeouts must be > 0");
         return hardware_interface::CallbackReturn::ERROR;
     }
 
@@ -248,11 +257,29 @@ RoverHardwareInterface::on_activate(const rclcpp_lifecycle::State& /*prev*/)
         return hardware_interface::CallbackReturn::ERROR;
     }
 
+    // Nothing has been heard from any motor yet on this activation. Clearing
+    // the arrival times (rather than carrying them over from a previous
+    // activation) is what makes a repeated activate/deactivate cycle behave
+    // like the first one.
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        steer_status_rx_ns_.fill(0);
+        drive_feedback_rx_ns_.fill(0);
+    }
+    feedback_expected_since_ns_.store(steady_now_ns());
+
     // Start receive thread before enabling motors so we don't miss early feedback
-    can_bus_.start_rx([this](const struct can_frame & frame) {
+    const bool rx_started = can_bus_.start_rx([this](const struct can_frame & frame) {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
         dispatch_can_frame(frame);
     });
+    if (!rx_started) {
+        // Enabling motors we could never hear back from would leave the rover
+        // driving with no fault detection at all.
+        RCLCPP_ERROR(logger_, "[RoverHW] CAN receive thread failed to start");
+        can_bus_.close();
+        return hardware_interface::CallbackReturn::ERROR;
+    }
 
     last_write_time_ = clock_->now();
     send_enable_frames();
@@ -269,7 +296,7 @@ RoverHardwareInterface::on_deactivate(const rclcpp_lifecycle::State& /*prev*/)
     activated_ = false;
     send_shutdown_frames();
 
-    can_bus_.stop_rx();
+    // close() stops the RX thread first; the descriptor must outlive its reader.
     can_bus_.close();
     RCLCPP_INFO(logger_, "[RoverHW] Deactivated.");
     return hardware_interface::CallbackReturn::SUCCESS;
@@ -310,7 +337,6 @@ RoverHardwareInterface::on_shutdown(const rclcpp_lifecycle::State& /*prev*/)
     }
 
     // just in case
-    can_bus_.stop_rx();
     can_bus_.close();
 
     // just in case
@@ -335,15 +361,33 @@ RoverHardwareInterface::read(
     const rclcpp::Time & /*time*/,
     const rclcpp::Duration & /*period*/)
 {
-    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    const int64_t now_ns = steady_now_ns();
+    const bool enabled = motors_enabled_.load();
+
+    // Nothing polls the motors while they are disabled, so the timeout clock
+    // only runs while we are actually asking them to answer.
+    if (!enabled) feedback_expected_since_ns_.store(now_ns);
+
+    // Snapshot, then release: everything below is arithmetic on a private copy.
+    // Holding feedback_mutex_ across detection would make the RX thread wait on
+    // the control loop for no reason, and the two contend eight times a cycle.
+    std::array<steadywin_protocol::MotorState, NUM_WHEELS> steer;
+    std::array<damiao_protocol::MotorState, NUM_WHEELS> drive;
+    FeedbackFreshness fresh;
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        steer = steer_state_;
+        drive = drive_state_;
+        fresh = feedback_freshness(now_ns);
+    }
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        steer_pos_[i] = steer_state_[i].pos_valid
-            ? static_cast<double>(steer_state_[i].pos_rad) : 0.0;
+        steer_pos_[i] = steer[i].pos_valid
+            ? static_cast<double>(steer[i].pos_rad) : 0.0;
 
-        if (drive_state_[i].valid) {
-            drive_pos_[i] = static_cast<double>(drive_state_[i].pos) * kDriveSigns[i];
-            drive_vel_[i] = static_cast<double>(drive_state_[i].vel) * kDriveSigns[i];
+        if (drive[i].valid) {
+            drive_pos_[i] = static_cast<double>(drive[i].pos) * kDriveSigns[i];
+            drive_vel_[i] = static_cast<double>(drive[i].vel) * kDriveSigns[i];
         }
     }
 
@@ -352,29 +396,16 @@ RoverHardwareInterface::read(
     // motor that has gone silent produces no frames to trigger the RX path.
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         fault_detector_.detect_steer_fault(
-            i, steer_state_[i], steer_joint_names_[i], steer_ids_[i], motors_enabled_);
+            i, steer[i], fresh.steer[i], steer_joint_names_[i], steer_ids_[i], enabled);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         fault_detector_.detect_drive_fault(
-            i, drive_state_[i], drive_joint_names_[i], drive_ids_[i], motors_enabled_);
+            i, drive[i], fresh.drive[i], drive_joint_names_[i], drive_ids_[i], enabled);
     }
 
-    fault_detector_.detect_bus_fault(can_bus_.state(), can_interface_, motors_enabled_);
+    fault_detector_.detect_bus_fault(can_bus_.state(), can_interface_, enabled);
 
-    // A single motor fault must not tear down the hardware component: returning
-    // ERROR here would deactivate all eight motors and the telemetry with them,
-    // exactly when the operator needs both. ERROR is reserved for the CAN
-    // socket itself being gone.
-    //
-    // Note bus-off is deliberately NOT an ERROR: the kernel recovers it on its
-    // own when the interface has restart-ms set, and the motors have their own
-    // failsafes. Tearing down the component on a transient bus-off would turn a
-    // self-healing fault into one that needs an operator to re-activate.
-    //
-    // Gated on activated_: controller_manager calls read() as soon as the
-    // component is merely configured (inactive), before on_activate() has
-    // opened the socket. Without this gate the component would fault itself
-    // out on its very first read cycle and never get a chance to activate.
+
     if (activated_ && !can_bus_.is_open()) {
         return hardware_interface::return_type::ERROR;
     }
@@ -383,9 +414,6 @@ RoverHardwareInterface::read(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // write — command interfaces → CAN frames, sent directly via socket
-//
-// Drive sign convention (matches original onWheelTargets):
-//   FL(0): negated   FR(1): normal   RL(2): negated   RR(3): normal
 // ─────────────────────────────────────────────────────────────────────────────
 
 hardware_interface::return_type
@@ -435,6 +463,39 @@ RoverHardwareInterface::write(
     return hardware_interface::return_type::OK;
 }
 
+// Feedback freshness
+
+int64_t RoverHardwareInterface::steady_now_ns()
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+RoverHardwareInterface::FeedbackFreshness
+RoverHardwareInterface::feedback_freshness(int64_t now_ns) const
+{
+    // Measure the gap from the later of "last frame from this motor" and "the
+    // moment we started expecting frames at all". The second term is what
+    // stops a motor from being declared silent for the period it spent
+    // legitimately disabled.
+    const int64_t expected_since = feedback_expected_since_ns_.load();
+
+    const auto fresh = [&](int64_t last_rx_ns, bool ever_received, double timeout_s) {
+        if (!ever_received) return false;
+        const int64_t reference = std::max(last_rx_ns, expected_since);
+        return (now_ns - reference) <= static_cast<int64_t>(timeout_s * 1e9);
+    };
+
+    FeedbackFreshness out;
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        out.steer[i] = fresh(
+            steer_status_rx_ns_[i], steer_state_[i].diag_valid, steer_feedback_timeout_);
+        out.drive[i] = fresh(
+            drive_feedback_rx_ns_[i], drive_state_[i].valid, drive_feedback_timeout_);
+    }
+    return out;
+}
+
 // dispatch_can_frame — route one frame to the right motor decoder
 //
 // Called from CanBus's RX thread via the callback given to start_rx().
@@ -447,12 +508,17 @@ void RoverHardwareInterface::dispatch_can_frame(const struct can_frame& frame)
     std::memcpy(data.data(), frame.data, std::min<int>(frame.can_dlc, 8));
     const uint8_t dlc = frame.can_dlc;
 
+    const int64_t now_ns = steady_now_ns();
+
     // ── Damiao drive: feedback at ESC_ID ──────────────────────────────────────
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         if (frame.can_id == drive_ids_[i]) {
-            damiao_protocol::parseFeedback(
-                data, dlc, drive_ids_[i],
-                drive_pmax_, drive_vmax_, drive_tmax_, drive_state_[i]);
+            if (damiao_protocol::parseFeedback(
+                    data, dlc, drive_ids_[i],
+                    drive_pmax_, drive_vmax_, drive_tmax_, drive_state_[i]))
+            {
+                drive_feedback_rx_ns_[i] = now_ns;
+            }
             damiao_protocol::parseRegisterResponse(
                 data, dlc, drive_ids_[i], drive_state_[i]);
             return;
@@ -466,6 +532,7 @@ void RoverHardwareInterface::dispatch_can_frame(const struct can_frame& frame)
                     data, dlc, drive_ids_[i],
                     drive_pmax_, drive_vmax_, drive_tmax_, drive_state_[i]))
             {
+                drive_feedback_rx_ns_[i] = now_ns;
                 break;
             }
         }
@@ -486,7 +553,15 @@ void RoverHardwareInterface::dispatch_can_frame(const struct can_frame& frame)
         if (frame.can_id == steer_ids_[i] ||
             frame.can_id == (0x100u | steer_ids_[i]))
         {
-            steadywin_protocol::parseResponse(data, dlc, steer_state_[i]);
+            // Only the 0xAE status reply refreshes health. A position reply
+            // proves the motor is alive but carries no fault register, so
+            // timing health off it would mask a motor that answers moves while
+            // its diagnostics have gone stale.
+            if (steadywin_protocol::parseStatusResponse(data, dlc, steer_state_[i])) {
+                steer_status_rx_ns_[i] = now_ns;
+            }
+            steadywin_protocol::parsePositionResponse(data, dlc, steer_state_[i]);
+            steadywin_protocol::parseRealtimeResponse(data, dlc, steer_state_[i]);
             return;
         }
     }
@@ -519,6 +594,10 @@ void RoverHardwareInterface::send_enable_frames()
         can_bus_.send(f.id, f.data.data(), f.dlc);
     }
 
+    // Start the feedback-timeout clock from here, not from whenever read() last
+    // ran: enabling over the service while the component is idle would
+    // otherwise look like every motor had been silent since boot.
+    feedback_expected_since_ns_.store(steady_now_ns());
     motors_enabled_ = true;
     RCLCPP_INFO(logger_, "[RoverHW] All motors enabled");
 }
@@ -630,10 +709,23 @@ void RoverHardwareInterface::publish_chassis_status()
     indomitus_interfaces::msg::ChassisStatus msg;
     msg.header.stamp = clock_->now();
 
-    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    // Copy out, then build. Composing the message under the lock would block
+    // both the RX thread and read() for the length of a dozen string
+    // allocations, ten times a second.
+    std::array<steadywin_protocol::MotorState, NUM_WHEELS> steer_state;
+    std::array<damiao_protocol::MotorState, NUM_WHEELS> drive_state;
+    FeedbackFreshness fresh;
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        steer_state = steer_state_;
+        drive_state = drive_state_;
+        fresh = feedback_freshness(steady_now_ns());
+    }
+
+    const bool enabled = motors_enabled_.load();
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const auto & s = steer_state_[i];
+        const auto & s = steer_state[i];
         indomitus_interfaces::msg::MotorStatus m;
         m.esc_id = steer_ids_[i]; m.motor_type = "steadywin";
         m.joint_name = steer_joint_names_[i];
@@ -644,11 +736,14 @@ void RoverHardwareInterface::publish_chassis_status()
         m.voltage = s.voltage; m.current = s.bus_current;
         m.temperature = static_cast<float>(s.temperature);
         m.mode = s.mode; m.fault_code = s.fault_code;
-        m.health_valid = s.diag_valid; m.enabled = motors_enabled_;
+        // Freshness, not just "a frame arrived once": the vendor flag latches
+        // true forever, so on its own it would report a motor that fell off
+        // the bus an hour ago as healthy.
+        m.health_valid = fresh.steer[i]; m.enabled = enabled;
         msg.motors.push_back(m);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const auto & s = drive_state_[i];
+        const auto & s = drive_state[i];
         indomitus_interfaces::msg::MotorStatus m;
         m.esc_id = drive_ids_[i]; m.motor_type = "damiao";
         m.joint_name = drive_joint_names_[i];
@@ -664,8 +759,8 @@ void RoverHardwareInterface::publish_chassis_status()
         // makes a dead motor look commanded.
         m.mode = (s.valid && s.err == damiao_protocol::ERR_ENABLED) ? 3u : 0u;
         m.fault_code = (s.valid && s.err > damiao_protocol::ERR_ENABLED) ? s.err : 0x00u;
-        m.health_valid = s.valid;
-        m.enabled = motors_enabled_ && s.valid && s.err == 0x1;
+        m.health_valid = fresh.drive[i];
+        m.enabled = enabled && fresh.drive[i] && s.err == damiao_protocol::ERR_ENABLED;
         msg.motors.push_back(m);
     }
     chassis_status_pub_->publish(msg);
@@ -681,7 +776,17 @@ void RoverHardwareInterface::publish_diagnostics()
         diagnostic_msgs::msg::KeyValue p; p.key = k; p.value = v; return p;
     };
 
-    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    // Snapshot under the lock; the message below is dozens of string
+    // allocations that have no business blocking the RX thread.
+    std::array<steadywin_protocol::MotorState, NUM_WHEELS> steer_state;
+    std::array<damiao_protocol::MotorState, NUM_WHEELS> drive_state;
+    FeedbackFreshness fresh;
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        steer_state = steer_state_;
+        drive_state = drive_state_;
+        fresh = feedback_freshness(steady_now_ns());
+    }
 
     // ── CAN transport ─────────────────────────────────────────────────────────
     // First entry deliberately: if the bus is down, every motor entry below is
@@ -713,16 +818,22 @@ void RoverHardwareInterface::publish_diagnostics()
         // Cumulative, not a rate: a value that climbs during a manoeuvre is the
         // evidence that the bus is saturating.
         st.values.push_back(kv("tx_dropped",     std::to_string(can_bus_.tx_dropped())));
+        st.values.push_back(kv("rx_overflow",    std::to_string(can_bus_.rx_overflow())));
+        // Non-zero means fault events were discarded before anyone published
+        // them, which makes every count below it suspect.
+        st.values.push_back(kv("fault_events_dropped",
+            std::to_string(fault_detector_.dropped_events())));
         arr.status.push_back(st);
     }
 
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const auto & s = steer_state_[i];
+        const auto & s = steer_state[i];
         diagnostic_msgs::msg::DiagnosticStatus st;
         st.name = st.hardware_id = std::string("steadywin/steer_") + kNames[i];
-        if (!s.diag_valid) {
+        if (!fresh.steer[i]) {
             st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
-            st.message = "No status received";
+            st.message = s.diag_valid ? "Status stale — motor stopped answering"
+                                      : "No status received";
         } else if (s.fault_code != 0) {
             st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
             std::string f;
@@ -752,12 +863,14 @@ void RoverHardwareInterface::publish_diagnostics()
         arr.status.push_back(st);
     }
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        const auto & s = drive_state_[i];
+        const auto & s = drive_state[i];
         diagnostic_msgs::msg::DiagnosticStatus st;
         st.name = st.hardware_id = std::string("damiao/drive_") + kNames[i];
         const auto fault = damiao_protocol::translateFault(s.err);
-        if (!s.valid) {
-            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN; st.message = "No feedback";
+        if (!fresh.drive[i]) {
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            st.message = s.valid ? "Feedback stale — motor stopped answering"
+                                 : "No feedback";
         } else if (s.err == damiao_protocol::ERR_ENABLED) {
             st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;   st.message = "Enabled";
         } else if (s.err == damiao_protocol::ERR_DISABLED) {
@@ -782,11 +895,6 @@ void RoverHardwareInterface::publish_diagnostics()
 }
 
 // publish_fault_events — drain the queue filled by read()
-//
-// Runs on hw_node_'s executor, not the control loop. Faults are rare, so this
-// finds an empty queue on essentially every tick; the benefit of draining via
-// FaultDetector's own internal lock (rather than feedback_mutex_) is that
-// rclcpp publishing (which allocates) never runs inside read().
 
 void RoverHardwareInterface::publish_fault_events()
 {

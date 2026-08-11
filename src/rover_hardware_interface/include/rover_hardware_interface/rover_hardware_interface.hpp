@@ -2,6 +2,8 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -98,6 +100,24 @@ private:
     void publish_diagnostics();
     void publish_fault_events();
 
+    // Feedback freshness
+
+    /// Monotonic nanoseconds. Deliberately not ROS time: an NTP step mid-run
+    /// (routine on a rover that gets a fix minutes after boot) would otherwise
+    /// register as every motor going silent at once.
+    static int64_t steady_now_ns();
+
+    /// Per-motor verdict on whether feedback is present *and* recent. The
+    /// vendor "valid" flags latch true on the first frame and never clear, so
+    /// on their own they can never report a motor that stopped transmitting.
+    struct FeedbackFreshness {
+        std::array<bool, NUM_WHEELS> steer{};
+        std::array<bool, NUM_WHEELS> drive{};
+    };
+
+    /// Caller must hold feedback_mutex_.
+    FeedbackFreshness feedback_freshness(int64_t now_ns) const;
+
     // logger_/clock_ must stay declared before can_bus_/fault_detector_:
     // members initialize in declaration order, and both are constructed
     // from these two.
@@ -139,6 +159,13 @@ private:
     std::array<std::string, NUM_WHEELS> steer_joint_names_;
     std::array<std::string, NUM_WHEELS> drive_joint_names_;
 
+    /// How long feedback may be absent before the motor counts as silent.
+    /// The two differ because the two channels arrive at different rates:
+    /// Steadywin health comes only from the 1 Hz 0xAE poll, while Damiao
+    /// feedback comes back with every command frame at the control rate.
+    double steer_feedback_timeout_{3.0};   ///< [s] — three missed status polls
+    double drive_feedback_timeout_{0.5};   ///< [s] — ~50 missed cycles at 100 Hz
+
     static constexpr std::array<double, 4> kDriveSigns = {-1.0f, 1.0f, -1.0f, 1.0f};
 
     // State interface backing storage
@@ -158,6 +185,20 @@ private:
     std::mutex feedback_mutex_;
     std::array<steadywin_protocol::MotorState, NUM_WHEELS> steer_state_{};
     std::array<damiao_protocol::MotorState,    NUM_WHEELS> drive_state_{};
+
+    /// Arrival time of the last frame that carried *health* for each motor,
+    /// in monotonic ns; 0 means never. Written by the RX thread inside
+    /// dispatch_can_frame(), read under feedback_mutex_ like the states.
+    /// Steer tracks the 0xAE status response specifically — a position reply
+    /// proves the motor is alive but says nothing about its fault register.
+    std::array<int64_t, NUM_WHEELS> steer_status_rx_ns_{};
+    std::array<int64_t, NUM_WHEELS> drive_feedback_rx_ns_{};
+
+    /// Feedback is only expected while the motors are enabled: nothing polls
+    /// them otherwise, so silence is the correct state, not a dropout. While
+    /// disabled this tracks "now", which both suppresses false SIGNAL_LOST and
+    /// grants a full timeout of grace after the motors come back up.
+    std::atomic<int64_t> feedback_expected_since_ns_{0};
 
     // ─────────────────────────────────────────────────────────────────────────
     // ROS 2 interfaces

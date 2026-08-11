@@ -1,22 +1,6 @@
-"""Fault event logger.
+"""Fault event logger that saves fault logs to file"""
 
-Subscribes to /fault_events and appends each transition to a rotating JSONL
-file, together with the freeze frame captured at the moment it happened.
-
-This node deliberately lives outside the hardware interface: writing to disk
-from the ros2_control update loop risks stalling it, and a stall longer than
-the Damiao TIMEOUT register would provoke the very communication-loss fault we
-are trying to record.
-
-It does not detect faults -- the component that owns the hardware does that and
-publishes the result. Deriving events by diffing a sampled state topic (as an
-earlier version did) cannot see a fault that appears and clears between two
-samples, and cannot know the raw vendor code that caused it.
-
-Only transitions are logged, never steady state; continuous telemetry belongs
-in a rosbag. A one-hour run with no faults produces two lines.
-"""
-
+import collections
 import datetime
 import time
 
@@ -53,6 +37,31 @@ FREEZE_FRAME_EVENTS = (
     FaultEvent.EVENT_FAULT_CHANGE,
 )
 
+class EventDeduper:
+    """Suppresses events this logger has already written."""
+
+    def __init__(self, history=128):
+        self._history = history
+        self._seen = collections.OrderedDict()
+
+    def is_duplicate(self, msg):
+        """True if this exact transition has already been seen."""
+        stamp = msg.header.stamp
+        if stamp.sec == 0 and stamp.nanosec == 0:
+            return False
+
+        key = (
+            stamp.sec, stamp.nanosec, msg.component,
+            int(msg.event), int(msg.fault), int(msg.raw_code),
+        )
+        if key in self._seen:
+            return True
+
+        self._seen[key] = None
+        while len(self._seen) > self._history:
+            self._seen.popitem(last=False)
+        return False
+
 
 def _utc_now_iso():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds')
@@ -80,9 +89,8 @@ class FaultLoggerNode(Node):
 
         self._started_at = time.monotonic()
 
-        # Must match the publisher: reliable + transient_local means starting
-        # late (or reconnecting after a comms drop) still delivers the recent
-        # fault history rather than nothing.
+        self._deduper = EventDeduper()
+
         qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -120,6 +128,9 @@ class FaultLoggerNode(Node):
             self.get_logger().error('Fault log write failed: {}'.format(exc))
 
     def _on_event(self, msg):
+        if self._deduper.is_duplicate(msg):
+            return
+
         record = {
             'event': EVENT_NAMES.get(msg.event, 'UNKNOWN_{}'.format(msg.event)),
             'component': msg.component,
@@ -140,11 +151,7 @@ class FaultLoggerNode(Node):
 
     @staticmethod
     def _freeze_frame(msg):
-        """Snapshot at fault time -- the point of the whole log.
-
-        NaN entries become null when serialised; the vendor simply does not
-        report those quantities.
-        """
+        """Snapshot at fault time -- the point of the whole log."""
         return {
             'position': float(msg.position),
             'velocity': float(msg.velocity),
