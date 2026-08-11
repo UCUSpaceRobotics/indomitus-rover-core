@@ -94,6 +94,7 @@ def generate_launch_description() -> LaunchDescription:
         arguments=[
             "joint_state_broadcaster",
             "indomitus_arm_controller",
+            "gripper_controller",
             "--controller-manager-timeout", "60",
             "--switch-timeout", "60",
             "--service-call-timeout", "70",
