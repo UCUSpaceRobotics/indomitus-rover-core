@@ -17,11 +17,11 @@ def generate_launch_description():
     nav_to_pose_bt = os.path.join(pkg, "behaviour_trees", "navigate_to_pose_w_replanning.xml")
     nav_through_poses_bt = os.path.join(pkg, "behaviour_trees", "navigate_through_poses_w_replanning.xml")
 
-    use_sim_val = LaunchConfiguration("use_sim")
-    use_sim_arg = DeclareLaunchArgument(
-        "use_sim",
+    use_sim_time_val = LaunchConfiguration("use_sim_time")
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time",
         default_value="false",
-        description="Enable simulation mode (uses sim clock and sim nav2 config).",
+        description="Make Gazebo to use sim clock.",
     )
 
     cmd_vel_topic_val = LaunchConfiguration("cmd_vel_topic")
@@ -54,7 +54,7 @@ def generate_launch_description():
     ]
 
     return LaunchDescription([
-        use_sim_arg,
+        use_sim_time_arg,
         cmd_vel_topic_arg,
         nav2_params_file_arg,
 
@@ -63,7 +63,7 @@ def generate_launch_description():
             executable="planner_server",
             name="planner_server",
             output="screen",
-            parameters=[nav2_config, {"use_sim_time": use_sim_val}],
+            parameters=[nav2_config, {"use_sim_time": use_sim_time_val}],
         ),
 
         Node(
@@ -71,7 +71,7 @@ def generate_launch_description():
             executable="controller_server",
             name="controller_server",
             output="screen",
-            parameters=[nav2_config, {"use_sim_time": use_sim_val}],
+            parameters=[nav2_config, {"use_sim_time": use_sim_time_val}],
             remappings=[("cmd_vel", cmd_vel_topic_val)],
         ),
 
@@ -80,7 +80,7 @@ def generate_launch_description():
             executable="behavior_server",
             name="behavior_server",
             output="screen",
-            parameters=[nav2_config, {"use_sim_time": use_sim_val}],
+            parameters=[nav2_config, {"use_sim_time": use_sim_time_val}],
             remappings=[("cmd_vel", cmd_vel_topic_val)],
         ),
 
@@ -92,7 +92,7 @@ def generate_launch_description():
             parameters=[
                 nav2_config,
                 {
-                    "use_sim_time": use_sim_val,
+                    "use_sim_time": use_sim_time_val,
                     "default_nav_to_pose_bt_xml": nav_to_pose_bt,
                     "default_nav_through_poses_bt_xml": nav_through_poses_bt,
                 },
@@ -104,7 +104,7 @@ def generate_launch_description():
             executable="waypoint_follower",
             name="waypoint_follower",
             output="screen",
-            parameters=[nav2_config, {"use_sim_time": use_sim_val}],
+            parameters=[nav2_config, {"use_sim_time": use_sim_time_val}],
         ),
 
         Node(
@@ -113,7 +113,7 @@ def generate_launch_description():
             name="lifecycle_manager_navigation",
             output="screen",
             parameters=[{
-                "use_sim_time": use_sim_val,
+                "use_sim_time": use_sim_time_val,
                 "autostart": True,
                 "node_names": lc_navigation,
             }],

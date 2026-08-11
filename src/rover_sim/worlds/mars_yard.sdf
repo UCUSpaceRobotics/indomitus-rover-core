@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <sdf version="1.8">
-  <world name="world_demo">
+  <world name="mars_yard">
 
     <!-- Physics -->
     <physics name="1ms" type="ignored">
