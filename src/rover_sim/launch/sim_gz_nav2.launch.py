@@ -80,7 +80,7 @@ def generate_launch_description() -> LaunchDescription:
             "spawn_x": LaunchConfiguration("spawn_x"),
             "spawn_y": LaunchConfiguration("spawn_y"),
             "spawn_z": LaunchConfiguration("spawn_z"),
-            "extra_xacro_args": "use_nav:=true lidar_simulate_scan:=true stereo_camera_simulate_depth:=true",
+            "extra_xacro_args": "lidar_simulate_scan:=true stereo_camera_simulate_depth:=true",
         }),
 
         TimerAction(
