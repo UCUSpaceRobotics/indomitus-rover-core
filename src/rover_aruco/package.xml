@@ -9,8 +9,15 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- Runtime: Launch tools -->
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+
+  <!-- Runtime: Camera driver & ArUco processing -->
   <exec_depend>usb_cam</exec_depend>
   <exec_depend>aruco_opencv</exec_depend>
+
+  <!-- Runtime: Calibration script dependencies -->
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
 

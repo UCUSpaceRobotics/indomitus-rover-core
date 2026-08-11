@@ -15,19 +15,21 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- Runtime: Nav2 servers -->
+  <!-- Runtime: Launch tools -->
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+
+  <!-- Runtime: Nav2 servers & costmaps -->
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_planner</exec_depend>
   <exec_depend>nav2_controller</exec_depend>
   <exec_depend>nav2_behaviors</exec_depend>
   <exec_depend>nav2_bt_navigator</exec_depend>
   <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>nav2_costmap_2d</exec_depend>
 
-    <!-- Runtime: SLAM -->
-    <exec_depend>slam_toolbox</exec_depend>
-
-    <!-- Runtime: Planner plugins -->
-    <exec_depend>nav2_smac_planner</exec_depend>
+  <!-- Runtime: Planner plugins -->
+  <exec_depend>nav2_smac_planner</exec_depend>
 
   <!-- Runtime: Controller plugins -->
   <exec_depend>nav2_mppi_controller</exec_depend>

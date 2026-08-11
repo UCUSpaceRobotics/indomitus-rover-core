@@ -5,12 +5,11 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-find_package(rclcpp REQUIRED)
+# Only find packages actually used in the C++ code
 find_package(ament_cmake REQUIRED)
-find_package(ros_gz_sim REQUIRED)
-find_package(ros_gz_bridge REQUIRED)
-find_package(pluginlib REQUIRED)
+find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(pluginlib REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(controller_interface REQUIRED)
 
@@ -43,22 +42,29 @@ if($ENV{ROS_DISTRO} STREQUAL "jazzy")
     target_compile_definitions(rover_sim_controller PRIVATE JAZZY_OR_LATER)
 endif()
 
+# Added rclcpp and geometry_msgs to the linking targets
 ament_target_dependencies(rover_sim_controller
+  rclcpp
   rclcpp_lifecycle
   hardware_interface
   controller_interface
   pluginlib
+  geometry_msgs
 )
 
 pluginlib_export_plugin_description_file(controller_interface plugins.xml)
 
 ament_export_include_directories(include)
 ament_export_libraries(rover_sim_controller)
+
+# Added rclcpp and geometry_msgs to the exports
 ament_export_dependencies(
+  rclcpp
   rclcpp_lifecycle
   hardware_interface
   controller_interface
   pluginlib
+  geometry_msgs
 )
 
 install(TARGETS rover_sim_controller
@@ -74,6 +80,5 @@ install(DIRECTORY include/
 install(FILES plugins.xml
   DESTINATION share/${PROJECT_NAME}
 )
-
 
 ament_package()
