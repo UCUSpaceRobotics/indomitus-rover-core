@@ -23,6 +23,7 @@
 #include "indomitus_interfaces/srv/set_steer_zero.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_srvs/srv/set_bool.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 #include "rover_hardware_interface/can_bus.hpp"
 #include "rover_hardware_interface/constants.hpp"
@@ -89,6 +90,10 @@ private:
     void on_set_motors_enabled(
         const std::shared_ptr<std_srvs::srv::SetBool::Request>          req,
         std::shared_ptr<std_srvs::srv::SetBool::Response>               res);
+
+    void on_clear_motor_errors(
+        const std::shared_ptr<std_srvs::srv::Trigger::Request>          req,
+        std::shared_ptr<std_srvs::srv::Trigger::Response>               res);
 
     void on_set_steer_zero(
         const std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Request>  req,
@@ -211,6 +216,7 @@ private:
 
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr                  motor_enable_srv_;
     rclcpp::Service<indomitus_interfaces::srv::SetSteerZero>::SharedPtr set_steer_zero_srv_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                  clear_motor_errors_srv_;
 
     rclcpp::TimerBase::SharedPtr status_poll_timer_;      ///< 1 Hz  — 0xAE + 0xA3 query
     rclcpp::TimerBase::SharedPtr chassis_status_timer_;   ///< 10 Hz — /chassis/motor_states

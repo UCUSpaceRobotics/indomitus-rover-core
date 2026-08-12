@@ -196,6 +196,11 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
         [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
                 std::shared_ptr<std_srvs::srv::SetBool::Response> res) { on_set_motors_enabled(req, res); });
 
+    clear_motor_errors_srv_ = node->create_service<std_srvs::srv::Trigger>(
+        "~/clear_motor_errors",
+        [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> req,
+                std::shared_ptr<std_srvs::srv::Trigger::Response> res) { on_clear_motor_errors(req, res); });
+
     set_steer_zero_srv_ = node->create_service<indomitus_interfaces::srv::SetSteerZero>(
         "~/set_steer_zero",
         [this](const std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Request> req,
@@ -659,6 +664,37 @@ void RoverHardwareInterface::on_set_motors_enabled(
     req->data ? send_enable_frames() : send_disable_frames();
     res->success = true;
     res->message = req->data ? "All chassis motors enabled" : "All chassis motors disabled";
+}
+
+void RoverHardwareInterface::on_clear_motor_errors(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request>  /*req*/,
+    std::shared_ptr<std_srvs::srv::Trigger::Response>       res)
+{
+    if (!can_bus_.is_open()) {
+        res->success = false;
+        res->message = "CAN bus not open — activate the hardware component first";
+        RCLCPP_WARN(logger_, "[RoverHW] clear_motor_errors ignored: CAN bus not open");
+        return;
+    }
+
+    // The clear leaves every motor disabled — that is the Damiao protocol, not a
+    // choice made here. Re-enabling is left to the operator so a cleared fault
+    // never turns into unexpected motion.
+    {
+        std::lock_guard<std::mutex> tx_lock(tx_sequence_mutex_);
+        for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+            auto f = damiao_protocol::buildClearErrorFrame(drive_ids_[i]);
+            can_bus_.send(f.id, f.data.data(), f.dlc);
+        }
+    }
+
+    motors_enabled_ = false;
+
+    RCLCPP_INFO(logger_, "[RoverHW] Cleared drive motor errors (ids %d %d %d %d) — motors left disabled",
+        drive_ids_[0], drive_ids_[1], drive_ids_[2], drive_ids_[3]);
+
+    res->success = true;
+    res->message = "Clear-error frames sent to all drive motors; motors left disabled";
 }
 
 void RoverHardwareInterface::on_set_steer_zero(

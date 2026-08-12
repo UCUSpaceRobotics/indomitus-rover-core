@@ -51,6 +51,17 @@ Motors are **disabled by default** on activation. Enable/disable is controlled v
 
 Called from `joystick_interpreter_node` on button press. On deactivation — zero commands are sent and motors are disabled gracefully.
 
+## Clearing drive-motor faults
+
+```
+ros2 service call /rover_hardware_node/clear_motor_errors std_srvs/srv/Trigger
+```
+
+Sends the Damiao clear-error frame (`FF FF FF FF FF FF FF FB`) to every drive
+ID — equivalent to `cansend can0 00A#FFFFFFFFFFFFFFFB` and friends. Bound to
+joystick button 15 (`clear_errors_button`). The motors are left **disabled**
+afterwards, per the Damiao protocol; re-enable by cycling the motor button.
+
 ## Known Issues
 
 - Damiao voltage/current not available via CAN (UART debug interface only)
