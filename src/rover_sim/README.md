@@ -2,6 +2,29 @@
 
 This package contains all the assets and configurations required to run the Gazebo simulation.
 
+## Git LFS
+
+> ⚠️ **Important** Do this before working with simulation!
+
+This package includes large mesh assets tracked with [Git LFS](https://git-lfs.github.com/). Install it once per machine before cloning/pulling, otherwise large mesh files will check out as tiny pointer stubs instead of the real content:
+
+**Linux**
+```bash
+sudo apt update && sudo apt install git-lfs   
+git lfs install
+```
+
+**Mac OS**
+```bash
+brew install git-lfs
+```
+
+If you already cloned the repo before installing Git LFS, pull the real files with:
+
+```bash
+git lfs pull
+```
+
 ## Worlds & maps
 
 | World | Map years | Resolutions |
