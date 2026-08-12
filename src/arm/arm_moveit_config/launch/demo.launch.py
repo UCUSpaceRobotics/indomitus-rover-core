@@ -63,7 +63,7 @@ def generate_launch_description() -> LaunchDescription:
     # 0.014 rad between cycles and shake the arm. Do not raise it much further:
     # the commanded step is also what produces torque, so heavy smoothing
     # (tried at 10) starves the joints and turns the motion stop-go instead.
-    smoothing_params = {"butterworth_filter_coeff": 2.0}
+    smoothing_params = {"butterworth_filter_coeff": 3.0}
 
     servo_node = Node(
         package="moveit_servo",
@@ -74,6 +74,12 @@ def generate_launch_description() -> LaunchDescription:
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
             moveit_config.robot_description_kinematics,
+            # Without this, joint_limits.yaml (per-joint max_velocity/
+            # max_acceleration/position bounds) never reaches Servo's robot
+            # model — it falls back to the bare URDF <limit> tags only, so
+            # the wrist_1_wrist_2 singularity fence and the tuned speed
+            # ceilings were silently not enforced during teleop.
+            moveit_config.joint_limits,
             servo_params,
             smoothing_params,
         ],

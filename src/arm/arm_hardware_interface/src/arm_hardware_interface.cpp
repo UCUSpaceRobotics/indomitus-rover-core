@@ -166,7 +166,7 @@ const std::array<LinkMass, NUM_JOINTS> kLinkMass = {{
     // gripper, camera, fasteners and cabling, and compensates for the midpoint
     // COM approximation used on the links above. Replacing it with the true
     // gripper mass alone will under-compensate and make the arm sag again.
-    /*5 arm_end_effector_link + everything mounted on it */ { 0.600, {0.0,     0.0,  0.06   } },
+    /*5 arm_end_effector_link + everything mounted on it */ { 0.400, {0.0,     0.0,  0.06   } },
 }};
 
 // kMotorMass[i] — the motor that drives joint i, pinned at joint i's own axis
@@ -524,13 +524,31 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
     if (!(dt > 0.0) || dt > 0.5) dt = 0.01;
     const double max_step = max_cmd_speed_rad_s_ * dt;
 
+    // Below this, a "new" target is indistinguishable from encoder/URDF-round-
+    // trip quantization noise (~0.0002 rad on the 16-bit MIT position field).
+    // Re-sending a Pos_des that only moved by noise makes the PD loop chase
+    // that noise as if it were real motion — a source of standing tremor
+    // independent of Servo vs. single-shot goals, since both continuously
+    // resupply joint_position_command_ from a live (quantized) measurement.
+    // NOTE: 1 deg (0.0175 rad) exceeds max_step per tick (0.01 rad at the
+    // 1.0 rad/s ceiling, and typical slow moves like safe_pose average
+    // ~0.001 rad/tick) — the command will stall for many ticks then jump to
+    // catch up once the gap exceeds this, i.e. this can reintroduce the
+    // stop-go stepping we've been trying to eliminate on anything slower
+    // than ~1.75 rad/s. Watch slow moves specifically after raising this.
+    constexpr double kPosDeadbandRad = 0.005;
+
     std::array<double, NUM_JOINTS> cmd{};
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
         double target = joint_position_command_[i];
         if (!std::isfinite(target)) {
             target = last_sent_command_[i];   // hold on NaN/inf
         }
-        const double delta = std::clamp(target - last_sent_command_[i], -max_step, max_step);
+        double delta = target - last_sent_command_[i];
+        if (std::abs(delta) < kPosDeadbandRad) {
+            delta = 0.0;
+        }
+        delta = std::clamp(delta, -max_step, max_step);
         cmd[i] = last_sent_command_[i] + delta;
         last_sent_command_[i] = cmd[i];
     }
@@ -544,6 +562,15 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
         const float target_pos = static_cast<float>(urdf_to_motor(i, cmd[i]));
         double vff = joint_velocity_command_[i];
         if (!std::isfinite(vff)) vff = 0.0;
+        // Pos_des above is slew-limited to max_cmd_speed_rad_s_, but JTC's raw
+        // velocity is not: whenever the position limiter actually binds, an
+        // unclamped Vel_des tells Kd to drive toward a speed Pos_des is not
+        // allowed to reach, and the two gain terms fight every cycle for the
+        // duration of the move (buzzing). Clamping vff to the same ceiling
+        // keeps the pair consistent without differentiating cmd[i] — a delta/dt
+        // approach was tried and made things worse, amplifying the real ~2%
+        // period jitter of write() into torque spikes on the noisy cycles.
+        vff = std::clamp(vff, -max_cmd_speed_rad_s_, max_cmd_speed_rad_s_);
         const float target_vel = static_cast<float>(vff * joint_directions_[i]);
         const float kp = static_cast<float>(joint_kp_[i] * ramp);
         const float kd = static_cast<float>(joint_kd_[i] * ramp);

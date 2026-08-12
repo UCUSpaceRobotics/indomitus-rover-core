@@ -22,3 +22,7 @@ indomitus_arm_controller:
     state_interfaces:
       - position
       - velocity
+
+    # Match hardware controller: follow MoveIt TOTG profiles continuously.
+    interpolation_method: splines
+    allow_partial_joints_goal: true

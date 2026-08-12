@@ -318,12 +318,10 @@
         </joint>
       </xacro:macro>
 
-      <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="0.0"  kp="100.0"  kd="4.0"/>
-      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="1" offset="0.0"  kp="120.0" kd="4.0"/>
-      <!-- GRAVITY-FF ISOLATION TEST: kp=kd=0 so only t_ff holds this joint —
-           open loop, no position feedback at all. Restore kp/kd once done. -->
-      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="-1"  offset="0.0" kp="0.0" kd="0.0"/>
-      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="0.0"  kp="50.0"  kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="0.0"  kp="100.0"  kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="1" offset="0.0"  kp="300.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="-1"  offset="0.0" kp="300.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="0.0"  kp="40.0"  kd="5.0"/>
       <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="-1"  offset="0.0"     kp="40.0"  kd="5.0"/>
       <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0"     kp="40.0"  kd="5.0"/>
 

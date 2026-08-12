@@ -33,6 +33,26 @@ indomitus_arm_controller:
     # current position, which is what makes single-joint test moves possible.
     allow_partial_joints_goal: true
 
+    # Left at the library default (true, deprecated) on purpose: Servo streams
+    # single-point trajectories where that one point is simultaneously the
+    # first AND last point of the "trajectory", carrying the live commanded
+    # velocity while a key is held. Setting this false makes the JTC reject
+    # every such goal outright — motion only happens on key-release, when
+    # Servo finally sends a v=0 point. Only real multi-point goals (teach_poses,
+    # move_group Execute) end with genuine v=0 anyway, so this never mattered
+    # for them; do not flip this without re-checking the Servo path.
+
+    # Spline interpolation follows the TOTG velocity/accel profile from MoveIt.
+    # Without it, sparse waypoints are held as piecewise-constant setpoints
+    # and look like stop-and-go motion. NOTE: this setting governs BOTH
+    # move_group Execute (multi-point, TOTG-timed — wants splines) and Servo
+    # teleop (a stream of single-point "trajectories" sent every ~34 ms, each
+    # forcing the JTC to restart spline fitting from scratch). If Servo jitter
+    # persists even on fake hardware (no physics involved at all), try
+    # removing this line — splines restarting every Servo message may be the
+    # jitter's actual source.
+    # interpolation_method: splines
+
     # On goal cancel / controller stop, ramp to hold over this time instead
     # of freezing the setpoint instantly.
     stop_trajectory_duration: 0.5   # seconds
