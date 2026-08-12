@@ -52,7 +52,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import TwistStamped
-from sensor_msgs.msg import Joy
+from sensor_msgs.msg import Joy, JointState
 from std_msgs.msg import Int8, Float64MultiArray
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
@@ -165,6 +165,12 @@ class ServoController(Node):
         self.wz = 0.0
         self.gripper_vel = 0.0
         self._gripper_position = 0.0
+        # Starts unsynced: _gripper_position is a guess (closed) until the
+        # first /joint_states reading confirms the real position. Without
+        # this gate, restarting the node while the gripper is actually
+        # open would command a sudden jump toward the guessed position
+        # instead of a gradual move from wherever it really is.
+        self._gripper_state_received = False
         self._roll_was_active = False
 
         self._pub = self.create_publisher(TwistStamped, 'servo_node/delta_twist_cmds', 10)
@@ -184,6 +190,12 @@ class ServoController(Node):
             Int8,
             'servo_node/status',
             self._on_servo_status,
+            10
+        )
+        self._joint_state_sub = self.create_subscription(
+            JointState,
+            'joint_states',
+            self._on_joint_state,
             10
         )
 
@@ -430,6 +442,23 @@ class ServoController(Node):
                 self.start_servo()
         self._servo_status = code
 
+    def _on_joint_state(self, msg: JointState):
+        """Sync the gripper setpoint to the real joint position, once.
+
+        Runs only until the first message that names GRIPPER_JOINT_NAME —
+        after that, _gripper_position is our own commanded state and
+        should not be overwritten by feedback (which would fight an
+        in-progress open/close move).
+        """
+        if self._gripper_state_received:
+            return
+        try:
+            index = msg.name.index(GRIPPER_JOINT_NAME)
+        except ValueError:
+            return
+        self._gripper_position = msg.position[index]
+        self._gripper_state_received = True
+
     def _publish(self):
         """Publish the current velocity state, routing roll/gripper independently.
 
@@ -450,7 +479,7 @@ class ServoController(Node):
         ``TwistStamped`` carries ``vx``..``vz``/``wy``/``wz`` as before
         (``wx`` is always 0 there, since roll never travels this path).
         """
-        if self.gripper_vel != 0.0:
+        if self.gripper_vel != 0.0 and self._gripper_state_received:
             self._gripper_position += self.gripper_vel / self._publish_rate
             self._gripper_position = max(0.0, min(GRIPPER_STROKE, self._gripper_position))
             gripper_msg = Float64MultiArray()
