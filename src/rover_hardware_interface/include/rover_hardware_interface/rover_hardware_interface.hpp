@@ -85,6 +85,9 @@ private:
     /// Caller must hold tx_sequence_mutex_.
     void send_disable_burst();
 
+    /// Damiao clear-error frame to every drive motor, over the given socket.
+    void send_clear_error_frames(CanBus & bus);
+
     // Service callbacks
 
     void on_set_motors_enabled(

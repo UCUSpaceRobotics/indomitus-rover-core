@@ -666,14 +666,39 @@ void RoverHardwareInterface::on_set_motors_enabled(
     res->message = req->data ? "All chassis motors enabled" : "All chassis motors disabled";
 }
 
+void RoverHardwareInterface::send_clear_error_frames(CanBus & bus)
+{
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        auto f = damiao_protocol::buildClearErrorFrame(drive_ids_[i]);
+        bus.send(f.id, f.data.data(), f.dlc);
+    }
+}
+
 void RoverHardwareInterface::on_clear_motor_errors(
     const std::shared_ptr<std_srvs::srv::Trigger::Request>  /*req*/,
     std::shared_ptr<std_srvs::srv::Trigger::Response>       res)
 {
     if (!can_bus_.is_open()) {
-        res->success = false;
-        res->message = "CAN bus not open — activate the hardware component first";
-        RCLCPP_WARN(logger_, "[RoverHW] clear_motor_errors ignored: CAN bus not open");
+        // The component is inactive, so can_bus_ is closed — which is exactly
+        // the state an operator is in after a fault knocked the motors out.
+        // A short-lived TX-only socket clears the fault without disturbing the
+        // lifecycle: SocketCAN happily carries several senders on one interface.
+        CanBus tmp_bus(logger_, clock_);
+        if (!tmp_bus.open(can_interface_)) {
+            res->success = false;
+            res->message = "Could not open " + can_interface_ + " to send clear-error frames";
+            RCLCPP_WARN(logger_, "[RoverHW] clear_motor_errors failed: cannot open %s",
+                can_interface_.c_str());
+            return;
+        }
+        send_clear_error_frames(tmp_bus);
+        RCLCPP_INFO(logger_,
+            "[RoverHW] Cleared drive motor errors on %s while inactive (ids %d %d %d %d)",
+            can_interface_.c_str(),
+            drive_ids_[0], drive_ids_[1], drive_ids_[2], drive_ids_[3]);
+
+        res->success = true;
+        res->message = "Clear-error frames sent on a temporary socket (component inactive)";
         return;
     }
 
@@ -682,10 +707,7 @@ void RoverHardwareInterface::on_clear_motor_errors(
     // never turns into unexpected motion.
     {
         std::lock_guard<std::mutex> tx_lock(tx_sequence_mutex_);
-        for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-            auto f = damiao_protocol::buildClearErrorFrame(drive_ids_[i]);
-            can_bus_.send(f.id, f.data.data(), f.dlc);
-        }
+        send_clear_error_frames(can_bus_);
     }
 
     motors_enabled_ = false;
