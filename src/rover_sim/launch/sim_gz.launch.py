@@ -32,19 +32,24 @@ BASE_CONTROLLERS = (
 
 LEGACY_SWERVE_CONTROLLER = "swerve_controller"
 SHAPE_SWERVE_CONTROLLER = "swerve_controller_test"
-SWERVE_CONTROLLERS = (LEGACY_SWERVE_CONTROLLER, SHAPE_SWERVE_CONTROLLER)
+SWERVE_CONTROLLERS = [LEGACY_SWERVE_CONTROLLER, SHAPE_SWERVE_CONTROLLER]
 DEFAULT_SWERVE_CONTROLLER = SHAPE_SWERVE_CONTROLLER
 
 # List of available worlds.
 SUPPORTED_WORLDS = ["mars_yard", "nav2_test_world"]
 
 # List of worlds that utilize the dynamic resolution map loading feature.
-# For any world not in this list, the map_resolution parameter is safely ignored.
 SUPPORTED_RESOLUTION_WORLDS = ["mars_yard"]
+
+# List of available mars_yard map years.
+SUPPORTED_MAP_YEARS = ["2025", "2026"]
+
+# List of available map resolutions. Only applies to the 2025 mars_yard map.
+SUPPORTED_MAP_RESOLUTIONS = ["low", "medium", "high"]
 
 # Default coordinates for rover to spawn
 DEFAULT_SPAWN_X = 0.0
-DEFAULT_SPAWN_Y = 3.0
+DEFAULT_SPAWN_Y = 0.0
 DEFAULT_SPAWN_Z = 0.5
 
 
@@ -144,42 +149,52 @@ def make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub) -> No
     )
 
 
-def setup_dynamic_map(context, rover_sim_share: str, launch_tmp_dir: str, world_name_sub, map_resolution_sub) -> list:
+def setup_dynamic_map(context, rover_sim_share: str, launch_tmp_dir: str, world_name_sub, map_resolution_sub, map_year_sub) -> list:
     world = world_name_sub.perform(context)
 
+    # Only run the dynamic map generation if we are using the mars yard world
     if world not in SUPPORTED_RESOLUTION_WORLDS:
         return []
 
     resolution = map_resolution_sub.perform(context)
-    source_meshes_dir = os.path.join(rover_sim_share, "models", "mars_yard_2025", "meshes")
+    year = map_year_sub.perform(context)
 
-    tmp_model_dir = os.path.join(launch_tmp_dir, "mars_yard_2025")
+    tmp_model_dir = os.path.join(launch_tmp_dir, "mars_yard")
     tmp_meshes_dir = os.path.join(tmp_model_dir, "meshes")
-
     os.makedirs(tmp_meshes_dir, exist_ok=True)
 
-    selected_obj = os.path.join(source_meshes_dir, f"mars_yard_2025_{resolution}_resolution.obj")
-    target_obj = os.path.join(tmp_meshes_dir, "mars_yard_2025.obj")
+    if year == "2025":
+        source_meshes_dir = os.path.join(rover_sim_share, "models", "mars_yard_2025", "meshes")
+        selected_obj = os.path.join(source_meshes_dir, f"mars_yard_2025_{resolution}_resolution.obj")
+        target_obj = os.path.join(tmp_meshes_dir, "mars_yard.obj")
 
-    if os.path.exists(selected_obj):
-        shutil.copy(selected_obj, target_obj)
+        if os.path.exists(selected_obj):
+            shutil.copy(selected_obj, target_obj)
+        else:
+            raise RuntimeError(f"Resolution file not found: {selected_obj}")
+    elif year == "2026":
+        # Resolution argument is explicitly ignored for 2026 map
+        source_meshes_dir = os.path.join(rover_sim_share, "models", "mars_yard_2026", "meshes")
+        source_obj = os.path.join(source_meshes_dir, "mars_yard_2026.obj")
+
+        target_obj = os.path.join(tmp_meshes_dir, "mars_yard.obj")
+
+        if os.path.exists(source_obj):
+            shutil.copy(source_obj, target_obj)
+        else:
+            raise RuntimeError(f"2026 Mesh file not found: {source_obj}")
     else:
-        raise RuntimeError(f"Resolution file not found: {selected_obj}")
+        raise ValueError(f"Unknown map_year: {year}")
 
-    shutil.copy(
-        os.path.join(rover_sim_share, "models", "mars_yard_2025", "model.config"),
-        os.path.join(tmp_model_dir, "model.config")
-    )
-
-    sdf_content = f"""<?xml version="1.0" ?>
+    sdf_content = """<?xml version="1.0" ?>
 <sdf version="1.6">
-  <model name="mars_yard_2025">
+  <model name="mars_yard">
     <static>true</static>
     <link name="map_link">
       <collision name="collision">
         <geometry>
           <mesh>
-            <uri>model://mars_yard_2025/meshes/mars_yard_2025.obj</uri>
+            <uri>model://mars_yard/meshes/mars_yard.obj</uri>
           </mesh>
         </geometry>
       </collision>
@@ -187,7 +202,7 @@ def setup_dynamic_map(context, rover_sim_share: str, launch_tmp_dir: str, world_
         <cast_shadows>false</cast_shadows>
         <geometry>
           <mesh>
-            <uri>model://mars_yard_2025/meshes/mars_yard_2025.obj</uri>
+            <uri>model://mars_yard/meshes/mars_yard.obj</uri>
           </mesh>
         </geometry>
         <material>
@@ -200,6 +215,16 @@ def setup_dynamic_map(context, rover_sim_share: str, launch_tmp_dir: str, world_
   </model>
 </sdf>
 """
+
+    model_config_content = """<?xml version="1.0"?>
+<model>
+  <name>mars_yard</name>
+  <version>1.0</version>
+  <sdf version="1.6">model.sdf</sdf>
+</model>"""
+    
+    with open(os.path.join(tmp_model_dir, "model.config"), "w") as f:
+        f.write(model_config_content)
 
     with open(os.path.join(tmp_model_dir, "model.sdf"), "w") as f:
         f.write(sdf_content)
@@ -225,6 +250,7 @@ def generate_launch_description() -> LaunchDescription:
 
     is_world_name_present = NotEqualsSubstitution(LaunchConfiguration("world_name"), "")
     is_map_resolution_present = NotEqualsSubstitution(LaunchConfiguration("map_resolution"), "")
+    is_map_year_present = NotEqualsSubstitution(LaunchConfiguration("map_year"), "")
     is_model_name_present = NotEqualsSubstitution(LaunchConfiguration("model_name"), "")
     is_spawn_x_present = NotEqualsSubstitution(LaunchConfiguration("spawn_x"), "")
     is_spawn_y_present = NotEqualsSubstitution(LaunchConfiguration("spawn_y"), "")
@@ -233,6 +259,7 @@ def generate_launch_description() -> LaunchDescription:
 
     world_name_sub = IfElseSubstitution(is_world_name_present, if_value=LaunchConfiguration("world_name"), else_value="mars_yard")
     map_resolution_sub = IfElseSubstitution(is_map_resolution_present, if_value=LaunchConfiguration("map_resolution"), else_value="high")
+    map_year_sub = IfElseSubstitution(is_map_year_present, if_value=LaunchConfiguration("map_year"), else_value="2026")
     model_name_sub = IfElseSubstitution(is_model_name_present, if_value=LaunchConfiguration("model_name"), else_value="indomitus_rover")
     spawn_x_sub = IfElseSubstitution(is_spawn_x_present, if_value=LaunchConfiguration("spawn_x"), else_value=f"{DEFAULT_SPAWN_X}")
     spawn_y_sub = IfElseSubstitution(is_spawn_y_present, if_value=LaunchConfiguration("spawn_y"), else_value=f"{DEFAULT_SPAWN_Y}")
@@ -249,12 +276,20 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "world_name",
             default_value="mars_yard",
+            choices=["", *SUPPORTED_WORLDS],
             description=f"Gazebo world file to load (without .sdf extension). Available options: {SUPPORTED_WORLDS}."
+        ),
+        DeclareLaunchArgument(
+            "map_year",
+            default_value="2026",
+            choices=["", *SUPPORTED_MAP_YEARS],
+            description=f"The year of the map to load. Options: {SUPPORTED_MAP_YEARS}. Dynamically applies only to: mars_yard."
         ),
         DeclareLaunchArgument(
             "map_resolution",
             default_value="high",
-            description=f"Options: low, medium, high. Dynamically applies only to: {SUPPORTED_RESOLUTION_WORLDS}. Ignored for other worlds."
+            choices=["", *SUPPORTED_MAP_RESOLUTIONS],
+            description=f"Options: {SUPPORTED_MAP_RESOLUTIONS}. Dynamically applies ONLY to: mars_yard (2025). Ignored for 2026 or other worlds."
         ),
         DeclareLaunchArgument("model_name", default_value="indomitus_rover", description="The name assigned to the robot model."),
         DeclareLaunchArgument("spawn_delay", default_value="5.0", description="Time (in seconds) to wait before spawning the robot."),
@@ -281,7 +316,8 @@ def generate_launch_description() -> LaunchDescription:
                 "rover_sim_share": rover_sim_share,
                 "launch_tmp_dir": LAUNCH_TMP_DIR,
                 "world_name_sub": world_name_sub,
-                "map_resolution_sub": map_resolution_sub
+                "map_resolution_sub": map_resolution_sub,
+                "map_year_sub": map_year_sub
             }
         ),
 

@@ -12,18 +12,32 @@ SUPPORTED_WORLDS = ["mars_yard", "nav2_test_world"]
 # For any world not in this list, the map_resolution parameter is safely ignored.
 SUPPORTED_RESOLUTION_WORLDS = ["mars_yard"]
 
+# List of available mars_yard map years.
+SUPPORTED_MAP_YEARS = ["2025", "2026"]
+
+# List of available map resolutions. Only applies to the 2025 mars_yard map.
+SUPPORTED_MAP_RESOLUTIONS = ["low", "medium", "high"]
+
 
 def _declare_launch_arguments() -> List[Action]:
     return [
         DeclareLaunchArgument(
             "world_name",
             default_value="",
+            choices=["", *SUPPORTED_WORLDS],
             description=f"Gazebo world file to load (without .sdf extension). Available options: {SUPPORTED_WORLDS}."
+        ),
+        DeclareLaunchArgument(
+            "map_year",
+            default_value="",
+            choices=["", *SUPPORTED_MAP_YEARS],
+            description=f"The year of the map to load. Options: {SUPPORTED_MAP_YEARS}. Dynamically applies only to: mars_yard."
         ),
         DeclareLaunchArgument(
             "map_resolution",
             default_value="",
-            description=f"Options: low, medium, high. Dynamically applies only to: {SUPPORTED_RESOLUTION_WORLDS}. Ignored for other worlds."
+            choices=["", *SUPPORTED_MAP_RESOLUTIONS],
+            description=f"Options: {SUPPORTED_MAP_RESOLUTIONS}. Dynamically applies only to: {SUPPORTED_RESOLUTION_WORLDS}. Ignored for other worlds."
         ),
         DeclareLaunchArgument(
             "model_name",
@@ -75,6 +89,7 @@ def generate_launch_description() -> LaunchDescription:
 
         include_launch("rover_sim", "sim_gz.launch.py", {
             "world_name": LaunchConfiguration("world_name"),
+            "map_year": LaunchConfiguration("map_year"),
             "map_resolution": LaunchConfiguration("map_resolution"),
             "model_name": LaunchConfiguration("model_name"),
             "spawn_x": LaunchConfiguration("spawn_x"),
