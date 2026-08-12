@@ -13,33 +13,31 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- C++ Build and Execution Dependencies -->
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>pluginlib</depend>
   <depend>controller_interface</depend>
   <depend>hardware_interface</depend>
 
-  <!-- Interfaces -->
-  <depend>geometry_msgs</depend>
-
-  <!-- Launch infrastructure -->
+  <!-- Launch infrastructure (Runtime only) -->
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
-  <!-- Internal packages -->
+  <!-- Internal packages (Runtime only) -->
   <exec_depend>rover_bringup</exec_depend>
   <exec_depend>rover_description</exec_depend>
   <exec_depend>rover_localization</exec_depend>
+  
+  <!-- Simulation tools (Runtime only) -->
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
 
-  <!-- sim_gz_full.launch.py: combined rover + arm + panel -->
+  <!-- sim_gz_full.launch.py: combined rover + arm + panel (Runtime only) -->
   <exec_depend>arm_description</exec_depend>
   <exec_depend>panel_description</exec_depend>
   <exec_depend>panel_sim</exec_depend>
-
-  <!-- Simulation -->
-  <depend>ros_gz_sim</depend>
-  <depend>ros_gz_bridge</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

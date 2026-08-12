@@ -1,15 +1,19 @@
 services:
   rover_prod:
+    platform: linux/arm64
+    runtime: nvidia
     build:
       context: .
       dockerfile: docker/Dockerfile
       target: prod
       args:
-        ROS_DISTRO: humble
+        BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-stereolabs/zed:5.4-devel-l4t-r36.4}
+        BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-devel-l4t-r36.4}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
+        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-prod}
     container_name: rover_prod
-    runtime: nvidia
     command: tail -f /dev/null # command: autolaunch
     network_mode: host
     privileged: true
@@ -22,17 +26,21 @@ services:
     stdin_open: true
     tty: true
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$TARGET_ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
     environment:
-      - ROS_DOMAIN_ID=42
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
       - ROS_LOCALHOST_ONLY=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
       - SDL_VIDEODRIVER=dummy
       - SDL_AUDIODRIVER=dummy
     volumes:
       - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
-      - /dev/input:/dev/input:rw
+      - /dev:/dev:rw
       - /run/udev:/run/udev:ro
+      - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
+      - /usr/local/zed/resources/:/usr/local/zed/resources/:rw

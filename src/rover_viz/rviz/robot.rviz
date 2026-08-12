@@ -5,17 +5,15 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /Status1
         - /RobotModel1
-        - /TF1
       Splitter Ratio: 0.5
-    Tree Height: 1235
+    Tree Height: 600
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
     Expanded:
       - /2D Goal Pose1
-      - /Publish Point1
+      - /2D Pose Estimate1
     Name: Tool Properties
     Splitter Ratio: 0.5886790156364441
   - Class: rviz_common/Views
@@ -31,7 +29,8 @@ Panels:
 Visualization Manager:
   Class: ""
   Displays:
-    - Alpha: 0.5
+
+    - Alpha: 0.3
       Cell Size: 1
       Class: rviz_default_plugins/Grid
       Color: 160; 160; 164
@@ -49,6 +48,7 @@ Visualization Manager:
       Plane Cell Count: 10
       Reference Frame: <Fixed Frame>
       Value: true
+
     - Alpha: 1
       Class: rviz_default_plugins/RobotModel
       Collision Enabled: false
@@ -67,70 +67,6 @@ Visualization Manager:
         Expand Link Details: false
         Expand Tree: false
         Link Tree Style: Links in Alphabetic Order
-        base_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        bl_wheel_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        bl_wheel_mount_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        br_wheel_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        br_wheel_mount_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        camera_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        fl_wheel_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        fl_wheel_mount_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        fr_wheel_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        fr_wheel_mount_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        l_rocker_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        r_rocker_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        suspension_base_axii_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
       Mass Properties:
         Inertia: false
         Mass: false
@@ -139,65 +75,56 @@ Visualization Manager:
       Update Interval: 0
       Value: true
       Visual Enabled: true
-    - Class: rviz_default_plugins/TF
+
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/LaserScan
+      Color: 255; 255; 0
+      Color Transformer: FlatColor
+      Decay Time: 0
       Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: LaserScan
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 5
+      Size (m): 0.05
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /scan
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+
+    - Class: rviz_default_plugins/TF
+      Enabled: false
       Filter (blacklist): ""
       Filter (whitelist): ""
       Frame Timeout: 15
       Frames:
         All Enabled: true
-        base_link:
-          Value: true
-        bl_wheel_link:
-          Value: true
-        bl_wheel_mount_link:
-          Value: true
-        br_wheel_link:
-          Value: true
-        br_wheel_mount_link:
-          Value: true
-        camera_link:
-          Value: true
-        fl_wheel_link:
-          Value: true
-        fl_wheel_mount_link:
-          Value: true
-        fr_wheel_link:
-          Value: true
-        fr_wheel_mount_link:
-          Value: true
-        l_rocker_link:
-          Value: true
-        r_rocker_link:
-          Value: true
-        suspension_base_axii_link:
-          Value: true
-      Marker Scale: 0.5
+      Marker Scale: 0.3
       Name: TF
       Show Arrows: true
       Show Axes: true
-      Show Names: false
-      Tree:
-        base_link:
-          camera_link:
-            {}
-          suspension_base_axii_link:
-            l_rocker_link:
-              bl_wheel_mount_link:
-                bl_wheel_link:
-                  {}
-              fl_wheel_mount_link:
-                fl_wheel_link:
-                  {}
-            r_rocker_link:
-              br_wheel_mount_link:
-                br_wheel_link:
-                  {}
-              fr_wheel_mount_link:
-                fr_wheel_link:
-                  {}
+      Show Names: true
       Update Interval: 0
-      Value: true
+      Value: false
+
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -220,7 +147,7 @@ Visualization Manager:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
-        Reliability Policy: Reliable
+        Reliability Policy: Best Effort
         Value: /initialpose
     - Class: rviz_default_plugins/SetGoal
       Topic:
@@ -244,17 +171,22 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 1.9345899820327759
+      Distance: 4.0
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.14368325471878052
-        Y: -0.06236371770501137
-        Z: -0.05750134587287903
+        X: 0
+        Y: 0
+        Z: 0
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 0.785398
+      Target Frame: base_link
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 3.926991

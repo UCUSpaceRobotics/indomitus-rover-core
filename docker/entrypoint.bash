@@ -13,14 +13,15 @@ source_if_exists() {
 
 # -------------------- ROS2 Workspace Setup --------------------
 
-HW_WS="/opt/hw_ws"
-WS="/opt/ws"
+TARGET_ROS_DISTRO="${TARGET_ROS_DISTRO:-humble}"
+HW_WS="${HW_WS:-/opt/hw_ws}"
+WS="${WS:-/opt/ws}"
 
-source_if_exists "/opt/ros/${ROS_DISTRO}/setup.bash"
-source_if_exists "${WH_WS}/install/setup.bash"
+source_if_exists "/opt/ros/${TARGET_ROS_DISTRO}/setup.bash"
+source_if_exists "${HW_WS}/install/setup.bash"
 source_if_exists "${WS}/install/setup.bash"
 
-echo "[ROS] SUCCESS: Environment ready (${ROS_DISTRO})."
+echo "[ROS] SUCCESS: Environment ready (${TARGET_ROS_DISTRO})."
 
 # -------------------- Launch ROS2 nodes --------------------
 if [ "${1}" = "autolaunch" ]; then
