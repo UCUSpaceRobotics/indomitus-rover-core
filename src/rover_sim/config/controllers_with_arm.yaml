@@ -26,6 +26,9 @@ controller_manager:
     indomitus_arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
+    gripper_controller:
+      type: position_controllers/JointGroupPositionController
+
 swerve_controller:
   ros__parameters:
     drive_joint_names:
@@ -84,3 +87,9 @@ indomitus_arm_controller:
     state_interfaces:
       - position
       - velocity
+
+gripper_controller:
+  ros__parameters:
+    joints:
+      - arm_jaw_gripper_finger_right_joint
+    interface_name: position

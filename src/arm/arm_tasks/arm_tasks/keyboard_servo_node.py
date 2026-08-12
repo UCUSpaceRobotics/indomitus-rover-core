@@ -66,10 +66,15 @@ from evdev import ecodes
 
 DEFAULT_LINEAR_SPEED  = 0.1
 DEFAULT_ANGULAR_SPEED = 0.3
-# GRIPPER_STROKE is only 0.012m, so using linear_speed here (meant for a
+# The stroke is only 0.012m, so using linear_speed here (meant for a
 # much bigger Cartesian workspace) would open/close it in ~0.1s — a jump,
 # not a jog. This gives a ~2s full stroke instead.
 DEFAULT_GRIPPER_SPEED = 0.006
+# Must match arm_description's <xacro:property name="finger_stroke"/>
+# (arm_macro.xacro) — there's no single source of truth shared between
+# the URDF and this node, so it's a parameter (overridable per bringup)
+# rather than a silent hardcoded duplicate.
+DEFAULT_GRIPPER_STROKE = 0.012
 DEFAULT_PUBLISH_RATE  = 50.0
 DEFAULT_COMMAND_FRAME = 'arm_camera_link'
 DEFAULT_SAFE_POSE     = [0.0, 1.2, -1.0, 0.8, 0.5, 0.0]
@@ -91,11 +96,11 @@ ROLL_JOINT_NAME = 'arm_wrist_2_end_effector_joint'
 # so Servo silently ignores JointJog commands for it ("Ignoring joint
 # arm_jaw_gripper_finger_right_joint") — it needs its own ros2_control
 # controller (gripper_controller) commanded directly, bypassing Servo
-# entirely. 0 is closed, GRIPPER_STROKE is open (matches the joint's
-# URDF limit), so held keys integrate into an absolute position setpoint
-# rather than a velocity, since the controller only takes positions.
+# entirely. 0 is closed, gripper_stroke is open (matches the joint's
+# URDF limit — see DEFAULT_GRIPPER_STROKE), so held keys integrate into
+# an absolute position setpoint rather than a velocity, since the
+# controller only takes positions.
 GRIPPER_JOINT_NAME = 'arm_jaw_gripper_finger_right_joint'
-GRIPPER_STROKE = 0.012
 
 SERVO_STATUS_INVALID                              = -1
 SERVO_STATUS_OK                                    = 0
@@ -142,6 +147,7 @@ class ServoController(Node):
         self.declare_parameter('linear_speed',  DEFAULT_LINEAR_SPEED)
         self.declare_parameter('angular_speed', DEFAULT_ANGULAR_SPEED)
         self.declare_parameter('gripper_speed', DEFAULT_GRIPPER_SPEED)
+        self.declare_parameter('gripper_stroke', DEFAULT_GRIPPER_STROKE)
         self.declare_parameter('publish_rate',  DEFAULT_PUBLISH_RATE)
         self.declare_parameter('command_frame', DEFAULT_COMMAND_FRAME)
         self.declare_parameter('safe_pose',     DEFAULT_SAFE_POSE)
@@ -151,6 +157,7 @@ class ServoController(Node):
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
         self._gripper_speed = self.get_parameter('gripper_speed').value
+        self._gripper_stroke = self.get_parameter('gripper_stroke').value
         self._publish_rate  = self.get_parameter('publish_rate').value
         self._command_frame = self.get_parameter('command_frame').value
         self._safe_pose     = list(self.get_parameter('safe_pose').value)
@@ -171,6 +178,11 @@ class ServoController(Node):
         # open would command a sudden jump toward the guessed position
         # instead of a gradual move from wherever it really is.
         self._gripper_state_received = False
+        # Set only while gripper_vel is active (see _publish); measuring
+        # real elapsed time between ticks instead of assuming a fixed
+        # 1/publish_rate keeps the integration correct under timer
+        # jitter or sim-time irregularities.
+        self._last_gripper_tick_time = None
         self._roll_was_active = False
 
         self._pub = self.create_publisher(TwistStamped, 'servo_node/delta_twist_cmds', 10)
@@ -221,6 +233,11 @@ class ServoController(Node):
     def gripper_speed(self) -> float:
         """Return the configured gripper speed scale, in meters per second."""
         return self._gripper_speed
+
+    @property
+    def gripper_stroke(self) -> float:
+        """Return the configured gripper stroke (fully-open position), in meters."""
+        return self._gripper_stroke
 
     @property
     def keyboard_device_path(self) -> str:
@@ -480,11 +497,20 @@ class ServoController(Node):
         (``wx`` is always 0 there, since roll never travels this path).
         """
         if self.gripper_vel != 0.0 and self._gripper_state_received:
-            self._gripper_position += self.gripper_vel / self._publish_rate
-            self._gripper_position = max(0.0, min(GRIPPER_STROKE, self._gripper_position))
+            now = self.get_clock().now()
+            if self._last_gripper_tick_time is not None:
+                dt = (now - self._last_gripper_tick_time).nanoseconds / 1e9
+            else:
+                dt = 1.0 / self._publish_rate
+            self._last_gripper_tick_time = now
+
+            self._gripper_position += self.gripper_vel * dt
+            self._gripper_position = max(0.0, min(self._gripper_stroke, self._gripper_position))
             gripper_msg = Float64MultiArray()
             gripper_msg.data = [self._gripper_position]
             self._gripper_pub.publish(gripper_msg)
+        else:
+            self._last_gripper_tick_time = None
 
         if self.wx != 0.0:
             self._roll_was_active = True
