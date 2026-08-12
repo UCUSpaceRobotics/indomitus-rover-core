@@ -24,11 +24,11 @@ from launch.substitutions import (
 from launch_ros.actions import Node
 from rover_bringup.launch_utils import include_launch
 
-BASE_CONTROLLERS = (
+BASE_CONTROLLERS = [
     "joint_state_broadcaster",
     "odometry_controller",
     "diff_bar_effort_controller",
-)
+]
 
 LEGACY_SWERVE_CONTROLLER = "swerve_controller"
 SHAPE_SWERVE_CONTROLLER = "swerve_controller_test"
@@ -51,6 +51,52 @@ SUPPORTED_MAP_RESOLUTIONS = ["low", "medium", "high"]
 DEFAULT_SPAWN_X = 0.0
 DEFAULT_SPAWN_Y = 0.0
 DEFAULT_SPAWN_Z = 0.5
+
+# Mesh/material extensions tracked via Git LFS that must be resolved before simulation can start.
+LFS_TRACKED_EXTENSIONS = (".obj",)
+
+
+def _is_unresolved_lfs_pointer(path: str) -> bool:
+    """An unpulled LFS file checks out as a small text pointer instead of the real binary."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(200)
+    except OSError:
+        return False
+    return head.startswith(b"version https://git-lfs.github.com/spec/v1")
+
+
+def check_git_lfs(rover_sim_share: str) -> None:
+    """Fails fast with actionable instructions if the Git LFS mesh assets weren't pulled."""
+    unresolved_files = []
+    models_dir = os.path.join(rover_sim_share, "models")
+    if os.path.isdir(models_dir):
+        for root, _, files in os.walk(models_dir):
+            for name in files:
+                if name.lower().endswith(LFS_TRACKED_EXTENSIONS):
+                    full_path = os.path.join(root, name)
+                    if _is_unresolved_lfs_pointer(full_path):
+                        unresolved_files.append(full_path)
+
+    if not unresolved_files:
+        return
+
+    lines = [
+        "", "=" * 70,
+        "Simulation mesh assets are missing (Git LFS pointers were not resolved):",
+    ]
+    lines.extend(f"    {path}" for path in unresolved_files)
+    lines += [
+        "",
+        "Fix it by running, from the root of your indomitus-rover-core clone:",
+        "  sudo apt update && sudo apt install git-lfs   # or: brew install git-lfs (macOS)",
+        "  git lfs install",
+        "  git lfs pull",
+        "",
+        "See the 'Git LFS' section in src/rover_sim/README.md for details.",
+        "=" * 70,
+    ]
+    raise RuntimeError("\n".join(lines))
 
 
 def setup_environment() -> list:
@@ -238,6 +284,8 @@ def generate_launch_description() -> LaunchDescription:
     rover_description_share = get_package_share_directory("rover_description")
     zed_description_share = get_package_share_directory("zed_description")
     rover_sim_share = get_package_share_directory("rover_sim")
+
+    check_git_lfs(rover_sim_share)
 
     controllers_yaml_path = os.path.join(rover_sim_share, "config", "controllers.yaml")
     LAUNCH_TMP_DIR = tempfile.mkdtemp(prefix="rover_sim_")
