@@ -17,6 +17,7 @@ Controls:
         u / o  — pitch up / down
         j / l  — yaw left / right
 
+    t / y  — close / open gripper
     r      — move to safe pose + start servo
     ESC/x  — exit
 
@@ -25,6 +26,7 @@ Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller):
     Left stick       — yaw / pitch
     L2 / R2          — roll
     L2 / R2, Y held  — up / down
+    L1 / R1          — close / open gripper
     A                — move to safe pose + start servo
     X                — exit
 
@@ -50,8 +52,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import TwistStamped
-from sensor_msgs.msg import Joy
-from std_msgs.msg import Int8
+from sensor_msgs.msg import Joy, JointState
+from std_msgs.msg import Int8, Float64MultiArray
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
@@ -64,6 +66,15 @@ from evdev import ecodes
 
 DEFAULT_LINEAR_SPEED  = 0.1
 DEFAULT_ANGULAR_SPEED = 0.3
+# The stroke is only 0.012m, so using linear_speed here (meant for a
+# much bigger Cartesian workspace) would open/close it in ~0.1s — a jump,
+# not a jog. This gives a ~2s full stroke instead.
+DEFAULT_GRIPPER_SPEED = 0.006
+# Must match arm_description's <xacro:property name="finger_stroke"/>
+# (arm_macro.xacro) — there's no single source of truth shared between
+# the URDF and this node, so it's a parameter (overridable per bringup)
+# rather than a silent hardcoded duplicate.
+DEFAULT_GRIPPER_STROKE = 0.012
 DEFAULT_PUBLISH_RATE  = 50.0
 DEFAULT_COMMAND_FRAME = 'arm_camera_link'
 DEFAULT_SAFE_POSE     = [0.0, 1.2, -1.0, 0.8, 0.5, 0.0]
@@ -80,6 +91,16 @@ SAFE_POSE_JOINTS = [
 ]
 
 ROLL_JOINT_NAME = 'arm_wrist_2_end_effector_joint'
+
+# Unlike ROLL_JOINT_NAME, this isn't in the indomitus_arm planning group,
+# so Servo silently ignores JointJog commands for it ("Ignoring joint
+# arm_jaw_gripper_finger_right_joint") — it needs its own ros2_control
+# controller (gripper_controller) commanded directly, bypassing Servo
+# entirely. 0 is closed, gripper_stroke is open (matches the joint's
+# URDF limit — see DEFAULT_GRIPPER_STROKE), so held keys integrate into
+# an absolute position setpoint rather than a velocity, since the
+# controller only takes positions.
+GRIPPER_JOINT_NAME = 'arm_jaw_gripper_finger_right_joint'
 
 SERVO_STATUS_INVALID                              = -1
 SERVO_STATUS_OK                                    = 0
@@ -125,6 +146,8 @@ class ServoController(Node):
 
         self.declare_parameter('linear_speed',  DEFAULT_LINEAR_SPEED)
         self.declare_parameter('angular_speed', DEFAULT_ANGULAR_SPEED)
+        self.declare_parameter('gripper_speed', DEFAULT_GRIPPER_SPEED)
+        self.declare_parameter('gripper_stroke', DEFAULT_GRIPPER_STROKE)
         self.declare_parameter('publish_rate',  DEFAULT_PUBLISH_RATE)
         self.declare_parameter('command_frame', DEFAULT_COMMAND_FRAME)
         self.declare_parameter('safe_pose',     DEFAULT_SAFE_POSE)
@@ -133,6 +156,8 @@ class ServoController(Node):
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
+        self._gripper_speed = self.get_parameter('gripper_speed').value
+        self._gripper_stroke = self.get_parameter('gripper_stroke').value
         self._publish_rate  = self.get_parameter('publish_rate').value
         self._command_frame = self.get_parameter('command_frame').value
         self._safe_pose     = list(self.get_parameter('safe_pose').value)
@@ -145,10 +170,24 @@ class ServoController(Node):
         self.wx = 0.0
         self.wy = 0.0
         self.wz = 0.0
+        self.gripper_vel = 0.0
+        self._gripper_position = 0.0
+        # Starts unsynced: _gripper_position is a guess (closed) until the
+        # first /joint_states reading confirms the real position. Without
+        # this gate, restarting the node while the gripper is actually
+        # open would command a sudden jump toward the guessed position
+        # instead of a gradual move from wherever it really is.
+        self._gripper_state_received = False
+        # Set only while gripper_vel is active (see _publish); measuring
+        # real elapsed time between ticks instead of assuming a fixed
+        # 1/publish_rate keeps the integration correct under timer
+        # jitter or sim-time irregularities.
+        self._last_gripper_tick_time = None
         self._roll_was_active = False
 
         self._pub = self.create_publisher(TwistStamped, 'servo_node/delta_twist_cmds', 10)
         self._joint_jog_pub = self.create_publisher(JointJog, 'servo_node/delta_joint_cmds', 10)
+        self._gripper_pub = self.create_publisher(Float64MultiArray, 'gripper_controller/commands', 10)
         self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
         self._stop_client  = self.create_client(Trigger, 'servo_node/stop_servo')
         self._traj_client  = ActionClient(
@@ -165,11 +204,18 @@ class ServoController(Node):
             self._on_servo_status,
             10
         )
+        self._joint_state_sub = self.create_subscription(
+            JointState,
+            'joint_states',
+            self._on_joint_state,
+            10
+        )
 
         self.get_logger().info(
             f'ServoController ready — '
             f'linear_speed={self._linear_speed}, '
             f'angular_speed={self._angular_speed}, '
+            f'gripper_speed={self._gripper_speed}, '
             f'command_frame={self._command_frame}'
         )
 
@@ -184,12 +230,22 @@ class ServoController(Node):
         return self._angular_speed
 
     @property
+    def gripper_speed(self) -> float:
+        """Return the configured gripper speed scale, in meters per second."""
+        return self._gripper_speed
+
+    @property
+    def gripper_stroke(self) -> float:
+        """Return the configured gripper stroke (fully-open position), in meters."""
+        return self._gripper_stroke
+
+    @property
     def keyboard_device_path(self) -> str:
         """Return the filesystem path of the keyboard input device (evdev)."""
         return self._keyboard_device_path
 
     def set_velocity(self, vx=0.0, vy=0.0, vz=0.0,
-                     wx=0.0, wy=0.0, wz=0.0):
+                     wx=0.0, wy=0.0, wz=0.0, gripper_vel=0.0):
         """Set the current Cartesian velocity command.
 
         Args:
@@ -199,6 +255,8 @@ class ServoController(Node):
             wx: Angular velocity about the X axis, in radians per second.
             wy: Angular velocity about the Y axis, in radians per second.
             wz: Angular velocity about the Z axis, in radians per second.
+            gripper_vel: Velocity for GRIPPER_JOINT_NAME, in meters per
+                second (positive opens, negative closes).
 
         Notes:
             The stored values are published on the next timer tick by
@@ -210,6 +268,7 @@ class ServoController(Node):
         self.wx = wx
         self.wy = wy
         self.wz = wz
+        self.gripper_vel = gripper_vel
 
     def stop(self):
         """Zero out all velocity components, halting Cartesian motion.
@@ -400,18 +459,59 @@ class ServoController(Node):
                 self.start_servo()
         self._servo_status = code
 
+    def _on_joint_state(self, msg: JointState):
+        """Sync the gripper setpoint to the real joint position, once.
+
+        Runs only until the first message that names GRIPPER_JOINT_NAME —
+        after that, _gripper_position is our own commanded state and
+        should not be overwritten by feedback (which would fight an
+        in-progress open/close move).
+        """
+        if self._gripper_state_received:
+            return
+        try:
+            index = msg.name.index(GRIPPER_JOINT_NAME)
+        except ValueError:
+            return
+        self._gripper_position = msg.position[index]
+        self._gripper_state_received = True
+
     def _publish(self):
-        """Publish the current velocity state, routing roll through joint space.
+        """Publish the current velocity state, routing roll/gripper independently.
 
         Called periodically by the internal timer at ``publish_rate`` Hz.
+
+        The gripper has its own ros2_control controller and is commanded
+        on every tick ``gripper_vel`` is nonzero, integrating it into an
+        absolute position setpoint (the controller only accepts
+        positions, and the joint isn't in Servo's planning group so it
+        can't go through JointJog) — independent of the twist/roll
+        branch below, so it can be combined with either.
+
         MoveIt Servo acts on whichever command type (Cartesian twist or
-        joint jog) arrived most recently, so the two can't be combined
+        joint jog) arrived most recently, so those two can't be combined
         within one cycle: while ``wx`` (roll) is nonzero, only a
         ``JointJog`` for ``ROLL_JOINT_NAME`` is published and the other
-        five axes are held for that tick; otherwise a ``TwistStamped``
-        carries ``vx``..``vz``/``wy``/``wz`` as before (``wx`` is always
-        0 there, since roll never travels this path).
+        five Cartesian axes are held for that tick; otherwise a
+        ``TwistStamped`` carries ``vx``..``vz``/``wy``/``wz`` as before
+        (``wx`` is always 0 there, since roll never travels this path).
         """
+        if self.gripper_vel != 0.0 and self._gripper_state_received:
+            now = self.get_clock().now()
+            if self._last_gripper_tick_time is not None:
+                dt = (now - self._last_gripper_tick_time).nanoseconds / 1e9
+            else:
+                dt = 1.0 / self._publish_rate
+            self._last_gripper_tick_time = now
+
+            self._gripper_position += self.gripper_vel * dt
+            self._gripper_position = max(0.0, min(self._gripper_stroke, self._gripper_position))
+            gripper_msg = Float64MultiArray()
+            gripper_msg.data = [self._gripper_position]
+            self._gripper_pub.publish(gripper_msg)
+        else:
+            self._last_gripper_tick_time = None
+
         if self.wx != 0.0:
             self._roll_was_active = True
             msg = JointJog()
@@ -423,6 +523,10 @@ class ServoController(Node):
             return
 
         if self._roll_was_active:
+            # Roll just stopped: Servo acts on whichever command type
+            # arrived last, so a zero Twist alone might not halt a joint
+            # that was being moved via JointJog — send one explicit zero
+            # jog so it doesn't coast until Servo's own command timeout.
             self._roll_was_active = False
             halt = JointJog()
             halt.header.stamp = self.get_clock().now().to_msg()
@@ -456,6 +560,7 @@ HELP = """
 ║    u / o  — pitch up / down                  ║
 ║    j / l  — yaw left / right                 ║
 ║  Other:                                      ║
+║    t / y  — close / open gripper             ║
 ║    r      — move to safe pose + start servo  ║
 ║    ESC/x  — exit                             ║
 ╚══════════════════════════════════════════════╝
@@ -485,6 +590,13 @@ class KeyboardInputLoop:
         ecodes.KEY_L: ( 0.0,  0.0,  0.0,  0.0,  0.0, -1.0),
     }
 
+    # Gripper isn't a Cartesian axis, so it's tracked separately from
+    # _DIRECTIONS' 6-tuples rather than forced into that shape.
+    _GRIPPER_KEYS = {
+        ecodes.KEY_T: -1.0,  # close
+        ecodes.KEY_Y:  1.0,  # open
+    }
+
     _KEYSTATE_UP = 0
     _KEYSTATE_DOWN = 1
     _KEYSTATE_REPEAT = 2
@@ -499,6 +611,7 @@ class KeyboardInputLoop:
         self._controller = controller
         self._linear_speed = controller.linear_speed
         self._angular_speed = controller.angular_speed
+        self._gripper_speed = controller.gripper_speed
         self._device_path = controller.keyboard_device_path
         self._lock = threading.Lock()
         self._pressed = set()
@@ -541,22 +654,26 @@ class KeyboardInputLoop:
         and angular speed settings, and forwards it to
         ``ServoController.set_velocity``.
         """
-        vx = vy = vz = wx = wy = wz = 0.0
+        vx = vy = vz = wx = wy = wz = gripper = 0.0
         with self._lock:
             active = list(self._pressed)
         for code in active:
             d = self._DIRECTIONS.get(code)
-            if d is None:
+            if d is not None:
+                vx += d[0]
+                vy += d[1]
+                vz += d[2]
+                wx += d[3]
+                wy += d[4]
+                wz += d[5]
                 continue
-            vx += d[0]
-            vy += d[1]
-            vz += d[2]
-            wx += d[3]
-            wy += d[4]
-            wz += d[5]
+            g = self._GRIPPER_KEYS.get(code)
+            if g is not None:
+                gripper += g
         self._controller.set_velocity(
             vx * self._linear_speed, vy * self._linear_speed, vz * self._linear_speed,
             wx * self._angular_speed, wy * self._angular_speed, wz * self._angular_speed,
+            gripper_vel=gripper * self._gripper_speed,
         )
 
     def _handle_safe_pose(self):
@@ -612,7 +729,7 @@ class KeyboardInputLoop:
                     threading.Thread(target=self._handle_safe_pose, daemon=True).start()
                     continue
 
-                if code not in self._DIRECTIONS:
+                if code not in self._DIRECTIONS and code not in self._GRIPPER_KEYS:
                     continue
 
                 # Direction keys are ignored entirely until Servo has
@@ -632,7 +749,8 @@ class KeyboardInputLoop:
                         key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
                         print(f'{key_name} vx={self._controller.vx:.2f} vy={self._controller.vy:.2f} '
                               f'vz={self._controller.vz:.2f} wx={self._controller.wx:.2f} '
-                              f'wy={self._controller.wy:.2f} wz={self._controller.wz:.2f}')
+                              f'wy={self._controller.wy:.2f} wz={self._controller.wz:.2f} '
+                              f'gripper={self._controller.gripper_vel:.2f}')
                 elif value == self._KEYSTATE_UP:
                     with self._lock:
                         self._pressed.discard(code)
@@ -688,6 +806,7 @@ GAMEPAD_HELP = """
 ║                     pitch                    ║
 ║  L2 / R2          — roll                     ║
 ║  L2 / R2, Y held  — up / down      (Z)       ║
+║  L1 / R1          — close / open gripper     ║
 ║  A                — safe pose + servo        ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
@@ -725,6 +844,8 @@ class GamepadInputLoop:
     BUTTON_SAFE_POSE = 0   # 'A' — move to safe pose + start servo
     BUTTON_Y = 3           # 'Y' — held to shift L2 / R2 from roll to up / down
     BUTTON_EXIT = 2        # 'X' — exit
+    BUTTON_GRIPPER_CLOSE = 4  # L1
+    BUTTON_GRIPPER_OPEN  = 5  # R1
 
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
@@ -744,6 +865,7 @@ class GamepadInputLoop:
         self._controller = controller
         self._linear_speed = controller.linear_speed
         self._angular_speed = controller.angular_speed
+        self._gripper_speed = controller.gripper_speed
         self._exit_event = threading.Event()
         # None means "no trustworthy baseline yet" — the first message
         # after startup or a /joy dropout only seeds this, it never
@@ -754,7 +876,7 @@ class GamepadInputLoop:
         self._shift_armed = {self.BUTTON_Y: False}
         self._safe_pose_running = threading.Lock()
         self._safe_pose_active = False
-        self._prev_active = (False,) * 6
+        self._prev_active = (False,) * 7
 
         # Teleop (axes -> velocity) is locked out until the first
         # safe-pose move (A) completes — Servo hasn't been started yet
@@ -846,7 +968,7 @@ class GamepadInputLoop:
         return 0.0, raw_value
 
     @staticmethod
-    def _active_label(vx, vy, vz, wx, wy, wz, y_held: bool) -> str:
+    def _active_label(vx, vy, vz, wx, wy, wz, gripper_vel, y_held: bool) -> str:
         """Describe which physical control(s) are driving a nonzero command.
 
         Mirrors KeyboardInputLoop's per-key name in the feedback line,
@@ -862,6 +984,8 @@ class GamepadInputLoop:
             parts.append('L2/R2')
         if vz:
             parts.append('Y+L2/R2')
+        if gripper_vel:
+            parts.append('L1/R1')
         return '+'.join(parts) if parts else ('Y' if y_held else 'idle')
 
     def _check_joy_timeout(self):
@@ -946,13 +1070,19 @@ class GamepadInputLoop:
         wx = roll * self._angular_speed
         vz = updown * self._linear_speed
 
-        self._controller.set_velocity(vx, vy, vz, wx, wy, wz)
+        gripper_open = self._button_pressed(buttons, self.BUTTON_GRIPPER_OPEN)
+        gripper_close = self._button_pressed(buttons, self.BUTTON_GRIPPER_CLOSE)
+        gripper_vel = (
+            (1.0 if gripper_open else 0.0) - (1.0 if gripper_close else 0.0)
+        ) * self._gripper_speed
 
-        active = (vx != 0.0, vy != 0.0, vz != 0.0, wx != 0.0, wy != 0.0, wz != 0.0)
+        self._controller.set_velocity(vx, vy, vz, wx, wy, wz, gripper_vel=gripper_vel)
+
+        active = (vx != 0.0, vy != 0.0, vz != 0.0, wx != 0.0, wy != 0.0, wz != 0.0, gripper_vel != 0.0)
         if active != self._prev_active and any(active):
-            label = self._active_label(vx, vy, vz, wx, wy, wz, y_held)
+            label = self._active_label(vx, vy, vz, wx, wy, wz, gripper_vel, y_held)
             print(f'{label} vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
-                  f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
+                  f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f} gripper={gripper_vel:.4f}')
         self._prev_active = active
 
     def _handle_safe_pose(self):
