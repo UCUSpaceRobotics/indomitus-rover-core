@@ -260,6 +260,7 @@ local_costmap:
       footprint_padding: 0.05
       plugins:
         - voxel_layer
+        - slope_layer
         - inflation_layer
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
@@ -279,9 +280,9 @@ local_costmap:
           clearing: true
           marking: true
           data_type: "LaserScan"
-          raytrace_max_range: 4.0
+          raytrace_max_range: 2.0
           raytrace_min_range: 0.45
-          obstacle_max_range: 3.5
+          obstacle_max_range: 1.5
           obstacle_min_range: 0.45
         pointcloud:
           topic: /zed2i/points
@@ -289,12 +290,25 @@ local_costmap:
           data_type: "PointCloud2"
           clearing: true
           marking: true
-          min_obstacle_height: 0.5
+          min_obstacle_height: 0.9
           max_obstacle_height: 1.5
           obstacle_max_range: 4.0
           obstacle_min_range: 0.3
           raytrace_max_range: 4.0
           raytrace_min_range: 0.3
+      slope_layer:
+        plugin: "rover_costmap_plugins::SlopeLayer"
+        enabled: true
+        cloud_topic: "/zed2i/points"
+        base_frame: "base_footprint"
+        grid_resolution: 0.15
+        grid_range: 4.0
+        min_height: -0.30
+        max_height: 1.20
+        min_points_per_cell: 6
+        traversable_slope_deg: 20.0
+        lethal_slope_deg: 32.0
+        roughness_std_thresh: 0.06
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0
@@ -317,6 +331,7 @@ global_costmap:
       plugins:
         - static_layer
         - obstacle_layer
+        - slope_layer
         - inflation_layer
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -334,11 +349,24 @@ global_costmap:
           clearing: true
           marking: true
           data_type: "LaserScan"
-          raytrace_max_range: 4.0
+          raytrace_max_range: 2.0
           raytrace_min_range: 0.1
-          obstacle_max_range: 3.5
+          obstacle_max_range: 1.5
           obstacle_min_range: 0.1
           observation_persistence: 0.5
+      slope_layer:
+        plugin: "rover_costmap_plugins::SlopeLayer"
+        enabled: true
+        cloud_topic: "/zed2i/points"
+        base_frame: "base_footprint"
+        grid_resolution: 0.15
+        grid_range: 4.0
+        min_height: -0.30
+        max_height: 1.20
+        min_points_per_cell: 6
+        traversable_slope_deg: 20.0
+        lethal_slope_deg: 32.0
+        roughness_std_thresh: 0.06
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0

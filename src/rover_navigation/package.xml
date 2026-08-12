@@ -39,6 +39,9 @@
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
 
+  <!-- Runtime: Costmap plugins -->
+  <exec_depend>rover_costmap_plugins</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
