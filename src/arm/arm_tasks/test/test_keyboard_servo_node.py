@@ -99,14 +99,22 @@ def test_gripper_moves_gradually_from_synced_value_not_from_zero(controller):
 # ── limits ──────────────────────────────────────────────────────────────
 
 def test_gripper_position_clamps_to_stroke_bounds(controller):
+    # _last_gripper_tick_time is reset before each _publish() call so every
+    # tick uses the nominal 1/publish_rate fallback dt instead of the real
+    # (near-zero, runner-speed-dependent) wall-clock gap between back-to-back
+    # calls in this tight loop — otherwise this test is flaky: locally the
+    # gap may happen to accumulate enough dt to reach the clamp, but on a
+    # faster/slower CI runner it may not.
     controller._on_joint_state(make_joint_state(0.006))
     controller.set_velocity(gripper_vel=-10.0)  # absurdly fast close
     for _ in range(5):
+        controller._last_gripper_tick_time = None
         controller._publish()
     assert controller._gripper_position == 0.0
 
     controller.set_velocity(gripper_vel=10.0)  # absurdly fast open
     for _ in range(5):
+        controller._last_gripper_tick_time = None
         controller._publish()
     assert controller._gripper_position == pytest.approx(controller.gripper_stroke)
 
