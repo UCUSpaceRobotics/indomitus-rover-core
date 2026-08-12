@@ -182,6 +182,19 @@ inline can_msgs::msg::Frame buildDisableFrame(uint8_t esc_id) {
     return f;
 }
 
+// CAN ID = esc_id, payload FF FF FF FF FF FF FF FB
+// Clears a latched error (overvoltage, overcurrent, overtemp, ...). The motor
+// stays disabled afterwards — an enable frame is still required before it will
+// take commands again.
+inline can_msgs::msg::Frame buildClearErrorFrame(uint8_t esc_id) {
+    can_msgs::msg::Frame f;
+    f.id  = esc_id;
+    f.dlc = 8;
+    f.data.fill(0xFF);
+    f.data[7] = 0xFB;
+    return f;
+}
+
 // Decode MIT feedback frame (pos/vel/torque/temps/err) at mst_id or ESC_ID.
 // Returns false if: dlc<8, looks like a register response (D[2]==0x33/0x55/0xAA),
 // or motor ID nibble doesn't match esc_id.
