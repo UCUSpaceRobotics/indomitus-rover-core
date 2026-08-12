@@ -59,9 +59,11 @@ def generate_launch_description() -> LaunchDescription:
 
     # Declared on the node root, not under the moveit_servo namespace that
     # servo.yaml lands in, so it has to be passed separately or it is silently
-    # ignored. Kept near the default: smoothing attenuates the commanded step,
-    # which on this arm just deepens the stick-slip it was meant to cure.
-    smoothing_params = {"butterworth_filter_coeff": 1.5}
+    # ignored. This filters Servo's joint commands, which reverse by up to
+    # 0.014 rad between cycles and shake the arm. Do not raise it much further:
+    # the commanded step is also what produces torque, so heavy smoothing
+    # (tried at 10) starves the joints and turns the motion stop-go instead.
+    smoothing_params = {"butterworth_filter_coeff": 2.0}
 
     servo_node = Node(
         package="moveit_servo",

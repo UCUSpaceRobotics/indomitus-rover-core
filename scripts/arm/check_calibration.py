@@ -75,7 +75,7 @@ OFFSETS    = {20: 0.0, 21: 0.0, 22: 0.0, 23: 0.0, 24: 0.0, 25: 0.0}  # rad, moto
 
 SW_POS_MAX_RAD = 95.5
 SW_VEL_MAX_RPS = 45.0
-SW_T_MAX_NM    = 18.0
+SW_T_MAX_NM    = 48.0   # must match steadywin_protocol.hpp
 DM_P_MAX_RAD   = 12.5
 DM_V_MAX_RPS   = 45.0
 DM_T_MAX_NM    = 18.0

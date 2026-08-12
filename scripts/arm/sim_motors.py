@@ -53,7 +53,7 @@ DAMIAO_IDS    = [23, 24, 25]
 # would never match the simulated replies.
 MASTER_ID_BASE = 0x400
 
-SW_P, SW_V, SW_T = 95.5, 45.0, 18.0
+SW_P, SW_V, SW_T = 95.5, 45.0, 48.0   # SW_T must match steadywin_protocol.hpp
 DM_P, DM_V, DM_T = 12.5, 45.0, 18.0
 KP_MAX, KD_MAX   = 500.0, 5.0
 

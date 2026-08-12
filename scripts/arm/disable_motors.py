@@ -45,9 +45,28 @@ def send(sock, can_id, data):
 
 
 def pack_mit_zero_gain():
-    # pos=0, vel=0, kp=0, kd=0, tff=0 in the packed MIT layout — zero torque
-    # regardless of P/V/T_MAX scaling.
-    return bytes([0, 0, 0, 0, 0, 0, 0, 0])
+    """pos/vel/tff at zero, kp=kd=0 — genuinely zero torque.
+
+    Every MIT field is a signed range encoded unsigned, so all-zero bytes do
+    NOT mean zero: they decode to minus full scale, i.e. -T_MAX on the torque
+    field, which with kp=kd=0 is commanded straight through to the motor.
+    Zero lives at the midpoint of each field instead.
+    """
+    p = 0x8000        # 16-bit position, midpoint
+    v = 0x800         # 12-bit velocity, midpoint
+    kp = 0            # gains are unsigned [0, max]: zero really is zero
+    kd = 0
+    t = 0x800         # 12-bit torque, midpoint
+    return bytes([
+        (p >> 8) & 0xFF,
+        p & 0xFF,
+        (v >> 4) & 0xFF,
+        ((v & 0xF) << 4) | ((kp >> 8) & 0xF),
+        kp & 0xFF,
+        (kd >> 4) & 0xFF,
+        ((kd & 0xF) << 4) | ((t >> 8) & 0xF),
+        t & 0xFF,
+    ])
 
 
 def main():
