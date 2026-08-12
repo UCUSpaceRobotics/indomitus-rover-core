@@ -47,6 +47,12 @@ joystick_interpreter:
     active_toggle_button: 2
     active_default: true
 
+    # --- CLEAR MOTOR ERRORS ---
+    # Sends the Damiao clear-error frame (FF..FB) to every drive motor.
+    # Motors come back disabled — cycle motor_toggle_button to re-enable.
+    clear_errors_button: 20
+    clear_errors_service: /rover_hardware_node/clear_motor_errors
+
     # --- TIMEOUT / PUBLISH RATE ---
     cmd_timeout: 0.2
     timeout_pub_rate: 20.0

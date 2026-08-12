@@ -9,7 +9,7 @@ from rclpy.node import Node
 
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 from indomitus_interfaces.srv import SetTrafficLight
 from controller_manager_msgs.srv import SetHardwareComponentState, SwitchController
 from lifecycle_msgs.msg import State
@@ -184,9 +184,16 @@ class JoystickInterpreterNode(Node):
         self._beautiful = BoolLight(self, self.create_client(SetBool, '/lights/beautiful'), 'beautiful')
         self._traffic_client = self.create_client(SetTrafficLight, '/lights/traffic_light')
 
+        self._clear_errors_client = self.create_client(
+            Trigger,
+            str(declare_and_get('clear_errors_service',
+                                '/rover_hardware_node/clear_motor_errors')),
+        )
+
         self._motor_guard = GuardedCall(self._motor_enable_client)
         self._compact_mode_guard = GuardedCall(self._compact_mode_client)
         self._traffic_guard = GuardedCall(self._traffic_client)
+        self._clear_errors_guard = GuardedCall(self._clear_errors_client)
 
         self._toggles = [
             ButtonToggle(declare_and_get('vy_toggle_button', 8), self._on_vy_toggle_pressed),
@@ -201,6 +208,7 @@ class JoystickInterpreterNode(Node):
             ButtonToggle(declare_and_get('traffic_green_button',  13), lambda: self._toggle_traffic('green')),
             ButtonToggle(declare_and_get('traffic_blue_button',   14), lambda: self._toggle_traffic('blue')),
             ButtonToggle(declare_and_get('active_toggle_button', 2), self._on_active_toggle_pressed),
+            ButtonToggle(declare_and_get('clear_errors_button', 20), self._clear_motor_errors),
         ]
 
         self.get_logger().info(
@@ -308,6 +316,31 @@ class JoystickInterpreterNode(Node):
 
         if not started:
             self.get_logger().warn('traffic_light service busy or not available')
+
+    def _clear_motor_errors(self):
+        """Ask the hardware interface to clear latched drive-motor faults.
+
+        The motors come back disabled — that is how the clear works — so
+        recovery is: clear, then cycle the motor button off/on.
+        """
+        started = self._clear_errors_guard.call(
+            Trigger.Request(), self._on_clear_errors_result)
+        if not started:
+            self.get_logger().warn('clear_motor_errors service busy or not available')
+
+    def _on_clear_errors_result(self, future):
+        try:
+            response = future.result()
+        except Exception as exc:
+            self.get_logger().error(f'clear_motor_errors call failed: {exc!r}')
+            return
+
+        if response.success:
+            self.get_logger().info(
+                f'Motor errors cleared: {response.message} — '
+                f'cycle the motor button to re-enable')
+        else:
+            self.get_logger().error(f'Motor errors not cleared: {response.message}')
 
     def _timeout_check(self):
         """Apply /joy freshness timeout and publish safe zero commands when stale."""
