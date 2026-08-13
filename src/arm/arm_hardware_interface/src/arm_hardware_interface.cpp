@@ -526,11 +526,17 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
 
     // Below this, a "new" target is indistinguishable from encoder/URDF-round-
     // trip quantization noise (~0.0002 rad on the 16-bit MIT position field).
-    // Keep this at the quantization floor: Cartesian Servo rotation about TCP
-    // is many coordinated sub-0.005 rad steps per tick; a 0.005 deadband
-    // zeros those joints and leaves only the wrist, so the arm spins about
-    // a joint axis instead of the TCP.
-    constexpr double kPosDeadbandRad = 0.0002;
+    // Re-sending a Pos_des that only moved by noise makes the PD loop chase
+    // that noise as if it were real motion — a source of standing tremor
+    // independent of Servo vs. single-shot goals, since both continuously
+    // resupply joint_position_command_ from a live (quantized) measurement.
+    // NOTE: 1 deg (0.0175 rad) exceeds max_step per tick (0.01 rad at the
+    // 1.0 rad/s ceiling, and typical slow moves like safe_pose average
+    // ~0.001 rad/tick) — the command will stall for many ticks then jump to
+    // catch up once the gap exceeds this, i.e. this can reintroduce the
+    // stop-go stepping we've been trying to eliminate on anything slower
+    // than ~1.75 rad/s. Watch slow moves specifically after raising this.
+    constexpr double kPosDeadbandRad = 0.005;
 
     std::array<double, NUM_JOINTS> cmd{};
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
