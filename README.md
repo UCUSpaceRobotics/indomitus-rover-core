@@ -119,7 +119,7 @@ To power down the rover, perform **one** of the following actions:
 * **Use the power switch:** Rotate the blue switch on the back of the rover counterclockwise.
 * **Use the Emergency Stop:** Press one of the two red buttons on the top of the rover.
 
-> **Note:** To restart the rover after the emergency button has been pressed, you must first release the button by rotating it counterclockwise.
+> **Note:** To restart the rover after the emergency button has been pressed, you must first release the button by rotating it clockwise.
 
 
 ### Current System Credentials and Network Info
