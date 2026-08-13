@@ -160,10 +160,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
-            type=gha
             type=gha,scope=${{ github.base_ref }}-dev
             type=gha,scope=develop-dev
-          cache-to: type=gha,mode=max
+            type=gha,scope=main-dev
 
   run-tests:
     needs: [detect-changes, build-temp-image]

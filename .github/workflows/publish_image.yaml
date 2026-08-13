@@ -87,6 +87,7 @@ jobs:
           cache-from: |
             type=gha,scope=${{ github.ref_name }}-prod
             type=gha,scope=develop-prod
+            type=gha,scope=main-prod
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-prod
 
   build-and-push-dev-amd64:
@@ -167,4 +168,5 @@ jobs:
           cache-from: |
             type=gha,scope=${{ github.ref_name }}-dev
             type=gha,scope=develop-dev
+            type=gha,scope=main-dev
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-dev
