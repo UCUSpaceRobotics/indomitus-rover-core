@@ -196,6 +196,11 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
         [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
                 std::shared_ptr<std_srvs::srv::SetBool::Response> res) { on_set_motors_enabled(req, res); });
 
+    clear_motor_errors_srv_ = node->create_service<std_srvs::srv::Trigger>(
+        "~/clear_motor_errors",
+        [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> req,
+                std::shared_ptr<std_srvs::srv::Trigger::Response> res) { on_clear_motor_errors(req, res); });
+
     set_steer_zero_srv_ = node->create_service<indomitus_interfaces::srv::SetSteerZero>(
         "~/set_steer_zero",
         [this](const std::shared_ptr<indomitus_interfaces::srv::SetSteerZero::Request> req,
@@ -659,6 +664,59 @@ void RoverHardwareInterface::on_set_motors_enabled(
     req->data ? send_enable_frames() : send_disable_frames();
     res->success = true;
     res->message = req->data ? "All chassis motors enabled" : "All chassis motors disabled";
+}
+
+void RoverHardwareInterface::send_clear_error_frames(CanBus & bus)
+{
+    for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
+        auto f = damiao_protocol::buildClearErrorFrame(drive_ids_[i]);
+        bus.send(f.id, f.data.data(), f.dlc);
+    }
+}
+
+void RoverHardwareInterface::on_clear_motor_errors(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request>  /*req*/,
+    std::shared_ptr<std_srvs::srv::Trigger::Response>       res)
+{
+    if (!can_bus_.is_open()) {
+        // The component is inactive, so can_bus_ is closed — which is exactly
+        // the state an operator is in after a fault knocked the motors out.
+        // A short-lived TX-only socket clears the fault without disturbing the
+        // lifecycle: SocketCAN happily carries several senders on one interface.
+        CanBus tmp_bus(logger_, clock_);
+        if (!tmp_bus.open(can_interface_)) {
+            res->success = false;
+            res->message = "Could not open " + can_interface_ + " to send clear-error frames";
+            RCLCPP_WARN(logger_, "[RoverHW] clear_motor_errors failed: cannot open %s",
+                can_interface_.c_str());
+            return;
+        }
+        send_clear_error_frames(tmp_bus);
+        RCLCPP_INFO(logger_,
+            "[RoverHW] Cleared drive motor errors on %s while inactive (ids %d %d %d %d)",
+            can_interface_.c_str(),
+            drive_ids_[0], drive_ids_[1], drive_ids_[2], drive_ids_[3]);
+
+        res->success = true;
+        res->message = "Clear-error frames sent on a temporary socket (component inactive)";
+        return;
+    }
+
+    // The clear leaves every motor disabled — that is the Damiao protocol, not a
+    // choice made here. Re-enabling is left to the operator so a cleared fault
+    // never turns into unexpected motion.
+    {
+        std::lock_guard<std::mutex> tx_lock(tx_sequence_mutex_);
+        send_clear_error_frames(can_bus_);
+    }
+
+    motors_enabled_ = false;
+
+    RCLCPP_INFO(logger_, "[RoverHW] Cleared drive motor errors (ids %d %d %d %d) — motors left disabled",
+        drive_ids_[0], drive_ids_[1], drive_ids_[2], drive_ids_[3]);
+
+    res->success = true;
+    res->message = "Clear-error frames sent to all drive motors; motors left disabled";
 }
 
 void RoverHardwareInterface::on_set_steer_zero(

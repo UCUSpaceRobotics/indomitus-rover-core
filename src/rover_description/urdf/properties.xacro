@@ -75,4 +75,17 @@
   <xacro:property name="wheel_kp" value="1000000.0"/>
   <xacro:property name="wheel_kd" value="1.0"/>
 
+  <!-- ===================== ZED2I POSSITION ===================== -->
+  <xacro:property name="zed2i_x" value="${body_length / 2.0 + 0.05}"/>
+  <xacro:property name="zed2i_y" value="0.0"/>
+  <xacro:property name="zed2i_z" value="${body_height / 2.0 + 0.05}"/>
+
+  <xacro:property name="zed2i_rx" value="0.0"/>
+  <xacro:property name="zed2i_ry" value="${pi/12}"/>
+  <xacro:property name="zed2i_rz" value="0.0"/>
+
+  <!-- ===================== LIDAR POSSITION ===================== -->
+  <xacro:property name="lidar_x" value="0.0"/>
+  <xacro:property name="lidar_y" value="0.0"/>
+  <xacro:property name="lidar_z" value="${body_height / 2.0 + 0.07}"/>
 </robot>

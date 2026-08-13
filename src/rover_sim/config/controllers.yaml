@@ -14,7 +14,7 @@ controller_manager:
 
     odometry_controller:
       type: rover_controller/RoverOdometryController
-    
+
     diff_bar_effort_controller:
       type: rover_sim/RockerDiffController
 
@@ -94,6 +94,7 @@ swerve_controller_test:
 
 odometry_controller:
   ros__parameters:
+    odom_topic: "/wheels/odom"
     wheelbase: 0.842
     track_width: 0.689
     wheel_radius: 0.15

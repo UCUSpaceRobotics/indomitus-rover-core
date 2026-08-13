@@ -5,7 +5,8 @@
   <xacro:include filename="$(find rover_description)/urdf/macros/inertia_macros.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/rocker_assembly.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/accessories.xacro"/>
-  <xacro:include filename="$(find rover_description)/urdf/camera.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/stereo_camera.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/lidar.xacro"/>
 
   <!-- mount_arm:=true bolts the indomitus_arm (arm_description) onto
        main_body_link, matching the real hardware where the arm is
@@ -40,6 +41,15 @@
   <material name="button_red">
     <color rgba="0.7 0.05 0.05 1"/>
   </material>
+
+  <!-- ===================== BASE FOOTPRINT ===================== -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.42" rpy="0 0 0"/>
+  </joint>
 
   <!-- ===================== BASE ===================== -->
   <link name="base_link">
@@ -105,8 +115,31 @@
     <origin xyz="0 0 0.02" rpy="0 0 0"/>
   </joint>
 
-  <!-- ===================== CAMERA ===================== -->
-  <xacro:camera/>
+  <!-- ===================== ZED2i STEREO CAMERA ===================== -->
+  <xacro:stereo_camera
+    use_sim="$(arg use_sim)"
+    simulate_rgb="$(arg stereo_camera_simulate_rgb)"
+    simulate_depth="$(arg stereo_camera_simulate_depth)"
+    simulate_imu="$(arg stereo_camera_simulate_imu)"
+  />
+
+  <joint name="zed2i_base_joint" type="fixed">
+    <parent link="main_body_link"/>
+    <child link="zed2i_camera_link"/>
+    <origin xyz="${zed2i_x} ${zed2i_y} ${zed2i_z}" rpy="${zed2i_rx} ${zed2i_ry} ${zed2i_rz}"/>
+  </joint>
+
+  <!-- ===================== RPLIDAR S2 ===================== -->
+  <xacro:lidar
+    use_sim="$(arg use_sim)"
+    simulate_scan="$(arg lidar_simulate_scan)"
+  />
+
+  <joint name="laser_joint" type="fixed">
+    <parent link="main_body_link"/>
+    <child link="laser_link"/>
+    <origin xyz="${lidar_x} ${lidar_y} ${lidar_z}" rpy="0 0 0"/>
+  </joint>
 
   <!-- ===================== ROCKERS + WHEELS ===================== -->
   <xacro:rocker_assembly side="l" y_sign="1"/>

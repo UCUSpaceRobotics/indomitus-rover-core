@@ -97,4 +97,22 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
+    # generate_demo_launch() only spawns ARM_CONTROLLER_NAME (the one
+    # trajectory-execution controller MoveIt itself knows about) — the
+    # gripper's own position controller isn't part of that and needs its
+    # own spawner.
+    ld.add_action(
+        Node(
+            package="controller_manager",
+            executable="spawner",
+            arguments=[
+                "gripper_controller",
+                "--controller-manager-timeout", "60",
+                "--switch-timeout", "60",
+                "--service-call-timeout", "70",
+            ],
+            output="screen",
+        )
+    )
+
     return ld

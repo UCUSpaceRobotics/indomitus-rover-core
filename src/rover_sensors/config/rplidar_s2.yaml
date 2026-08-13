@@ -1,0 +1,14 @@
+/**/rplidar_node:
+  ros__parameters:
+    channel_type: serial
+    serial_port: /dev/rplidar-s2
+    serial_baudrate: 1000000
+    frame_id: laser_link
+    inverted: false
+    angle_compensate: true
+    scan_mode: DenseBoost
+    tcp_ip: 192.168.0.7
+    tcp_port: 20108
+    udp_ip: 192.168.11.2
+    udp_port: 8089
+    scan_frequency: 10.0

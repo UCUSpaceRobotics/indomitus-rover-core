@@ -195,7 +195,7 @@ def generate_launch_description() -> LaunchDescription:
             'controllers_yaml': controllers_yaml_path,
             'controllers': (
                 'joint_state_broadcaster swerve_controller odometry_controller '
-                'diff_bar_effort_controller indomitus_arm_controller'
+                'diff_bar_effort_controller indomitus_arm_controller gripper_controller'
             ),
         }),
 
