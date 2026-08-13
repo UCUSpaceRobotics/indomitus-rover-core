@@ -6,9 +6,9 @@ To speed up development and standardize common workflows, our development contai
 
 | Alias | Command / Action | Description |
 | --- | --- | --- |
-| **`cb`** | `colcon build` | Builds the colcon workspace. |
+| **`cb`**| `colcon build` | Builds the colcon workspace. |
 | **`cbs`** | `colcon build --symlink-install` | Builds the workspace using symlinks for faster iterative development. |
-| **`sws`** | `source install/setup.zsh` | Sources the local workspace. Prints a confirmation or a warning if the file is missing. |
+| **`sws`**, **`sb`**  | `source install/setup.zsh` | Sources the local workspace. Prints a confirmation or a warning if the file is missing. |
 | **`tl`** | `ros2 topic list` | Lists all active ROS 2 topics. |
 | **`nl`** | `ros2 node list` | Lists all active ROS 2 nodes. |
 | **`te`** | `ros2 topic echo` | Echoes data published to a specific ROS 2 topic. |

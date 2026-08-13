@@ -1,6 +1,9 @@
+# After making changes in this file update docs/software/aliases 
+
 alias cb="colcon build"
 alias cbs="colcon build --symlink-install"
 alias sws="if [ -f install/setup.zsh ]; then source install/setup.zsh && echo 'Workspace sourced!'; else echo 'No install/setup.zsh found in this directory.'; fi"
+alias sb="if [ -f install/setup.zsh ]; then source install/setup.zsh && echo 'Workspace sourced!'; else echo 'No install/setup.zsh found in this directory.'; fi"
 
 alias tl="ros2 topic list"
 alias nl="ros2 node list"
