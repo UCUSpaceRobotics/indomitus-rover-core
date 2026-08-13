@@ -91,7 +91,7 @@ jobs:
           context: .
           file: docker/Dockerfile
           target: prod
-          platforms: linux/amd64
+          platforms: linux/arm64
           push: false
           build-args: |
             BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-l4t-r36.4
