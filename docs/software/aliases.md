@@ -24,8 +24,7 @@ To speed up development and standardize common workflows, our development contai
 You are encouraged to add new aliases if they simplify common team workflows. To deploy a new alias to the environment, you must update two files:
 
 1. [**`docker/.bash_aliases`**](../../docker/.bash_aliases): Add your new alias or function definition here. This file is copied into the Docker container during the build process.
-2. [**`docs/software/aliases`**](./aliases): Update this documentation table so the rest of the team knows the shortcut exists.
-
+2. [**`docs/software/aliases.md`**](./aliases.md): Update this documentation table so the rest of the team knows the shortcut exists.
 **⚠️ Preventing Collisions:**
 Before adding a new alias, you must ensure that your chosen shortcut does not conflict with existing aliases, standard Linux utilities, or built-in ROS 2 CLI tools.
 
