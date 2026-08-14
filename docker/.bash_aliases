@@ -11,8 +11,8 @@ alias te="ros2 topic echo"
 
 alias launch_rover="ros2 launch rover_bringup rover.launch.py"
 alias launch_joy="ros2 launch rover_teleop joy.launch.py"
-alias launch_navigation="ros2 launch rover_teleop navigation.launch.py"
-alias launch_nav="ros2 launch rover_teleop navigation.launch.py"
+alias launch_navigation="ros2 launch rover_bringup navigation.launch.py"
+alias launch_nav="ros2 launch rover_bringup navigation.launch.py"
 
 
 kill_node() {
