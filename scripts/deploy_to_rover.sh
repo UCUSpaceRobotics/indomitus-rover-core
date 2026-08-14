@@ -182,6 +182,7 @@ connect_to_jetson() {
     step "Verifying Jetson Connection..."
     ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
     wait_for_ssh "$TARGET" 30
+    ssh -q "${SSH_OPTS[@]}" "${TARGET}" "mkdir -p -- \"${REMOTE_DIR}\""
 }
 
 ensure_container_running() {
