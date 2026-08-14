@@ -28,16 +28,16 @@ Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller):
     A                — move to home + start servo
     X                — exit
 
-Usage:
-    Real hardware / RViz mock-hardware demo (wall clock, conservative speeds):
+Usage (stack in one terminal, input in another):
+        ros2 launch arm_moveit_config demo.launch.py use_fake_hardware:=false
         ros2 run arm_tasks keyboard_servo_node
-        # optional: pin a device — ros2 run ... -p keyboard_device_path:=/dev/input/event19
+        # optional: pin a device — ros2 run ... --ros-args -p keyboard_device_path:=/dev/input/event19
 
     Gazebo sim (sim clock + faster speeds, see arm_sim/config/keyboard_servo_sim.yaml):
         ros2 run arm_tasks keyboard_servo_node --ros-args \\
             --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
 
-    Gamepad, any target (start the joystick driver first, then this node):
+    Gamepad only (start the joystick driver first):
         ros2 run joy joy_node
         ros2 run arm_tasks gamepad_servo_node
 """
@@ -1047,17 +1047,27 @@ class KeyboardInputLoop:
         """
         if not self._open_device():
             return
-        print(HELP)
+        print(HELP, flush=True)
+        self._controller.get_logger().info(
+            'Keyboard teleop ready. Press r = home + Servo, then WASD. '
+            'Do not start a second keyboard_servo_node.'
+        )
 
-        stdin_fd = sys.stdin.fileno()
+        # ros2 launch often has no TTY; fileno()/tcgetattr would abort the node.
         old_term_settings = None
+        stdin_fd = None
         try:
-            old_term_settings = termios.tcgetattr(stdin_fd)
-            new_term_settings = termios.tcgetattr(stdin_fd)
-            new_term_settings[3] &= ~termios.ECHO
-            termios.tcsetattr(stdin_fd, termios.TCSADRAIN, new_term_settings)
-        except termios.error:
-            old_term_settings = None
+            stdin_fd = sys.stdin.fileno()
+        except (AttributeError, ValueError, OSError):
+            stdin_fd = None
+        if stdin_fd is not None:
+            try:
+                old_term_settings = termios.tcgetattr(stdin_fd)
+                new_term_settings = termios.tcgetattr(stdin_fd)
+                new_term_settings[3] &= ~termios.ECHO
+                termios.tcsetattr(stdin_fd, termios.TCSADRAIN, new_term_settings)
+            except (termios.error, OSError):
+                old_term_settings = None
 
         self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._read_thread.start()

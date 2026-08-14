@@ -13,7 +13,8 @@ For **hardware + joystick teleop** (streaming Servo), see **[arm_teleop.md](arm_
 | Mode | Launch file | Use case |
 |---|---|---|
 | Standalone visualization | `arm_bringup/arm_standalone.launch.py` | Quick URDF/mesh checks, manual joint testing via GUI |
-| MoveIt + teleop | `arm_moveit_config/demo.launch.py` | Planning, Execute, and joystick Servo (see [arm_teleop.md](arm_teleop.md)) |
+| MoveIt stack | `arm_moveit_config/demo.launch.py` | Planning, Execute, Servo node |
+| Cartesian teleop | `ros2 run arm_tasks keyboard_servo_node` | After demo; see [arm_teleop.md](arm_teleop.md) |
 
 ### Standalone Visualization
 
@@ -32,12 +33,12 @@ ros2 launch arm_bringup arm_standalone.launch.py use_fake_hardware:=true
 
 ```bash
 ros2 launch arm_moveit_config demo.launch.py          # fake hardware
-ros2 launch arm_moveit_config demo.launch.py use_fake_hardware:=false  # real CAN
+ros2 run arm_tasks keyboard_servo_node
 ```
 
 Servo teleop streams positions to `indomitus_arm_forward_position_controller`
-at ~100 Hz (`publish_period: 0.01`). Use the gamepad **A** button to go **home**
-and start Servo (controller switch is handled in `gamepad_servo_node`).
+at ~33 Hz (`publish_period: 0.03`). Press **r** (keyboard) or **A** (gamepad)
+to go **home** and start Servo (controller switch is in `arm_tasks`).
 
 If teleop still feels like each joint “steps then stops”, rebuild
 `arm_hardware_interface` (MIT velocity feedforward from position Δ) and

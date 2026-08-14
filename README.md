@@ -49,7 +49,7 @@ This file provides all necessary documentation for basic work with the project. 
 - [Hardware](docs/hardware/can_bus.md) — CAN bus wiring
 - [Networking](docs/networking/ssh.md) — SSH connection
 - [Software](docs/software/) — launch, nodes, testing, gazebo
-- [Arm teleop](docs/arm/arm_teleop.md) — joystick Servo on hardware / fake HW
+- [Arm teleop](docs/arm/arm_teleop.md) — keyboard / gamepad Cartesian Servo
 - [Arm sim](docs/arm/arm_sim.md) — RViz / MoveIt visualization
 - [Testing](docs/software/testing.md) — code testing and test creation
 - [Scripts](docs/scripts/) — scripts automating workflows

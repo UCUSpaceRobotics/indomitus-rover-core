@@ -62,9 +62,10 @@ moveit_servo:
     self_collision_proximity_threshold: 0.01
     scene_collision_proximity_threshold: 0.02
 
-    # Home has wrist_1_wrist_2 ≈ 0; default 17/30 decelerates +X to a halt.
-    lower_singularity_threshold: 200.0
-    hard_stop_singularity_threshold: 400.0
+    # Home wrist is near 0; default 17/30 scaled +X to a halt. Same idea as
+    # NHWA SpaceMouse teleop: do not decelerate for Jacobian condition number.
+    lower_singularity_threshold: 10000.0
+    hard_stop_singularity_threshold: 100000.0
     leaving_singularity_threshold_multiplier: 2.0
 
     joint_limit_margin: 0.1

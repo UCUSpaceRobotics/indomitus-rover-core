@@ -11,8 +11,9 @@
 
 | Mode | Launch | Use case |
 |---|---|---|
-| GUI-only RViz | `arm_bringup/arm_standalone.launch.py gui_only:=true` | Inspect URDF / move joint sliders — **no** motors, **no** ros2_control |
-| MoveIt + teleop | `arm_moveit_config/demo.launch.py` | Plan&Execute **and** joystick Servo (shared stack) |
+| GUI-only RViz | `arm_bringup/arm_standalone.launch.py gui_only:=true` | Inspect URDF / joint sliders — **no** motors, **no** ros2_control |
+| MoveIt stack | `arm_moveit_config/demo.launch.py` | Plan&Execute + `servo_node` |
+| Cartesian teleop | `ros2 run arm_tasks keyboard_servo_node` | After demo is up; gamepad: `joy_node` + `gamepad_servo_node` |
 
 On the host (for RViz):
 
@@ -20,7 +21,7 @@ On the host (for RViz):
 xhost +local:docker
 ```
 
-## Hardware joystick teleop
+## Hardware Cartesian teleop
 
 ### 1. CAN
 
@@ -31,36 +32,47 @@ sudo ip link set can0 up type can bitrate 1000000
 sudo ip link set can0 txqueuelen 1000
 ```
 
-### 2. Stack (container)
+### 2. Stack, then input (container)
+
+Terminal 1 — MoveIt + controllers + Servo:
 
 ```bash
 ros2 launch arm_moveit_config demo.launch.py use_fake_hardware:=false
 ```
 
-This starts:
-
-- `ros2_control` + **JTC** (`indomitus_arm_controller`) for home / Plan&Execute
-- **forward position** controller (inactive until teleop) for Servo streaming
-- `move_group` + RViz
-- `servo_node` (Cartesian twist → joint positions as `Float64MultiArray`)
-
-### 3. Joystick (two more terminals)
+Terminal 2 — keyboard (wait until spawners / `servo_node` are up):
 
 ```bash
-source /opt/ws/install/setup.bash
-ros2 run joy joy_node
+ros2 run arm_tasks keyboard_servo_node
 ```
 
+Gamepad instead of keyboard:
+
 ```bash
-source /opt/ws/install/setup.bash
+ros2 run joy joy_node
 ros2 run arm_tasks gamepad_servo_node
 ```
 
-### 4. Controls
+Do not run keyboard and gamepad together — both publish `/servo_node/delta_twist_cmds`.
 
-1. Press **A** — move to named **`home`**, then start Servo (switches to streaming controller).
-2. Sticks / triggers — EEF XYZ in mount frame; roll/pitch/yaw about TCP (rotated into mount for Servo).
-3. **X** — exit gamepad node (Servo stop → JTC active again).
+### 3. Controls
+
+Press **r** (keyboard) or **A** (gamepad) — move to named **`home`**, then start Servo (switches to the streaming controller). **x** / **X** / Esc — stop Servo and give joints back to JTC.
+
+**Keyboard** — translation in `arm_mount_link`, rotation about `arm_tcp_link` (ω is rotated into mount before publish):
+
+| Key | Action |
+|---|---|
+| W / S | EEF +X / −X (mount) |
+| A / D | EEF +Y / −Y (mount) |
+| Q / E | EEF +Z / −Z (mount) |
+| I / K | roll (TCP) |
+| U / O | pitch (TCP) |
+| J / L | yaw (TCP) |
+| r | home + start Servo |
+| Esc / x | exit |
+
+**Gamepad** (e.g. Stadia):
 
 | Input | Action |
 |---|---|
@@ -71,27 +83,33 @@ ros2 run arm_tasks gamepad_servo_node
 | A | home + start Servo |
 | X | exit |
 
-### Architecture (why streaming)
+Gamepad mapping stays in `gamepad_servo_node`, not `teleop_twist_joy`: that package publishes all six twist axes in **one** frame, which would break mount-XYZ + TCP-ω.
+
+### Architecture
 
 ```
-joy → gamepad_servo_node → TwistStamped
-         → MoveIt Servo (diff IK)
+keyboard / gamepad → TwistStamped (frame: arm_mount_link)
+         → MoveIt Servo (inverse Jacobian, ~33 Hz)
          → Float64MultiArray positions
          → JointGroupPositionController
          → ArmCanSystem (MIT)
 ```
 
-Home / Plan&Execute still use **JTC** (`FollowJointTrajectory`). Controllers are mutually exclusive; `gamepad_servo_node` switches them around **A** / stop.
+Home / Plan&Execute still use **JTC** (`FollowJointTrajectory`). Controllers are mutually exclusive; the teleop node switches them around **r** / **A** / exit.
 
-Servo publishes joint positions at **~100 Hz** into the forward controller. The hardware interface adds MIT **velocity feedforward** from the position step when JTC is not active, so motors do not “arrive and stop” between Servo ticks.
+Servo `publish_period` is **0.03 s (~33 Hz)** so each joint step stays above MIT stiction (~0.02 rad). Keyboard publishes twists at **50 Hz**; extra messages are overwritten. `controller_manager` / CAN stay at **100 Hz**.
 
-Before **Plan & Execute** in RViz: stop teleop (exit gamepad or ensure Servo stopped) so JTC owns the joints.
+Cartesian Servo is open-loop `J⁺ · twist`. Pure XYZ (`ω = 0`) still lets TCP attitude walk (Q/E especially — shoulder/elbow fold). The keyboard node adds a light **orientation hold** on unused rotation axes and does **not** slow XYZ. That is not industrial Cartesian pose-IK; drift can remain on a 6-DOF arm near the home wrist.
+
+Servo collision checking is **off** (must be off at process start). Plan&Execute in `move_group` still checks collisions. Singularity deceleration thresholds are set very high (NHWA-style) so Jacobian condition number does not freeze +X from home.
+
+Before **Plan & Execute** in RViz: stop teleop (exit the input node) so JTC owns the joints.
 
 ## Fake hardware (no CAN)
 
 ```bash
 ros2 launch arm_moveit_config demo.launch.py use_fake_hardware:=true
-# then joy + gamepad_servo_node as above
+ros2 run arm_tasks keyboard_servo_node
 ```
 
 ## GUI-only (no control)
@@ -104,7 +122,7 @@ ros2 launch arm_bringup arm_standalone.launch.py gui_only:=true
 
 SRDF group states: `home`, `ready`, `experiment` (RViz Goal State).
 
-Also `src/arm/arm_tasks/poses.json` — used by **A** and:
+Also `src/arm/arm_tasks/poses.json` — used by **r** / **A** and:
 
 ```bash
 ros2 run arm_tasks teach_poses goto home
