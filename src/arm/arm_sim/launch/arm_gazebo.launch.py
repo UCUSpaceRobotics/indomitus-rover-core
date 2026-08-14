@@ -129,6 +129,8 @@ def generate_launch_description() -> LaunchDescription:
         servo_yaml = yaml.safe_load(f)
     servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
 
+    # Inverse Jacobian only — see demo.launch.py (KDL searchPositionIK
+    # from home makes +X teleop freeze while -X still works).
     servo_node = Node(
         package="moveit_servo",
         executable="servo_node_main",
@@ -137,7 +139,6 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
             servo_params,
         ],
     )

@@ -1,19 +1,12 @@
 """
 Launch file for MoveIt demo + moveit_servo.
 
-IMPORTANT (Servo readiness):
-moveit_servo (servo_node) subscribes to its command sources and expects
-up-to-date /joint_states plus an active trajectory controller
-(ARM_CONTROLLER_NAME) as soon as it starts. If servo_node is launched
-before `controller_manager` has actually activated that controller,
-the first Servo commands can be dropped or fail with
-"controller not active" errors.
+Servo streams joint *positions* (Float64MultiArray) to
+indomitus_arm_forward_position_controller. That controller is spawned
+inactive; arm_tasks switches JTC <-> forward around home / start_servo.
 
-For this reason, servo_node is NOT added to the LaunchDescription
-directly. Instead, we wait until the spawner for the target controller
-exits with return code 0 (i.e. the controller was successfully loaded
-and activated), and only then dynamically add servo_node to the launch
-tree via OnProcessExit.
+servo_node still waits until indomitus_arm_controller (JTC) has been
+spawned successfully so /joint_states and the hardware stack are up.
 """
 
 import os
@@ -31,6 +24,7 @@ from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_demo_launch
 
 ARM_CONTROLLER_NAME = "indomitus_arm_controller"
+FORWARD_CONTROLLER_NAME = "indomitus_arm_forward_position_controller"
 
 
 def load_yaml(package_name: str, relative_path: str):
@@ -57,14 +51,17 @@ def generate_launch_description() -> LaunchDescription:
     servo_yaml = load_yaml("arm_moveit_config", "config/servo.yaml")
     servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
 
-    # Declared on the node root, not under the moveit_servo namespace that
-    # servo.yaml lands in, so it has to be passed separately or it is silently
-    # ignored. This filters Servo's joint commands, which reverse by up to
-    # 0.014 rad between cycles and shake the arm. Do not raise it much further:
-    # the commanded step is also what produces torque, so heavy smoothing
-    # (tried at 10) starves the joints and turns the motion stop-go instead.
-    smoothing_params = {"butterworth_filter_coeff": 3.0}
+    # Light smoothing only: heavy coeffs lag the command and, with high MIT
+    # kp, the arm overshoots then waits — stop-go buzz at the Servo rate.
+    smoothing_params = {"butterworth_filter_coeff": 2.0}
 
+    # Do NOT pass robot_description_kinematics into servo_node.
+    # Humble Servo prefers the KDL plugin (searchPositionIK, 5 ms timeout)
+    # over the inverse Jacobian. From home, +X (W) often fails that IK so
+    # cartesianServoCalcs() returns false and the last joint command is
+    # republished (frozen commands, status still 0). -X (S) succeeds, so
+    # teleop looks one-sided. Without a solver, Servo uses J^# which is
+    # symmetric in ±X. move_group still gets KDL for Plan&Execute.
     servo_node = Node(
         package="moveit_servo",
         executable="servo_node_main",
@@ -73,7 +70,6 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
             # Without this, joint_limits.yaml (per-joint max_velocity/
             # max_acceleration/position bounds) never reaches Servo's robot
             # model — it falls back to the bare URDF <limit> tags only, so
@@ -103,9 +99,19 @@ def generate_launch_description() -> LaunchDescription:
 
         print(
             f"[servo_launch] Controller '{ARM_CONTROLLER_NAME}' is active — "
-            f"starting servo_node."
+            f"starting servo_node (streams to '{FORWARD_CONTROLLER_NAME}'; "
+            f"activate that controller before teleop via gamepad A / start_servo)."
         )
         return [servo_node]
+
+    # Load the streaming teleop controller inactive — JTC owns the joints until
+    # arm_tasks switches controllers for Servo.
+    forward_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[FORWARD_CONTROLLER_NAME, "--inactive"],
+        output="screen",
+    )
 
     demo_launch = generate_demo_launch(moveit_config)
 
@@ -113,6 +119,7 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(declare_use_fake_hardware_cmd)
     for action in demo_launch.entities:
         ld.add_action(action)
+    ld.add_action(forward_spawner)
 
     ld.add_action(
         RegisterEventHandler(

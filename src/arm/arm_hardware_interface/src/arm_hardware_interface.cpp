@@ -524,31 +524,27 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
     if (!(dt > 0.0) || dt > 0.5) dt = 0.01;
     const double max_step = max_cmd_speed_rad_s_ * dt;
 
-    // Below this, a "new" target is indistinguishable from encoder/URDF-round-
-    // trip quantization noise (~0.0002 rad on the 16-bit MIT position field).
-    // Re-sending a Pos_des that only moved by noise makes the PD loop chase
-    // that noise as if it were real motion — a source of standing tremor
-    // independent of Servo vs. single-shot goals, since both continuously
-    // resupply joint_position_command_ from a live (quantized) measurement.
-    // NOTE: 1 deg (0.0175 rad) exceeds max_step per tick (0.01 rad at the
-    // 1.0 rad/s ceiling, and typical slow moves like safe_pose average
-    // ~0.001 rad/tick) — the command will stall for many ticks then jump to
-    // catch up once the gap exceeds this, i.e. this can reintroduce the
-    // stop-go stepping we've been trying to eliminate on anything slower
-    // than ~1.75 rad/s. Watch slow moves specifically after raising this.
-    constexpr double kPosDeadbandRad = 0.005;
+    // Per-joint deadband drops the small wrist terms of a Cartesian step and
+    // leaves only shoulder/elbow — TCP orientation then walks on every WASD
+    // move. Reject noise only when *all* joints are below the threshold;
+    // otherwise keep the full coordinated delta (still rate-limited).
+    constexpr double kPosDeadbandRad = 0.0005;
 
     std::array<double, NUM_JOINTS> cmd{};
+    std::array<double, NUM_JOINTS> cmd_delta{};
+    double max_abs_delta = 0.0;
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
         double target = joint_position_command_[i];
         if (!std::isfinite(target)) {
-            target = last_sent_command_[i];   // hold on NaN/inf
+            target = last_sent_command_[i];
         }
-        double delta = target - last_sent_command_[i];
-        if (std::abs(delta) < kPosDeadbandRad) {
-            delta = 0.0;
-        }
-        delta = std::clamp(delta, -max_step, max_step);
+        cmd_delta[i] = target - last_sent_command_[i];
+        max_abs_delta = std::max(max_abs_delta, std::abs(cmd_delta[i]));
+    }
+    const bool hold = max_abs_delta < kPosDeadbandRad;
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        double delta = hold ? 0.0 : std::clamp(cmd_delta[i], -max_step, max_step);
+        cmd_delta[i] = delta;
         cmd[i] = last_sent_command_[i] + delta;
         last_sent_command_[i] = cmd[i];
     }
@@ -562,14 +558,16 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
         const float target_pos = static_cast<float>(urdf_to_motor(i, cmd[i]));
         double vff = joint_velocity_command_[i];
         if (!std::isfinite(vff)) vff = 0.0;
-        // Pos_des above is slew-limited to max_cmd_speed_rad_s_, but JTC's raw
-        // velocity is not: whenever the position limiter actually binds, an
-        // unclamped Vel_des tells Kd to drive toward a speed Pos_des is not
-        // allowed to reach, and the two gain terms fight every cycle for the
-        // duration of the move (buzzing). Clamping vff to the same ceiling
-        // keeps the pair consistent without differentiating cmd[i] — a delta/dt
-        // approach was tried and made things worse, amplifying the real ~2%
-        // period jitter of write() into torque spikes on the noisy cycles.
+        // Forward position controller does not write velocity. Without VFF the
+        // MIT loop chases a held Pos_des with Vel_des=0 between Servo ticks →
+        // each joint "runs a bit and stops" (teleop buzz). Use the slew-limited
+        // position step as feedforward — consistent with Pos_des.
+        constexpr double kControllerVffEps = 1e-4;  // rad/s
+        if (std::abs(vff) < kControllerVffEps) {
+            vff = cmd_delta[i] / dt;
+        }
+        // Pos_des above is slew-limited to max_cmd_speed_rad_s_; keep Vel_des
+        // on the same ceiling so Kp/Kd do not fight.
         vff = std::clamp(vff, -max_cmd_speed_rad_s_, max_cmd_speed_rad_s_);
         const float target_vel = static_cast<float>(vff * joint_directions_[i]);
         const float kp = static_cast<float>(joint_kp_[i] * ramp);

@@ -318,12 +318,14 @@
         </joint>
       </xacro:macro>
 
-      <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="0.0"  kp="100.0"  kd="5.0"/>
-      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="1" offset="0.0"  kp="300.0" kd="5.0"/>
-      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="-1"  offset="0.0" kp="300.0" kd="5.0"/>
-      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="0.0"  kp="40.0"  kd="5.0"/>
-      <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="-1"  offset="0.0"     kp="40.0"  kd="5.0"/>
-      <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1" offset="0.0"     kp="40.0"  kd="5.0"/>
+      <!-- MIT gains: protocol max kp=500, kd=5. Steadywin at ceiling to hold
+           gravity; Damiao a step below to reduce wrist oscillation while stiff. -->
+      <xacro:arm_joint_control joint_name="arm_mount_base_joint"          motor_id="20" direction="-1" offset="0.0"  kp="500.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_base_shoulder_joint"       motor_id="21" direction="1"  offset="0.0"  kp="500.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_shoulder_forearm_joint"    motor_id="22" direction="-1" offset="0.0"  kp="500.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_forearm_wrist_1_joint"     motor_id="23" direction="-1" offset="0.0"  kp="400.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="-1" offset="0.0"  kp="400.0" kd="5.0"/>
+      <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1"  offset="0.0"  kp="350.0" kd="5.0"/>
 
       <!-- Only the right finger needs an interface: left is a <mimic> of it.
            Excluded on real hardware — ArmCanSystem hardcodes NUM_JOINTS=6 and

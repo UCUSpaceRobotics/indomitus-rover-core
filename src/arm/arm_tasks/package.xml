@@ -20,6 +20,8 @@
 <exec_depend>action_msgs</exec_depend>
 <exec_depend>control_msgs</exec_depend>
 <exec_depend>builtin_interfaces</exec_depend>
+<exec_depend>tf2_ros</exec_depend>
+<exec_depend>controller_manager_msgs</exec_depend>
 <exec_depend>moveit_servo</exec_depend>
 <exec_depend>arm_moveit_config</exec_depend>
 

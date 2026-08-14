@@ -7,30 +7,31 @@ Designed to be modular — core logic is in ServoController class,
 so switching to gamepad (joy package) requires only replacing the input source.
 
 Controls:
-    Translation (relative to camera_link):
-        w / s  — forward / backward   (X axis)
-        a / d  — left / right         (Y axis)
-        q / e  — up / down            (Z axis)
+    EEF translation (in arm_mount_link):
+        w / s  — +X / -X
+        a / d  — +Y / -Y
+        q / e  — +Z / -Z
 
-    Rotation (relative to camera_link):
-        i / k  — roll CW / CCW
-        u / o  — pitch up / down
-        j / l  — yaw left / right
+    EEF rotation (about arm_tcp_link):
+        i / k  — roll  (+/- wx)
+        u / o  — pitch (+/- wy)
+        j / l  — yaw   (+/- wz)
 
-    r      — move to safe pose + start servo
+    r      — move to home + start servo
     ESC/x  — exit
 
 Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller):
-    Right stick      — forward/back, left/right  (X / Y axis)
-    Left stick       — yaw / pitch
-    L2 / R2          — roll
-    L2 / R2, Y held  — up / down
-    A                — move to safe pose + start servo
+    Right stick      — EEF X/Y (mount)
+    Left stick       — EEF roll / pitch (TCP)
+    L2 / R2          — EEF yaw (TCP)
+    LB / RB          — EEF ±Z (mount)
+    A                — move to home + start servo
     X                — exit
 
 Usage:
     Real hardware / RViz mock-hardware demo (wall clock, conservative speeds):
         ros2 run arm_tasks keyboard_servo_node
+        # optional: pin a device — ros2 run ... -p keyboard_device_path:=/dev/input/event19
 
     Gazebo sim (sim clock + faster speeds, see arm_sim/config/keyboard_servo_sim.yaml):
         ros2 run arm_tasks keyboard_servo_node --ros-args \\
@@ -42,39 +43,64 @@ Usage:
 """
 
 import sys
+import os
+import fcntl
 import threading
 import termios
 import time
+import json
+import math
+import select
+from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from geometry_msgs.msg import TwistStamped
-from sensor_msgs.msg import Joy
+from rclpy.qos import qos_profile_sensor_data
+from geometry_msgs.msg import Quaternion, TwistStamped
+from sensor_msgs.msg import JointState, Joy
 from std_msgs.msg import Int8
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
-from control_msgs.msg import JointJog
+from controller_manager_msgs.srv import SwitchController
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
+from tf2_ros import Buffer, TransformListener
+from tf2_ros import TransformException
 import evdev
 from evdev import ecodes
 
 
-DEFAULT_LINEAR_SPEED  = 0.1
-DEFAULT_ANGULAR_SPEED = 0.3
+DEFAULT_LINEAR_SPEED  = 0.2
+DEFAULT_ANGULAR_SPEED = 0.6
 DEFAULT_PUBLISH_RATE  = 50.0
-DEFAULT_COMMAND_FRAME = 'arm_camera_link'
-DEFAULT_SAFE_POSE     = [0.0, 1.2, -1.0, 0.8, 0.5, 0.0]
-DEFAULT_KEYBOARD_DEVICE_PATH = '/dev/input/event3'
+# Q/E (±Z) folds the shoulder/elbow; without ω the TCP pitch walks.
+# Hold attitude only — do not scale XYZ (that made teleop feel slow).
+HOLD_ANGULAR_GAIN = 6.0
+HOLD_ANGULAR_MAX = 0.8
+HOLD_CMD_EPS = 1e-4
+# Cartesian teleop publishes the twist in arm_mount_link (Servo command frame).
+# Stick XYZ are already in that frame. Stick roll/pitch/yaw are interpreted in
+# arm_tcp_link and rotated into mount before publish so orientation stays
+# EEF-local while translation stays world/mount-aligned.
+DEFAULT_LINEAR_FRAME  = 'arm_mount_link'
+DEFAULT_EE_FRAME      = 'arm_tcp_link'
+# Fallback if poses.json "home" cannot be loaded (matches SRDF group_state home).
+DEFAULT_HOME_POSE     = [-1.552, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
+# 'auto' picks a USB/external keyboard (Keychron, etc.) over the laptop's
+# built-in AT Translated Set 2 device — the usual failure mode in Docker.
+DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
-# The safe-pose move goes straight to the trajectory controller, so none of
+# The home move goes straight to the trajectory controller, so none of
 # Servo's velocity scaling applies — this duration is the only thing bounding
 # how fast the arm swings, however far it has to travel.
 DEFAULT_SAFE_POSE_DURATION = 6.0
 
-SAFE_POSE_JOINTS = [
+JTC_CONTROLLER_NAME = 'indomitus_arm_controller'
+FORWARD_CONTROLLER_NAME = 'indomitus_arm_forward_position_controller'
+
+HOME_POSE_JOINTS = [
     'arm_mount_base_joint',
     'arm_base_shoulder_joint',
     'arm_shoulder_forearm_joint',
@@ -82,8 +108,117 @@ SAFE_POSE_JOINTS = [
     'arm_wrist_1_wrist_2_joint',
     'arm_wrist_2_end_effector_joint',
 ]
+# Back-compat aliases used by older call sites / docs.
+SAFE_POSE_JOINTS = HOME_POSE_JOINTS
+DEFAULT_SAFE_POSE = DEFAULT_HOME_POSE
 
-ROLL_JOINT_NAME = 'arm_wrist_2_end_effector_joint'
+
+def _load_home_pose_from_json():
+    """Return home joint positions from poses.json, or None if unavailable."""
+    candidates = [
+        Path('/opt/ws/src/arm/arm_tasks/poses.json'),
+        Path(__file__).resolve().parent.parent / 'poses.json',
+    ]
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        share = Path(get_package_share_directory('arm_tasks')) / 'poses.json'
+        candidates.insert(0, share)
+    except Exception:
+        pass
+
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text())
+            home = data.get('home') or {}
+            return [float(home[name]) for name in HOME_POSE_JOINTS]
+        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+            continue
+    return None
+
+
+def _quat_multiply(a: Quaternion, b: Quaternion) -> Quaternion:
+    return Quaternion(
+        x=a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+        y=a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+        z=a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+        w=a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+    )
+
+
+def _quat_conj(q: Quaternion) -> Quaternion:
+    return Quaternion(x=-q.x, y=-q.y, z=-q.z, w=q.w)
+
+
+def _quat_rotvec(q: Quaternion):
+    w = max(-1.0, min(1.0, q.w))
+    x, y, z = q.x, q.y, q.z
+    if w < 0.0:
+        w, x, y, z = -w, -x, -y, -z
+    half = math.acos(w)
+    sine = math.sqrt(max(0.0, 1.0 - w * w))
+    if sine < 1e-8:
+        return (2.0 * x, 2.0 * y, 2.0 * z)
+    scale = 2.0 * half / sine
+    return (scale * x, scale * y, scale * z)
+
+
+def _rotate_vector_by_quat(q, x: float, y: float, z: float):
+    """Rotate a free vector by a geometry_msgs quaternion (x,y,z,w)."""
+    qx, qy, qz, qw = q.x, q.y, q.z, q.w
+    tx = 2.0 * (qy * z - qz * y)
+    ty = 2.0 * (qz * x - qx * z)
+    tz = 2.0 * (qx * y - qy * x)
+    return (
+        x + qw * tx + (qy * tz - qz * ty),
+        y + qw * ty + (qz * tx - qx * tz),
+        z + qw * tz + (qx * ty - qy * tx),
+    )
+
+
+def _list_keyboard_candidates():
+    """Return evdev devices that look like QWERTY keyboards (path, name, score)."""
+    required = {ecodes.KEY_R, ecodes.KEY_W, ecodes.KEY_A, ecodes.KEY_ESC}
+    candidates = []
+    for path in evdev.list_devices():
+        try:
+            device = evdev.InputDevice(path)
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        keys = set(device.capabilities().get(ecodes.EV_KEY, []))
+        if not required.issubset(keys):
+            continue
+        name = device.name or ''
+        phys = device.phys or ''
+        name_l = name.lower()
+        # Skip obvious non-keyboards that still expose a few KEY_* codes.
+        if any(bad in name_l for bad in ('sleep', 'lid', 'power', 'video bus', 'hdmi', 'headphone')):
+            continue
+        score = 0
+        if 'usb' in phys or phys.startswith('usb-'):
+            score += 100
+        if '/input0' in phys:
+            score += 20  # main HID collection on multi-interface boards
+        if 'keychron' in name_l or 'keyboard' in name_l:
+            score += 10
+        if 'at translated' in name_l or phys.startswith('isa'):
+            score -= 50  # laptop PS/2 — usually wrong when an external KB is plugged in
+        score += min(len(keys), 200) / 200.0
+        candidates.append((score, path, name, phys))
+    candidates.sort(reverse=True)
+    return candidates
+
+
+def _resolve_keyboard_device_path(requested: str) -> str | None:
+    """Resolve ``auto`` / empty to the best keyboard path, else return ``requested``."""
+    requested = (requested or '').strip()
+    if requested and requested.lower() != 'auto':
+        return requested
+    candidates = _list_keyboard_candidates()
+    if not candidates:
+        return None
+    return candidates[0][1]
 
 SERVO_STATUS_INVALID                              = -1
 SERVO_STATUS_OK                                    = 0
@@ -130,8 +265,13 @@ class ServoController(Node):
         self.declare_parameter('linear_speed',  DEFAULT_LINEAR_SPEED)
         self.declare_parameter('angular_speed', DEFAULT_ANGULAR_SPEED)
         self.declare_parameter('publish_rate',  DEFAULT_PUBLISH_RATE)
-        self.declare_parameter('command_frame', DEFAULT_COMMAND_FRAME)
-        self.declare_parameter('safe_pose',     DEFAULT_SAFE_POSE)
+        self.declare_parameter('linear_frame',  DEFAULT_LINEAR_FRAME)
+        # Deprecated alias for linear_frame (older launch/params files).
+        self.declare_parameter('command_frame', DEFAULT_LINEAR_FRAME)
+        self.declare_parameter('ee_frame',      DEFAULT_EE_FRAME)
+        # A / R move to this joint vector (defaults to poses.json "home").
+        self.declare_parameter('safe_pose',     DEFAULT_HOME_POSE)
+        self.declare_parameter('home_pose_name', 'home')
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
         self.declare_parameter('safe_pose_duration', DEFAULT_SAFE_POSE_DURATION)
@@ -139,8 +279,25 @@ class ServoController(Node):
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
         self._publish_rate  = self.get_parameter('publish_rate').value
-        self._command_frame = self.get_parameter('command_frame').value
-        self._safe_pose     = list(self.get_parameter('safe_pose').value)
+        linear_frame = self.get_parameter('linear_frame').value
+        command_frame = self.get_parameter('command_frame').value
+        if linear_frame != DEFAULT_LINEAR_FRAME:
+            self._linear_frame = linear_frame
+        elif command_frame != DEFAULT_LINEAR_FRAME:
+            self._linear_frame = command_frame
+        else:
+            self._linear_frame = DEFAULT_LINEAR_FRAME
+        self._ee_frame      = self.get_parameter('ee_frame').value
+        self._home_pose_name = self.get_parameter('home_pose_name').value
+        # Prefer poses.json home unless the caller overrode safe_pose explicitly.
+        pose_from_param = list(self.get_parameter('safe_pose').value)
+        pose_from_json = _load_home_pose_from_json()
+        if pose_from_param == list(DEFAULT_HOME_POSE) and pose_from_json is not None:
+            self._safe_pose = pose_from_json
+            pose_source = f'poses.json["{self._home_pose_name}"]'
+        else:
+            self._safe_pose = pose_from_param
+            pose_source = 'safe_pose parameter'
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
         self._safe_pose_duration   = self.get_parameter('safe_pose_duration').value
@@ -151,16 +308,28 @@ class ServoController(Node):
         self.wx = 0.0
         self.wy = 0.0
         self.wz = 0.0
-        self._roll_was_active = False
+        self._hold_quat = None
+        self._joint_positions = {}
 
-        self._pub = self.create_publisher(TwistStamped, 'servo_node/delta_twist_cmds', 10)
-        self._joint_jog_pub = self.create_publisher(JointJog, 'servo_node/delta_joint_cmds', 10)
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+
+        # Servo subscribes BEST_EFFORT; default RELIABLE can drop twists.
+        self._pub = self.create_publisher(
+            TwistStamped, 'servo_node/delta_twist_cmds', qos_profile_sensor_data
+        )
         self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
         self._stop_client  = self.create_client(Trigger, 'servo_node/stop_servo')
+        self._switch_client = self.create_client(
+            SwitchController, 'controller_manager/switch_controller'
+        )
         self._traj_client  = ActionClient(
             self,
             FollowJointTrajectory,
             'indomitus_arm_controller/follow_joint_trajectory'
+        )
+        self._js_sub = self.create_subscription(
+            JointState, 'joint_states', self._on_joint_state, 10
         )
         self._timer = self.create_timer(1.0 / self._publish_rate, self._publish)
 
@@ -176,7 +345,9 @@ class ServoController(Node):
             f'ServoController ready — '
             f'linear_speed={self._linear_speed}, '
             f'angular_speed={self._angular_speed}, '
-            f'command_frame={self._command_frame}'
+            f'linear_frame={self._linear_frame} (XYZ + Servo twist frame), '
+            f'ee_frame={self._ee_frame} (roll/pitch/yaw input), '
+            f'A/R home from {pose_source}: {[round(v, 4) for v in self._safe_pose]}'
         )
 
     @property
@@ -199,16 +370,19 @@ class ServoController(Node):
         """Set the current Cartesian velocity command.
 
         Args:
-            vx: Linear velocity along the X axis, in meters per second.
-            vy: Linear velocity along the Y axis, in meters per second.
-            vz: Linear velocity along the Z axis, in meters per second.
-            wx: Angular velocity about the X axis, in radians per second.
-            wy: Angular velocity about the Y axis, in radians per second.
-            wz: Angular velocity about the Z axis, in radians per second.
+            vx: Linear velocity along global (mount) X, m/s.
+            vy: Linear velocity along global (mount) Y, m/s.
+            vz: Linear velocity along global (mount) Z, m/s.
+            wx: Angular velocity about global X (roll of EEF), rad/s.
+            wy: Angular velocity about global Y (pitch of EEF), rad/s.
+            wz: Angular velocity about global Z (yaw of EEF), rad/s.
 
         Notes:
-            The stored values are published on the next timer tick by
-            ``_publish``; this method does not publish immediately.
+            Linear velocities are in ``linear_frame`` (default
+            ``arm_mount_link``). Angular velocities are specified in
+            ``ee_frame`` (default ``arm_tcp_link``) and rotated into
+            ``linear_frame`` before publish. Servo's
+            ``robot_link_command_frame`` must match ``linear_frame``.
         """
         self.vx = vx
         self.vy = vy
@@ -217,18 +391,118 @@ class ServoController(Node):
         self.wy = wy
         self.wz = wz
 
+    def _on_joint_state(self, msg: JointState):
+        for name, pos in zip(msg.name, msg.position):
+            self._joint_positions[name] = float(pos)
+
+    def _current_arm_positions(self):
+        """Latest measured arm joints, or None if any name is missing."""
+        try:
+            return [self._joint_positions[n] for n in HOME_POSE_JOINTS]
+        except KeyError:
+            return None
+
+    @staticmethod
+    def _home_trajectory(q0, q1, duration: float, n_points: int = 24):
+        """Rest-to-rest quintic in joint space (zero vel/accel at ends)."""
+        n_points = max(2, int(n_points))
+        dq = [b - a for a, b in zip(q0, q1)]
+        points = []
+        for i in range(1, n_points + 1):
+            u = i / n_points
+            s = u * u * u * (10.0 - 15.0 * u + 6.0 * u * u)
+            ds_du = 30.0 * u * u * (1.0 - 2.0 * u + u * u)
+            sdot = ds_du / duration
+            t = u * duration
+            pt = JointTrajectoryPoint()
+            pt.positions = [a + s * d for a, d in zip(q0, dq)]
+            pt.velocities = [sdot * d for d in dq]
+            pt.time_from_start = Duration(
+                sec=int(t),
+                nanosec=int((t % 1.0) * 1e9),
+            )
+            points.append(pt)
+        points[-1].positions = list(q1)
+        points[-1].velocities = [0.0] * len(q1)
+        return points
+
     def stop(self):
         """Zero out all velocity components, halting Cartesian motion.
 
         Equivalent to calling ``set_velocity()`` with no arguments.
         """
         self.set_velocity()
+        self._hold_quat = None
+
+    def _switch_controllers(self, activate, deactivate) -> bool:
+        """Activate/deactivate ros2_control controllers (JTC <-> forward).
+
+        Args:
+            activate: Controllers to activate.
+            deactivate: Controllers to deactivate.
+
+        Returns:
+            True if the switch service reported success.
+        """
+        if not self._switch_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('controller_manager/switch_controller unavailable')
+            return False
+
+        req = SwitchController.Request()
+        req.activate_controllers = list(activate)
+        req.deactivate_controllers = list(deactivate)
+        req.strictness = SwitchController.Request.BEST_EFFORT
+        req.activate_asap = True
+        req.timeout = Duration(sec=3, nanosec=0)
+
+        done_event = threading.Event()
+        outcome = {'ok': False}
+
+        def _cb(future):
+            try:
+                res = future.result()
+                outcome['ok'] = bool(res.ok)
+                if not res.ok:
+                    self.get_logger().error(
+                        f'Controller switch failed (activate={activate}, '
+                        f'deactivate={deactivate})'
+                    )
+            except Exception as exc:
+                self.get_logger().error(f'Controller switch exception: {exc!r}')
+            finally:
+                done_event.set()
+
+        future = self._switch_client.call_async(req)
+        future.add_done_callback(_cb)
+        if not done_event.wait(timeout=5.0):
+            self.get_logger().error('Controller switch timed out')
+            return False
+        if outcome['ok']:
+            self.get_logger().info(
+                f'Controllers: activate={list(activate)} deactivate={list(deactivate)}'
+            )
+        return outcome['ok']
+
+    def use_trajectory_controller(self) -> bool:
+        """Claim joints with JTC for home / Plan&Execute / teach_poses."""
+        return self._switch_controllers(
+            activate=[JTC_CONTROLLER_NAME],
+            deactivate=[FORWARD_CONTROLLER_NAME],
+        )
+
+    def use_streaming_controller(self) -> bool:
+        """Claim joints with forward position controller for Servo teleop."""
+        return self._switch_controllers(
+            activate=[FORWARD_CONTROLLER_NAME],
+            deactivate=[JTC_CONTROLLER_NAME],
+        )
 
     def stop_servo(self) -> bool:
         """Call the Servo ``stop_servo`` service and wait for confirmation.
 
         Waits up to 2 seconds for the service to become available and up to
-        3 seconds for the asynchronous call to complete.
+        3 seconds for the asynchronous call to complete. After Servo stops,
+        re-activates the trajectory controller so home / Execute can run.
 
         Returns:
             bool: True if the service was available and the call completed
@@ -251,20 +525,23 @@ class ServoController(Node):
         if not done_event.wait(timeout=3.0):
             self.get_logger().warn('Servo stop timed out')
             return False
+
+        # Prefer JTC when teleop is idle so Plan&Execute / home work.
+        self.use_trajectory_controller()
         return True
 
     def move_to_safe_pose(self):
-        """Stop motion and drive the arm to the configured safe pose.
+        """Stop motion and drive the arm to the configured home pose.
 
         Halts current velocity commands, confirms Servo has stopped, then
         sends a ``FollowJointTrajectory`` goal to move all joints to the
-        ``safe_pose`` parameter values over 3 seconds (of controller time,
-        i.e. sim time under Gazebo) and blocks until the controller reports
-        the goal finished, up to ``safe_pose_timeout`` wall-clock seconds
-        (<= 0 waits forever; the default is generous because under a slow
-        sim the trajectory legitimately takes longer in wall time). This
-        method runs on a dedicated thread, so waiting does not stall
-        keyboard handling.
+        home / ``safe_pose`` parameter values over ``safe_pose_duration``
+        (of controller time, i.e. sim time under Gazebo) and blocks until
+        the controller reports the goal finished, up to
+        ``safe_pose_timeout`` wall-clock seconds (<= 0 waits forever; the
+        default is generous because under a slow sim the trajectory
+        legitimately takes longer in wall time). This method runs on a
+        dedicated thread, so waiting does not stall keyboard handling.
 
         Returns:
             bool: True if the controller reported the goal SUCCEEDED with
@@ -277,7 +554,13 @@ class ServoController(Node):
 
         if not self.stop_servo():
             self.get_logger().error(
-                'Could not confirm Servo stopped — aborting safe pose move.'
+                'Could not confirm Servo stopped — aborting home move.'
+            )
+            return False
+
+        if not self.use_trajectory_controller():
+            self.get_logger().error(
+                'Could not activate trajectory controller — aborting home move.'
             )
             return False
 
@@ -286,21 +569,33 @@ class ServoController(Node):
             return False
 
         traj = JointTrajectory()
-        traj.joint_names = SAFE_POSE_JOINTS
-
-        point = JointTrajectoryPoint()
-        point.positions = self._safe_pose
-        point.velocities = [0.0] * len(self._safe_pose)
-        point.time_from_start = Duration(
-            sec=int(self._safe_pose_duration),
-            nanosec=int((self._safe_pose_duration % 1.0) * 1e9),
-        )
-        traj.points = [point]
+        traj.joint_names = HOME_POSE_JOINTS
+        q0 = self._current_arm_positions()
+        q1 = list(self._safe_pose)
+        if q0 is None:
+            self.get_logger().warn(
+                'No joint_states yet — home is a single waypoint'
+            )
+            point = JointTrajectoryPoint()
+            point.positions = q1
+            point.velocities = [0.0] * len(q1)
+            point.time_from_start = Duration(
+                sec=int(self._safe_pose_duration),
+                nanosec=int((self._safe_pose_duration % 1.0) * 1e9),
+            )
+            traj.points = [point]
+        else:
+            traj.points = self._home_trajectory(
+                q0, q1, self._safe_pose_duration
+            )
 
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = traj
 
-        self.get_logger().info('Moving to safe pose...')
+        self.get_logger().info(
+            f'Moving to home ({self._home_pose_name}): '
+            f'{[round(v, 4) for v in self._safe_pose]}'
+        )
 
         done_event = threading.Event()
         outcome = {'success': False, 'error': ''}
@@ -355,18 +650,23 @@ class ServoController(Node):
             )
             return False
         if not outcome['success']:
-            self.get_logger().error(f'Safe pose move failed: {outcome["error"]}')
+            self.get_logger().error(f'Home move failed: {outcome["error"]}')
             return False
-        self.get_logger().info('Safe pose reached!')
+        self.get_logger().info('Home reached!')
         return True
 
     def start_servo(self):
-        """Asynchronously call the Servo ``start_servo`` service.
+        """Switch to streaming controller, then start MoveIt Servo.
 
         Waits up to 2 seconds for the service to become available, then
         issues an asynchronous call whose result is handled by
         ``_on_start_result``. Does not block for the call's completion.
         """
+        if not self.use_streaming_controller():
+            self.get_logger().error(
+                'Could not activate forward position controller — Servo not started.'
+            )
+            return
         if not self._start_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error('Servo start service not available')
             return
@@ -409,65 +709,111 @@ class ServoController(Node):
                 self.start_servo()
         self._servo_status = code
 
-    def _publish(self):
-        """Publish the current velocity state, routing roll through joint space.
+    def _angular_in_command_frame(self):
+        """Map EEF-frame angular velocity into ``linear_frame`` via TF.
 
-        Called periodically by the internal timer at ``publish_rate`` Hz.
-        MoveIt Servo acts on whichever command type (Cartesian twist or
-        joint jog) arrived most recently, so the two can't be combined
-        within one cycle: while ``wx`` (roll) is nonzero, only a
-        ``JointJog`` for ``ROLL_JOINT_NAME`` is published and the other
-        five axes are held for that tick; otherwise a ``TwistStamped``
-        carries ``vx``..``vz``/``wy``/``wz`` as before (``wx`` is always
-        0 there, since roll never travels this path).
+        Returns:
+            tuple[float, float, float]: (wx, wy, wz) in ``linear_frame``.
+            If TF is unavailable, returns (0, 0, 0).
         """
-        if self.wx != 0.0:
-            self._roll_was_active = True
-            msg = JointJog()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.joint_names = [ROLL_JOINT_NAME]
-            msg.velocities = [self.wx]
-            msg.duration = 1.0 / self._publish_rate
-            self._joint_jog_pub.publish(msg)
-            return
+        if self.wx == 0.0 and self.wy == 0.0 and self.wz == 0.0:
+            return 0.0, 0.0, 0.0
+        if self._ee_frame == self._linear_frame:
+            return self.wx, self.wy, self.wz
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._linear_frame,
+                self._ee_frame,
+                rclpy.time.Time(),
+            )
+        except TransformException as exc:
+            self.get_logger().warn(
+                f'TF {self._linear_frame} <- {self._ee_frame} unavailable '
+                f'({exc}); publishing zero angular command',
+                throttle_duration_sec=2.0,
+            )
+            return 0.0, 0.0, 0.0
+        return _rotate_vector_by_quat(
+            transform.transform.rotation, self.wx, self.wy, self.wz
+        )
 
-        if self._roll_was_active:
-            self._roll_was_active = False
-            halt = JointJog()
-            halt.header.stamp = self.get_clock().now().to_msg()
-            halt.joint_names = [ROLL_JOINT_NAME]
-            halt.velocities = [0.0]
-            halt.duration = 1.0 / self._publish_rate
-            self._joint_jog_pub.publish(halt)
+    def _orientation_hold(self, wx, wy, wz):
+        """Keep TCP attitude while translating (Q/E pitch, also WASD).
+
+        Does not scale linear speed. I/K/U/O/J/L still command rotation.
+        """
+        driving_lin = (
+            abs(self.vx) > HOLD_CMD_EPS or abs(self.vy) > HOLD_CMD_EPS or
+            abs(self.vz) > HOLD_CMD_EPS
+        )
+        driving_ang = (
+            abs(self.wx) > HOLD_CMD_EPS or abs(self.wy) > HOLD_CMD_EPS or
+            abs(self.wz) > HOLD_CMD_EPS
+        )
+        if not driving_lin:
+            self._hold_quat = None
+            return wx, wy, wz
+        if driving_ang:
+            self._hold_quat = None
+            return wx, wy, wz
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._linear_frame, self._ee_frame, rclpy.time.Time()
+            )
+        except TransformException:
+            return wx, wy, wz
+        q = transform.transform.rotation
+        quat = Quaternion(x=q.x, y=q.y, z=q.z, w=q.w)
+        if self._hold_quat is None:
+            self._hold_quat = quat
+            return wx, wy, wz
+        q_err = _quat_multiply(_quat_conj(quat), self._hold_quat)
+        rx, ry, rz = _quat_rotvec(q_err)
+        hx, hy, hz = _rotate_vector_by_quat(quat, rx, ry, rz)
+        wx = max(-HOLD_ANGULAR_MAX, min(HOLD_ANGULAR_MAX, wx + HOLD_ANGULAR_GAIN * hx))
+        wy = max(-HOLD_ANGULAR_MAX, min(HOLD_ANGULAR_MAX, wy + HOLD_ANGULAR_GAIN * hy))
+        wz = max(-HOLD_ANGULAR_MAX, min(HOLD_ANGULAR_MAX, wz + HOLD_ANGULAR_GAIN * hz))
+        return wx, wy, wz
+
+    def _publish(self):
+        """Publish twist in ``linear_frame`` (mount): XYZ as-is + EEF ω via TF.
+
+        Servo ``robot_link_command_frame`` must equal ``linear_frame``.
+        Publishing Cartesian velocity in the TCP frame was observed to
+        produce almost no joint motion for mount-aligned X; mount-frame
+        twists move the EEF correctly.
+        """
+        wx, wy, wz = self._angular_in_command_frame()
+        wx, wy, wz = self._orientation_hold(wx, wy, wz)
 
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = self._command_frame
+        msg.header.frame_id = self._linear_frame
         msg.twist.linear.x  = self.vx
         msg.twist.linear.y  = self.vy
         msg.twist.linear.z  = self.vz
-        msg.twist.angular.x = 0.0
-        msg.twist.angular.y = self.wy
-        msg.twist.angular.z = self.wz
+        msg.twist.angular.x = wx
+        msg.twist.angular.y = wy
+        msg.twist.angular.z = wz
         self._pub.publish(msg)
 
 
 HELP = """
-╔══════════════════════════════════════════════╗
-║     Keyboard Servo Control (camera frame)    ║
-╠══════════════════════════════════════════════╣
-║  Translation:                                ║
-║    w / s  — forward / backward  (X)          ║
-║    a / d  — left / right        (Y)          ║
-║    q / e  — up / down           (Z)          ║
-║  Rotation:                                   ║
-║    i / k  — roll CW / CCW                    ║
-║    u / o  — pitch up / down                  ║
-║    j / l  — yaw left / right                 ║
-║  Other:                                      ║
-║    r      — move to safe pose + start servo  ║
-║    ESC/x  — exit                             ║
-╚══════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════╗
+║  Keyboard Servo — EEF control                    ║
+╠══════════════════════════════════════════════════╣
+║  EEF translation (in arm_mount_link):            ║
+║    w / s  — +X / -X                              ║
+║    a / d  — +Y / -Y                              ║
+║    q / e  — +Z / -Z                              ║
+║  EEF rotation (about arm_tcp_link):              ║
+║    i / k  — roll  (wx)                           ║
+║    u / o  — pitch (wy)                           ║
+║    j / l  — yaw   (wz)                           ║
+║  Other:                                          ║
+║    r      — move to home + start servo           ║
+║    ESC/x  — exit                                 ║
+╚══════════════════════════════════════════════════╝
 """
 
 
@@ -480,6 +826,7 @@ class KeyboardInputLoop:
     """
 
     _DIRECTIONS = {
+        # linear: arm_mount_link; angular: arm_tcp_link (EEF roll/pitch/yaw)
         ecodes.KEY_W: ( 1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
         ecodes.KEY_S: (-1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
         ecodes.KEY_A: ( 0.0,  1.0,  0.0,  0.0,  0.0,  0.0),
@@ -512,33 +859,56 @@ class KeyboardInputLoop:
         self._lock = threading.Lock()
         self._pressed = set()
         self._exit_event = threading.Event()
-        self._device = None
+        self._devices = []
         self._read_thread = None
         self._servo_started = False
 
     def _open_device(self) -> bool:
-        """Open the evdev keyboard device at ``self._device_path``.
+        """Open evdev keyboard(s) for teleop.
 
-        Logs a descriptive error (including a snippet to list available
-        input devices) if the device cannot be opened.
+        ``keyboard_device_path:=auto`` (default) opens every QWERTY-capable
+        keyboard and merges events. Pinning only ``/dev/input/event3`` (laptop
+        AT keyboard) while typing on a Keychron produced zero key events.
 
         Returns:
-            bool: True if the device was opened successfully, False
-            otherwise.
+            bool: True if at least one device opened.
         """
-        try:
-            self._device = evdev.InputDevice(self._device_path)
-        except (FileNotFoundError, PermissionError, OSError) as e:
+        requested = (self._device_path or '').strip()
+        if requested and requested.lower() != 'auto':
+            paths = [requested]
+        else:
+            paths = [p for _s, p, _n, _ph in _list_keyboard_candidates()]
+
+        if not paths:
             self._controller.get_logger().error(
-                f'Could not open keyboard device {self._device_path!r}: {e!r}. '
-                f'Run `python3 -c "import evdev; [print(p, evdev.InputDevice(p).name) '
-                f'for p in evdev.list_devices()]"` to list available devices, and set '
-                f'the keyboard_device_path ROS parameter accordingly.'
+                'No suitable keyboard found via evdev. Set keyboard_device_path '
+                'to an explicit /dev/input/eventN.'
             )
             return False
 
-        self._controller.get_logger().info(
-            f'Reading keyboard from {self._device_path} ({self._device.name})'
+        opened = []
+        for path in paths:
+            try:
+                device = evdev.InputDevice(path)
+                # Older python-evdev has no set_nonblocking(); use fcntl.
+                flag = fcntl.fcntl(device.fd, fcntl.F_GETFL)
+                fcntl.fcntl(device.fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
+            except (FileNotFoundError, PermissionError, OSError) as e:
+                self._controller.get_logger().warn(f'Skipping {path!r}: {e!r}')
+                continue
+            opened.append(device)
+            self._controller.get_logger().info(f'Listening on {path} ({device.name})')
+
+        if not opened:
+            self._controller.get_logger().error(f'Could not open any of {paths!r}')
+            return False
+
+        self._devices = opened
+        self._device_path = opened[0].path
+        print(
+            '\nKeyboard input:\n  '
+            + '\n  '.join(f'{d.name} ({d.path})' for d in opened)
+            + '\nPress r = home + start Servo, then WASD to move.\n'
         )
         return True
 
@@ -583,70 +953,84 @@ class KeyboardInputLoop:
         with self._lock:
             self._pressed.clear()
         self._controller.stop()
-        print('Moving to safe pose...')
+        print('Moving to home...')
         if self._controller.move_to_safe_pose():
             print('Starting servo...')
             self._controller.start_servo()
             self._servo_started = True
         else:
-            print('Safe pose failed — Servo not started.')
+            print('Home move failed — Servo not started.')
 
     def _read_loop(self):
-        """Continuously read raw key events and update velocity/state.
-
-        Runs until ESC/X is pressed, the exit event is set, or the device
-        read loop raises an ``OSError``. Recognized key events:
-
-        * ESC / X (key down) — signal exit and stop reading.
-        * R (key down) — spawn a thread to run ``_handle_safe_pose``.
-        * Any mapped direction key (key down/up) — update ``self._pressed``
-          and recompute velocity.
-
-        Intended to run in a dedicated daemon thread started by ``run``.
-        """
+        """Continuously read raw key events from all opened keyboards."""
         try:
-            for event in self._device.read_loop():
-                if self._exit_event.is_set():
+            while not self._exit_event.is_set():
+                if not self._devices:
                     break
-                if event.type != ecodes.EV_KEY:
-                    continue
-
-                code, value = event.code, event.value
-
-                if code in (ecodes.KEY_ESC, ecodes.KEY_X) and value == self._KEYSTATE_DOWN:
-                    self._exit_event.set()
+                try:
+                    ready, _, _ = select.select(
+                        [dev.fd for dev in self._devices], [], [], 0.2
+                    )
+                except (ValueError, OSError) as e:
+                    self._controller.get_logger().error(f'Keyboard select failed: {e!r}')
                     break
-
-                if code == ecodes.KEY_R and value == self._KEYSTATE_DOWN:
-                    threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+                if not ready:
                     continue
+                fd_to_dev = {dev.fd: dev for dev in self._devices}
+                for fd in ready:
+                    device = fd_to_dev.get(fd)
+                    if device is None:
+                        continue
+                    try:
+                        for event in device.read():
+                            if event.type != ecodes.EV_KEY:
+                                continue
+                            code, value = event.code, event.value
 
-                if code not in self._DIRECTIONS:
-                    continue
+                            if code in (ecodes.KEY_ESC, ecodes.KEY_X) and value == self._KEYSTATE_DOWN:
+                                self._exit_event.set()
+                                return
 
-                # Direction keys are ignored entirely until Servo has
-                # started — _handle_safe_pose clears _pressed anyway, so
-                # tracking presses before that point would just be
-                # discarded, and set_velocity()'d twists Servo isn't
-                # listening to yet would have nothing to show for it.
-                if not self._servo_started:
-                    continue
+                            if code == ecodes.KEY_R and value == self._KEYSTATE_DOWN:
+                                threading.Thread(
+                                    target=self._handle_safe_pose, daemon=True
+                                ).start()
+                                continue
 
-                if value == self._KEYSTATE_DOWN:
-                    with self._lock:
-                        already_pressed = code in self._pressed
-                        self._pressed.add(code)
-                    if not already_pressed:
-                        self._recompute_velocity()
-                        key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
-                        print(f'{key_name} vx={self._controller.vx:.2f} vy={self._controller.vy:.2f} '
-                              f'vz={self._controller.vz:.2f} wx={self._controller.wx:.2f} '
-                              f'wy={self._controller.wy:.2f} wz={self._controller.wz:.2f}')
-                elif value == self._KEYSTATE_UP:
-                    with self._lock:
-                        self._pressed.discard(code)
-                    self._recompute_velocity()
+                            if code not in self._DIRECTIONS:
+                                continue
 
+                            if not self._servo_started:
+                                continue
+
+                            if value == self._KEYSTATE_DOWN:
+                                with self._lock:
+                                    already_pressed = code in self._pressed
+                                    self._pressed.add(code)
+                                if not already_pressed:
+                                    self._recompute_velocity()
+                                    key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
+                                    print(
+                                        f'{key_name} vx={self._controller.vx:.2f} '
+                                        f'vy={self._controller.vy:.2f} '
+                                        f'vz={self._controller.vz:.2f} '
+                                        f'wx={self._controller.wx:.2f} '
+                                        f'wy={self._controller.wy:.2f} '
+                                        f'wz={self._controller.wz:.2f}'
+                                    )
+                            elif value == self._KEYSTATE_UP:
+                                with self._lock:
+                                    self._pressed.discard(code)
+                                self._recompute_velocity()
+                    except BlockingIOError:
+                        continue
+                    except OSError as e:
+                        self._controller.get_logger().warn(
+                            f'Lost keyboard {device.path}: {e!r}'
+                        )
+                        self._devices = [d for d in self._devices if d.fd != fd]
+                        if not self._devices:
+                            raise
         except OSError as e:
             self._controller.get_logger().error(f'Keyboard read loop failed: {e!r}')
         finally:
@@ -689,15 +1073,13 @@ class KeyboardInputLoop:
 
 GAMEPAD_HELP = """
 ╔══════════════════════════════════════════════╗
-║      Gamepad Servo Control (camera frame)    ║
+║  Gamepad — EEF control                       ║
 ╠══════════════════════════════════════════════╣
-║  Right stick      — forward / back (X)       ║
-║                     left / right   (Y)       ║
-║  Left stick       — yaw                      ║
-║                     pitch                    ║
-║  L2 / R2          — roll                     ║
-║  L2 / R2, Y held  — up / down      (Z)       ║
-║  A                — safe pose + servo        ║
+║  Right stick      — EEF X / Y (mount frame)  ║
+║  Left stick       — EEF roll / pitch (TCP)   ║
+║  L2 / R2          — EEF yaw (TCP)            ║
+║  LB / RB          — EEF +Z / -Z (mount)      ║
+║  A                — home + start servo       ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
 """
@@ -717,23 +1099,25 @@ class GamepadInputLoop:
 
     * Axes 0/1 (left stick) and 2/3 (right stick) rest at 0.0, X left =
       +1.0, X right = -1.0, Y forward = +1.0, Y back = -1.0.
-    * Axes 4 and 5 (L2 / R2) rest at **+1.0** (released) and go to
-      **-1.0** at full press — the opposite convention from the sticks.
-      ``_trigger_amount`` below converts that to the same "0 at rest"
-      shape as everything else in this class expects.
-    * Buttons 0/2/3 are A/X/Y.
+    * Axes 4 and 5 (L2 / R2) are often Stadia-style (rest **+1.0**, full
+      press **-1.0**), but Bluetooth can leave one trigger resting at
+      **0.0** instead. ``_trigger_amount`` uses a per-axis rest sample
+      taken while sticks are centered so a 0-rest axis is not treated as
+      a half-press (which was publishing a constant phantom yaw).
+    * Buttons 0/2 are A/X; 4/5 are LB/RB (Z translation).
     """
 
-    AXIS_LEFT_X = 0     # yaw
-    AXIS_LEFT_Y = 1     # pitch
-    AXIS_RIGHT_X = 2    # left / right
-    AXIS_RIGHT_Y = 3    # forward / back
-    AXIS_L2 = 4         # roll (normal) / up (Y held)
-    AXIS_R2 = 5         # roll (normal) / down (Y held)
+    AXIS_LEFT_X = 0     # roll  (wx)
+    AXIS_LEFT_Y = 1     # pitch (wy)
+    AXIS_RIGHT_X = 2    # Y translation
+    AXIS_RIGHT_Y = 3    # X translation
+    AXIS_L2 = 4         # yaw -
+    AXIS_R2 = 5         # yaw +
 
-    BUTTON_SAFE_POSE = 0   # 'A' — move to safe pose + start servo
-    BUTTON_Y = 3           # 'Y' — held to shift L2 / R2 from roll to up / down
+    BUTTON_SAFE_POSE = 0   # 'A' — move to home + start servo
     BUTTON_EXIT = 2        # 'X' — exit
+    BUTTON_LB = 4          # +Z
+    BUTTON_RB = 5          # -Z
 
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
@@ -760,10 +1144,9 @@ class GamepadInputLoop:
         # "pressed" button on that first message, which was causing
         # spurious exits).
         self._prev_buttons = None
-        self._shift_armed = {self.BUTTON_Y: False}
         self._safe_pose_running = threading.Lock()
         self._safe_pose_active = False
-        self._prev_active = (False,) * 6
+        self._prev_cmd = (0.0,) * 6
 
         # Teleop (axes -> velocity) is locked out until the first
         # safe-pose move (A) completes — Servo hasn't been started yet
@@ -785,6 +1168,9 @@ class GamepadInputLoop:
         # everything centered/released, then resume from wherever the
         # arm already is.
         self._joy_settling = False
+        # Per-trigger rest samples (axis index -> float). None until the
+        # first centered settle so we do not assume both are +1.0.
+        self._trigger_rest = {}
 
         self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
         self._watchdog_timer = controller.create_timer(
@@ -802,19 +1188,56 @@ class GamepadInputLoop:
             return 0.0
         return self._deadzone(axes[index])
 
-    def _trigger_amount(self, axes, index: int) -> float:
-        """Return how far a trigger (L2/R2) is pressed: 0.0 (released) .. 1.0 (full press).
+    def _calibrate_triggers(self, axes) -> None:
+        """Record L2/R2 rest values from a centered Joy snapshot."""
+        for index in (self.AXIS_L2, self.AXIS_R2):
+            if index < len(axes):
+                self._trigger_rest[index] = float(axes[index])
+        self._controller.get_logger().info(
+            f'Trigger rest L2={self._trigger_rest.get(self.AXIS_L2, float("nan")):.2f} '
+            f'R2={self._trigger_rest.get(self.AXIS_R2, float("nan")):.2f}'
+        )
 
-        ``joy_node`` reports these axes resting at +1.0 and going to
-        -1.0 at full press — inverted and offset from every other axis
-        in this class, which rests at 0.0. Remapping it here means the
-        deadzone, the settle-guard's "must be centered" check, and
-        ``_route``'s arming logic can all keep treating 0.0 as "at
-        rest" uniformly, without special-casing these two axes.
+    def _sticks_centered(self, axes) -> bool:
+        """True when both sticks are inside the deadzone (triggers ignored)."""
+        return all(
+            self._axis(axes, i) == 0.0
+            for i in (self.AXIS_LEFT_X, self.AXIS_LEFT_Y,
+                      self.AXIS_RIGHT_X, self.AXIS_RIGHT_Y)
+        )
+
+    def _trigger_amount(self, axes, index: int) -> float:
+        """Return how far a trigger (L2/R2) is pressed: 0.0 .. 1.0.
+
+        Supports both common rest conventions on this Stadia over ``joy_node``:
+        rest near +1 (press toward -1) and rest near 0 (press toward ±1).
+        Before calibration, only the +1-rest formula is used, and a raw
+        value near 0 is treated as released — otherwise an uncalibrated
+        0-rest R2 looks like a constant half-press (wz ≈ 0.5 * angular).
         """
         if index >= len(axes):
             return 0.0
-        amount = (1.0 - axes[index]) / 2.0
+        raw = float(axes[index])
+        rest = self._trigger_rest.get(index)
+
+        if rest is None:
+            # Uncalibrated: never treat raw≈0 as a half-press (0-rest R2
+            # phantom). Full +1-rest presses still register via raw≤-0.5.
+            if raw >= 0.5 or raw <= -0.5:
+                amount = (1.0 - raw) / 2.0
+            else:
+                amount = 0.0
+        elif rest > 0.5:
+            # Classic: +1 released → -1 fully pressed.
+            amount = (rest - raw) / (rest - (-1.0))
+        else:
+            # Rest near 0: any deflection toward ±1 is a press.
+            amount = abs(raw - rest)
+
+        if amount < 0.0:
+            amount = 0.0
+        elif amount > 1.0:
+            amount = 1.0
         return 0.0 if amount < self._DEADZONE else amount
 
     def _button_pressed(self, buttons, index: int) -> bool:
@@ -833,45 +1256,19 @@ class GamepadInputLoop:
         was_pressed = index < len(self._prev_buttons) and self._prev_buttons[index] == 1
         return self._button_pressed(buttons, index) and not was_pressed
 
-    def _route(self, shift_button: int, held: bool, raw_value: float):
-        """Route one combined trigger value to a (normal, shifted) pair.
-
-        While ``shift_button`` is not held, ``raw_value`` is returned as
-        ``(raw_value, 0.0)``. While held, it's routed to the second slot
-        instead — but only once ``raw_value`` has passed back through the
-        deadzone since the button was pressed (i.e. L2/R2 have been let
-        go back to neutral at least once since Y was pressed), returning
-        ``(0.0, 0.0)`` until then. This is what prevents an already-held
-        trigger from producing a velocity jump the instant Y is pressed.
-        Disarmed again as soon as ``shift_button`` is released.
-        """
-        if not held:
-            self._shift_armed[shift_button] = False
-            return raw_value, 0.0
-        if not self._shift_armed[shift_button]:
-            if raw_value == 0.0:
-                self._shift_armed[shift_button] = True
-            return 0.0, 0.0
-        return 0.0, raw_value
-
     @staticmethod
-    def _active_label(vx, vy, vz, wx, wy, wz, y_held: bool) -> str:
-        """Describe which physical control(s) are driving a nonzero command.
-
-        Mirrors KeyboardInputLoop's per-key name in the feedback line,
-        generalized to gamepad axes (several of which can be active at
-        once, e.g. a diagonally-pushed stick).
-        """
+    def _active_label(vx, vy, vz, wx, wy, wz, z_held: bool) -> str:
+        """Describe which physical control(s) are driving a nonzero command."""
         parts = []
         if vx or vy:
             parts.append('right stick')
-        if wy or wz:
+        if wx or wy:
             parts.append('left stick')
-        if wx:
+        if wz:
             parts.append('L2/R2')
         if vz:
-            parts.append('Y+L2/R2')
-        return '+'.join(parts) if parts else ('Y' if y_held else 'idle')
+            parts.append('LB/RB')
+        return '+'.join(parts) if parts else ('LB/RB' if z_held else 'idle')
 
     def _check_joy_timeout(self):
         """Stop the arm if no ``/joy`` message has arrived recently.
@@ -893,6 +1290,7 @@ class GamepadInputLoop:
             if not self._joy_silent:
                 self._joy_silent = True
                 self._joy_settling = True
+                self._trigger_rest.clear()
                 self._prev_buttons = None
                 self._controller.get_logger().warn(
                     f'/joy timed out after {elapsed:.2f}s — stopping arm.'
@@ -929,40 +1327,52 @@ class GamepadInputLoop:
 
         if self._joy_settling:
             centered = (
-                all(
-                    self._axis(axes, i) == 0.0
-                    for i in (self.AXIS_LEFT_X, self.AXIS_LEFT_Y,
-                              self.AXIS_RIGHT_X, self.AXIS_RIGHT_Y)
-                )
+                self._sticks_centered(axes)
                 and self._trigger_amount(axes, self.AXIS_L2) == 0.0
                 and self._trigger_amount(axes, self.AXIS_R2) == 0.0
+                and not self._button_pressed(buttons, self.BUTTON_LB)
+                and not self._button_pressed(buttons, self.BUTTON_RB)
             )
             self._controller.stop()
             if centered:
+                self._calibrate_triggers(axes)
                 self._joy_settling = False
                 self._controller.get_logger().info('Sticks centered — resuming control.')
             return
 
+        if not self._trigger_rest and self._sticks_centered(axes):
+            self._calibrate_triggers(axes)
+
         vy = self._axis(axes, self.AXIS_RIGHT_X) * self._linear_speed
         vx = self._axis(axes, self.AXIS_RIGHT_Y) * self._linear_speed
 
-        wz = self._axis(axes, self.AXIS_LEFT_X) * self._angular_speed
+        # Left stick: EEF roll / pitch about TCP axes (bipolar: left=+wx, right=-wx).
+        wx = self._axis(axes, self.AXIS_LEFT_X) * self._angular_speed
         wy = self._axis(axes, self.AXIS_LEFT_Y) * self._angular_speed
 
-        trigger_diff = self._trigger_amount(axes, self.AXIS_R2) - self._trigger_amount(axes, self.AXIS_L2)
-        y_held = self._button_pressed(buttons, self.BUTTON_Y)
-        roll, updown = self._route(self.BUTTON_Y, y_held, trigger_diff)
-        wx = roll * self._angular_speed
-        vz = updown * self._linear_speed
+        # L2/R2: EEF yaw about TCP Z (R2=+, L2=-).
+        wz = (
+            self._trigger_amount(axes, self.AXIS_R2)
+            - self._trigger_amount(axes, self.AXIS_L2)
+        ) * self._angular_speed
+
+        # Dedicated bumpers for global Z (Cartesian, mount frame).
+        z_up = self._button_pressed(buttons, self.BUTTON_LB)
+        z_down = self._button_pressed(buttons, self.BUTTON_RB)
+        vz = 0.0
+        if z_up and not z_down:
+            vz = self._linear_speed
+        elif z_down and not z_up:
+            vz = -self._linear_speed
 
         self._controller.set_velocity(vx, vy, vz, wx, wy, wz)
 
-        active = (vx != 0.0, vy != 0.0, vz != 0.0, wx != 0.0, wy != 0.0, wz != 0.0)
-        if active != self._prev_active and any(active):
-            label = self._active_label(vx, vy, vz, wx, wy, wz, y_held)
+        cmd = (vx, vy, vz, wx, wy, wz)
+        if cmd != self._prev_cmd and any(c != 0.0 for c in cmd):
+            label = self._active_label(vx, vy, vz, wx, wy, wz, z_up or z_down)
             print(f'{label} vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
                   f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
-        self._prev_active = active
+        self._prev_cmd = cmd
 
     def _handle_safe_pose(self):
         """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
@@ -984,14 +1394,14 @@ class GamepadInputLoop:
         self._safe_pose_active = True
         try:
             self._controller.stop()
-            print('Moving to safe pose...')
+            print('Moving to home...')
             if self._controller.move_to_safe_pose():
                 print('Starting servo...')
                 self._controller.start_servo()
                 self._teleop_locked = False
                 self._controller.get_logger().info('Teleop enabled.')
             else:
-                print('Safe pose failed — Servo not started.')
+                print('Home move failed — Servo not started.')
         finally:
             self._safe_pose_active = False
             self._safe_pose_running.release()

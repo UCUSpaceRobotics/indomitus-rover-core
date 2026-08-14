@@ -8,6 +8,13 @@ controller_manager:
     indomitus_arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
+    # Streaming position setpoints for MoveIt Servo teleop (Float64MultiArray).
+    # Mutually exclusive with indomitus_arm_controller — only one may claim the
+    # position command interfaces at a time. Spawn inactive; arm_tasks switches
+    # before start_servo / before FollowJointTrajectory (home, teach, Execute).
+    indomitus_arm_forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
@@ -33,24 +40,12 @@ indomitus_arm_controller:
     # current position, which is what makes single-joint test moves possible.
     allow_partial_joints_goal: true
 
-    # Left at the library default (true, deprecated) on purpose: Servo streams
-    # single-point trajectories where that one point is simultaneously the
-    # first AND last point of the "trajectory", carrying the live commanded
-    # velocity while a key is held. Setting this false makes the JTC reject
-    # every such goal outright — motion only happens on key-release, when
-    # Servo finally sends a v=0 point. Only real multi-point goals (teach_poses,
-    # move_group Execute) end with genuine v=0 anyway, so this never mattered
-    # for them; do not flip this without re-checking the Servo path.
+    # Left at the library default (true, deprecated) on purpose: legacy Servo
+    # streamed single-point trajectories. Teleop now uses the forward position
+    # controller; this flag still matters for any leftover single-point goals.
 
     # Spline interpolation follows the TOTG velocity/accel profile from MoveIt.
-    # Without it, sparse waypoints are held as piecewise-constant setpoints
-    # and look like stop-and-go motion. NOTE: this setting governs BOTH
-    # move_group Execute (multi-point, TOTG-timed — wants splines) and Servo
-    # teleop (a stream of single-point "trajectories" sent every ~34 ms, each
-    # forcing the JTC to restart spline fitting from scratch). If Servo jitter
-    # persists even on fake hardware (no physics involved at all), try
-    # removing this line — splines restarting every Servo message may be the
-    # jitter's actual source.
+    # Used for move_group Execute / home / teach_poses (multi-point timed paths).
     # interpolation_method: splines
 
     # On goal cancel / controller stop, ramp to hold over this time instead
@@ -74,3 +69,13 @@ indomitus_arm_controller:
       arm_forearm_wrist_1_joint:       { trajectory: 0.25, goal: 0.08 }
       arm_wrist_1_wrist_2_joint:       { trajectory: 0.25, goal: 0.08 }
       arm_wrist_2_end_effector_joint:  { trajectory: 0.25, goal: 0.08 }
+
+indomitus_arm_forward_position_controller:
+  ros__parameters:
+    joints:
+      - arm_mount_base_joint
+      - arm_base_shoulder_joint
+      - arm_shoulder_forearm_joint
+      - arm_forearm_wrist_1_joint
+      - arm_wrist_1_wrist_2_joint
+      - arm_wrist_2_end_effector_joint

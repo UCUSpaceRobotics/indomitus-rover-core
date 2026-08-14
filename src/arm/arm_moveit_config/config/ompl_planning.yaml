@@ -1,22 +1,17 @@
-# OMPL planning pipeline for indomitus_arm.
+# OMPL planning pipeline for indomitus_arm (MoveIt 2 Humble).
 #
-# AddTimeOptimalParameterization (TOTG) is required for continuous motion:
-# without it (or without acceleration limits in joint_limits.yaml) the
-# geometric path is timed so that velocity drops to ~0 at every waypoint —
-# visually "stop-and-go" from point to point.
+# AddTimeOptimalParameterization (TOTG) times the geometric path using
+# velocity/acceleration limits. AddRuckigTrajectorySmoothing then reshapes
+# it under jerk limits from joint_limits.yaml — order matters: TOTG first.
 ompl:
-  planning_plugins:
-    - ompl_interface/OMPLPlanner
   planning_plugin: ompl_interface/OMPLPlanner
-  request_adapters:
-    - default_planning_request_adapters/ResolveConstraintFrames
-    - default_planning_request_adapters/ValidateWorkspaceBounds
-    - default_planning_request_adapters/CheckStartStateBounds
-    - default_planning_request_adapters/CheckStartStateCollision
-  response_adapters:
-    - default_planning_response_adapters/AddTimeOptimalParameterization
-    - default_planning_response_adapters/ValidateSolution
-    - default_planning_response_adapters/DisplayMotionPath
+  request_adapters: >-
+    default_planner_request_adapters/ResolveConstraintFrames
+    default_planner_request_adapters/FixWorkspaceBounds
+    default_planner_request_adapters/FixStartStateBounds
+    default_planner_request_adapters/FixStartStateCollision
+    default_planner_request_adapters/AddTimeOptimalParameterization
+    default_planner_request_adapters/AddRuckigTrajectorySmoothing
   start_state_max_bounds_error: 0.1
 
   planner_configs:
