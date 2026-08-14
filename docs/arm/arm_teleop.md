@@ -59,18 +59,29 @@ Do not run keyboard and gamepad together — both publish `/servo_node/delta_twi
 
 Press **r** (keyboard) or **A** (gamepad) — move to named **`home`**, then start Servo (switches to the streaming controller). **x** / **X** / Esc — stop Servo and give joints back to JTC.
 
-**Keyboard** — translation in `arm_mount_link`, rotation about `arm_tcp_link` (ω is rotated into mount before publish):
+**Keyboard** — two independent translation sets plus rotation about `arm_tcp_link` (everything is rotated into mount before publish):
 
 | Key | Action |
 |---|---|
 | W / S | EEF +X / −X (mount) |
 | A / D | EEF +Y / −Y (mount) |
 | Q / E | EEF +Z / −Z (mount) |
+| ↑ / ↓ | forward / back (camera) |
+| ← / → | left / right (camera) |
+| T / G | up / down (camera) |
 | I / K | roll (TCP) |
 | U / O | pitch (TCP) |
 | J / L | yaw (TCP) |
 | r | home + start Servo |
 | Esc / x | exit |
+
+WASD/QE move along **fixed mount axes** — they mean the same thing no matter how the arm is posed. The arrow block moves along the **camera's** axes, so "forward" is always where the camera and gripper are pointing right now.
+
+The frame is `arm_camera_link` (parameter `view_frame`) rather than `arm_tcp_link` because the camera link is REP-103 — `+X` forward, `+Y` left, `+Z` up — which is the same sign convention the mount keys already use. The camera is bolted to `arm_end_effector_link` exactly like the gripper, so both point the same way (verified: camera `+X` · gripper direction = 1.0). `arm_tcp_link` inherits the EEF axes, where the gripper points along `+Z`, so it is **not** a drop-in value for `view_frame`.
+
+Both sets are summed, so holding W and ↑ together gives the sum of the two motions. The view transform is resolved through TF on every publish, not latched at key-press, so a long arrow-key move keeps curving with the camera. If TF for the view frame does not resolve, the arrow keys are ignored and WASD keeps working.
+
+View-relative keys are **keyboard only** — the gamepad mapping is unchanged.
 
 **Gamepad** (e.g. Stadia):
 

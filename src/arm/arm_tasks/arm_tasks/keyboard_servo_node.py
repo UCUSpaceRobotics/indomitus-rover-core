@@ -7,10 +7,18 @@ Designed to be modular — core logic is in ServoController class,
 so switching to gamepad (joy package) requires only replacing the input source.
 
 Controls:
-    EEF translation (in arm_mount_link):
+    EEF translation — absolute (in arm_mount_link):
         w / s  — +X / -X
         a / d  — +Y / -Y
         q / e  — +Z / -Z
+
+    EEF translation — view-relative (in arm_camera_link, rigid with the
+    gripper; axes are REP-103 so +X is where the camera and gripper point):
+        Up / Down    — forward / back
+        Left / Right — left / right
+        t / g        — up / down
+
+    Both translation sets are summed, so they can be held together.
 
     EEF rotation (about arm_tcp_link):
         i / k  — roll  (+/- wx)
@@ -86,6 +94,14 @@ HOLD_CMD_EPS = 1e-4
 # EEF-local while translation stays world/mount-aligned.
 DEFAULT_LINEAR_FRAME  = 'arm_mount_link'
 DEFAULT_EE_FRAME      = 'arm_tcp_link'
+# Second, view-relative translation set (arrows + T/G). The camera is
+# rigidly bolted to arm_end_effector_link, same as the gripper, so "forward"
+# is the same physical direction either way — but arm_camera_link is the frame
+# whose axes are REP-103 (+X forward / +Y left / +Z up), matching the sign
+# convention of the mount-frame keys. arm_tcp_link is NOT a drop-in substitute:
+# it inherits the EEF axes, where the gripper points along +Z, so the arrow
+# keys would mean something else entirely.
+DEFAULT_VIEW_FRAME    = 'arm_camera_link'
 # Fallback if poses.json "home" cannot be loaded (matches SRDF group_state home).
 DEFAULT_HOME_POSE     = [-1.552, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
 # 'auto' picks a USB/external keyboard (Keychron, etc.) over the laptop's
@@ -269,6 +285,7 @@ class ServoController(Node):
         # Deprecated alias for linear_frame (older launch/params files).
         self.declare_parameter('command_frame', DEFAULT_LINEAR_FRAME)
         self.declare_parameter('ee_frame',      DEFAULT_EE_FRAME)
+        self.declare_parameter('view_frame',    DEFAULT_VIEW_FRAME)
         # A / R move to this joint vector (defaults to poses.json "home").
         self.declare_parameter('safe_pose',     DEFAULT_HOME_POSE)
         self.declare_parameter('home_pose_name', 'home')
@@ -288,6 +305,7 @@ class ServoController(Node):
         else:
             self._linear_frame = DEFAULT_LINEAR_FRAME
         self._ee_frame      = self.get_parameter('ee_frame').value
+        self._view_frame    = self.get_parameter('view_frame').value
         self._home_pose_name = self.get_parameter('home_pose_name').value
         # Prefer poses.json home unless the caller overrode safe_pose explicitly.
         pose_from_param = list(self.get_parameter('safe_pose').value)
@@ -308,6 +326,12 @@ class ServoController(Node):
         self.wx = 0.0
         self.wy = 0.0
         self.wz = 0.0
+        # View-relative translation, kept separate from vx/vy/vz because it is
+        # expressed in view_frame and only resolved to linear_frame at publish
+        # time — the transform changes as the arm moves.
+        self.view_vx = 0.0
+        self.view_vy = 0.0
+        self.view_vz = 0.0
         self._hold_quat = None
         self._joint_positions = {}
 
@@ -347,6 +371,7 @@ class ServoController(Node):
             f'angular_speed={self._angular_speed}, '
             f'linear_frame={self._linear_frame} (XYZ + Servo twist frame), '
             f'ee_frame={self._ee_frame} (roll/pitch/yaw input), '
+            f'view_frame={self._view_frame} (arrow-key translation), '
             f'A/R home from {pose_source}: {[round(v, 4) for v in self._safe_pose]}'
         )
 
@@ -366,7 +391,8 @@ class ServoController(Node):
         return self._keyboard_device_path
 
     def set_velocity(self, vx=0.0, vy=0.0, vz=0.0,
-                     wx=0.0, wy=0.0, wz=0.0):
+                     wx=0.0, wy=0.0, wz=0.0,
+                     view_vx=0.0, view_vy=0.0, view_vz=0.0):
         """Set the current Cartesian velocity command.
 
         Args:
@@ -376,6 +402,9 @@ class ServoController(Node):
             wx: Angular velocity about global X (roll of EEF), rad/s.
             wy: Angular velocity about global Y (pitch of EEF), rad/s.
             wz: Angular velocity about global Z (yaw of EEF), rad/s.
+            view_vx: Linear velocity forward/back in ``view_frame``, m/s.
+            view_vy: Linear velocity left/right in ``view_frame``, m/s.
+            view_vz: Linear velocity up/down in ``view_frame``, m/s.
 
         Notes:
             Linear velocities are in ``linear_frame`` (default
@@ -383,6 +412,15 @@ class ServoController(Node):
             ``ee_frame`` (default ``arm_tcp_link``) and rotated into
             ``linear_frame`` before publish. Servo's
             ``robot_link_command_frame`` must match ``linear_frame``.
+
+            The ``view_*`` components are an independent translation set in
+            ``view_frame`` (default ``arm_camera_link``); they are rotated
+            into ``linear_frame`` and *added* to vx/vy/vz, so pressing keys
+            from both sets at once simply sums the two motions.
+
+            The three trailing arguments are keyword-friendly on purpose:
+            ``gamepad_servo_node`` calls this with six positional values and
+            must keep working unchanged.
         """
         self.vx = vx
         self.vy = vy
@@ -390,6 +428,9 @@ class ServoController(Node):
         self.wx = wx
         self.wy = wy
         self.wz = wz
+        self.view_vx = view_vx
+        self.view_vy = view_vy
+        self.view_vz = view_vz
 
     def _on_joint_state(self, msg: JointState):
         for name, pos in zip(msg.name, msg.position):
@@ -709,6 +750,44 @@ class ServoController(Node):
                 self.start_servo()
         self._servo_status = code
 
+    def _linear_in_command_frame(self):
+        """Sum mount-frame and view-frame translation, both in ``linear_frame``.
+
+        The view-frame part (arrow keys) is resolved through TF on every
+        publish rather than once at key-press, so "forward" tracks the
+        camera as the arm moves.
+
+        Returns:
+            tuple[float, float, float]: (vx, vy, vz) in ``linear_frame``.
+            If TF is unavailable only the mount-frame part is returned, so
+            W/S/A/D/Q/E keep working when the view frame does not resolve.
+        """
+        if (self.view_vx == 0.0 and self.view_vy == 0.0
+                and self.view_vz == 0.0):
+            return self.vx, self.vy, self.vz
+        if self._view_frame == self._linear_frame:
+            return (self.vx + self.view_vx,
+                    self.vy + self.view_vy,
+                    self.vz + self.view_vz)
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._linear_frame,
+                self._view_frame,
+                rclpy.time.Time(),
+            )
+        except TransformException as exc:
+            self.get_logger().warn(
+                f'TF {self._linear_frame} <- {self._view_frame} unavailable '
+                f'({exc}); ignoring view-relative translation',
+                throttle_duration_sec=2.0,
+            )
+            return self.vx, self.vy, self.vz
+        rx, ry, rz = _rotate_vector_by_quat(
+            transform.transform.rotation,
+            self.view_vx, self.view_vy, self.view_vz,
+        )
+        return self.vx + rx, self.vy + ry, self.vz + rz
+
     def _angular_in_command_frame(self):
         """Map EEF-frame angular velocity into ``linear_frame`` via TF.
 
@@ -742,9 +821,15 @@ class ServoController(Node):
 
         Does not scale linear speed. I/K/U/O/J/L still command rotation.
         """
+        # View-relative keys translate just as much as W/S/A/D/Q/E do, so the
+        # attitude hold has to engage for them too — otherwise arrow-key moves
+        # would be the one path where TCP orientation is left to walk freely.
         driving_lin = (
             abs(self.vx) > HOLD_CMD_EPS or abs(self.vy) > HOLD_CMD_EPS or
-            abs(self.vz) > HOLD_CMD_EPS
+            abs(self.vz) > HOLD_CMD_EPS or
+            abs(self.view_vx) > HOLD_CMD_EPS or
+            abs(self.view_vy) > HOLD_CMD_EPS or
+            abs(self.view_vz) > HOLD_CMD_EPS
         )
         driving_ang = (
             abs(self.wx) > HOLD_CMD_EPS or abs(self.wy) > HOLD_CMD_EPS or
@@ -776,22 +861,26 @@ class ServoController(Node):
         return wx, wy, wz
 
     def _publish(self):
-        """Publish twist in ``linear_frame`` (mount): XYZ as-is + EEF ω via TF.
+        """Publish twist in ``linear_frame`` (mount).
+
+        Mount XYZ as-is, view-frame XYZ and EEF ω rotated in via TF.
 
         Servo ``robot_link_command_frame`` must equal ``linear_frame``.
         Publishing Cartesian velocity in the TCP frame was observed to
         produce almost no joint motion for mount-aligned X; mount-frame
-        twists move the EEF correctly.
+        twists move the EEF correctly. The view-relative keys therefore
+        resolve to mount here instead of switching the published frame.
         """
+        vx, vy, vz = self._linear_in_command_frame()
         wx, wy, wz = self._angular_in_command_frame()
         wx, wy, wz = self._orientation_hold(wx, wy, wz)
 
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self._linear_frame
-        msg.twist.linear.x  = self.vx
-        msg.twist.linear.y  = self.vy
-        msg.twist.linear.z  = self.vz
+        msg.twist.linear.x  = vx
+        msg.twist.linear.y  = vy
+        msg.twist.linear.z  = vz
         msg.twist.angular.x = wx
         msg.twist.angular.y = wy
         msg.twist.angular.z = wz
@@ -802,10 +891,14 @@ HELP = """
 ╔══════════════════════════════════════════════════╗
 ║  Keyboard Servo — EEF control                    ║
 ╠══════════════════════════════════════════════════╣
-║  EEF translation (in arm_mount_link):            ║
+║  EEF translation (absolute, arm_mount_link):     ║
 ║    w / s  — +X / -X                              ║
 ║    a / d  — +Y / -Y                              ║
 ║    q / e  — +Z / -Z                              ║
+║  EEF translation (view-relative, camera):        ║
+║    Up/Dn  — forward / back                       ║
+║    Lt/Rt  — left / right                         ║
+║    t / g  — up / down                            ║
 ║  EEF rotation (about arm_tcp_link):              ║
 ║    i / k  — roll  (wx)                           ║
 ║    u / o  — pitch (wy)                           ║
@@ -825,20 +918,36 @@ class KeyboardInputLoop:
     special "safe pose" and "exit" key bindings.
     """
 
+    # (vx, vy, vz, wx, wy, wz, view_vx, view_vy, view_vz)
+    #   vx..vz      — arm_mount_link (absolute)
+    #   wx..wz      — arm_tcp_link (EEF roll/pitch/yaw)
+    #   view_vx..vz — arm_camera_link, REP-103: +X forward, +Y left, +Z up
+    # Both translation sets use the same sign convention, so the arrow block
+    # is the mount block re-expressed in the view frame — nothing else moved.
     _DIRECTIONS = {
-        # linear: arm_mount_link; angular: arm_tcp_link (EEF roll/pitch/yaw)
-        ecodes.KEY_W: ( 1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_S: (-1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_A: ( 0.0,  1.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_D: ( 0.0, -1.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_Q: ( 0.0,  0.0,  1.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_E: ( 0.0,  0.0, -1.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_I: ( 0.0,  0.0,  0.0,  1.0,  0.0,  0.0),
-        ecodes.KEY_K: ( 0.0,  0.0,  0.0, -1.0,  0.0,  0.0),
-        ecodes.KEY_U: ( 0.0,  0.0,  0.0,  0.0, -1.0,  0.0),
-        ecodes.KEY_O: ( 0.0,  0.0,  0.0,  0.0,  1.0,  0.0),
-        ecodes.KEY_J: ( 0.0,  0.0,  0.0,  0.0,  0.0,  1.0),
-        ecodes.KEY_L: ( 0.0,  0.0,  0.0,  0.0,  0.0, -1.0),
+        ecodes.KEY_W: ( 1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_S: (-1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_A: ( 0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_D: ( 0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_Q: ( 0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_E: ( 0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_I: ( 0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_K: ( 0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_U: ( 0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_O: ( 0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_J: ( 0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_L: ( 0.0,  0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0),
+        # View-relative translation (camera / gripper point of view).
+        # T/G rather than PgUp/PgDn: compact keyboards (Keychron and friends)
+        # only expose the navigation cluster behind an Fn layer. T sits above
+        # G, so the pair reads as up/down straight off the key layout, and it
+        # leaves the left hand free while the right hand is on the arrows.
+        ecodes.KEY_UP:    ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  1.0,  0.0,  0.0),
+        ecodes.KEY_DOWN:  ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0,  0.0,  0.0),
+        ecodes.KEY_LEFT:  ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  1.0,  0.0),
+        ecodes.KEY_RIGHT: ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0, -1.0,  0.0),
+        ecodes.KEY_T:     ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  0.0,  1.0),
+        ecodes.KEY_G:     ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  0.0, -1.0),
     }
 
     _KEYSTATE_UP = 0
@@ -921,6 +1030,7 @@ class KeyboardInputLoop:
         ``ServoController.set_velocity``.
         """
         vx = vy = vz = wx = wy = wz = 0.0
+        cvx = cvy = cvz = 0.0
         with self._lock:
             active = list(self._pressed)
         for code in active:
@@ -933,9 +1043,15 @@ class KeyboardInputLoop:
             wx += d[3]
             wy += d[4]
             wz += d[5]
+            cvx += d[6]
+            cvy += d[7]
+            cvz += d[8]
         self._controller.set_velocity(
             vx * self._linear_speed, vy * self._linear_speed, vz * self._linear_speed,
             wx * self._angular_speed, wy * self._angular_speed, wz * self._angular_speed,
+            view_vx=cvx * self._linear_speed,
+            view_vy=cvy * self._linear_speed,
+            view_vz=cvz * self._linear_speed,
         )
 
     def _handle_safe_pose(self):
@@ -1010,13 +1126,18 @@ class KeyboardInputLoop:
                                 if not already_pressed:
                                     self._recompute_velocity()
                                     key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
+                                    # view_* included or the arrow keys would
+                                    # report all-zero and look like a no-op.
                                     print(
                                         f'{key_name} vx={self._controller.vx:.2f} '
                                         f'vy={self._controller.vy:.2f} '
                                         f'vz={self._controller.vz:.2f} '
                                         f'wx={self._controller.wx:.2f} '
                                         f'wy={self._controller.wy:.2f} '
-                                        f'wz={self._controller.wz:.2f}'
+                                        f'wz={self._controller.wz:.2f} '
+                                        f'| fwd={self._controller.view_vx:.2f} '
+                                        f'left={self._controller.view_vy:.2f} '
+                                        f'up={self._controller.view_vz:.2f}'
                                     )
                             elif value == self._KEYSTATE_UP:
                                 with self._lock:
