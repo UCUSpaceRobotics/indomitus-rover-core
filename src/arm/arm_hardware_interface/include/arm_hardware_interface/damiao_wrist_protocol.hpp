@@ -72,11 +72,14 @@ inline const char* err_to_string(uint8_t err)
     }
 }
 
+// Rounds rather than truncates (see steadywin_protocol) — a bare cast floors,
+// biasing every packed value down by up to 1 LSB. Damiao's finer position
+// LSB (P_MAX_RAD=12.5 → 0.38 mrad) suffers less, but velocity/torque still do.
 inline uint16_t float_to_uint(float x, float x_min, float x_max, int bits)
 {
     const float span = static_cast<float>((1 << bits) - 1);
     const float clamped = std::clamp(x, x_min, x_max);
-    return static_cast<uint16_t>((clamped - x_min) * span / (x_max - x_min));
+    return static_cast<uint16_t>((clamped - x_min) * span / (x_max - x_min) + 0.5f);
 }
 
 inline float uint_to_float(uint16_t x_int, float x_min, float x_max, int bits)

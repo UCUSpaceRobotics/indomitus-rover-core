@@ -20,19 +20,26 @@ Controls:
 
     Both translation sets are summed, so they can be held together.
 
-    EEF rotation (about arm_tcp_link):
-        i / k  — roll  (+/- wx)
-        u / o  — pitch (+/- wy)
-        j / l  — yaw   (+/- wz)
+    EEF rotation (about arm_tcp_link). Names are from the operator's point of
+    view, i.e. the camera frame, which is what the TCP axes actually work out
+    to: TCP +X is the camera's left-right axis (pitch), TCP +Y its vertical
+    axis (yaw), TCP +Z its line of sight (roll):
+        i / k  — pitch (+/- wx)
+        u / o  — yaw   (+/- wy)
+        j / l  — roll  (+/- wz)
 
     r      — move to home + start servo
     ESC/x  — exit
 
-Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller):
-    Right stick      — EEF X/Y (mount)
-    Left stick       — EEF roll / pitch (TCP)
-    L2 / R2          — EEF yaw (TCP)
-    LB / RB          — EEF ±Z (mount)
+Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller).
+All gamepad translation is view-relative (arm_camera_link); rotation is
+about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
+    Left stick  left/right — EEF left / right (camera)
+    Left stick  up/down    — EEF forward / back (camera)
+    Right stick up/down    — EEF up / down (camera)
+    Right stick left/right — yaw (TCP)
+    R1 + right stick up/down    — pitch (TCP)
+    R1 + right stick left/right — roll (TCP)
     A                — move to home + start servo
     X                — exit
 
@@ -48,6 +55,7 @@ Usage (stack in one terminal, input in another):
     Gamepad only (start the joystick driver first):
         ros2 run joy joy_node
         ros2 run arm_tasks gamepad_servo_node
+        # optional: pin the shift button — ros2 run ... --ros-args -p gamepad_shift_button:=5
 """
 
 import sys
@@ -82,7 +90,7 @@ from evdev import ecodes
 
 DEFAULT_LINEAR_SPEED  = 0.2
 DEFAULT_ANGULAR_SPEED = 0.6
-DEFAULT_PUBLISH_RATE  = 50.0
+DEFAULT_PUBLISH_RATE  = 100.0
 # Q/E (±Z) folds the shoulder/elbow; without ω the TCP pitch walks.
 # Hold attitude only — do not scale XYZ (that made teleop feel slow).
 HOLD_ANGULAR_GAIN = 6.0
@@ -107,6 +115,12 @@ DEFAULT_HOME_POSE     = [-1.552, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
 # 'auto' picks a USB/external keyboard (Keychron, etc.) over the laptop's
 # built-in AT Translated Set 2 device — the usual failure mode in Docker.
 DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
+# Index of the gamepad button held to shift the right stick from
+# up-down + yaw to pitch + roll. Not portable across controller models or
+# connections (a Stadia pad over Bluetooth had R1 at 10, not 5) — if it does
+# nothing on your pad, read the real index from the /joy raw log
+# (_log_raw_joy) and override with --ros-args -p gamepad_shift_button:=<n>.
+DEFAULT_GAMEPAD_SHIFT_BUTTON = 5
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
 # The home move goes straight to the trajectory controller, so none of
 # Servo's velocity scaling applies — this duration is the only thing bounding
@@ -290,6 +304,7 @@ class ServoController(Node):
         self.declare_parameter('safe_pose',     DEFAULT_HOME_POSE)
         self.declare_parameter('home_pose_name', 'home')
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
+        self.declare_parameter('gamepad_shift_button', DEFAULT_GAMEPAD_SHIFT_BUTTON)
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
         self.declare_parameter('safe_pose_duration', DEFAULT_SAFE_POSE_DURATION)
 
@@ -317,6 +332,7 @@ class ServoController(Node):
             self._safe_pose = pose_from_param
             pose_source = 'safe_pose parameter'
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
+        self._gamepad_shift_button = int(self.get_parameter('gamepad_shift_button').value)
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
         self._safe_pose_duration   = self.get_parameter('safe_pose_duration').value
 
@@ -389,6 +405,11 @@ class ServoController(Node):
     def keyboard_device_path(self) -> str:
         """Return the filesystem path of the keyboard input device (evdev)."""
         return self._keyboard_device_path
+
+    @property
+    def gamepad_shift_button(self) -> int:
+        """Return the Joy button index that shifts the right stick."""
+        return self._gamepad_shift_button
 
     def set_velocity(self, vx=0.0, vy=0.0, vz=0.0,
                      wx=0.0, wy=0.0, wz=0.0,
@@ -900,9 +921,9 @@ HELP = """
 ║    Lt/Rt  — left / right                         ║
 ║    t / g  — up / down                            ║
 ║  EEF rotation (about arm_tcp_link):              ║
-║    i / k  — roll  (wx)                           ║
-║    u / o  — pitch (wy)                           ║
-║    j / l  — yaw   (wz)                           ║
+║    i / k  — pitch (wx)                           ║
+║    u / o  — yaw   (wy)                           ║
+║    j / l  — roll  (wz)                           ║
 ║  Other:                                          ║
 ║    r      — move to home + start servo           ║
 ║    ESC/x  — exit                                 ║
@@ -920,7 +941,7 @@ class KeyboardInputLoop:
 
     # (vx, vy, vz, wx, wy, wz, view_vx, view_vy, view_vz)
     #   vx..vz      — arm_mount_link (absolute)
-    #   wx..wz      — arm_tcp_link (EEF roll/pitch/yaw)
+    #   wx..wz      — arm_tcp_link; in camera terms wx=pitch, wy=yaw, wz=roll
     #   view_vx..vz — arm_camera_link, REP-103: +X forward, +Y left, +Z up
     # Both translation sets use the same sign convention, so the arrow block
     # is the mount block re-expressed in the view frame — nothing else moved.
@@ -931,11 +952,11 @@ class KeyboardInputLoop:
         ecodes.KEY_D: ( 0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
         ecodes.KEY_Q: ( 0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
         ecodes.KEY_E: ( 0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_I: ( 0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_I: ( 0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0),  # pitch
         ecodes.KEY_K: ( 0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_U: ( 0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_U: ( 0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0),  # yaw
         ecodes.KEY_O: ( 0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_J: ( 0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0),
+        ecodes.KEY_J: ( 0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0),  # roll
         ecodes.KEY_L: ( 0.0,  0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0),
         # View-relative translation (camera / gripper point of view).
         # T/G rather than PgUp/PgDn: compact keyboards (Keychron and friends)
@@ -1204,12 +1225,14 @@ class KeyboardInputLoop:
 
 GAMEPAD_HELP = """
 ╔══════════════════════════════════════════════╗
-║  Gamepad — EEF control                       ║
+║  Gamepad — EEF control (view-relative)       ║
 ╠══════════════════════════════════════════════╣
-║  Right stick      — EEF X / Y (mount frame)  ║
-║  Left stick       — EEF roll / pitch (TCP)   ║
-║  L2 / R2          — EEF yaw (TCP)            ║
-║  LB / RB          — EEF +Z / -Z (mount)      ║
+║  Left stick   ←→  — left / right  (camera)   ║
+║               ↑↓  — forward / back (camera)  ║
+║  Right stick  ↑↓  — up / down     (camera)   ║
+║               ←→  — yaw   (TCP)              ║
+║  R1 + right   ↑↓  — pitch (TCP)              ║
+║               ←→  — roll  (TCP)              ║
 ║  A                — home + start servo       ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
@@ -1235,20 +1258,24 @@ class GamepadInputLoop:
       **0.0** instead. ``_trigger_amount`` uses a per-axis rest sample
       taken while sticks are centered so a 0-rest axis is not treated as
       a half-press (which was publishing a constant phantom yaw).
-    * Buttons 0/2 are A/X; 4/5 are LB/RB (Z translation).
+    * Buttons 0/2 are A/X; 5 is R1/RB, held as a shift for the right stick.
     """
 
-    AXIS_LEFT_X = 0     # roll  (wx)
-    AXIS_LEFT_Y = 1     # pitch (wy)
-    AXIS_RIGHT_X = 2    # Y translation
-    AXIS_RIGHT_Y = 3    # X translation
-    AXIS_L2 = 4         # yaw -
-    AXIS_R2 = 5         # yaw +
+    # Gamepad translation is view-relative (camera frame), not mount-frame —
+    # the operator is looking through the camera, so "forward" should follow
+    # it. Mount-frame XYZ stays available on the keyboard.
+    AXIS_LEFT_X = 0     # view +Y / -Y  (left / right)
+    AXIS_LEFT_Y = 1     # view +X / -X  (forward / back)
+    AXIS_RIGHT_X = 2    # yaw (-wy)     — roll  (-wz) while R1 held
+    AXIS_RIGHT_Y = 3    # view +Z / -Z  — pitch (+wx) while R1 held
+    AXIS_L2 = 4         # unmapped; used only for trigger rest calibration
+    AXIS_R2 = 5
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to home + start servo
     BUTTON_EXIT = 2        # 'X' — exit
-    BUTTON_LB = 4          # +Z
-    BUTTON_RB = 5          # -Z
+    BUTTON_LB = 4          # unmapped (settle check only)
+    # Shift button has no class constant: its real index is controller-
+    # dependent (see DEFAULT_GAMEPAD_SHIFT_BUTTON), read via self._shift_button.
 
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
@@ -1268,6 +1295,7 @@ class GamepadInputLoop:
         self._controller = controller
         self._linear_speed = controller.linear_speed
         self._angular_speed = controller.angular_speed
+        self._shift_button = controller.gamepad_shift_button
         self._exit_event = threading.Event()
         # None means "no trustworthy baseline yet" — the first message
         # after startup or a /joy dropout only seeds this, it never
@@ -1388,18 +1416,18 @@ class GamepadInputLoop:
         return self._button_pressed(buttons, index) and not was_pressed
 
     @staticmethod
-    def _active_label(vx, vy, vz, wx, wy, wz, z_held: bool) -> str:
+    def _active_label(view_vx, view_vy, view_vz, wx, wy, wz, shift: bool) -> str:
         """Describe which physical control(s) are driving a nonzero command."""
+        # wy (yaw) only ever comes from the plain right stick, wx/wz (pitch/
+        # roll) only from the shifted one — so the axes identify the source.
         parts = []
-        if vx or vy:
-            parts.append('right stick')
-        if wx or wy:
+        if view_vx or view_vy:
             parts.append('left stick')
-        if wz:
-            parts.append('L2/R2')
-        if vz:
-            parts.append('LB/RB')
-        return '+'.join(parts) if parts else ('LB/RB' if z_held else 'idle')
+        if view_vz or wy:
+            parts.append('right stick')
+        if wx or wz:
+            parts.append('R1+right stick')
+        return '+'.join(parts) if parts else ('R1' if shift else 'idle')
 
     def _check_joy_timeout(self):
         """Stop the arm if no ``/joy`` message has arrived recently.
@@ -1428,6 +1456,15 @@ class GamepadInputLoop:
                 )
             self._controller.stop()
 
+    def _log_raw_joy(self, axes, buttons, note: str = ''):
+        """Log the full Joy message — an out-of-range index fails silently otherwise."""
+        axes_str = ', '.join(f'{i}:{v:+.2f}' for i, v in enumerate(axes))
+        buttons_str = ', '.join(f'{i}:{b}' for i, b in enumerate(buttons))
+        self._controller.get_logger().info(
+            f'/joy raw{note} — axes[{len(axes)}]: {{{axes_str}}}  '
+            f'buttons[{len(buttons)}]: {{{buttons_str}}}'
+        )
+
     def _on_joy(self, msg: Joy):
         """Translate one Joy snapshot into a velocity command and edge-triggered actions."""
         axes = msg.axes
@@ -1438,12 +1475,41 @@ class GamepadInputLoop:
             self._controller.get_logger().info('/joy resumed.')
         self._last_joy_time = self._controller.get_clock().now()
 
+        if self._prev_buttons is None:
+            # First message (also re-fires after a /joy dropout). Warn early
+            # if gamepad_shift_button is out of range for this controller.
+            self._log_raw_joy(axes, buttons, ' (first message)')
+            if self._shift_button >= len(buttons):
+                self._controller.get_logger().warn(
+                    f'gamepad_shift_button={self._shift_button} but this '
+                    f'/joy only reports {len(buttons)} button(s) '
+                    f'(0..{len(buttons) - 1}) — that index can never be '
+                    f'pressed. Pick a real index from the buttons[] list above.'
+                )
+
         # Button edges are always processed, even while teleop is locked
         # out — buttons are digital (no analog drift), and the safe-pose
         # button is the only way to clear the lock, so it must keep
         # working while locked or the arm could never be armed at all.
         safe_pose_pressed = self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE)
         exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
+
+        # Log the raw state on any button change, not just the mapped ones,
+        # so an unmapped shift button still shows up.
+        if self._prev_buttons is not None:
+            width = max(len(buttons), len(self._prev_buttons))
+            changed = [
+                i for i in range(width)
+                if self._button_pressed(buttons, i)
+                != (i < len(self._prev_buttons) and self._prev_buttons[i] == 1)
+            ]
+            if changed:
+                self._log_raw_joy(
+                    axes, buttons,
+                    f' (button(s) {changed} changed; shift configured as '
+                    f'{self._shift_button})',
+                )
+
         self._prev_buttons = list(buttons)
 
         if exit_pressed:
@@ -1462,7 +1528,7 @@ class GamepadInputLoop:
                 and self._trigger_amount(axes, self.AXIS_L2) == 0.0
                 and self._trigger_amount(axes, self.AXIS_R2) == 0.0
                 and not self._button_pressed(buttons, self.BUTTON_LB)
-                and not self._button_pressed(buttons, self.BUTTON_RB)
+                and not self._button_pressed(buttons, self._shift_button)
             )
             self._controller.stop()
             if centered:
@@ -1474,34 +1540,42 @@ class GamepadInputLoop:
         if not self._trigger_rest and self._sticks_centered(axes):
             self._calibrate_triggers(axes)
 
-        vy = self._axis(axes, self.AXIS_RIGHT_X) * self._linear_speed
-        vx = self._axis(axes, self.AXIS_RIGHT_Y) * self._linear_speed
+        # Left stick — view-relative translation in the horizontal plane.
+        # Stick sign convention (see class docstring): left = +1, forward = +1;
+        # camera frame is REP-103 (+X forward, +Y left), so both pass straight
+        # through with no flip.
+        view_vy = self._axis(axes, self.AXIS_LEFT_X) * self._linear_speed
+        view_vx = self._axis(axes, self.AXIS_LEFT_Y) * self._linear_speed
 
-        # Left stick: EEF roll / pitch about TCP axes (bipolar: left=+wx, right=-wx).
-        wx = self._axis(axes, self.AXIS_LEFT_X) * self._angular_speed
-        wy = self._axis(axes, self.AXIS_LEFT_Y) * self._angular_speed
+        # Right stick — two modes, mutually exclusive so a held R1 can never
+        # translate and rotate at once:
+        #   plain:   up/down = view +Z/-Z, left/right = yaw
+        #   R1 held: up/down = pitch,      left/right = roll
+        # Rotation stays about the TCP axes, same as the keyboard's I/K/U/O/J/L.
+        right_x = self._axis(axes, self.AXIS_RIGHT_X)
+        right_y = self._axis(axes, self.AXIS_RIGHT_Y)
+        shift = self._button_pressed(buttons, self._shift_button)
 
-        # L2/R2: EEF yaw about TCP Z (R2=+, L2=-).
-        wz = (
-            self._trigger_amount(axes, self.AXIS_R2)
-            - self._trigger_amount(axes, self.AXIS_L2)
-        ) * self._angular_speed
+        view_vz = 0.0
+        wx = wy = wz = 0.0
+        if shift:
+            wx = right_y * self._angular_speed          # pitch
+            wz = -right_x * self._angular_speed         # roll
+        else:
+            view_vz = -right_y * self._linear_speed      # stick up = view +Z
+            wy = -right_x * self._angular_speed         # yaw
 
-        # Dedicated bumpers for global Z (Cartesian, mount frame).
-        z_up = self._button_pressed(buttons, self.BUTTON_LB)
-        z_down = self._button_pressed(buttons, self.BUTTON_RB)
-        vz = 0.0
-        if z_up and not z_down:
-            vz = self._linear_speed
-        elif z_down and not z_up:
-            vz = -self._linear_speed
+        # Mount-frame translation is unused here — every gamepad axis is
+        # view-relative or a rotation.
+        self._controller.set_velocity(
+            0.0, 0.0, 0.0, wx, wy, wz,
+            view_vx=view_vx, view_vy=view_vy, view_vz=view_vz,
+        )
 
-        self._controller.set_velocity(vx, vy, vz, wx, wy, wz)
-
-        cmd = (vx, vy, vz, wx, wy, wz)
+        cmd = (view_vx, view_vy, view_vz, wx, wy, wz)
         if cmd != self._prev_cmd and any(c != 0.0 for c in cmd):
-            label = self._active_label(vx, vy, vz, wx, wy, wz, z_up or z_down)
-            print(f'{label} vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
+            label = self._active_label(view_vx, view_vy, view_vz, wx, wy, wz, shift)
+            print(f'{label} fwd={view_vx:.2f} left={view_vy:.2f} up={view_vz:.2f} '
                   f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
         self._prev_cmd = cmd
 

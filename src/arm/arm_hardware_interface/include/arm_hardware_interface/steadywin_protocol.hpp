@@ -37,7 +37,13 @@ namespace steadywin_protocol {
 // rating — it is the scaling of the 12-bit torque field, so it must never be
 // changed here without the motor being reconfigured in the same breath, or
 // every commanded torque is silently off by the ratio of the two values.
-constexpr float P_MAX_RAD = 95.5f;
+//
+// P_MAX narrowed from the 95.5 rad factory default to 12.5 (matching the
+// Damiao wrists): shrinks the 16-bit position LSB from 2.9 mrad (1.5 Nm of
+// quantization at kp=500) to 0.38 mrad. Joints are limited to +-pi with zero
+// offset, so motor coords stay within +-3.15 rad — 4x headroom. Widen this
+// ONLY together with the motors' stored config.
+constexpr float P_MAX_RAD = 12.5f;
 constexpr float V_MAX_RPS = 45.0f;
 constexpr float T_MAX_NM  = 48.0f;
 
@@ -50,11 +56,16 @@ constexpr uint8_t CMD_CONFIG_MAX = 0xF0;  // reply payload = Pos/Vel/T max, NOT 
 constexpr uint8_t CMD_SET_ZERO   = 0xB1;  // reply payload = mechanical angle offset
 constexpr uint8_t CMD_DISABLE    = 0xCF;
 
+// +0.5f rounds instead of truncating: a bare cast floors, biasing every
+// packed value down by up to 1 LSB in the same direction, which stalls
+// motion in that direction when a step is only a couple of LSB. Mattered
+// most at the old P_MAX_RAD=95.5 (2.9 mrad LSB); still applies to the
+// unchanged velocity/torque fields.
 inline uint16_t float_to_uint(float x, float x_min, float x_max, int bits)
 {
     const float span = static_cast<float>((1 << bits) - 1);
     const float clamped = std::clamp(x, x_min, x_max);
-    return static_cast<uint16_t>((clamped - x_min) * span / (x_max - x_min));
+    return static_cast<uint16_t>((clamped - x_min) * span / (x_max - x_min) + 0.5f);
 }
 
 inline float uint_to_float(uint16_t x_int, float x_min, float x_max, int bits)

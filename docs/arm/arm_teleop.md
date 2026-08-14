@@ -69,9 +69,9 @@ Press **r** (keyboard) or **A** (gamepad) — move to named **`home`**, then sta
 | ↑ / ↓ | forward / back (camera) |
 | ← / → | left / right (camera) |
 | T / G | up / down (camera) |
-| I / K | roll (TCP) |
-| U / O | pitch (TCP) |
-| J / L | yaw (TCP) |
+| I / K | pitch (TCP) |
+| U / O | yaw (TCP) |
+| J / L | roll (TCP) |
 | r | home + start Servo |
 | Esc / x | exit |
 
@@ -83,18 +83,40 @@ Both sets are summed, so holding W and ↑ together gives the sum of the two mot
 
 View-relative keys are **keyboard only** — the gamepad mapping is unchanged.
 
-**Gamepad** (e.g. Stadia):
+**Gamepad** (e.g. Stadia) — translation is **entirely view-relative** (camera frame); rotation is about TCP, same as the keyboard:
 
 | Input | Action |
 |---|---|
-| Right stick | EEF X / Y (mount) |
-| Left stick | EEF roll / pitch (TCP → mount) |
-| L2 / R2 | EEF yaw (TCP → mount) |
-| LB / RB | EEF +Z / −Z (mount) |
+| Left stick ←→ | left / right (camera) |
+| Left stick ↑↓ | forward / back (camera) |
+| Right stick ↑↓ | up / down (camera) |
+| Right stick ←→ | yaw (TCP) |
+| **R1** + right stick ↑↓ | pitch (TCP) |
+| **R1** + right stick ←→ | roll (TCP) |
 | A | home + start Servo |
 | X | exit |
 
-Gamepad mapping stays in `gamepad_servo_node`, not `teleop_twist_joy`: that package publishes all six twist axes in **one** frame, which would break mount-XYZ + TCP-ω.
+R1 is a hold-to-shift modifier: while it is down the right stick rotates instead of translating, so the two never mix. L2/R2 and LB are unmapped in this layout.
+
+The default shift button index is **5** (R1/RB on most layouts and pads). Button numbering is not portable across controller models, or even across USB vs Bluetooth on the same pad — a Google Stadia controller over Bluetooth tested 5 as a dead slot, with R1 actually surfacing at button index 10 instead.
+
+If the shift button does nothing on your pad, the node logs the complete `/joy` message on every button change:
+
+```
+/joy raw (button(s) [10] changed; shift configured as 5) — axes[6]: {...}  buttons[17]: {..., 10:1, ...}
+```
+
+Press the physical R1 alone, read which index actually flips in the `buttons[...]` list (not just whatever this doc or the default says), and pass it:
+
+```bash
+ros2 run arm_tasks gamepad_servo_node --ros-args -p gamepad_shift_button:=10
+```
+
+**Rotation naming is from the camera's point of view, not the TCP axis letters.** TCP `+X` is the camera's left-right axis → **pitch** (`wx`), TCP `+Y` its vertical axis → **yaw** (`wy`), TCP `+Z` its line of sight → **roll** (`wz`).
+
+Unlike the keyboard, the gamepad has no mount-frame (absolute) translation — the operator is looking through the camera, so every stick axis follows it.
+
+Gamepad mapping stays in `gamepad_servo_node`, not `teleop_twist_joy`: that package publishes all six twist axes in **one** frame, which would break camera-XYZ + TCP-ω.
 
 ### Architecture
 
