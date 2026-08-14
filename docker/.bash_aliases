@@ -1,4 +1,4 @@
-# After making changes in this file update docs/software/aliases 
+# After making changes in this file update docs/software/aliases.md
 
 alias cb="colcon build"
 alias cbs="colcon build --symlink-install"
