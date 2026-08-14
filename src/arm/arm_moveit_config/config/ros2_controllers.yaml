@@ -15,6 +15,9 @@ controller_manager:
     indomitus_arm_forward_position_controller:
       type: position_controllers/JointGroupPositionController
 
+    gripper_controller:
+      type: position_controllers/JointGroupPositionController
+
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
@@ -79,3 +82,9 @@ indomitus_arm_forward_position_controller:
       - arm_forearm_wrist_1_joint
       - arm_wrist_1_wrist_2_joint
       - arm_wrist_2_end_effector_joint
+
+gripper_controller:
+  ros__parameters:
+    joints:
+      - arm_jaw_gripper_finger_right_joint
+    interface_name: position

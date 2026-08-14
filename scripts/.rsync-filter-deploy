@@ -1,25 +1,68 @@
 # This file defines which files are ignored by the sync modes of the deployment script
 
-# Unneccessary simulation and visualization packages
+# Unnecessary simulation and visualization packages
 - rover_viz/
 - rover_sim/
 - arm_viz/
 - arm_sim/
 
-# Python
+# Python & Linting Caches
 - __pycache__/
 - *.pyc
 - *.pyo
 - .pytest_cache/
 - *.egg-info/
+- .coverage
+- htmlcov/
+- .mypy_cache/
+- .ruff_cache/
+- .tox/
 
-# Build artifacts
+# Virtual environments
+- .env/
+- .venv/
+- venv/
+- env/
+
+# Web / Node
+- node_modules/
+
+# Build artifacts & C++ Tooling
 - build/
 - install/
 - log/
+- compile_commands.json
+- CMakeCache.txt
+- CMakeFiles/
+- .cache/
+
+# Code formatting & CI
+- .clang-format
+- .pre-commit-config.yaml
+- .pre-commit-config.yml
+- .github/
+
+# Documentation
+- docs/
+- doc/
+- Doxyfile
+- site/
+
+# Logging & Crash Dumps
+- *.log
+- core.*
+
+# ROS 2 Data & Bags
+- *.db3
+- *.mcap
+- rosbag2_*/
 
 # Editor / OS noise
 - .DS_Store
+- .AppleDouble
+- ._*
+- Thumbs.db
+- Desktop.ini
 - *.swp
 - *~
 - .idea/

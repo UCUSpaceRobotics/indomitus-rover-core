@@ -4,6 +4,14 @@
   <xacro:arg name="use_fake_hardware" default="true"/>
   <xacro:arg name="end_effector" default="jaw"/>
   <xacro:arg name="sim" default="false"/>
+  <!-- When the arm is mounted into another robot's URDF (e.g. the rover, see
+       rover_description's mount_arm arg) that outer URDF already adds its
+       own single gz_ros2_control-system plugin covering every <ros2_control>
+       block in the combined model. Set this to false in that case so the
+       arm doesn't register a second, redundant controller_manager plugin
+       for the same Gazebo model. Standalone arm sim (arm_sim) leaves this
+       at the default so it keeps adding its own plugin as before. -->
+  <xacro:arg name="standalone_gz_plugin" default="true"/>
   <!-- camera:=false drops the simulated camera sensor (the URDF link and
        frames stay). Camera rendering is the main real-time-factor cost
        when the GPU isn't doing the rendering. -->
@@ -369,11 +377,13 @@
     </xacro:if>
 
     <xacro:if value="$(arg sim)">
-      <gazebo>
-        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-          <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
-        </plugin>
-      </gazebo>
+      <xacro:if value="$(arg standalone_gz_plugin)">
+        <gazebo>
+          <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+            <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
+          </plugin>
+        </gazebo>
+      </xacro:if>
 
       <gazebo reference="arm_mount_link">
         <visual>

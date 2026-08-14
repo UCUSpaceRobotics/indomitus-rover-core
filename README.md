@@ -50,7 +50,8 @@ This file provides all necessary documentation for basic work with the project. 
 - [Networking](docs/networking/ssh.md) — SSH connection
 - [Software](docs/software/) — launch, nodes, testing, gazebo
 - [Arm teleop](docs/arm/arm_teleop.md) — keyboard / gamepad Cartesian Servo
-- [Arm sim](docs/arm/arm_sim.md) — RViz / MoveIt visualization
+- [Arm sim](docs/arm/arm_sim.md) — RViz / MoveIt visualization, arm-only launch modes
+- [Panel Simulation](docs/panel/panel_sim.md) — switch panel launch modes, combined rover+arm+panel sim
 - [Testing](docs/software/testing.md) — code testing and test creation
 - [Scripts](docs/scripts/) — scripts automating workflows
 - [Deployment](docs/deployment.md) — code deployment to the rover
@@ -67,13 +68,6 @@ This section describes how to start the rover when it is controlled by the Jetso
 ### Starting the Jetson-Controlled Rover
 
 Follow the steps described in the [QUICKSTART](QUICKSTART.md) to power on and operate the rover.
-
-The steps below are currently irrelevant:
-
-1. ~~**Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button.~~
-2. ~~**Turn on the joystick:** Power on the red joystick. It will automatically connect to the rover's computer.~~
-3. ~~**Verify the joystick connection:** Wait for the joystick LEDs to stop blinking and turn solid white, indicating a successful connection.~~
-4. ~~**Control the rover:** The launch file that initializes all the required nodes will run automatically. No further action is needed, and you are now ready to drive the rover using the joystick.~~
 
 ### Starting the Laptop-Controlled Rover
 
@@ -124,7 +118,9 @@ Follow these steps to power on and operate the rover using a laptop:
 To power down the rover, perform **one** of the following actions:
 
 * **Use the power switch:** Rotate the blue switch on the back of the rover counterclockwise.
-* ~~**Use the Emergency Stop:** Press one of the two red buttons on the top of the rover.~~
+* **Use the Emergency Stop:** Press one of the two red buttons on the top of the rover.
+
+> **Note:** To restart the rover after the emergency button has been pressed, you must first release the button by rotating it clockwise.
 
 
 ### Current System Credentials and Network Info
@@ -136,7 +132,7 @@ To power down the rover, perform **one** of the following actions:
 | **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
 | **Wi-Fi Password** | `12345678` |
 | **Jetson Static IP for Hotspot** | `10.42.0.1` |
-| **Jetson Container ROS_DOMAIN_ID** | `132` |
+| **Jetson Container ROS_DOMAIN_ID** | `42` |
 
 
 ### SSH Access to the Jetson
@@ -282,7 +278,7 @@ Depending on your requirements, choose one of the following solutions:
 **Option A: Skip the packages (If you do not need simulations)**
 You can instruct `colcon` to ignore the failing packages and safely build the rest of the workspace:
 ```bash
-colcon build --symlink-install --packages-ignore rover_viz rover_sim arm_viz arm_sim && source install/setup.bash
+colcon build --symlink-install --packages-ignore rover_viz rover_sim arm_viz arm_sim panel_sim && source install/setup.bash
 ```
 
 **Option B: Fix the dependencies (If you need simulations)**
@@ -306,6 +302,12 @@ Images built locally or by GitHub workflows will use the following tags:
   * *Use Case:* Designed strictly for deployment on the NVIDIA Jetson. Cannot run natively on standard Intel/AMD laptops.
 * **`<branch-name>-dev`** and **`<branch-name>-prod`**: Images built by GitHub workflows when you manually trigger **Publish Production and Development Images** for your branch (slashes in the branch name are replaced with dashes).
 * **`latest-prod`**: Production image built on merge to the main branch.
+
+
+### Aliases
+
+For convenience, the container includes built-in aliases for common ROS 2 commands. You can find the complete list in [aliases.md](./docs/software/aliases.md).
+
 
 ---
 

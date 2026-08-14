@@ -16,6 +16,7 @@
   <depend>controller_interface</depend>
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
+  <depend>realtime_tools</depend>
   <build_export_depend>rcpputils</build_export_depend>
   <build_export_depend>class_loader</build_export_depend>
 
@@ -30,6 +31,7 @@
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
