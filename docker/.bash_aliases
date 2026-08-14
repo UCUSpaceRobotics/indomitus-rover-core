@@ -17,8 +17,8 @@ alias launch_nav="ros2 launch rover_teleop navigation.launch.py"
 
 kill_node() {
     if [ -z "$1" ]; then
-        echo "Usage: ros2kill <node_or_executable_name>"
-        echo "Example: ros2kill minimal_publisher"
+        echo "Usage: kill_node <node_or_executable_name>"
+        echo "Example: kill_node minimal_publisher"
         return 1
     fi
 
