@@ -85,9 +85,11 @@ jobs:
           tags: ${{ steps.metadata-tags.outputs.tags }}
           labels: ${{ steps.metadata-tags.outputs.labels }}
           cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
             type=gha,scope=${{ github.ref_name }}-prod
-            type=gha,scope=develop-prod
-          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-prod
+          cache-to: |
+            type=registry,mode=max,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
+            type=gha,mode=min,scope=${{ github.ref_name }}-prod
 
   build-and-push-dev-amd64:
     runs-on: ubuntu-22.04
@@ -165,6 +167,8 @@ jobs:
           tags: ${{ steps.meta-dev.outputs.tags }}
           labels: ${{ steps.meta-dev.outputs.labels }}
           cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
             type=gha,scope=${{ github.ref_name }}-dev
-            type=gha,scope=develop-dev
-          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-dev
+          cache-to: |
+            type=registry,mode=max,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
+            type=gha,mode=min,scope=${{ github.ref_name }}-dev

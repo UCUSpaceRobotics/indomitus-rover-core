@@ -7,6 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
+# IMPORT SHARED FUNCTIONS
+source "${SCRIPT_DIR}/utils.sh"
+
 # HELPER FUNCTIONS
 success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }
 error()   { echo -e "\e[31m[ERROR]\e[0m $1"; exit 1; }
@@ -163,57 +166,8 @@ EOF
   if ! command -v ssh >/dev/null 2>&1; then error "SSH client is not installed."; fi
 
   step "Verifying Network Connection..."
-  if [ -n "$WIFI_SSID" ] && [ "$USE_ETH" = false ]; then
-    if command -v nmcli >/dev/null 2>&1; then
-      local CURRENT_SSID
-      CURRENT_SSID=$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes' | cut -d: -f2 || true)
-      if [ "$CURRENT_SSID" = "$WIFI_SSID" ]; then
-        echo -e "\e[32m[INFO]\e[0m Already connected to network: ${WIFI_SSID}"
-      else
-        echo "Attempting to automatically connect to Wi-Fi network (you may do it manually): ${WIFI_SSID}..."
-        if [ -n "$WIFI_PASS" ]; then
-          nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASS" >/dev/null 2>&1 || true
-        else
-          nmcli device wifi connect "$WIFI_SSID" >/dev/null 2>&1 || true
-        fi
-      fi
-    elif command -v networksetup >/dev/null 2>&1; then
-      local WIFI_IFACE CURRENT_SSID
-      WIFI_IFACE=$(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2}')
-      if [ -n "$WIFI_IFACE" ]; then
-        CURRENT_SSID=$(networksetup -getairportnetwork "$WIFI_IFACE" 2>/dev/null | awk -F': ' '{print $2}' || true)
-        if [ "$CURRENT_SSID" = "$WIFI_SSID" ]; then
-          echo -e "\e[32m[INFO]\e[0m Already connected to network: ${WIFI_SSID}"
-        else
-          echo "Attempting to automatically connect to Wi-Fi network (you may do it manually): ${WIFI_SSID}..."
-          if [ -n "$WIFI_PASS" ]; then
-            networksetup -setairportnetwork "$WIFI_IFACE" "$WIFI_SSID" "$WIFI_PASS" >/dev/null 2>&1 || true
-          else
-            networksetup -setairportnetwork "$WIFI_IFACE" "$WIFI_SSID" >/dev/null 2>&1 || true
-          fi
-        fi
-      fi
-    else
-      echo -e "\e[33m[WARNING]\e[0m OS not supported for auto-connect. Please switch to '${WIFI_SSID}' manually."
-    fi
-  elif [ "$USE_ETH" = false ]; then
-    echo -e "Please switch your Wi-Fi network to the rover computer hotspot now."
-  fi
-
-  echo -n "Waiting for SSH connection to ${TARGET}..."
-  local MAX_RETRIES=60
-  local RETRY_COUNT=0
-  while ! ssh -q -o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=accept-new "${TARGET}" "echo 'SSH Ready'" > /dev/null 2>&1; do
-    sleep 2
-    echo -n "."
-    RETRY_COUNT=$((RETRY_COUNT+1))
-    if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
-      echo ""
-      error "Timeout: Could not connect to rover computer at ${TARGET} after 2 minutes."
-    fi
-  done
-  echo ""
-  success "Connection established."
+  ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
+  wait_for_ssh "$TARGET" 30
 
   step "Starting Docker Container on rover computer..."
   ssh -q "${TARGET}" \
