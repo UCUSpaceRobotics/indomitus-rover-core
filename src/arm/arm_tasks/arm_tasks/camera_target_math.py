@@ -107,12 +107,22 @@ def compute_target_tip_pose(
             camera position, along the panel's own outward normal.
 
     Returns:
-        T_C_Ttarget — the target tip_link pose, in the current camera
-        frame. Hand this directly to a MoveIt goal constraint with
-        ``header.frame_id = 'arm_camera_optical_frame'`` (MoveIt resolves
-        a robot-link-attached frame_id against the *current* robot state
-        internally, which is exactly the camera pose this was computed
-        relative to).
+        T_C_Ttarget — the target tip_link pose, in whatever frame "C"
+        (``panel_pose_in_camera``'s first frame) was expressed in. Despite
+        the name, that doesn't have to literally be the camera's own
+        current frame — ``panel_align_node.align_to_panel()`` resolves the
+        detection into the fixed ``arm_mount_link`` frame *before* calling
+        this, and hands the result to MoveIt with
+        ``header.frame_id='arm_mount_link'`` accordingly. Do the same:
+        feeding a robot-link-attached frame_id like
+        ``arm_camera_optical_frame`` straight to a MoveIt goal constraint,
+        on the theory that MoveGroup resolves it against the live robot
+        state, was tried and confirmed live to fail — OMPL's goal-tree
+        sampling failed 100% of the time (all threads, full
+        allowed_planning_time) for a target independently confirmed
+        reachable via a direct ``/compute_ik`` call. See
+        ``panel_align_node.py``'s own ``PLANNING_FRAME`` comment for the
+        full story.
 
     Derivation: the panel's front face is at local -Y (arm approaches
     from -Y, per panel_macro.xacro), so outward normal = -Y_panel. The

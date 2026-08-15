@@ -982,9 +982,15 @@ class KeyboardInputLoop:
                 # direction/gripper key press after the prompt appeared
                 # both dismisses it AND is processed normally below,
                 # rather than being swallowed as a wasted first press.
-                if self._panel_prompt_pending:
-                    if value != self._KEYSTATE_DOWN:
-                        continue
+                # Only gates DOWN specifically (dismiss-and-act) — UP must
+                # always fall through to the normal handling below
+                # regardless of pending state. Confirmed live as an actual
+                # bug: swallowing UP here too left a key held before the
+                # prompt appeared (and released while still pending) stuck
+                # in self._pressed forever (stop() only zeroes velocity,
+                # it doesn't touch self._pressed), silently combining with
+                # whatever was pressed next once teleop resumed.
+                if self._panel_prompt_pending and value == self._KEYSTATE_DOWN:
                     self._panel_prompt_pending = False
                     print('Continuing manual control (panel align not triggered).')
 
