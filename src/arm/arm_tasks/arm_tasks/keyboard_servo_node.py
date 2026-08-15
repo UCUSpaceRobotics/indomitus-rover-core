@@ -19,6 +19,8 @@ Controls:
 
     t / y  — close / open gripper
     r      — move to safe pose + start servo
+    p      — align to detected panel (see panel_align_node)
+    n      — dismiss panel-detected prompt, silence until it leaves view
     ESC/x  — exit
 
 Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller):
@@ -28,6 +30,8 @@ Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller):
     L2 / R2, Y held  — up / down
     L1 / R1          — close / open gripper
     A                — move to safe pose + start servo
+    Button 12        — align to detected panel
+    Button 11        — dismiss panel-detected prompt
     X                — exit
 
 Usage:
@@ -51,7 +55,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from sensor_msgs.msg import Joy, JointState
 from std_msgs.msg import Int8, Float64MultiArray
 from std_srvs.srv import Trigger
@@ -80,6 +84,24 @@ DEFAULT_COMMAND_FRAME = 'arm_camera_link'
 DEFAULT_SAFE_POSE     = [0.0, 1.2, -1.0, 0.8, 0.5, 0.0]
 DEFAULT_KEYBOARD_DEVICE_PATH = '/dev/input/event3'
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
+DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
+# Deliberately reads panel_pose (gated at 2+ markers in
+# panel_pose_fuser_node), not the cheaper panel_visible (1+) — confirmed
+# live that a single marker's monocular pose estimate is unreliable
+# enough to compute a physically unreachable align target, so prompting
+# "press P" on 1-marker detections just set the operator up for a
+# guaranteed failed align. The prompt/gate below now only fires when
+# align would actually stand a chance.
+# How stale a panel_pose message can be before is_panel_visible() reports
+# False. 1.0 (the original value) was too tight in practice — confirmed
+# live that 2-marker detection can drop out for a second or more even
+# while the panel stays fully in frame (motion blur, a marginal viewing
+# angle), and by the time the operator reacts to the prompt and presses
+# 'p', is_panel_visible() had often already gone stale again ("No panel
+# currently in view" despite the panel clearly being on screen). 3s gives
+# real human reaction time plus some detection-dropout slack.
+DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC = 3.0
+DEFAULT_PANEL_ALIGN_TIMEOUT = 30.0
 
 SAFE_POSE_JOINTS = [
     'arm_mount_base_joint',
@@ -153,6 +175,9 @@ class ServoController(Node):
         self.declare_parameter('safe_pose',     DEFAULT_SAFE_POSE)
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
+        self.declare_parameter('panel_pose_topic', DEFAULT_PANEL_POSE_TOPIC)
+        self.declare_parameter('panel_visible_max_age_sec', DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC)
+        self.declare_parameter('panel_align_timeout', DEFAULT_PANEL_ALIGN_TIMEOUT)
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -163,6 +188,8 @@ class ServoController(Node):
         self._safe_pose     = list(self.get_parameter('safe_pose').value)
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
+        self._panel_visible_max_age_sec = self.get_parameter('panel_visible_max_age_sec').value
+        self._panel_align_timeout  = self.get_parameter('panel_align_timeout').value
 
         self.vx = 0.0
         self.vy = 0.0
@@ -190,6 +217,7 @@ class ServoController(Node):
         self._gripper_pub = self.create_publisher(Float64MultiArray, 'gripper_controller/commands', 10)
         self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
         self._stop_client  = self.create_client(Trigger, 'servo_node/stop_servo')
+        self._panel_align_client = self.create_client(Trigger, 'panel_align/align')
         self._traj_client  = ActionClient(
             self,
             FollowJointTrajectory,
@@ -208,6 +236,13 @@ class ServoController(Node):
             JointState,
             'joint_states',
             self._on_joint_state,
+            10
+        )
+        self._last_panel_visible_time = None
+        self._panel_pose_sub = self.create_subscription(
+            PoseStamped,
+            self.get_parameter('panel_pose_topic').value,
+            self._on_panel_pose,
             10
         )
 
@@ -410,6 +445,78 @@ class ServoController(Node):
         self.get_logger().info('Safe pose reached!')
         return True
 
+    def _on_panel_pose(self, msg: PoseStamped):
+        """Record the arrival time of a panel_pose message (see is_panel_visible).
+
+        panel_pose_fuser_node only publishes this when its own 2+-marker
+        and disagreement checks pass (see panel_perception) — deliberately
+        NOT the cheaper panel_visible (1+ marker) topic, since a
+        single-marker pose estimate was confirmed live to be unreliable
+        enough to compute a physically unreachable align target. Reading
+        the same topic panel_align_node itself acts on means "the operator
+        sees the prompt" and "align would actually accept this pose" agree.
+        """
+        self._last_panel_visible_time = self.get_clock().now()
+
+    def is_panel_visible(self) -> bool:
+        """Return True if a panel_pose message has arrived recently.
+
+        This is the same 2+-marker bar panel_align_node itself requires
+        before it will plan a move — see _on_panel_pose.
+        """
+        if self._last_panel_visible_time is None:
+            return False
+        age = (self.get_clock().now() - self._last_panel_visible_time).nanoseconds / 1e9
+        return age <= self._panel_visible_max_age_sec
+
+    def align_to_panel(self) -> bool:
+        """Stop motion and call panel_align_node's blocking align service.
+
+        Mirrors move_to_safe_pose()'s contract (bool return, no raise).
+        panel_align_node does its own stop_servo() as the first step of
+        its sequence — this method's own stop() only zeroes OUR local
+        velocity state (see ``stop``'s docstring), which panel_align_node
+        has no access to.
+
+        Returns:
+            bool: True if the align service reported success; False on
+            any failure (service unavailable, timeout, or the service
+            itself reporting a failed alignment — see the logged message
+            for which).
+        """
+        self.stop()
+
+        if not self._panel_align_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('panel_align/align service not available')
+            return False
+
+        done_event = threading.Event()
+        outcome = {'success': False, 'message': ''}
+
+        def _cb(future):
+            try:
+                result = future.result()
+                outcome['success'] = result.success
+                outcome['message'] = result.message
+            except Exception as e:
+                outcome['message'] = f'panel align call failed: {e!r}'
+            finally:
+                done_event.set()
+
+        future = self._panel_align_client.call_async(Trigger.Request())
+        future.add_done_callback(_cb)
+
+        if not done_event.wait(timeout=self._panel_align_timeout):
+            self.get_logger().warn(
+                f'panel_align/align timed out after {self._panel_align_timeout:.1f}s'
+            )
+            return False
+        if not outcome['success']:
+            self.get_logger().error(f'Panel align failed: {outcome["message"]}')
+            return False
+        self.get_logger().info(f'Panel align succeeded: {outcome["message"]}')
+        return True
+
     def start_servo(self):
         """Asynchronously call the Servo ``start_servo`` service.
 
@@ -562,6 +669,8 @@ HELP = """
 ║  Other:                                      ║
 ║    t / y  — close / open gripper             ║
 ║    r      — move to safe pose + start servo  ║
+║    p      — align to detected panel          ║
+║    n      — dismiss panel prompt             ║
 ║    ESC/x  — exit                             ║
 ╚══════════════════════════════════════════════╝
 """
@@ -601,6 +710,14 @@ class KeyboardInputLoop:
     _KEYSTATE_DOWN = 1
     _KEYSTATE_REPEAT = 2
 
+    # How long is_panel_visible() must stay continuously False before the
+    # panel-detected prompt/gate treats it as actually gone (see
+    # _check_panel_visibility) — bigger than ServoController's own ~1s
+    # message-staleness tolerance, to absorb realistic detection dropouts
+    # (a single marker at a marginal angle, motion blur while driving)
+    # without spamming a fresh prompt on every one of them.
+    _PANEL_LOST_CONFIRM_SEC = 2.0
+
     def __init__(self, controller: 'ServoController'):
         """Store a reference to the controller and initialize input state.
 
@@ -619,6 +736,22 @@ class KeyboardInputLoop:
         self._device = None
         self._read_thread = None
         self._servo_started = False
+        # Rising-edge state for the panel-detected prompt/gate (see
+        # _check_panel_visibility and _read_loop's KEY_P/KEY_N handling).
+        # Confirmed on top of is_panel_visible()'s own ~1s staleness
+        # tolerance: a single marker at a marginal angle can still drop
+        # detection for a second or more at a time while the operator is
+        # actively driving, which without this debounce reset both
+        # _panel_was_visible AND _panel_notifications_silenced on every
+        # such gap — defeating 'n' entirely (confirmed live: silencing,
+        # then immediately re-prompting on the very next flicker). Only a
+        # gap longer than _PANEL_LOST_CONFIRM_SEC now counts as "actually
+        # gone".
+        self._panel_was_visible = False
+        self._panel_prompt_pending = False
+        self._panel_notifications_silenced = False  # set by 'n', see _read_loop
+        self._panel_lost_since = None
+        self._panel_watch_timer = controller.create_timer(0.2, self._check_panel_visibility)
 
     def _open_device(self) -> bool:
         """Open the evdev keyboard device at ``self._device_path``.
@@ -676,6 +809,83 @@ class KeyboardInputLoop:
             gripper_vel=gripper * self._gripper_speed,
         )
 
+    def _check_panel_visibility(self):
+        """Poll panel visibility and arm the one-shot prompt on a rising edge.
+
+        Runs on a ROS timer (not tied to key events) since the panel can
+        appear in frame without the operator pressing anything. Only
+        fires the prompt/gate on a *confirmed* False -> True transition —
+        'p' stays usable at any time the panel is visible regardless of
+        this flag (see _read_loop), so re-detecting an already-visible
+        panel does nothing here.
+
+        "Confirmed" (via _panel_lost_since/_PANEL_LOST_CONFIRM_SEC) means
+        is_panel_visible() must have been continuously False for a real
+        stretch of time, not just one poll tick — a single marker at a
+        marginal angle realistically drops detection for a second or more
+        while the operator is actively driving, and reacting to every one
+        of those gaps as "the panel left and came back" both re-fires the
+        prompt AND (confirmed live) immediately un-silences 'n' on the
+        very next flicker, defeating it entirely.
+        """
+        now = self._controller.get_clock().now()
+        raw_visible = self._controller.is_panel_visible()
+        if raw_visible:
+            self._panel_lost_since = None
+            visible = True
+        elif self._panel_was_visible:
+            # Was confirmed visible last tick, raw reading just dropped —
+            # this is the grace period. NOT entered on a raw-False reading
+            # that follows an already-False state (see bug note above):
+            # that path used to start counting from lost_sec=0 every poll,
+            # which is always < _PANEL_LOST_CONFIRM_SEC, so it read as
+            # "still visible" forever — including right at node startup,
+            # before the panel had ever actually been seen once.
+            if self._panel_lost_since is None:
+                self._panel_lost_since = now
+            lost_sec = (now - self._panel_lost_since).nanoseconds / 1e9
+            visible = lost_sec < self._PANEL_LOST_CONFIRM_SEC
+        else:
+            visible = False
+
+        if not visible:
+            self._panel_notifications_silenced = False
+        if visible and not self._panel_was_visible and not self._panel_notifications_silenced:
+            self._panel_prompt_pending = True
+            # Halt whatever's currently moving, not just future key
+            # events — "doesn't react until the operator answers" should
+            # apply to motion already in progress too, and this also
+            # means a stray key-up for a key held before the prompt
+            # appeared (dropped below while pending) leaves nothing
+            # actually still moving.
+            self._controller.stop()
+            print(
+                '\n>>> Panel detected! Press P to align to it, '
+                'N to dismiss and keep driving. <<<'
+            )
+        self._panel_was_visible = visible
+
+    def _handle_panel_align(self):
+        """Run panel alignment and hand control back to the operator either way.
+
+        Unlike _handle_safe_pose, Servo is restarted on failure too: most
+        align_to_panel() failures (stale detection, standoff out of
+        range, planning rejected) never move the arm at all, and even the
+        execution-failure path only happens after a real collision-checked
+        plan — so there's no equivalent of move_to_safe_pose()'s "arm may
+        be stopped mid-trajectory, don't hand back control blindly" risk.
+        Stranding the operator with no teleop just because alignment
+        didn't succeed would defeat the point of it being an assistive,
+        not mandatory, action.
+        """
+        print('Aligning to panel...')
+        if self._controller.align_to_panel():
+            print('Panel align succeeded.')
+        else:
+            print('Panel align failed.')
+        print('Resuming manual control...')
+        self._controller.start_servo()
+
     def _handle_safe_pose(self):
         """Clear pressed keys, stop motion, and move to the safe pose.
 
@@ -729,6 +939,32 @@ class KeyboardInputLoop:
                     threading.Thread(target=self._handle_safe_pose, daemon=True).start()
                     continue
 
+                if code == ecodes.KEY_P and value == self._KEYSTATE_DOWN:
+                    if not self._servo_started:
+                        continue
+                    # 'p' always answers a pending prompt (if any) and
+                    # always works whenever the panel is visible, even if
+                    # the operator already dismissed an earlier prompt —
+                    # see _check_panel_visibility's docstring.
+                    self._panel_prompt_pending = False
+                    if self._controller.is_panel_visible():
+                        threading.Thread(target=self._handle_panel_align, daemon=True).start()
+                    else:
+                        print('No panel currently in view.')
+                    continue
+
+                if code == ecodes.KEY_N and value == self._KEYSTATE_DOWN:
+                    if not self._servo_started:
+                        continue
+                    # Explicit dismiss: unlike a movement key (which also
+                    # dismisses, see below), this also silences the prompt
+                    # against re-triggering on detection flicker while the
+                    # panel stays in view — see _panel_notifications_silenced.
+                    self._panel_prompt_pending = False
+                    self._panel_notifications_silenced = True
+                    print('Panel notifications silenced until it leaves view.')
+                    continue
+
                 if code not in self._DIRECTIONS and code not in self._GRIPPER_KEYS:
                     continue
 
@@ -739,6 +975,18 @@ class KeyboardInputLoop:
                 # listening to yet would have nothing to show for it.
                 if not self._servo_started:
                     continue
+
+                # A pending panel prompt gates these keys until the
+                # operator answers it — 'p' (handled above) or, per the
+                # requirement, simply continuing to drive: the first
+                # direction/gripper key press after the prompt appeared
+                # both dismisses it AND is processed normally below,
+                # rather than being swallowed as a wasted first press.
+                if self._panel_prompt_pending:
+                    if value != self._KEYSTATE_DOWN:
+                        continue
+                    self._panel_prompt_pending = False
+                    print('Continuing manual control (panel align not triggered).')
 
                 if value == self._KEYSTATE_DOWN:
                     with self._lock:
@@ -808,6 +1056,8 @@ GAMEPAD_HELP = """
 ║  L2 / R2, Y held  — up / down      (Z)       ║
 ║  L1 / R1          — close / open gripper     ║
 ║  A                — safe pose + servo        ║
+║  Button 12        — align to panel           ║
+║  Button 11        — dismiss panel prompt     ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
 """
@@ -846,10 +1096,15 @@ class GamepadInputLoop:
     BUTTON_EXIT = 2        # 'X' — exit
     BUTTON_GRIPPER_CLOSE = 4  # L1
     BUTTON_GRIPPER_OPEN  = 5  # R1
+    # Confirmed live via `ros2 topic echo /joy` on real hardware.
+    BUTTON_PANEL_ALIGN = 12    # 'p' equivalent — align to detected panel
+    BUTTON_PANEL_DISMISS = 11  # 'n' equivalent — dismiss panel prompt
 
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
     _WATCHDOG_PERIOD_SEC = 0.1
+    # See KeyboardInputLoop's identically-named constant.
+    _PANEL_LOST_CONFIRM_SEC = 2.0
 
     def __init__(self, controller: 'ServoController'):
         """Store a reference to the controller and subscribe to ``/joy``.
@@ -898,6 +1153,20 @@ class GamepadInputLoop:
         # everything centered/released, then resume from wherever the
         # arm already is.
         self._joy_settling = False
+
+        # Rising-edge state for the panel-detected prompt/gate — same
+        # concept as KeyboardInputLoop's, driven from _on_joy instead of
+        # a separate timer since joy_node publishes continuously even at
+        # rest, so this callback already fires regularly on its own.
+        # _panel_lost_since debounces is_panel_visible() dropouts shorter
+        # than _PANEL_LOST_CONFIRM_SEC — see KeyboardInputLoop's version
+        # for why this matters (confirmed live: without it, a single
+        # marker's realistic detection flicker re-fires the prompt on
+        # nearly every poll).
+        self._panel_was_visible = False
+        self._panel_prompt_pending = False
+        self._panel_lost_since = None
+        self._panel_notifications_silenced = False  # set by BUTTON_PANEL_DISMISS
 
         self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
         self._watchdog_timer = controller.create_timer(
@@ -1030,6 +1299,8 @@ class GamepadInputLoop:
         # working while locked or the arm could never be armed at all.
         safe_pose_pressed = self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE)
         exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
+        panel_align_pressed = self._button_rising_edge(buttons, self.BUTTON_PANEL_ALIGN)
+        panel_dismiss_pressed = self._button_rising_edge(buttons, self.BUTTON_PANEL_DISMISS)
         self._prev_buttons = list(buttons)
 
         if exit_pressed:
@@ -1041,6 +1312,61 @@ class GamepadInputLoop:
         if self._teleop_locked or self._safe_pose_active:
             self._controller.stop()
             return
+
+        now = self._controller.get_clock().now()
+        raw_panel_visible = self._controller.is_panel_visible()
+        if raw_panel_visible:
+            self._panel_lost_since = None
+            panel_visible = True
+        elif self._panel_was_visible:
+            # See KeyboardInputLoop's identical logic for why this must be
+            # gated on _panel_was_visible — otherwise a raw-False reading
+            # right at startup (never actually seen the panel once) reads
+            # as "still visible" for the whole grace period, every time.
+            if self._panel_lost_since is None:
+                self._panel_lost_since = now
+            panel_visible = (now - self._panel_lost_since).nanoseconds / 1e9 < self._PANEL_LOST_CONFIRM_SEC
+        else:
+            panel_visible = False
+
+        if not panel_visible:
+            self._panel_notifications_silenced = False
+        if panel_visible and not self._panel_was_visible and not self._panel_notifications_silenced:
+            self._panel_prompt_pending = True
+            self._controller.stop()
+            print(
+                '\n>>> Panel detected! Press button 12 to align to it, '
+                'button 11 to dismiss, or keep driving. <<<'
+            )
+        self._panel_was_visible = panel_visible
+
+        if panel_dismiss_pressed:
+            self._panel_prompt_pending = False
+            self._panel_notifications_silenced = True
+            print('Panel notifications silenced until it leaves view.')
+
+        if panel_align_pressed and panel_visible:
+            self._panel_prompt_pending = False
+            threading.Thread(target=self._handle_panel_align, daemon=True).start()
+
+        if self._panel_prompt_pending:
+            # Same "any real stick/trigger input dismisses it" rule as
+            # KeyboardInputLoop — checked on just the 6 axes (not the
+            # gripper buttons), since gripper open/close isn't "driving".
+            any_axis_active = (
+                self._axis(axes, self.AXIS_LEFT_X) != 0.0
+                or self._axis(axes, self.AXIS_LEFT_Y) != 0.0
+                or self._axis(axes, self.AXIS_RIGHT_X) != 0.0
+                or self._axis(axes, self.AXIS_RIGHT_Y) != 0.0
+                or self._trigger_amount(axes, self.AXIS_L2) != 0.0
+                or self._trigger_amount(axes, self.AXIS_R2) != 0.0
+            )
+            if any_axis_active:
+                self._panel_prompt_pending = False
+                print('Continuing manual control (panel align not triggered).')
+            else:
+                self._controller.stop()
+                return
 
         if self._joy_settling:
             centered = (
@@ -1084,6 +1410,20 @@ class GamepadInputLoop:
             print(f'{label} vx={vx:.2f} vy={vy:.2f} vz={vz:.2f} '
                   f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f} gripper={gripper_vel:.4f}')
         self._prev_active = active
+
+    def _handle_panel_align(self):
+        """Run panel alignment and hand control back to the operator either way.
+
+        Mirrors KeyboardInputLoop._handle_panel_align — see its docstring
+        for why Servo is restarted on failure too, unlike _handle_safe_pose.
+        """
+        print('Aligning to panel...')
+        if self._controller.align_to_panel():
+            print('Panel align succeeded.')
+        else:
+            print('Panel align failed.')
+        print('Resuming manual control...')
+        self._controller.start_servo()
 
     def _handle_safe_pose(self):
         """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').

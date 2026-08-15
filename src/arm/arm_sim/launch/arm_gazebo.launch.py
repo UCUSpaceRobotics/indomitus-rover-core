@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -25,8 +26,10 @@ def generate_launch_description() -> LaunchDescription:
     arm_description_dir = get_package_share_directory("arm_description")
     arm_sim_dir = get_package_share_directory("arm_sim")
     ros_gz_sim_dir = get_package_share_directory("ros_gz_sim")
+    panel_description_dir = get_package_share_directory("panel_description")
 
     xacro_file = os.path.join(arm_description_dir, "urdf", "arm_standalone.urdf.xacro")
+    panel_xacro_file = os.path.join(panel_description_dir, "urdf", "panel_standalone.urdf.xacro")
     world_file = os.path.join(arm_sim_dir, "worlds", "empty.sdf")
     bridge_config = os.path.join(arm_sim_dir, "config", "gz_bridge.yaml")
     bridge_config_no_camera = os.path.join(arm_sim_dir, "config", "gz_bridge_no_camera.yaml")
@@ -34,8 +37,10 @@ def generate_launch_description() -> LaunchDescription:
     resource_path_root = os.path.dirname(arm_description_dir)
     existing_gz_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
     existing_ign_path = os.environ.get("IGN_GAZEBO_RESOURCE_PATH", "")
-    gz_resource_path = os.pathsep.join(filter(None, [resource_path_root, existing_gz_path]))
-    ign_resource_path = os.pathsep.join(filter(None, [resource_path_root, existing_ign_path]))
+    gz_resource_path = os.pathsep.join(filter(
+        None, [resource_path_root, os.path.dirname(panel_description_dir), existing_gz_path]))
+    ign_resource_path = os.pathsep.join(filter(
+        None, [resource_path_root, os.path.dirname(panel_description_dir), existing_ign_path]))
 
     robot_description_content = ParameterValue(
         Command(
@@ -70,6 +75,72 @@ def generate_launch_description() -> LaunchDescription:
         executable="create",
         arguments=["-topic", "robot_description", "-name", "indomitus_arm", "-z", "0.3"],
         output="screen",
+    )
+
+    # Panel placement, derived from the arm's actual DEFAULT_SAFE_POSE
+    # camera pose (looked up live via TF: world->arm_camera_optical_frame
+    # while at keyboard_servo_node.py's safe_pose, since that's the
+    # configuration teleop/panel_align actually operates from) — placed
+    # ~0.45m along the camera's real view direction, yaw computed so the
+    # panel's front face (local -Y, see panel_macro.xacro) roughly faces
+    # back toward the arm base. Only yaw is adjustable here (no
+    # roll/pitch), so this doesn't perfectly square the panel to the
+    # camera (which is also pitched down in this pose) — good enough for
+    # ArUco detection range/angle tolerance, not a precise final layout.
+    PANEL_X, PANEL_Y, PANEL_Z, PANEL_YAW = "0.402", "0.556", "0.136", "-0.4675"
+    _panel_yaw_f = float(PANEL_YAW)
+    PANEL_QZ, PANEL_QW = str(np.sin(_panel_yaw_f / 2)), str(np.cos(_panel_yaw_f / 2))
+
+    panel_description_content = ParameterValue(
+        Command([
+            "xacro ", panel_xacro_file,
+            " sim:=true",
+            " panel_x:=", PANEL_X, " panel_y:=", PANEL_Y,
+            " panel_z:=", PANEL_Z, " panel_yaw:=", PANEL_YAW,
+        ]),
+        value_type=str,
+    )
+
+    panel_state_publisher = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        namespace="panel",
+        output="screen",
+        parameters=[{"robot_description": panel_description_content, "use_sim_time": True,
+                     "frame_prefix": "panel/"}],
+        remappings=[("/panel/tf", "/tf"), ("/panel/tf_static", "/tf_static")],
+        condition=IfCondition(LaunchConfiguration("spawn_panel")),
+    )
+
+    # Without this, the panel's own robot_state_publisher (frame_prefix
+    # "panel/", rooted at its own <link name="world"/>) publishes a TF
+    # tree with no connection to the arm's — move_group's
+    # planning_scene_monitor then can't resolve any panel/* frame
+    # against the "world" planning frame ("Tf has two or more
+    # unconnected trees" warning spam). Same PANEL_X/Y/Z/YAW as the
+    # actual spawn pose above, so world -> panel/world matches where the
+    # model really is.
+    panel_world_connector = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        arguments=[
+            "--x", PANEL_X, "--y", PANEL_Y, "--z", PANEL_Z,
+            "--qz", PANEL_QZ, "--qw", PANEL_QW,
+            "--frame-id", "world", "--child-frame-id", "panel/world",
+        ],
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(LaunchConfiguration("spawn_panel")),
+    )
+
+    panel_spawn = Node(
+        package="ros_gz_sim",
+        executable="create",
+        arguments=[
+            "-name", "indomitus_panel", "-topic", "panel/robot_description",
+            "-x", PANEL_X, "-y", PANEL_Y, "-z", PANEL_Z, "-Y", PANEL_YAW,
+        ],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("spawn_panel")),
     )
 
     ros_gz_bridge = Node(
@@ -161,12 +232,18 @@ def generate_launch_description() -> LaunchDescription:
     ld = LaunchDescription(
         [
             DeclareLaunchArgument("camera", default_value="true"),
+            DeclareLaunchArgument(
+                "spawn_panel", default_value="true",
+                description="Also spawn the switch panel task board, for panel_align_node/CV testing"),
             SetParameter(name="use_sim_time", value=True),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
             gz_sim,
             robot_state_publisher,
             spawn_entity,
+            panel_state_publisher,
+            panel_world_connector,
+            panel_spawn,
             ros_gz_bridge,
             ros_gz_bridge_no_camera,
             delayed_controller_spawners,

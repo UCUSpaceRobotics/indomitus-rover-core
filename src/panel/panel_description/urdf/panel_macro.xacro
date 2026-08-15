@@ -688,10 +688,27 @@
     <!-- ===================== ArUco MARKER MOUNTS (primitive, no STL) =====================
          Flat black squares for pose-detection markers ("AruCo detection"
          in the scoring sheet). Three of the four corners are marked in the
-         reference render (top-left, top-right, bottom-left) — the actual
-         ArUco pattern (numbered tag) is applied as a texture/decal on top
-         of this base square by whichever code renders/prints the markers;
-         this link is just the physical black mount square. -->
+         reference render (top-left, top-right, bottom-left).
+
+         Tag IDs (4X4_50 dictionary, matching rover_aruco/config/aruco_params.yaml's
+         marker_dict): top_left=20, top_right=21, bottom_left=22. Chosen
+         arbitrarily — nothing was previously assigned anywhere in this repo
+         or on real hardware (see git history). Reassign freely here (and
+         regenerate textures/aruco_tags/*.png + panel_perception's marker-ID
+         params) if the real/competition panel ends up using different
+         numbers. Generated via:
+           cv2.aruco.drawMarker(cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50), <id>, 400)
+         (OpenCV 4.5's legacy API — this workspace's opencv is 4.5.4, which
+         predates the newer generateImageMarker() name.)
+
+         In sim, the numbered pattern is a separate textured quad mesh
+         (meshes/aruco_tags/panel_marker_<suffix>.obj+.mtl+.png) laid
+         directly on top of the black mount box below — a first attempt
+         using a PBR albedo-map <gazebo><material> override directly on
+         the box primitive silently rendered as flat black (gz-sim's
+         URDF-import path doesn't appear to carry that through), so this
+         uses the same textured-mesh mechanism as any other visual mesh
+         in this file instead, which is the well-supported path. -->
     <xacro:macro name="panel_marker" params="suffix x z">
       <joint name="panel_marker_${suffix}_joint" type="fixed">
         <parent link="panel_base_link"/>
@@ -703,6 +720,9 @@
           <geometry><box size="0.04 0.002 0.04"/></geometry>
           <material name="marker_black"/>
         </visual>
+        <visual>
+          <geometry><mesh filename="${mesh_path}/aruco_tags/panel_marker_${suffix}.obj"/></geometry>
+        </visual>
         <collision>
           <geometry><box size="0.04 0.002 0.04"/></geometry>
         </collision>
@@ -710,9 +730,9 @@
       </link>
     </xacro:macro>
 
-    <xacro:panel_marker suffix="top_left"    x="-0.135" z="0.415"/>
-    <xacro:panel_marker suffix="top_right"   x="0.135"  z="0.415"/>
-    <xacro:panel_marker suffix="bottom_left" x="-0.135" z="0.035"/>
+    <xacro:panel_marker suffix="top_left"    x="-0.135" z="0.415"/>  <!-- ArUco id 20 -->
+    <xacro:panel_marker suffix="top_right"   x="0.135"  z="0.415"/>  <!-- ArUco id 21 -->
+    <xacro:panel_marker suffix="bottom_left" x="-0.135" z="0.035"/>  <!-- ArUco id 22 -->
 
 
     <xacro:if value="$(arg sim)">
