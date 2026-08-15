@@ -64,6 +64,19 @@ GROUP_NAME = 'indomitus_arm'
 TIP_LINK = 'arm_tcp_link'  # confirmed in arm_moveit_config/config/indomitus_arm.srdf
 CAMERA_OPTICAL_FRAME = 'arm_camera_optical_frame'
 CONTROLLER_NAME = 'indomitus_arm_controller'  # matches move_to_safe_pose()'s controller
+# SRDF group's base_link, and the frame every hand-verified reachability
+# check this feature was built against actually used. Goal constraints and
+# the panel CollisionObject used to be submitted with
+# header.frame_id=CAMERA_OPTICAL_FRAME on the theory that MoveGroup
+# resolves a robot-link frame_id against the live robot state — live
+# testing showed the opposite: OMPL's goal-tree sampling failed 100% of
+# the time (all threads, full allowed_planning_time) for a target
+# independently confirmed reachable via a direct /compute_ik call seeded
+# at the current joint state. Resolving to this fixed frame ourselves via
+# one TF lookup (below), instead of relying on that resolution inside
+# MoveGroup, matches the exact approach that direct check used
+# successfully and removes the dependency on that assumption entirely.
+PLANNING_FRAME = 'arm_mount_link'
 
 DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
 DEFAULT_CAMERA_INFO_TOPIC = '/camera/camera_info'
@@ -129,15 +142,15 @@ class PanelAlignNode(Node):
         self.declare_parameter('standoff_margin_multiplier', 1.15)
         self.declare_parameter('standoff_min_floor', 0.15)
         self.declare_parameter('standoff_max_reach', 0.75)
-        # TEMPORARY, for verifying the align mechanism itself end-to-end
-        # without fighting reach: overrides the real FOV-fit standoff
-        # (compute_standoff_distance, ~0.6-0.7m for this panel/camera —
-        # correct for "whole panel fits in frame", but that plus however
-        # far the arm already is from the panel easily exceeds real reach)
-        # with a small fixed distance close to wherever the arm currently
-        # is. Set use_fixed_test_standoff:=false to go back to the real
-        # FOV-based computation.
-        self.declare_parameter('use_fixed_test_standoff', True)
+        # Was defaulted True (small fixed distance) while the sim test
+        # panel was placed somewhere that made the real FOV-fit standoff
+        # (compute_standoff_distance, ~0.6m for this panel/camera)
+        # unreachable. Fixed for good now: arm_gazebo.launch.py's panel
+        # placement was found via a real /compute_ik reachability search
+        # (see its own comment) specifically so the real standoff works —
+        # set use_fixed_test_standoff:=true to fall back to a fixed
+        # distance if testing at some other, unverified panel placement.
+        self.declare_parameter('use_fixed_test_standoff', False)
         self.declare_parameter('fixed_test_standoff', 0.2)
         self.declare_parameter('joint_limit_margin_fraction', 0.08)
         self.declare_parameter('num_planning_attempts', 10)
@@ -269,28 +282,48 @@ class PanelAlignNode(Node):
         if not standoff.within_bounds:
             return self._fail(f'Standoff distance out of range: {standoff.reason}')
 
+        try:
+            tf_mount_camera = self._tf_buffer.lookup_transform(
+                PLANNING_FRAME, panel_pose.header.frame_id, rclpy.time.Time())
+        except tf2_ros.TransformException as exc:
+            return self._fail(
+                f'Could not resolve {panel_pose.header.frame_id} -> {PLANNING_FRAME} TF: {exc}')
+        t = tf_mount_camera.transform.translation
+        r = tf_mount_camera.transform.rotation
+        mount_to_camera = ((t.x, t.y, t.z), (r.x, r.y, r.z, r.w))
+
         p = panel_pose.pose.position
         o = panel_pose.pose.orientation
-        panel_pose_in_camera = ((p.x, p.y, p.z), (o.x, o.y, o.z, o.w))
+        panel_pose_in_mount = compose_transforms(
+            mount_to_camera, ((p.x, p.y, p.z), (o.x, o.y, o.z, o.w)))
+        panel_pose_mount_msg = PoseStamped()
+        panel_pose_mount_msg.header.frame_id = PLANNING_FRAME
+        panel_pose_mount_msg.header.stamp = panel_pose.header.stamp
+        (panel_pose_mount_msg.pose.position.x, panel_pose_mount_msg.pose.position.y,
+         panel_pose_mount_msg.pose.position.z) = panel_pose_in_mount[0]
+        (panel_pose_mount_msg.pose.orientation.x, panel_pose_mount_msg.pose.orientation.y,
+         panel_pose_mount_msg.pose.orientation.z, panel_pose_mount_msg.pose.orientation.w
+         ) = panel_pose_in_mount[1]
+
         # Aim at the panel's own fixed center point (see
         # PANEL_CENTER_LOCAL_OFFSET), not panel_base_link's origin
         # directly — this is what makes the target always the same point
         # on the panel regardless of exactly how the pose was detected.
-        panel_center_in_camera = compose_transforms(
-            panel_pose_in_camera, PANEL_CENTER_LOCAL_OFFSET)
+        panel_center_in_mount = compose_transforms(
+            panel_pose_in_mount, PANEL_CENTER_LOCAL_OFFSET)
         target_position, target_orientation = compute_target_tip_pose(
-            panel_pose_in_camera=panel_center_in_camera,
+            panel_pose_in_camera=panel_center_in_mount,
             camera_to_tip=self._camera_to_tip,
             standoff=standoff.distance,
         )
         target_pose_msg = PoseStamped()
-        target_pose_msg.header.frame_id = panel_pose.header.frame_id
+        target_pose_msg.header.frame_id = PLANNING_FRAME
         (target_pose_msg.pose.position.x, target_pose_msg.pose.position.y,
          target_pose_msg.pose.position.z) = target_position
         (target_pose_msg.pose.orientation.x, target_pose_msg.pose.orientation.y,
          target_pose_msg.pose.orientation.z, target_pose_msg.pose.orientation.w) = target_orientation
 
-        if not self._apply_panel_collision_object(panel_pose):
+        if not self._apply_panel_collision_object(panel_pose_mount_msg):
             return self._fail('Could not insert panel CollisionObject into the planning scene.')
 
         plan_result = self._request_plan(target_pose_msg)

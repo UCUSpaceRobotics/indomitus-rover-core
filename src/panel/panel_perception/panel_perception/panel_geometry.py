@@ -9,6 +9,19 @@ marker's pose alone already fully determines a candidate panel pose —
 unlike a position-only rigid-transform fit (e.g. Kabsch/Umeyama), this
 needs no minimum marker count to be well-determined, and works the same
 way whether 1, 2, or 3 markers are currently visible.
+
+That "shares the panel's own orientation" statement is true of the URDF
+link frame (rpy="0 0 0" relative to ``panel_base_link``), but ArUco's own
+reported marker orientation uses a *different*, fixed convention
+(marker's own local X=right, Y=up-in-plane, Z=out-of-plane toward the
+camera — the standard OpenCV/ArUco tag convention), which is not the same
+basis as the panel's own X=width, Y=depth/normal, Z=up. Confirmed live
+(sim, all 3 markers): fusing without correcting for this produced a
+~0.38m position disagreement between markers, tracking exactly with the
+markers' differing local Z offsets; composing each detection's
+orientation with ``Rx(-90 deg)`` (``MARKER_TO_PANEL_ORIENTATION_CORRECTION``
+below) before fusing dropped that to ~0.02m (sensor noise). See
+``_candidate_panel_pose``.
 """
 
 from __future__ import annotations
@@ -29,6 +42,14 @@ KNOWN_MARKER_LOCAL_POSITIONS: dict[int, tuple[float, float, float]] = {
     21: (0.135, -0.003, 0.415),   # top_right
     22: (-0.135, -0.003, 0.035),  # bottom_left
 }
+
+# ArUco's marker-local convention (X=right, Y=up-in-plane, Z=out-of-plane
+# toward camera) expressed in the panel's own local convention (X=right,
+# Y=depth/normal, Z=up): ArUco's X -> panel's X, ArUco's Y -> panel's Z,
+# ArUco's Z -> panel's -Y. Composing a detection's orientation with this
+# (on the right) converts "R_camera_arucoMarker" into "R_camera_panel" —
+# see module docstring for how this was found and confirmed.
+MARKER_TO_PANEL_ORIENTATION_CORRECTION = Rotation.from_euler('x', -90, degrees=True)
 
 
 @dataclass(frozen=True)
@@ -54,17 +75,19 @@ class FusedPanelPose:
 def _candidate_panel_pose(detection: MarkerDetection) -> tuple[np.ndarray, Rotation]:
     """One marker's detection alone -> a full candidate panel pose.
 
-    The marker and panel share the same orientation, so
-    R_camera_panel == R_camera_marker, and the panel's origin is just the
-    marker's origin shifted by the marker's own local offset from the
-    panel origin, rotated into the camera frame:
-        t_camera_panel = t_camera_marker - R_camera_marker @ local_offset
+    The marker link and panel share the same URDF orientation, but ArUco's
+    reported orientation is in ArUco's own convention, not the panel's —
+    apply MARKER_TO_PANEL_ORIENTATION_CORRECTION first to get a genuine
+    R_camera_panel. From there, the panel's origin is just the marker's
+    origin shifted by the marker's own local offset from the panel
+    origin, rotated into the camera frame:
+        t_camera_panel = t_camera_marker - R_camera_panel @ local_offset
     """
     local_offset = np.array(KNOWN_MARKER_LOCAL_POSITIONS[detection.marker_id])
-    r_camera_marker = Rotation.from_quat(detection.orientation_xyzw)
+    r_camera_marker = Rotation.from_quat(detection.orientation_xyzw) * MARKER_TO_PANEL_ORIENTATION_CORRECTION
     t_camera_marker = np.array(detection.position)
     t_camera_panel = t_camera_marker - r_camera_marker.apply(local_offset)
-    return t_camera_panel, r_camera_marker  # orientation is shared with the marker
+    return t_camera_panel, r_camera_marker  # now genuinely R_camera_panel
 
 
 def fuse_panel_pose(detections: list[MarkerDetection]) -> FusedPanelPose | None:

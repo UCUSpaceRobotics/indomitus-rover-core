@@ -12,13 +12,23 @@ from panel_perception.panel_geometry import (
 
 def _detections_for_panel_pose(position, orientation_xyzw):
     """Build detections for all 3 known markers as if the panel really
-    were at the given pose (in some arbitrary "camera" frame)."""
-    r = Rotation.from_quat(orientation_xyzw)
+    were at the given pose (in some arbitrary "camera" frame).
+
+    Simulates realistic ArUco output: the marker's reported orientation is
+    in ArUco's own convention, not the panel's, so it must be the true
+    panel orientation composed with the inverse of
+    MARKER_TO_PANEL_ORIENTATION_CORRECTION (see panel_geometry.py's
+    module docstring) — otherwise these tests would just re-encode the
+    exact bug that correction fixes.
+    """
+    r_true_panel = Rotation.from_quat(orientation_xyzw)
+    r_raw_marker = r_true_panel * Rotation.from_euler('x', 90, degrees=True)
+    raw_quat = tuple(r_raw_marker.as_quat().tolist())
     position = np.array(position)
     dets = []
     for marker_id, local_pos in KNOWN_MARKER_LOCAL_POSITIONS.items():
-        cam_pos = position + r.apply(np.array(local_pos))
-        dets.append(MarkerDetection(marker_id, tuple(cam_pos.tolist()), orientation_xyzw))
+        cam_pos = position + r_true_panel.apply(np.array(local_pos))
+        dets.append(MarkerDetection(marker_id, tuple(cam_pos.tolist()), raw_quat))
     return dets
 
 

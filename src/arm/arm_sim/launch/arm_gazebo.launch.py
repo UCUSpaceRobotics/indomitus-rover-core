@@ -77,17 +77,26 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    # Panel placement, derived from the arm's actual DEFAULT_SAFE_POSE
-    # camera pose (looked up live via TF: world->arm_camera_optical_frame
-    # while at keyboard_servo_node.py's safe_pose, since that's the
-    # configuration teleop/panel_align actually operates from) — placed
-    # ~0.45m along the camera's real view direction, yaw computed so the
-    # panel's front face (local -Y, see panel_macro.xacro) roughly faces
-    # back toward the arm base. Only yaw is adjustable here (no
-    # roll/pitch), so this doesn't perfectly square the panel to the
-    # camera (which is also pitched down in this pose) — good enough for
-    # ArUco detection range/angle tolerance, not a precise final layout.
-    PANEL_X, PANEL_Y, PANEL_Z, PANEL_YAW = "0.402", "0.556", "0.136", "-0.4675"
+    # Panel placement, found via a real reachability SEARCH rather than
+    # hand-eyeballed vector math (which repeatedly produced unreachable
+    # targets in practice — see project_panel_detection_align memory).
+    # /tmp/find_reachable_panel2.py called MoveIt's own /compute_ik on a
+    # grid of candidate (distance, azimuth, height) panel placements, each
+    # oriented to face squarely back at the arm, using the REAL FOV-fit
+    # standoff (compute_standoff_distance(), ~0.6m for this panel/camera)
+    # AND panel_align_node's actual PANEL_CENTER_LOCAL_OFFSET (the first
+    # search version omitted this, which validated a target aimed at the
+    # panel's bottom edge instead of its center — the arm reached that
+    # target fine, but the camera ended up looking past the panel instead
+    # of at it). This is the best of 64 verified-reachable candidates:
+    # target tip pose ends up 0.498m from arm_mount_link with 37.8%
+    # joint-limit margin to spare (checked via panel_align_node's own
+    # margin formula). Panel position here is in Gazebo SPAWN/world
+    # coordinates, which is arm_mount_link's TF pose (identity) + 0.3m —
+    # the "-z 0.3" spawn_entity offset below is real in Gazebo but never
+    # reflected in TF (nothing publishes a world->arm_mount_link
+    # transform accounting for it).
+    PANEL_X, PANEL_Y, PANEL_Z, PANEL_YAW = "0.450", "0.779423", "0.450", "-0.5236"
     _panel_yaw_f = float(PANEL_YAW)
     PANEL_QZ, PANEL_QW = str(np.sin(_panel_yaw_f / 2)), str(np.cos(_panel_yaw_f / 2))
 
