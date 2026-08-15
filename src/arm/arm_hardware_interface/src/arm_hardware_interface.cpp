@@ -373,6 +373,21 @@ std::vector<hardware_interface::CommandInterface> ArmCanSystem::export_command_i
     return command_interfaces;
 }
 
+hardware_interface::return_type ArmCanSystem::perform_command_mode_switch(
+    const std::vector<std::string>&, const std::vector<std::string>& stop_interfaces)
+{
+    // JointGroupPositionController never claims velocity, so when JTC
+    // releases it the buffer would otherwise keep JTC's last value —
+    // write() reads it straight through as Servo VFF.
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        const std::string iface = joint_names_[i] + "/" + hardware_interface::HW_IF_VELOCITY;
+        if (std::find(stop_interfaces.begin(), stop_interfaces.end(), iface) != stop_interfaces.end()) {
+            joint_velocity_command_[i] = 0.0;
+        }
+    }
+    return hardware_interface::return_type::OK;
+}
+
 hardware_interface::CallbackReturn ArmCanSystem::on_configure(const rclcpp_lifecycle::State&)
 {
     RCLCPP_INFO(logger_, "Configuring ArmCanSystem...");

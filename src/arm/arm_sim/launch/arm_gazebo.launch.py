@@ -102,6 +102,16 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
+    # Streaming teleop controller, spawned inactive — JTC owns the joints
+    # until arm_tasks switches controllers for Servo. Mirrors demo.launch.py;
+    # a separate spawner call because --inactive applies to the whole call.
+    forward_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["indomitus_arm_forward_position_controller", "--inactive"],
+        output="screen",
+    )
+
     # Each startup stage runs only if the previous one exited with code 0;
     # otherwise the whole launch shuts down instead of starting nodes
     # against a broken stack.
@@ -111,7 +121,7 @@ def generate_launch_description() -> LaunchDescription:
                 LogInfo(msg=f"Entity spawn failed (exit code {event.returncode})."),
                 Shutdown(reason="entity spawn failed"),
             ]
-        return [controller_spawner]
+        return [controller_spawner, forward_spawner]
 
     delayed_controller_spawners = RegisterEventHandler(
         OnProcessExit(
@@ -140,6 +150,7 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
+            moveit_config.joint_limits,
             servo_params,
         ],
     )

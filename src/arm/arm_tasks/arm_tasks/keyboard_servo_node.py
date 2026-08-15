@@ -143,8 +143,8 @@ SAFE_POSE_JOINTS = HOME_POSE_JOINTS
 DEFAULT_SAFE_POSE = DEFAULT_HOME_POSE
 
 
-def _load_home_pose_from_json():
-    """Return home joint positions from poses.json, or None if unavailable."""
+def _load_home_pose_from_json(pose_name='home'):
+    """Return ``pose_name`` joint positions from poses.json, or None if unavailable."""
     candidates = [
         Path('/opt/ws/src/arm/arm_tasks/poses.json'),
         Path(__file__).resolve().parent.parent / 'poses.json',
@@ -161,8 +161,8 @@ def _load_home_pose_from_json():
             continue
         try:
             data = json.loads(path.read_text())
-            home = data.get('home') or {}
-            return [float(home[name]) for name in HOME_POSE_JOINTS]
+            pose = data.get(pose_name) or {}
+            return [float(pose[name]) for name in HOME_POSE_JOINTS]
         except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
             continue
     return None
@@ -324,7 +324,7 @@ class ServoController(Node):
         self._home_pose_name = self.get_parameter('home_pose_name').value
         # Prefer poses.json home unless the caller overrode safe_pose explicitly.
         pose_from_param = list(self.get_parameter('safe_pose').value)
-        pose_from_json = _load_home_pose_from_json()
+        pose_from_json = _load_home_pose_from_json(self._home_pose_name)
         if pose_from_param == list(DEFAULT_HOME_POSE) and pose_from_json is not None:
             self._safe_pose = pose_from_json
             pose_source = f'poses.json["{self._home_pose_name}"]'
@@ -389,6 +389,12 @@ class ServoController(Node):
             f'ee_frame={self._ee_frame} (roll/pitch/yaw input), '
             f'view_frame={self._view_frame} (arrow-key translation), '
             f'A/R home from {pose_source}: {[round(v, 4) for v in self._safe_pose]}'
+        )
+        self.get_logger().warn(
+            'Servo runs with check_collisions=false and singularity deceleration '
+            'effectively disabled (see servo.yaml) — teleop has no collision brake '
+            'and will not slow near singularities. Plan&Execute collision checking '
+            'is unaffected.'
         )
 
     @property
@@ -513,7 +519,7 @@ class ServoController(Node):
         req = SwitchController.Request()
         req.activate_controllers = list(activate)
         req.deactivate_controllers = list(deactivate)
-        req.strictness = SwitchController.Request.BEST_EFFORT
+        req.strictness = SwitchController.Request.STRICT
         req.activate_asap = True
         req.timeout = Duration(sec=3, nanosec=0)
 
@@ -567,9 +573,8 @@ class ServoController(Node):
         re-activates the trajectory controller so home / Execute can run.
 
         Returns:
-            bool: True if the service was available and the call completed
-            within the timeout; False if the service was unavailable or the
-            call timed out.
+            bool: True if Servo stopped AND the trajectory controller took
+            over; False otherwise.
         """
         if not self._stop_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().warn('Servo stop service not available')
@@ -589,8 +594,7 @@ class ServoController(Node):
             return False
 
         # Prefer JTC when teleop is idle so Plan&Execute / home work.
-        self.use_trajectory_controller()
-        return True
+        return self.use_trajectory_controller()
 
     def move_to_safe_pose(self):
         """Stop motion and drive the arm to the configured home pose.
@@ -717,39 +721,54 @@ class ServoController(Node):
         self.get_logger().info('Home reached!')
         return True
 
-    def start_servo(self):
+    def start_servo(self) -> bool:
         """Switch to streaming controller, then start MoveIt Servo.
 
-        Waits up to 2 seconds for the service to become available, then
-        issues an asynchronous call whose result is handled by
-        ``_on_start_result``. Does not block for the call's completion.
+        Waits up to 2 seconds for the service to become available and up to
+        3 seconds for the call to complete. Falls back to the trajectory
+        controller on any failure, so the joints are never left claimed by
+        the streaming controller with Servo not actually running.
+
+        Returns:
+            bool: True if Servo confirmed it started.
         """
         if not self.use_streaming_controller():
             self.get_logger().error(
                 'Could not activate forward position controller — Servo not started.'
             )
-            return
+            return False
         if not self._start_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error('Servo start service not available')
-            return
+            self.use_trajectory_controller()
+            return False
+
+        done_event = threading.Event()
+        outcome = {'ok': False}
+
+        def _cb(future):
+            try:
+                result = future.result()
+                outcome['ok'] = bool(result.success)
+                if not result.success:
+                    self.get_logger().warn(f'Servo start failed: {result.message}')
+            except Exception as e:
+                self.get_logger().error(f'Servo start error: {e}')
+            finally:
+                done_event.set()
+
         future = self._start_client.call_async(Trigger.Request())
-        future.add_done_callback(self._on_start_result)
+        future.add_done_callback(_cb)
 
-    def _on_start_result(self, future):
-        """Log the outcome of an asynchronous ``start_servo`` service call.
+        if not done_event.wait(timeout=3.0):
+            self.get_logger().error('Servo start timed out')
+            self.use_trajectory_controller()
+            return False
 
-        Args:
-            future: Future resolving to the ``Trigger.Response`` returned by
-                the ``start_servo`` service.
-        """
-        try:
-            result = future.result()
-            if result.success:
-                self.get_logger().info('Servo started successfully')
-            else:
-                self.get_logger().warn(f'Servo start failed: {result.message}')
-        except Exception as e:
-            self.get_logger().error(f'Servo start error: {e}')
+        if outcome['ok']:
+            self.get_logger().info('Servo started successfully')
+        else:
+            self.use_trajectory_controller()
+        return outcome['ok']
 
     def _on_servo_status(self, msg: Int8):
         """Handle incoming Servo status updates.
@@ -1100,8 +1119,10 @@ class KeyboardInputLoop:
                     print('Exit requested during home move — Servo not started.')
                     return
                 print('Starting servo...')
-                self._controller.start_servo()
-                self._servo_started = True
+                if self._controller.start_servo():
+                    self._servo_started = True
+                else:
+                    print('Servo failed to start — staying on trajectory controller.')
             else:
                 print('Home move failed — Servo not started.')
         finally:
@@ -1613,9 +1634,13 @@ class GamepadInputLoop:
             print('Moving to home...')
             if self._controller.move_to_safe_pose():
                 print('Starting servo...')
-                self._controller.start_servo()
-                self._teleop_locked = False
-                self._controller.get_logger().info('Teleop enabled.')
+                if self._controller.start_servo():
+                    self._teleop_locked = False
+                    self._controller.get_logger().info('Teleop enabled.')
+                else:
+                    self._controller.get_logger().warn(
+                        'Servo failed to start — staying on trajectory controller.'
+                    )
             else:
                 print('Home move failed — Servo not started.')
         finally:

@@ -48,6 +48,10 @@ public:
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
 
+    hardware_interface::return_type perform_command_mode_switch(
+        const std::vector<std::string> & start_interfaces,
+        const std::vector<std::string> & stop_interfaces) override;
+
     hardware_interface::return_type read(
         const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
