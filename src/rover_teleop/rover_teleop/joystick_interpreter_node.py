@@ -15,6 +15,17 @@ from controller_manager_msgs.srv import SetHardwareComponentState, SwitchControl
 from lifecycle_msgs.msg import State
 
 
+def apply_deadzone(value: float, deadzone: float) -> float:
+    """Zero out small stick values, rescaling the rest so the response stays
+    continuous at the deadzone edge.
+    """
+    if deadzone <= 0.0:
+        return value
+    if abs(value) < deadzone:
+        return 0.0
+    return math.copysign((abs(value) - deadzone) / (1.0 - deadzone), value)
+
+
 def trigger_diff(axes, l2_index: int, r2_index: int, deadzone: float) -> float:
     """L2 minus R2, deadzoned. Positive = L2 held = counter-clockwise spin."""
     def value(index: int) -> float:
@@ -110,6 +121,10 @@ class JoystickInterpreterNode(Node):
         self._scale_vx = float(declare_and_get('scale_linear.x', 0.5))
         self._scale_vy = float(declare_and_get('scale_linear.y', 0.5))
         self._scale_wz = float(declare_and_get('scale_angular.yaw', 1.0))
+
+        # Stick deadzone, applied here instead of in the driver — see apply_deadzone().
+        # Clamped below 1.0 so the rescaling never divides by zero.
+        self._deadzone = min(max(float(declare_and_get('deadzone', 0.05)), 0.0), 0.99)
 
         # L2 / R2 — spin-in-place while in curvature mode.
         self._axis_l2 = int(declare_and_get('axis_trigger.l2', 4))
@@ -216,6 +231,7 @@ class JoystickInterpreterNode(Node):
             f'vy_toggle_button={self._toggles[0].button_index}, '
             f'motor_toggle_button={self._toggles[1].button_index}, '
             f'vy_enabled={self._vy_enabled}, '
+            f'deadzone={self._deadzone}, '
             f'controller={self._controller_name}'
         )
 
@@ -231,13 +247,20 @@ class JoystickInterpreterNode(Node):
         for toggle in self._toggles:
             toggle.update(msg.buttons)
         
-        self.raw_vx = msg.axes[self._axis_vx] * self._scale_vx
-        self.raw_vy = msg.axes[self._axis_vy] * self._scale_vy if self._vy_enabled else 0.0
-        self.raw_wz = msg.axes[self._axis_wz] * self._scale_wz
+        vx_axis = self._deadzoned(msg.axes[self._axis_vx])
+        vy_axis = self._deadzoned(msg.axes[self._axis_vy])
+        wz_axis = self._deadzoned(msg.axes[self._axis_wz])
+
+        self.raw_vx = vx_axis * self._scale_vx
+        self.raw_vy = vy_axis * self._scale_vy if self._vy_enabled else 0.0
+        self.raw_wz = wz_axis * self._scale_wz
         # Kept unscaled: in curvature mode this stick sets a radius, not a
         # yaw rate, so scale_angular does not apply to it.
-        self.raw_steer = msg.axes[self._axis_wz]
+        self.raw_steer = wz_axis
         self.raw_rot = self._trigger_diff(msg.axes)
+
+    def _deadzoned(self, value: float) -> float:
+        return apply_deadzone(value, self._deadzone)
 
     def _trigger_diff(self, axes) -> float:
         return trigger_diff(axes, self._axis_l2, self._axis_r2, self._trigger_deadzone)

@@ -13,6 +13,12 @@ joystick_interpreter:
     scale_angular:
       yaw: 1.0
 
+    # Stick deadzone. Applied here, NOT in the joy driver — game_controller_node
+    # stops publishing /joy entirely when its own deadzone swallows resting-stick
+    # noise (ros-drivers/joystick_drivers#304), so joy.launch.py keeps the driver
+    # deadzone at 0.0 and this node filters instead.
+    deadzone: 0.05
+
     # --- SPIN IN PLACE (L2 / R2) ---
     # Curvature mode only
     axis_trigger:
