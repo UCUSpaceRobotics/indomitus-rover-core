@@ -118,6 +118,22 @@ Unlike the keyboard, the gamepad has no mount-frame (absolute) translation — t
 
 Gamepad mapping stays in `gamepad_servo_node`, not `teleop_twist_joy`: that package publishes all six twist axes in **one** frame, which would break camera-XYZ + TCP-ω.
 
+### 4. Shutdown / releasing the arm
+
+Ctrl+C on `demo.launch.py` (or exiting teleop) does **not** torque-disable the motors. `ArmCanSystem::on_deactivate`/`on_shutdown` leave them **holding** the last command, not free: Steadywin (mount/shoulder/elbow) keeps executing its last MIT command indefinitely with no ROS process required, and Damiao (wrists) only goes limp once its own comm-loss watchdog trips, some time after CAN traffic actually stops. Do not assume Ctrl+C means the arm is safe to let go of.
+
+To actually release it:
+
+1. **Support the arm** — it has no gravity compensation once disabled and will sag/fall under its own weight.
+2. Stop teleop (Esc/x/X), then Ctrl+C `demo.launch.py`.
+3. Run:
+   ```bash
+   python3 scripts/arm/disable_motors.py
+   ```
+4. Verify by hand that the arm is actually free before letting go.
+
+`disable_motors.py` talks to `can0` directly and refuses to run if it detects the control stack is still sending MIT frames, since a live `ros2_control_node` would just re-enable the Steadywins on its next command.
+
 ### Architecture
 
 ```
