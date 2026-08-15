@@ -127,6 +127,17 @@ class Bus:
             except BlockingIOError:
                 time.sleep(0.0002)
 
+    def is_busy(self, window_s=0.3, min_frames=5):
+        deadline = time.monotonic() + window_s
+        count = 0
+        while time.monotonic() < deadline:
+            try:
+                self.sock.recv(16)
+                count += 1
+            except BlockingIOError:
+                time.sleep(0.005)
+        return count >= min_frames
+
     def recv_all(self, handler):
         while True:
             r, _, _ = select.select([self.sock], [], [], 0)
@@ -296,6 +307,13 @@ def main():
     args = ap.parse_args()
 
     bus = Bus(args.iface)
+    if bus.is_busy():
+        print(f"[!] CAN traffic already on {args.iface} — ros2_control / "
+              f"ArmCanSystem looks active. Stop the control stack first: "
+              f"this tool sends its own enable/zero-gain frames and would "
+              f"race it (and --mode zero writes to ROM).")
+        bus.close()
+        return
     reader = Reader(bus)
 
     def cleanup(*_):

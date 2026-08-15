@@ -7,8 +7,9 @@ HOLDING (not disabled) on a clean `ros2 launch` Ctrl+C — Steadywin motors
 (base/shoulder/elbow) keep executing their last MIT command indefinitely,
 with no ros2_control process required — you need an explicit action to
 actually release them. This script is that action: it talks to the CAN bus
-directly, so it works whether or not ros2_control_node is even running
-(including after a crash).
+directly, so it doesn't need ROS running (including after a crash) — but it
+refuses to run if it detects CAN traffic already on the bus, since a live
+ros2_control_node would just re-enable the Steadywins on its next MIT frame.
 
 Same disable sequence as ArmCanSystem::send_disable_frames():
   1. Damiao (23,24,25): zero-gain MIT probe first, to avoid a torque
@@ -32,6 +33,18 @@ STEADYWIN_IDS = [20, 21, 22]
 DAMIAO_IDS    = [23, 24, 25]
 
 CAN_FRAME_FMT = "=IB3x8s"
+
+
+def bus_is_busy(sock, window_s=0.3, min_frames=5):
+    deadline = time.time() + window_s
+    count = 0
+    while time.time() < deadline:
+        try:
+            sock.recv(16)
+            count += 1
+        except BlockingIOError:
+            time.sleep(0.005)
+    return count >= min_frames
 
 
 def send(sock, can_id, data):
@@ -84,6 +97,13 @@ def main():
     sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
     sock.bind((args.iface,))
     sock.setblocking(False)
+
+    if bus_is_busy(sock):
+        print(f"[!] CAN traffic already on {args.iface} — ros2_control / "
+              f"ArmCanSystem looks active. Stop the control stack first, "
+              f"or a 0xCF here won't stick (the next MIT frame re-enables it).")
+        sock.close()
+        return
 
     zero = pack_mit_zero_gain()
     for mid in DAMIAO_IDS:
