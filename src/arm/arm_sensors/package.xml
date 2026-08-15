@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arm_sensors</name>
+  <version>0.0.0</version>
+  <description>
+    Driver bringup for the arm's onboard sensors. Currently: the OV5693
+    5MP camera, via USB/UVC (v4l2src) for dev-machine testing today, or
+    MIPI CSI (nvarguscamerasrc, on Jetson) for the eventual real
+    deployment. Both backends run through the same gscam node, switched
+    via the "backend" launch argument, and publish to the same topic
+    names/frame_id the simulated wrist camera already uses (see
+    arm_sim's arm_gazebo.launch.py / panel detection pipeline) so
+    downstream consumers (aruco_tracker, panel_pose_fuser_node) need no
+    changes to run against real hardware.
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>gscam</exec_depend>
+  <exec_depend>camera_info_manager</exec_depend>
+  <exec_depend>image_transport_plugins</exec_depend>
+  <exec_depend>v4l-utils</exec_depend>
+  <!-- gscam's own dependency chain doesn't pull this in (its pipeline is
+       user-configurable, so it can't assume any particular element set),
+       but our usb backend's pipeline needs v4l2src + jpegdec from it. -->
+  <exec_depend>gstreamer1.0-plugins-good</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
