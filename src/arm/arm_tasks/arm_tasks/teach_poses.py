@@ -50,7 +50,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from control_msgs.action import FollowJointTrajectory
-from controller_manager_msgs.srv import SwitchController
+from controller_manager_msgs.srv import ListControllers, SwitchController
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 
@@ -112,6 +112,20 @@ class Teach(Node):
         JTC's action server isn't even advertised and `goto` would fail with
         a confusing "action server not available" instead of just switching.
         """
+        list_client = self.create_client(ListControllers, "controller_manager/list_controllers")
+        states = {}
+        if list_client.wait_for_service(timeout_sec=3.0):
+            fut = list_client.call_async(ListControllers.Request())
+            rclpy.spin_until_future_complete(self, fut, timeout_sec=3.0)
+            if fut.result() is not None:
+                states = {c.name: c.state for c in fut.result().controller}
+
+        # STRICT errors on a controller already in its requested state —
+        # if JTC is already active (the common case: teleop was never run),
+        # there is nothing to switch.
+        if states and states.get(JTC_CONTROLLER_NAME) == "active":
+            return
+
         client = self.create_client(SwitchController, "controller_manager/switch_controller")
         if not client.wait_for_service(timeout_sec=3.0):
             self.get_logger().warn("switch_controller unavailable — proceeding without switching")

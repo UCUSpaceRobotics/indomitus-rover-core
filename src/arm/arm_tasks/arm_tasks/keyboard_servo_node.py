@@ -79,7 +79,7 @@ from std_msgs.msg import Int8
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
-from controller_manager_msgs.srv import SwitchController
+from controller_manager_msgs.srv import ListControllers, SwitchController
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 from tf2_ros import Buffer, TransformListener
@@ -363,6 +363,9 @@ class ServoController(Node):
         self._switch_client = self.create_client(
             SwitchController, 'controller_manager/switch_controller'
         )
+        self._list_controllers_client = self.create_client(
+            ListControllers, 'controller_manager/list_controllers'
+        )
         self._traj_client  = ActionClient(
             self,
             FollowJointTrajectory,
@@ -502,6 +505,32 @@ class ServoController(Node):
         self.set_velocity()
         self._hold_quat = None
 
+    def _controller_states(self) -> dict:
+        """Return {controller_name: state} via list_controllers, or {} on failure.
+
+        STRICT switching errors on a controller already in its requested
+        state (already active / already inactive), so callers use this to
+        drop no-op entries before asking to switch.
+        """
+        if not self._list_controllers_client.wait_for_service(timeout_sec=2.0):
+            return {}
+        done_event = threading.Event()
+        states = {}
+
+        def _cb(future):
+            try:
+                for c in future.result().controller:
+                    states[c.name] = c.state
+            except Exception as exc:
+                self.get_logger().error(f'list_controllers exception: {exc!r}')
+            finally:
+                done_event.set()
+
+        future = self._list_controllers_client.call_async(ListControllers.Request())
+        future.add_done_callback(_cb)
+        done_event.wait(timeout=3.0)
+        return states
+
     def _switch_controllers(self, activate, deactivate) -> bool:
         """Activate/deactivate ros2_control controllers (JTC <-> forward).
 
@@ -510,11 +539,26 @@ class ServoController(Node):
             deactivate: Controllers to deactivate.
 
         Returns:
-            True if the switch service reported success.
+            True if the switch service reported success, or if every
+            controller was already in its requested state.
         """
         if not self._switch_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error('controller_manager/switch_controller unavailable')
             return False
+
+        # STRICT rejects the request outright if any entry is already in the
+        # state it's asking for (e.g. re-activating an already-active JTC) —
+        # this happens routinely, since move_to_safe_pose() calls
+        # stop_servo() (which itself switches to JTC) immediately followed
+        # by its own use_trajectory_controller() call.
+        states = self._controller_states()
+        if states:
+            activate = [c for c in activate if states.get(c) != 'active']
+            deactivate = [c for c in deactivate if states.get(c) == 'active']
+            if not activate and not deactivate:
+                return True
+        # If list_controllers itself failed, fall through with the original,
+        # unfiltered lists rather than silently dropping deactivate targets.
 
         req = SwitchController.Request()
         req.activate_controllers = list(activate)
