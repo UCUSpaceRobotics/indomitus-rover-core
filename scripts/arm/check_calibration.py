@@ -70,7 +70,7 @@ JOINT_NAMES = {
 }
 
 # EDIT ME while calibrating, then copy the final values into arm_macro.xacro.
-DIRECTIONS = {20: -1.0, 21: -1.0, 22: 1.0, 23: -1.0, 24: 1.0, 25: 1.0}
+DIRECTIONS = {20: -1.0, 21: 1.0, 22: -1.0, 23: -1.0, 24: -1.0, 25: 1.0}
 OFFSETS    = {20: 0.0, 21: 0.0, 22: 0.0, 23: 0.0, 24: 0.0, 25: 0.0}  # rad, motor frame
 
 SW_POS_MAX_RAD = 12.5

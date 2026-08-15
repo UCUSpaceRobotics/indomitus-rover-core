@@ -50,11 +50,35 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from control_msgs.action import FollowJointTrajectory
+from controller_manager_msgs.srv import SwitchController
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 
-POSES_FILE = Path("/opt/ws/src/arm/arm_tasks/poses.json")
+
+def _resolve_poses_file():
+    """Find poses.json the same way keyboard_servo_node does: installed
+    share copy, then the /opt/ws source tree, then relative to this script.
+    Falls back to the last (source-tree) candidate if none exist yet.
+    """
+    candidates = [
+        Path("/opt/ws/src/arm/arm_tasks/poses.json"),
+        Path(__file__).resolve().parent.parent / "poses.json",
+    ]
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        candidates.insert(0, Path(get_package_share_directory("arm_tasks")) / "poses.json")
+    except Exception:
+        pass
+    for path in candidates:
+        if path.is_file():
+            return path
+    return candidates[-1]
+
+
+POSES_FILE = _resolve_poses_file()
 ACTION = "/indomitus_arm_controller/follow_joint_trajectory"
+JTC_CONTROLLER_NAME = "indomitus_arm_controller"
+FORWARD_CONTROLLER_NAME = "indomitus_arm_forward_position_controller"
 
 # Default motion order: least loaded / least consequential first,
 # elbow folds BEFORE the shoulder moves, base last (pure yaw, gravity-neutral),
@@ -80,6 +104,28 @@ class Teach(Node):
 
     def _on_js(self, msg):
         self._js = msg
+
+    def ensure_trajectory_controller(self):
+        """Make sure JTC owns the joints before sending any goal.
+
+        Teleop may have left the streaming controller active, in which case
+        JTC's action server isn't even advertised and `goto` would fail with
+        a confusing "action server not available" instead of just switching.
+        """
+        client = self.create_client(SwitchController, "controller_manager/switch_controller")
+        if not client.wait_for_service(timeout_sec=3.0):
+            self.get_logger().warn("switch_controller unavailable — proceeding without switching")
+            return
+        req = SwitchController.Request()
+        req.activate_controllers = [JTC_CONTROLLER_NAME]
+        req.deactivate_controllers = [FORWARD_CONTROLLER_NAME]
+        req.strictness = SwitchController.Request.STRICT
+        req.activate_asap = True
+        fut = client.call_async(req)
+        rclpy.spin_until_future_complete(self, fut, timeout_sec=5.0)
+        res = fut.result()
+        if res is None or not res.ok:
+            self.get_logger().warn("Could not confirm JTC is active — goal may be rejected")
 
     def current_pose(self, timeout=3.0):
         t0 = time.monotonic()
@@ -219,6 +265,8 @@ def main():
         sys.exit(1)
     target = poses[args.name]
     order = args.order.split(",") if args.order else DEFAULT_ORDER
+
+    node.ensure_trajectory_controller()
 
     client = ActionClient(node, FollowJointTrajectory, ACTION)
     if not client.wait_for_server(timeout_sec=3.0):

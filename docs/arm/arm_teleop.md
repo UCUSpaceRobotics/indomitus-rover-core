@@ -81,8 +81,6 @@ The frame is `arm_camera_link` (parameter `view_frame`) rather than `arm_tcp_lin
 
 Both sets are summed, so holding W and ↑ together gives the sum of the two motions. The view transform is resolved through TF on every publish, not latched at key-press, so a long arrow-key move keeps curving with the camera. If TF for the view frame does not resolve, the arrow keys are ignored and WASD keeps working.
 
-View-relative keys are **keyboard only** — the gamepad mapping is unchanged.
-
 **Gamepad** (e.g. Stadia) — translation is **entirely view-relative** (camera frame); rotation is about TCP, same as the keyboard:
 
 | Input | Action |
@@ -146,7 +144,7 @@ keyboard / gamepad → TwistStamped (frame: arm_mount_link)
 
 Home / Plan&Execute still use **JTC** (`FollowJointTrajectory`). Controllers are mutually exclusive; the teleop node switches them around **r** / **A** / exit.
 
-Servo `publish_period` is **0.03 s (~33 Hz)** so each joint step stays above MIT stiction (~0.02 rad). Keyboard publishes twists at **50 Hz**; extra messages are overwritten. `controller_manager` / CAN stay at **100 Hz**.
+Servo `publish_period` is **0.03 s (~33 Hz)** so each joint step stays above MIT stiction (~0.02 rad). Keyboard publishes twists at **100 Hz**; extra messages are overwritten. `controller_manager` / CAN stay at **100 Hz**.
 
 Cartesian Servo is open-loop `J⁺ · twist`. Pure XYZ (`ω = 0`) still lets TCP attitude walk (Q/E especially — shoulder/elbow fold). The keyboard node adds a light **orientation hold** on unused rotation axes and does **not** slow XYZ. That is not industrial Cartesian pose-IK; drift can remain on a 6-DOF arm near the home wrist.
 
