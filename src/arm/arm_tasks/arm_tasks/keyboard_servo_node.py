@@ -992,6 +992,7 @@ class KeyboardInputLoop:
         self._devices = []
         self._read_thread = None
         self._servo_started = False
+        self._safe_pose_running = threading.Lock()
 
     def _open_device(self) -> bool:
         """Open evdev keyboard(s) for teleop.
@@ -1087,16 +1088,24 @@ class KeyboardInputLoop:
         that the blocking safe-pose and servo-start calls do not stall
         keyboard event processing.
         """
-        with self._lock:
-            self._pressed.clear()
-        self._controller.stop()
-        print('Moving to home...')
-        if self._controller.move_to_safe_pose():
-            print('Starting servo...')
-            self._controller.start_servo()
-            self._servo_started = True
-        else:
-            print('Home move failed — Servo not started.')
+        if not self._safe_pose_running.acquire(blocking=False):
+            return
+        try:
+            with self._lock:
+                self._pressed.clear()
+            self._controller.stop()
+            print('Moving to home...')
+            if self._controller.move_to_safe_pose():
+                if self._exit_event.is_set():
+                    print('Exit requested during home move — Servo not started.')
+                    return
+                print('Starting servo...')
+                self._controller.start_servo()
+                self._servo_started = True
+            else:
+                print('Home move failed — Servo not started.')
+        finally:
+            self._safe_pose_running.release()
 
     def _read_loop(self):
         """Continuously read raw key events from all opened keyboards."""
@@ -1217,6 +1226,8 @@ class KeyboardInputLoop:
             self._exit_event.wait()
         finally:
             print('\nExiting...')
+            with self._safe_pose_running:
+                pass
             self._controller.stop()
             if old_term_settings is not None:
                 termios.tcflush(stdin_fd, termios.TCIFLUSH)
