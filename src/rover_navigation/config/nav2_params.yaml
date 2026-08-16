@@ -190,7 +190,7 @@ planner_server:
       max_iterations: 200000
       max_on_approach_iterations: 1000
       max_planning_time: 3.0
-      cost_travel_multiplier: 20.0
+      cost_travel_multiplier: 26.0
       use_final_approach_orientation: false
 
 # ============================================================
@@ -271,7 +271,7 @@ local_costmap:
         z_voxels: 16
         max_obstacle_height: 2.0
         mark_threshold: 2
-        observation_sources: scan pointcloud
+        observation_sources: scan
         scan:
           topic: /rplidar/scan_filtered
           sensor_frame: laser_link
@@ -284,18 +284,6 @@ local_costmap:
           raytrace_min_range: 0.45
           obstacle_max_range: 1.5
           obstacle_min_range: 0.45
-        pointcloud:
-          topic: /zed2i/points
-          sensor_frame: zed2i_left_camera_frame
-          data_type: "PointCloud2"
-          clearing: true
-          marking: true
-          min_obstacle_height: 0.9
-          max_obstacle_height: 1.5
-          obstacle_max_range: 4.0
-          obstacle_min_range: 0.3
-          raytrace_max_range: 4.0
-          raytrace_min_range: 0.3
       slope_layer:
         plugin: "rover_costmap_plugins::SlopeLayer"
         enabled: true
@@ -304,15 +292,16 @@ local_costmap:
         grid_resolution: 0.15
         grid_range: 4.0
         min_height: -0.30
-        max_height: 1.20
-        min_points_per_cell: 6
-        traversable_slope_deg: 20.0
-        lethal_slope_deg: 32.0
-        roughness_std_thresh: 0.06
+        max_height: 2.40
+        min_points_per_cell: 5
+        traversable_slope_deg: 16.0
+        lethal_slope_deg: 28.0
+        roughness_std_thresh: 0.045
+        roughness_range_coeff: 0.015
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0
-        inflation_radius: 0.85
+        inflation_radius: 0.55
       always_send_full_costmap: false
 
 global_costmap:
@@ -362,15 +351,16 @@ global_costmap:
         grid_resolution: 0.15
         grid_range: 4.0
         min_height: -0.30
-        max_height: 1.20
-        min_points_per_cell: 6
-        traversable_slope_deg: 20.0
-        lethal_slope_deg: 32.0
-        roughness_std_thresh: 0.06
+        max_height: 2.40
+        min_points_per_cell: 5
+        traversable_slope_deg: 16.0
+        lethal_slope_deg: 28.0
+        roughness_std_thresh: 0.045
+        roughness_range_coeff: 0.015
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0
-        inflation_radius: 0.8
+        inflation_radius: 0.5
       always_send_full_costmap: false
 
 # ============================================================

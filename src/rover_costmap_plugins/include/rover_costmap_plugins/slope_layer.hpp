@@ -18,14 +18,14 @@
 namespace rover_costmap_plugins
 {
 
-// One cell of our own coarse "slope grid", built in base_footprint and
-// re-sampled into the master costmap (which lives in odom/map) each update.
 struct SlopeCell
 {
   int point_count = 0;
   double sum_x = 0.0, sum_y = 0.0, sum_z = 0.0;
   double sxx = 0.0, syy = 0.0, szz = 0.0, sxy = 0.0, sxz = 0.0, syz = 0.0;
   double slope_deg = -1.0;
+  double mean_z = 0.0;
+  double residual = 0.0;
   bool valid = false;
 };
 
@@ -47,28 +47,32 @@ public:
 private:
   void cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void recomputeGrid();
+  void publishDebugCloud();
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr debug_pub_;
+  rclcpp::Clock::SharedPtr clock_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
-  // --- Parameters (defaults match the Indomitus rover_navigation setup) ---
-  std::string cloud_topic_;         // "/zed2i/points"
-  std::string base_frame_;          // "base_footprint" -- matches nav2_params.yaml
+  std::string cloud_topic_;
+  std::string base_frame_;
   double grid_resolution_;
   double grid_range_;
-  double min_height_, max_height_;  // relative to base_frame_
+  double min_height_, max_height_;
   int min_points_per_cell_;
   double traversable_slope_deg_;
   double lethal_slope_deg_;
   double roughness_std_thresh_;
+  double roughness_range_coeff_;
 
-  // --- Internal state (grid is stored in base_frame_ coordinates) ---
   std::mutex data_mutex_;
   std::vector<SlopeCell> grid_;
   int grid_w_ = 0, grid_h_ = 0;
   double grid_origin_x_ = 0.0, grid_origin_y_ = 0.0;
   bool has_data_ = false;
+
+  double captured_tx_ = 0.0, captured_ty_ = 0.0, captured_yaw_ = 0.0;
 };
 
 }  // namespace rover_costmap_plugins
