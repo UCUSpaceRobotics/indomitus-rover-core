@@ -6,15 +6,17 @@ To speed up development and standardize common workflows, our development contai
 
 | Alias | Command / Action | Description |
 | --- | --- | --- |
-| **`cb`**| `colcon build` | Builds the colcon workspace. |
-| **`cbs`** | `colcon build --symlink-install` | Builds the workspace using symlinks for faster iterative development. |
-| **`sws`**, **`sb`**  | `source install/setup.zsh` | Sources the local workspace. Prints a confirmation or a warning if the file is missing. |
+| **`cb`**| `colcon build --symlink-install` | Builds the workspace using symlinks. |
+| **`cbr`** | `colcon build --symlink-install --packages-select-regex "^rover_"` | Builds only packages whose name starts with `rover_`. |
+| **`cba`** | `colcon build --symlink-install --packages-select-regex "^arm_"` | Builds only packages whose name starts with `arm_`. |
+| **`cbp`** | `colcon build --symlink-install --packages-select-regex "^panel_"` | Builds only packages whose name starts with `panel_`. |
+| **`sws`**, **`sb`**  | `source install/setup.bash` | Sources the local workspace. Prints a confirmation or a warning if the file is missing. |
 | **`tl`** | `ros2 topic list` | Lists all active ROS 2 topics. |
 | **`nl`** | `ros2 node list` | Lists all active ROS 2 nodes. |
 | **`te`** | `ros2 topic echo` | Echoes data published to a specific ROS 2 topic. |
 | **`launch_rover`** | `ros2 launch rover_bringup rover.launch.py` | Launches the main rover bringup file. |
 | **`launch_joy`** | `ros2 launch rover_teleop joy.launch.py` | Launches the joystick teleop nodes. |
-| **`launch_navigation`**, **`launch_nav`** | `ros2 launch rover_teleop navigation.launch.py` | Launches the navigation stack. Both aliases perform the exact same action. |
+| **`launch_navigation`**, **`launch_nav`** | `ros2 launch rover_bringup navigation.launch.py` | Launches the navigation stack. Both aliases perform the exact same action. |
 | **`kill_node`** | *(Custom Bash Function)* | Safely shuts down a target node by attempting a graceful `SIGINT`, then falling back to a forced `SIGKILL` after 2 seconds if it hangs. Usage: `kill_node <node_name>`. |
 
 ---
