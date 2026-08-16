@@ -243,6 +243,9 @@ class JoystickInterpreterNode(Node):
         if self._timed_out:
             self._timed_out = False
             self.get_logger().info('Joystick input recovered — resuming command forwarding')
+            # A controller that dropped and came back has lost whatever colour
+            # it was wearing, so repaint it.
+            self._refresh_led()
 
         for toggle in self._toggles:
             toggle.update(msg.buttons)
