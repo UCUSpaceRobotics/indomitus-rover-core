@@ -1,0 +1,2 @@
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="*:rgb:indicator", \
+  RUN+="/bin/sh -c 'chgrp plugdev /sys%p/multi_intensity /sys%p/brightness; chmod g+w /sys%p/multi_intensity /sys%p/brightness'"
