@@ -73,7 +73,7 @@ All world/map/model/spawn arguments below are forwarded as-is to `sim_gz.launch.
 **Example:**
 
 ```bash
-ros2 launch rover_sim sim_gz_nav2.launch.py map_year:=2025
+ros2 launch rover_sim sim_gz_nav2.launch.py
 ```
 
 ## `sim_gz_full.launch.py`
