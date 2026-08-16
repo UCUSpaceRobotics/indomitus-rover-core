@@ -27,6 +27,11 @@ joystick_interpreter:
     trigger_deadzone: 0.15
     scale_rotate: 1.0        # rad/s at full trigger
 
+    # Token yaw rate sent while both triggers are held but balanced, so the
+    # wheels keep the spin-in-place shape instead of homing. rotation_scale
+    # (~0.51 m) times this must stay below the controller's park_speed (0.001).
+    rot_probe_wz: 0.00001
+
     # Curvature 1/R at full right-stick deflection, in curvature mode.
     # 2.0 -> R = 0.5 m, which puts the turn centre inside the wheelbase.
     max_curvature: 2.0
