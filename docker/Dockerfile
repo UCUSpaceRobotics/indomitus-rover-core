@@ -154,6 +154,7 @@ RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then source /opt/
     echo "if [ -f /root/.bash_aliases ]; then source /root/.bash_aliases; fi" >> /root/.bashrc
 
 COPY docker/entrypoint.bash /entrypoint.bash
+COPY docker/.bash_aliases /root/.bash_aliases
 RUN chmod +x /entrypoint.bash
 ENTRYPOINT ["/entrypoint.bash"]
 
