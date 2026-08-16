@@ -5,6 +5,9 @@ controller_manager:
     indomitus_arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
+    indomitus_arm_forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+
     gripper_controller:
       type: position_controllers/JointGroupPositionController
 
@@ -25,6 +28,20 @@ indomitus_arm_controller:
     state_interfaces:
       - position
       - velocity
+
+    # Match hardware controller: follow MoveIt TOTG profiles continuously.
+    interpolation_method: splines
+    allow_partial_joints_goal: true
+
+indomitus_arm_forward_position_controller:
+  ros__parameters:
+    joints:
+      - arm_mount_base_joint
+      - arm_base_shoulder_joint
+      - arm_shoulder_forearm_joint
+      - arm_forearm_wrist_1_joint
+      - arm_wrist_1_wrist_2_joint
+      - arm_wrist_2_end_effector_joint
 
 gripper_controller:
   ros__parameters:
