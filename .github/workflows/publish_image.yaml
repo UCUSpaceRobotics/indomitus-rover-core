@@ -22,6 +22,7 @@ env:
 jobs:
   build-and-push-prod-arm64:
     runs-on: ubuntu-22.04-arm
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -84,15 +85,12 @@ jobs:
             BASE_IMAGE=stereolabs/zed:5.4-devel-l4t-r36.4
           tags: ${{ steps.metadata-tags.outputs.tags }}
           labels: ${{ steps.metadata-tags.outputs.labels }}
-          cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
-            type=gha,scope=${{ github.ref_name }}-prod
-          cache-to: |
-            type=registry,mode=max,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
-            type=gha,mode=min,scope=${{ github.ref_name }}-prod
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
+          cache-to: type=registry,mode=min,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
 
   build-and-push-dev-amd64:
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -155,9 +153,5 @@ jobs:
             BASE_IMAGE=stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04
           tags: ${{ steps.meta-dev.outputs.tags }}
           labels: ${{ steps.meta-dev.outputs.labels }}
-          cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
-            type=gha,scope=${{ github.ref_name }}-dev
-          cache-to: |
-            type=registry,mode=max,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
-            type=gha,mode=min,scope=${{ github.ref_name }}-dev
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
+          cache-to: type=registry,mode=min,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
