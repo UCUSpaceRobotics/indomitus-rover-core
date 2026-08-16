@@ -28,7 +28,10 @@
   <exec_depend>v4l-utils</exec_depend>
   <!-- gscam's own dependency chain doesn't pull this in (its pipeline is
        user-configurable, so it can't assume any particular element set),
-       but our usb backend's pipeline needs v4l2src + jpegdec from it. -->
+       but our usb backend's pipeline needs v4l2src from it (confirmed
+       live: without this package, gscam fails with "no element
+       v4l2src"). The usb pipeline is raw YUYV, not MJPEG; no jpegdec
+       involved (see camera.launch.py's module docstring for why). -->
   <exec_depend>gstreamer1.0-plugins-good</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

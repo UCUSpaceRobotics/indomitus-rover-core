@@ -19,13 +19,20 @@ GStreamer pipelines selected by the "backend" launch argument:
     at 720p is ~4x a same-resolution MJPEG stream). Bump width/height
     only with that ceiling in mind.
 
-  backend:=csi - nvarguscamerasrc against a native MIPI CSI-2 connection
-    on a Jetson (the eventual real deployment target). NOT testable on a
-    plain x86 dev machine (nvarguscamerasrc is a Jetson-only GStreamer
-    element -- confirmed absent here via `gst-inspect-1.0`), so this
-    path is unverified until run on real Jetson hardware. Defaults to
-    the OV5693's native 2592x1944 since CSI isn't USB-bandwidth-limited
-    the way the UVC bridge is.
+  backend:=csi - EXPERIMENTAL, UNVERIFIED. nvarguscamerasrc against a
+    native MIPI CSI-2 connection on a Jetson (the eventual real
+    deployment target), but this whole code path has only ever been
+    reviewed, never run: nvarguscamerasrc is a Jetson-only GStreamer
+    element (confirmed absent on this x86 dev machine via
+    `gst-inspect-1.0`), so there is no way to test any of this off a
+    real Jetson. Do not trust this on the real arm until it's actually
+    been run and verified there -- `usb` is the only backend anything
+    here has confirmed working. Defaults to 1280x720 (a practical
+    resolution for the CV pipeline, not a hardware limit) rather than
+    the OV5693's native 2592x1944 -- csi_width/csi_height can still
+    request the full 5MP when actually needed, but the exact supported
+    resolution/framerate combinations still need verifying on real
+    hardware.
 
 Publishes to /camera/image_raw + /camera/camera_info with
 frame_id=arm_camera_optical_frame by default, matching exactly what the
@@ -35,18 +42,29 @@ panel_pose_fuser_node, and everything else downstream in the CV pipeline
 need no changes to run against this real driver instead of the sim one.
 
 No camera_info_url is set by default (empty = uncalibrated, all-zero
-distortion/intrinsics) -- run a real checkerboard calibration
-(ros2 run camera_calibration cameracalibrator) once the camera is
-mounted on the arm, then pass the resulting yaml's file:// URI via the
-camera_info_url launch argument.
+distortion/intrinsics) -- fine for initial bringup/eyeballing the image,
+but NOT for anything that trusts the camera's pose output: ArUco/panel
+pose estimation needs real intrinsics, and uncalibrated (all-zero
+distortion) numbers will silently produce wrong poses, not an obvious
+error. Run a real checkerboard calibration (ros2 run camera_calibration
+cameracalibrator) once the camera is mounted on the arm AT THE
+RESOLUTION THAT WILL ACTUALLY BE USED IN PRODUCTION, then pass the
+resulting yaml's file:// URI via the camera_info_url launch argument.
+Not done as part of this package (yet) on purpose -- calibration only
+means something done in the camera's final mounted position, and that
+hasn't happened.
 
-USB backend also disables continuous autofocus by default (confirmed
-live: this camera's `focus_automatic_continuous` control hunts/refocuses
-mid-stream, which is exactly what was producing intermittent blur, not a
-resolution/bitrate problem) and pins a fixed `focus_absolute` instead --
-see disable_autofocus/focus_absolute below. Exposure itself is left on
-auto (confirmed live: manual exposure wasn't needed once focus was
-fixed); `brightness` is set instead as a plain offset on top of
+USB backend has a `disable_autofocus` argument to disable continuous
+autofocus and pin a fixed `focus_absolute` instead (confirmed live:
+this camera's `focus_automatic_continuous` control hunts/refocuses
+mid-stream, which produces intermittent blur, not a resolution/bitrate
+problem) -- but it currently defaults to *false* (autofocus left ON),
+by choice, not because the fix doesn't work: focus_absolute=450 below
+is a confirmed-good fixed value from earlier testing, kept here ready
+to use, just not applied by default right now. Flip disable_autofocus
+to true to use it again. Exposure itself is always left on auto
+(confirmed live: manual exposure wasn't needed once focus was
+addressed); `brightness` is set instead as a plain offset on top of
 whatever auto exposure lands on. Both focus_absolute and brightness
 depend on the camera's actual working distance/lighting once mounted on
 the arm; there's no good way to determine either from a dev-machine test
@@ -59,8 +77,9 @@ focus/exposure through an entirely different, driver-specific mechanism,
 not V4L2 controls.
 """
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
 from launch.conditions import IfCondition, UnlessCondition
+from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
@@ -91,16 +110,38 @@ def generate_launch_description() -> LaunchDescription:
     # -c flags: confirmed live that setting focus_automatic_continuous=0
     # and focus_absolute=N in the same ioctl batch fails ("Permission
     # denied") on this camera -- focus_absolute is only a writable
-    # control once autofocus has actually been turned off first.
-    fix_focus = ExecuteProcess(
-        cmd=[
-            "bash", "-c",
-            [
-                "v4l2-ctl -d ", video_device, " -c focus_automatic_continuous=0 && ",
-                "v4l2-ctl -d ", video_device, " -c focus_absolute=", focus_absolute,
-            ],
-        ],
+    # control once autofocus has actually been turned off first. Two
+    # ExecuteProcess actions chained via OnProcessExit (rather than one
+    # ExecuteProcess running "bash -c 'cmd1 && cmd2'") makes that
+    # required order an explicit launch-graph dependency instead of
+    # shell interpolation -- the same pattern arm_gazebo.launch.py
+    # already uses for delayed_controller_spawners/delayed_move_group.
+    disable_autofocus_process = ExecuteProcess(
+        cmd=["v4l2-ctl", "-d", video_device, "-c", "focus_automatic_continuous=0"],
         condition=IfCondition(should_fix_focus),
+    )
+    set_focus_absolute_process = ExecuteProcess(
+        cmd=["v4l2-ctl", "-d", video_device, "-c", ["focus_absolute=", focus_absolute]],
+        condition=IfCondition(should_fix_focus),
+    )
+
+    def _set_focus_absolute_if_disable_succeeded(event, context):
+        # Mirrors the original "cmd1 && cmd2" semantics exactly: only
+        # attempt focus_absolute if focus_automatic_continuous=0 actually
+        # succeeded. A plain on_exit=[...] list fires on ANY exit code,
+        # success or failure -- attempting focus_absolute after a failed
+        # disable is pointless (it's only a writable control once
+        # autofocus is actually off, see comment above) and would just
+        # log a second, confusing failure for the same root cause.
+        if event.returncode == 0:
+            return [set_focus_absolute_process]
+        return None
+
+    fix_focus = RegisterEventHandler(
+        OnProcessExit(
+            target_action=disable_autofocus_process,
+            on_exit=_set_focus_absolute_if_disable_succeeded,
+        )
     )
     # brightness/backlight_compensation have no auto-mode gate (always
     # writable, unlike focus_absolute), so one v4l2-ctl call for both is
@@ -120,9 +161,15 @@ def generate_launch_description() -> LaunchDescription:
         " ! video/x-raw,format=YUY2,width=", width, ",height=", height,
         " ! videoconvert",
     ]
+    # format=NV12 explicit rather than left to negotiate -- that's what
+    # nvarguscamerasrc's NVMM buffers actually are on Jetson, and leaving
+    # it implicit is exactly the kind of thing that's easy to get away
+    # with on one Jetson/L4T version and silently fail to negotiate on
+    # another. Still unverified on real hardware either way -- see
+    # module docstring.
     csi_gscam_config = [
         "nvarguscamerasrc sensor-id=", csi_sensor_id,
-        " ! video/x-raw(memory:NVMM),width=", csi_width, ",height=", csi_height, ",framerate=30/1",
+        " ! video/x-raw(memory:NVMM),format=NV12,width=", csi_width, ",height=", csi_height, ",framerate=30/1",
         " ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert",
     ]
 
@@ -165,15 +212,18 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument(
             "backend", default_value="usb",
-            description="'usb' (v4l2src, dev-machine testing) or 'csi' (nvarguscamerasrc, real Jetson)."),
+            description="'usb' (v4l2src, dev-machine testing -- the only backend confirmed working) "
+                        "or 'csi' (nvarguscamerasrc, real Jetson -- EXPERIMENTAL, never run on real "
+                        "CSI hardware, see module docstring before trusting it on the real arm)."),
         DeclareLaunchArgument(
             "video_device",
             default_value="/dev/v4l/by-id/usb-HZ_USB_Camera_20220301104-video-index0",
             description="Stable by-id path (udev's own 60-persistent-v4l.rules, keyed on this "
                         "camera's USB serial) rather than /dev/videoN, whose number isn't stable "
-                        "across reboots/replugs/other USB devices. Requires /dev/v4l mounted into "
-                        "the container (see docker-compose.yaml) and only matches this specific "
-                        "physical camera unit -- override if swapped for a different one."),
+                        "across reboots/replugs/other USB devices. The repo's example dev container "
+                        "config (docker/docker-compose.dev.example.yaml) already mounts /dev:/dev, "
+                        "which covers this path with no extra configuration. Only matches this "
+                        "specific physical camera unit -- override if swapped for a different one."),
         DeclareLaunchArgument(
             "width", default_value="640",
             description="USB backend uses raw YUYV, not MJPEG -- see module docstring for why. "
@@ -181,8 +231,14 @@ def generate_launch_description() -> LaunchDescription:
                         "~5-6fps in practice (USB2.0 bandwidth). Only raise this with that ceiling in mind."),
         DeclareLaunchArgument("height", default_value="480"),
         DeclareLaunchArgument("csi_sensor_id", default_value="0"),
-        DeclareLaunchArgument("csi_width", default_value="2592"),
-        DeclareLaunchArgument("csi_height", default_value="1944"),
+        DeclareLaunchArgument(
+            "csi_width", default_value="1280",
+            description="EXPERIMENTAL/unverified backend, see module docstring. Defaults to a "
+                        "practical CV-pipeline resolution rather than the OV5693's native 2592 -- "
+                        "raise it (together with csi_height) if the full 5MP is actually needed; "
+                        "exact supported resolution/framerate combos still need verifying on real "
+                        "Jetson hardware."),
+        DeclareLaunchArgument("csi_height", default_value="720"),
         DeclareLaunchArgument("frame_id", default_value="arm_camera_optical_frame"),
         DeclareLaunchArgument("camera_info_url", default_value=""),
         DeclareLaunchArgument(
@@ -207,6 +263,7 @@ def generate_launch_description() -> LaunchDescription:
             description="0-2. Default (1) was confirmed live to boost exposure on high-contrast "
                         "scenes, pushing bright light sources further into blown-out white instead "
                         "of helping -- 0 disables that."),
+        disable_autofocus_process,
         fix_focus,
         fix_brightness,
         camera_usb,

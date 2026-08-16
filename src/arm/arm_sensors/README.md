@@ -4,28 +4,36 @@ Driver bringup for the arm's onboard sensors — currently the OV5693 5MP
 camera. One launch file, two backends, switched by the `backend`
 argument:
 
-- `usb` (default) — plain USB/UVC bridge board, for testing on a regular
-  dev machine (laptop). This is the only backend actually verified live
-  so far.
+- `usb` (default) — plain USB/UVC bridge board. **This is the only
+  backend that has actually been run and confirmed working** (dev
+  machine / laptop testing).
 - `csi` — native MIPI CSI-2 on a Jetson, the real deployment target.
-  **Not yet tested on real Jetson hardware** — `nvarguscamerasrc` can't
-  even be tested on a laptop (it's a Jetson-only GStreamer element), so
-  treat this path as unverified until it's actually run there.
+  **EXPERIMENTAL. Never once run against real CSI hardware** —
+  `nvarguscamerasrc` is a Jetson-only GStreamer element and can't even
+  be tested on a laptop, so this whole backend has only been reviewed,
+  not verified. Do not treat it as production-ready and do not use it
+  on the real arm until someone has actually run and validated it on
+  the target Jetson.
 
 Both publish to `/camera/image_raw` + `/camera/camera_info` with
 `frame_id=arm_camera_optical_frame` — the same topics/frame the
 simulated wrist camera uses (`arm_sim`'s `arm_gazebo.launch.py`), so
 `aruco_tracker`, `panel_pose_fuser_node`, and anything else downstream
 in the CV pipeline need no changes to run against this real driver
-instead of the sim one.
+instead of the sim one. **This also means the two are interchangeable,
+not simultaneous** — see "Real camera vs. simulation" below.
 
 ## On the laptop (dev machine, USB)
 
-The camera must be plugged in via its USB/UVC bridge board, and the
-container needs `/dev/v4l` mounted (already set up in
-`docker-compose.yaml` — if the container was created before that mount
-existed, recreate it with `docker compose up -d rover_dev`, not
-`docker compose restart`, which doesn't pick up new volume mounts).
+The camera must be plugged in via its USB/UVC bridge board. No extra
+Docker configuration is needed for this: the repo's example dev
+container config (`docker/docker-compose.dev.example.yaml`) already
+mounts `/dev:/dev:rw`, which covers the camera's device node and its
+stable by-id symlink (see "Known gotchas" below) with no changes.
+(If a container was created before the camera was ever physically
+plugged in, recreate it with `docker compose up -d rover_dev` — not
+`docker compose restart`, which reuses the existing container and
+won't pick up devices that weren't present at creation time.)
 
 ```bash
 docker exec -it rover_dev bash
@@ -55,16 +63,29 @@ ros2 run rqt_image_view rqt_image_view /camera/image_raw
 ros2 launch arm_sensors camera.launch.py backend:=csi
 ```
 
-This is **unverified** — it's never been run against real CSI hardware.
+> **⚠ EXPERIMENTAL — not validated on real hardware.** This backend has
+> never been run against an actual Jetson/CSI camera; everything below
+> is reasoned from GStreamer/Argus documentation, not confirmed live.
+> Treat it as a starting point for bringup, not something to trust on
+> the real arm until it's actually been tested and validated on the
+> target Jetson. `usb` above is the only backend with any live
+> confirmation behind it.
+
 Before trusting it on the robot:
 
 - Confirm `nvarguscamerasrc` actually works standalone first:
   `gst-launch-1.0 nvarguscamerasrc sensor-id=0 ! nvvidconv ! fakesink`
 - The `csi_sensor_id` argument (default `0`) may need to change
   depending on which CSI port the camera is physically wired to.
-- `csi_width`/`csi_height` default to the OV5693's native 2592x1944 —
-  CSI isn't USB-bandwidth-limited the way the laptop's UVC bridge is,
-  but this hasn't been load-tested at that resolution either.
+- `csi_width`/`csi_height` default to 1280x720 — a practical resolution
+  for the CV pipeline, not a hardware ceiling. The pipeline requests
+  `format=NV12` explicitly (what `nvarguscamerasrc`'s NVMM buffers
+  actually are on Jetson) rather than leaving it to negotiate. Raise
+  the resolution up to the OV5693's native 2592x1944 (CSI isn't
+  USB-bandwidth-limited the way the laptop's UVC bridge is) if the full
+  5MP is actually needed, but the exact supported resolution/framerate
+  combinations still need verifying on real hardware — nothing here has
+  been load-tested at any resolution over CSI.
 - Focus and exposure/brightness controls (`focus_absolute`,
   `brightness`, `backlight_compensation`) are **USB-backend only** —
   they're plain V4L2 controls (`v4l2-ctl`), and `nvarguscamerasrc`
@@ -96,11 +117,31 @@ launch argument.
 
 ## Calibration
 
-Not done yet — `camera_info_url` defaults to empty (uncalibrated,
-all-zero distortion/intrinsics). See `config/README.md` for how to run
-a real checkerboard calibration once the camera is in its final mounted
-position (calibrate separately per backend/resolution — different
-effective intrinsics).
+**Not done yet, and required before trusting any pose output from this
+camera.** `camera_info_url` defaults to empty (uncalibrated, all-zero
+distortion/intrinsics) — fine for initial bringup and just looking at
+the image, but ArUco/panel pose estimation (`aruco_tracker`,
+`panel_pose_fuser_node`) needs real intrinsics to produce a correct
+pose. Uncalibrated numbers don't fail loudly — they silently produce a
+*wrong* pose, not an error. Deliberately not included in this PR:
+calibration only means something done with the camera in its final
+mounted position at production resolution, and that hasn't happened
+yet. See `config/README.md` for how to run a real checkerboard
+calibration once it has (calibrate separately per backend/resolution —
+different effective intrinsics).
+
+## Real camera vs. simulation
+
+**Do not launch this at the same time as the simulated wrist camera**
+(`arm_sim`'s `arm_gazebo.launch.py`, `camera:=true`, the default). Both
+intentionally publish to the exact same topics —
+`/camera/image_raw` + `/camera/camera_info` — precisely so downstream
+consumers (`aruco_tracker`, `panel_pose_fuser_node`, ...) don't need any
+configuration change to run against real hardware instead of Gazebo.
+That convenience is also the hazard: running both at once means two
+publishers on the same topics, with whichever one happens to publish
+last "winning" on any given tick — silently wrong/flickering data, not
+an error. Run one or the other, never both.
 
 ## Known gotchas
 
