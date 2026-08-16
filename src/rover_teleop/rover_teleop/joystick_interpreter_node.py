@@ -2,6 +2,7 @@
 """
 Joystick Interpreter Node.
 """
+import glob
 import math
 
 import rclpy
@@ -13,6 +14,18 @@ from std_srvs.srv import SetBool, Trigger
 from indomitus_interfaces.srv import SetTrafficLight
 from controller_manager_msgs.srv import SetHardwareComponentState, SwitchController
 from lifecycle_msgs.msg import State
+
+
+# DualSense light bar, exposed by the kernel's hid-playstation driver. The
+# input index changes on every reconnect, hence the glob. Writing needs the
+# udev rule from system/rules.d/99-playstation-led.rules; without it — or on a
+# controller with no RGB bar, e.g. any Xbox pad — the glob simply finds nothing.
+LED_GLOB = '/sys/class/leds/*:rgb:indicator/multi_intensity'
+
+LED_MOTORS_OFF     = (255, 0, 0)      # red    — hardware inactive
+LED_CONTROLLER_OFF = (255, 120, 0)    # orange — motors on, controller inactive
+LED_NAV            = (0, 0, 255)      # blue   — yielding to nav
+LED_DRIVING        = (0, 255, 0)      # green  — joystick in command
 
 
 def trigger_diff(axes, l2_index: int, r2_index: int, deadzone: float) -> float:
@@ -134,6 +147,7 @@ class JoystickInterpreterNode(Node):
 
         self._vy_enabled = bool(declare_and_get('vy_enabled_default', False))
         self._motors_enabled = False
+        self._controller_active = False
 
         self._cmd_timeout = float(declare_and_get('cmd_timeout', 0.5))
         self._timeout_pub_rate = float(declare_and_get('timeout_pub_rate', 10.0))
@@ -218,6 +232,8 @@ class JoystickInterpreterNode(Node):
             f'vy_enabled={self._vy_enabled}, '
             f'controller={self._controller_name}'
         )
+
+        self._refresh_led()
 
     def _on_joy(self, msg: Joy):
         """
@@ -368,6 +384,25 @@ class JoystickInterpreterNode(Node):
         self._active = not self._active
         state_str = 'ACTIVE (publishing to /cmd_vel)' if self._active else 'INACTIVE (yielding to nav)'
         self.get_logger().info(f'Joystick control: {state_str}')
+        self._refresh_led()
+
+    def _refresh_led(self):
+        """Paint the controller's light bar with the current drive state."""
+        if not self._motors_enabled:
+            colour = LED_MOTORS_OFF
+        elif not self._controller_active:
+            colour = LED_CONTROLLER_OFF
+        elif not self._active:
+            colour = LED_NAV
+        else:
+            colour = LED_DRIVING
+
+        for path in glob.glob(LED_GLOB):
+            try:
+                with open(path, 'w') as handle:
+                    handle.write('{} {} {}'.format(*colour))
+            except OSError as exc:
+                self.get_logger().debug(f'controller LED write failed: {exc!r}')
 
     def _now_seconds(self) -> float:
         return float(self.get_clock().now().nanoseconds) * 1e-9
@@ -424,6 +459,7 @@ class JoystickInterpreterNode(Node):
 
         status = 'ENABLED' if self._motors_enabled else 'DISABLED'
         self.get_logger().info(f'Motors {status}')
+        self._refresh_led()
 
     def _set_swerve_controller_state(self, activate: bool):
         if not self._controller_state_client.service_is_ready():
@@ -451,10 +487,13 @@ class JoystickInterpreterNode(Node):
             return
 
         if response.ok:
+            self._controller_active = activate
             self.get_logger().info(f'{self._controller_name} → {target}')
         else:
             self.get_logger().error(
                 f'controller_manager refused to make {self._controller_name} {target}')
+
+        self._refresh_led()
 
     def _on_traffic_result(self, future, color: str, desired: bool):
         try:
