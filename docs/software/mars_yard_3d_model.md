@@ -1,7 +1,5 @@
 # Mars Yard 3D Model
 
-> **Note:** Currently only the model of the Mars Yard from 2025 is available. Docs and models on the repository will be updated when the organizers release the 2026 model.
-
 This file describes how to view, download, and convert the 3D models of the Mars Yard provided by the organizers.
 
 
@@ -10,14 +8,23 @@ This file describes how to view, download, and convert the 3D models of the Mars
 
 ## View & Download Mars Yard Model
 
+### 2025
+
 * **You can view the 3D model online via [this Sketchfab link](https://skfb.ly/pMyFC)**
 * **You can download 3D models in different formats via [this Google Drive folder](https://drive.google.com/drive/folders/1CC6CF_olB0m846RJ8Zi-IzKdQuF7lAu2?usp=drive_link)**
+
+### 2026
+
+* **You can view the 3D model online via [this Sketchfab link](https://skfb.ly/pMHFs)**
+* **You can download 3D models in different formats via [this Google Drive folder](https://drive.google.com/drive/folders/1nXtgAN9hhfJjxfkgsiDwHwlEYIGK4358?usp=drive_link)**
 
 
 ---
 
 
-## Software Installation & Launch
+## Convert .e57 to Meshes
+
+### Prerequisites: Software Installation
 
 To process `.e57` point clouds into simulation-ready meshes, you need **CloudCompare**.
 
@@ -32,12 +39,6 @@ Once installed, you can open the software directly from the terminal by running:
 ```bash
 cloudcompare
 ```
-
-
----
-
-
-## Convert .e57 to Meshes
 
 ### Step 1: Open the Point Cloud
 
