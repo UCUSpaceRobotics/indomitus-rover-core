@@ -50,7 +50,13 @@ Launches the Gazebo world, spawns the rover, and starts its base stack: `ros_gz_
 **Example:**
 
 ```bash
-ros2 launch rover_sim sim_gz.launch.py world_name:=mars_yard map_year:=2025 map_resolution:=high
+ros2 launch rover_sim sim_gz.launch.py
+```
+
+Legacy/fallback (2025 map):
+
+```bash
+ros2 launch rover_sim sim_gz.launch.py map_year:=2025 map_resolution:=high
 ```
 
 ## `sim_gz_nav2.launch.py`
