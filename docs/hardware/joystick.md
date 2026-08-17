@@ -35,3 +35,28 @@ Plug **USB-A** into the Jetson and **USB Type-C** into the joystick. No further 
 ## Joystick Layout
 
 ![Joystick layout](../assets/joystick_layout.png)
+
+## Light Bar
+
+On a DualSense controller, `joystick_interpreter` paints the RGB light bar with the current drive state:
+
+| Color | Meaning |
+|-------|---------|
+| 🔴 Red | Motors off — hardware inactive |
+| 🟠 Orange | Motors on, controller inactive |
+| 🔵 Blue | Yielding to navigation |
+| 🟢 Green | Joystick in command |
+
+### Setup
+
+The light bar lives under `/sys/class/leds/*:rgb:indicator/` and is root-owned by default. A udev rule hands it to the `plugdev` group so the node can write to it without root:
+
+```bash
+# On the Jetson, over SSH
+./scripts/setup_host.sh rover --joystick-led
+
+# On this machine
+./scripts/setup_host.sh local --joystick-led
+```
+
+> **Note:** Controllers without an RGB bar (e.g. Xbox pads) are simply skipped.
