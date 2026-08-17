@@ -150,9 +150,11 @@ WORKDIR ${WS}
 RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then source /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash; fi" >> /root/.bashrc && \
     echo "if [ -f /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash; fi" >> /root/.bashrc && \
     echo "if [ -f ${HW_WS}/install/setup.bash ]; then source ${HW_WS}/install/setup.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f ${WS}/install/setup.bash ]; then source ${WS}/install/setup.bash; fi" >> /root/.bashrc
+    echo "if [ -f ${WS}/install/setup.bash ]; then source ${WS}/install/setup.bash; fi" >> /root/.bashrc && \
+    echo "if [ -f /root/.bash_aliases ]; then source /root/.bash_aliases; fi" >> /root/.bashrc
 
 COPY docker/entrypoint.bash /entrypoint.bash
+COPY docker/.bash_aliases /root/.bash_aliases
 RUN chmod +x /entrypoint.bash
 ENTRYPOINT ["/entrypoint.bash"]
 
@@ -178,6 +180,15 @@ RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
         libgl1 libglib2.0-0 && \
         rm -rf /var/lib/apt/lists/*; \
     fi
+
+# Debugging convenience tools, not any package's actual runtime
+# dependency (those go in that package's package.xml, resolved by
+# rosdep above) -- gst-launch-1.0/gst-inspect-1.0 for isolating
+# GStreamer pipeline issues (e.g. arm_sensors' camera pipelines) outside
+# of any ROS node, rqt_image_view for eyeballing a live image topic.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gstreamer1.0-tools ros-humble-rqt-image-view && \
+    rm -rf /var/lib/apt/lists/*
 
 CMD ["bash"]
 

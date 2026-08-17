@@ -28,6 +28,17 @@ LED_NAV            = (0, 0, 255)      # blue   — yielding to nav
 LED_DRIVING        = (0, 255, 0)      # green  — joystick in command
 
 
+def apply_deadzone(value: float, deadzone: float) -> float:
+    """Zero out small stick values, rescaling the rest so the response stays
+    continuous at the deadzone edge.
+    """
+    if deadzone <= 0.0:
+        return value
+    if abs(value) < deadzone:
+        return 0.0
+    return math.copysign((abs(value) - deadzone) / (1.0 - deadzone), value)
+
+
 def trigger_diff(axes, l2_index: int, r2_index: int, deadzone: float) -> float:
     """L2 minus R2, deadzoned. Positive = L2 held = counter-clockwise spin."""
     def value(index: int) -> float:
@@ -124,11 +135,19 @@ class JoystickInterpreterNode(Node):
         self._scale_vy = float(declare_and_get('scale_linear.y', 0.5))
         self._scale_wz = float(declare_and_get('scale_angular.yaw', 1.0))
 
+        # Stick deadzone, applied here instead of in the driver — see apply_deadzone().
+        # Clamped below 1.0 so the rescaling never divides by zero.
+        self._deadzone = min(max(float(declare_and_get('deadzone', 0.05)), 0.0), 0.99)
+
         # L2 / R2 — spin-in-place while in curvature mode.
         self._axis_l2 = int(declare_and_get('axis_trigger.l2', 4))
         self._axis_r2 = int(declare_and_get('axis_trigger.r2', 5))
         self._trigger_deadzone = float(declare_and_get('trigger_deadzone', 0.15))
         self._scale_rotate     = float(declare_and_get('scale_rotate', 1.0))
+
+        # Token yaw rate that holds the spin-in-place wheel shape while both
+        # triggers are held but balanced — see _publish_timer_cb.
+        self._rot_probe_wz = float(declare_and_get('rot_probe_wz', 1e-5))
 
         # Tightest turn the right stick can ask for, as curvature 1/R at full
         # deflection. 2.0 means R = 0.5 m, an ICR inside the wheelbase.
@@ -163,6 +182,7 @@ class JoystickInterpreterNode(Node):
         self.raw_wz: float = 0.0
         self.raw_steer: float = 0.0
         self.raw_rot: float = 0.0
+        self.triggers_held: bool = False
 
         self._row_twist_mode: bool = True
         self._compact_mode: bool = False
@@ -230,6 +250,7 @@ class JoystickInterpreterNode(Node):
             f'vy_toggle_button={self._toggles[0].button_index}, '
             f'motor_toggle_button={self._toggles[1].button_index}, '
             f'vy_enabled={self._vy_enabled}, '
+            f'deadzone={self._deadzone}, '
             f'controller={self._controller_name}'
         )
 
@@ -250,13 +271,26 @@ class JoystickInterpreterNode(Node):
         for toggle in self._toggles:
             toggle.update(msg.buttons)
         
-        self.raw_vx = msg.axes[self._axis_vx] * self._scale_vx
-        self.raw_vy = msg.axes[self._axis_vy] * self._scale_vy if self._vy_enabled else 0.0
-        self.raw_wz = msg.axes[self._axis_wz] * self._scale_wz
+        vx_axis = self._deadzoned(msg.axes[self._axis_vx])
+        vy_axis = self._deadzoned(msg.axes[self._axis_vy])
+        wz_axis = self._deadzoned(msg.axes[self._axis_wz])
+
+        self.raw_vx = vx_axis * self._scale_vx
+        self.raw_vy = vy_axis * self._scale_vy if self._vy_enabled else 0.0
+        self.raw_wz = wz_axis * self._scale_wz
         # Kept unscaled: in curvature mode this stick sets a radius, not a
         # yaw rate, so scale_angular does not apply to it.
-        self.raw_steer = msg.axes[self._axis_wz]
+        self.raw_steer = wz_axis
         self.raw_rot = self._trigger_diff(msg.axes)
+        # trigger_diff() reads zero both when nothing is touched and when both
+        # triggers are held to a draw; this tells those two apart. abs() because
+        # the triggers rest at 0.0 and read -1.0 when pulled.
+        self.triggers_held = max(
+            abs(msg.axes[self._axis_l2]),
+            abs(msg.axes[self._axis_r2])) > self._trigger_deadzone
+
+    def _deadzoned(self, value: float) -> float:
+        return apply_deadzone(value, self._deadzone)
 
     def _trigger_diff(self, axes) -> float:
         return trigger_diff(axes, self._axis_l2, self._axis_r2, self._trigger_deadzone)
@@ -282,10 +316,16 @@ class JoystickInterpreterNode(Node):
                 # by the time the Twist exists the driver's intent is gone.
                 wz = self._apply_swerve_wz_correction(vx, vy, wz)
 
-        elif self.raw_rot != 0.0:
+        elif self.triggers_held or self.raw_rot != 0.0:
             vx = 0.0
             vy = 0.0
             wz = self.raw_rot * self._scale_rotate
+
+            if wz == 0.0:
+                # Held to a draw: keep the spin shape without driving. Below
+                # park_speed the controller steers with the drives at zero, and
+                # a tiny — rather than empty — twist stops idle homing.
+                wz = self._rot_probe_wz
 
         else:
             target_curvature = self.raw_steer * self._max_curvature

@@ -7,6 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 HOST_CONFIG_DIR="$REPO_ROOT/system"
 
+# IMPORT SHARED FUNCTIONS
+source "${SCRIPT_DIR}/utils.sh"
+
 # DEFAULT VARIABLES
 JETSON_USER="indomitus-rover"
 JETSON_IP="10.42.0.1"
@@ -109,26 +112,8 @@ TARGET="${JETSON_USER}@${JETSON_IP}"
 
 # Connection Hook
 step "Connecting to Jetson..."
-if [ -n "$WIFI_SSID" ]; then
-    if command -v nmcli >/dev/null 2>&1; then
-        nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASS" >/dev/null 2>&1 || true
-    elif command -v networksetup >/dev/null 2>&1; then
-        WIFI_IFACE=$(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2}')
-        [ -n "$WIFI_IFACE" ] && networksetup -setairportnetwork "$WIFI_IFACE" "$WIFI_SSID" "$WIFI_PASS" >/dev/null 2>&1 || true
-    else
-        echo -e "\e[33m[WARNING]\e[0m Auto-connect not supported. Connect to '${WIFI_SSID}' manually."
-    fi
-fi
-
-echo -n "Waiting for SSH connection to ${TARGET}..."
-MAX_RETRIES=15
-RETRY_COUNT=0
-while ! ssh -q -o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=accept-new "${TARGET}" "echo ok" > /dev/null 2>&1; do
-    sleep 2; echo -n "."; RETRY_COUNT=$((RETRY_COUNT+1))
-    [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ] && echo "" && error "Timeout: Could not connect to ${TARGET}."
-done
-echo ""
-success "Connection established."
+ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "false"
+wait_for_ssh "$TARGET" 30
 
 # Copy everything from system/ directory to a temp folder
 step "Copying files to Jetson..."

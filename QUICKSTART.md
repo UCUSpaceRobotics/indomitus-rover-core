@@ -49,7 +49,7 @@ Follow these steps to power on and operate the rover:
 
 8. **Start the container:** Run the following command to start the container on the laptop:
    ```bash
-   IMAGE_TAG=develop-dev ROS_DOMAIN_ID=132 docker compose up -d
+   IMAGE_TAG=develop-dev ROS_DOMAIN_ID=42 docker compose up -d
    ```
 
 9. **Enter the container terminal:** Run the following command to enter the container terminal on the laptop:
@@ -79,4 +79,6 @@ Follow these steps to power on and operate the rover:
 To power down the rover, perform **one** of the following actions:
 
 * **Use the power switch:** Rotate the blue switch on the back of the rover counterclockwise.
-* ~~**Use the Emergency Stop:** Press one of the two red buttons on the top of the rover.~~
+* **Use the Emergency Stop:** Press one of the two red buttons on the top of the rover.
+
+> **Note:** To restart the rover after the emergency button has been pressed, you must first release the button by rotating it clockwise.

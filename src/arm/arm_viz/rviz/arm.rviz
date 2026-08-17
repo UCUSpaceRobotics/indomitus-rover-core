@@ -98,8 +98,9 @@ Visualization Manager:
           Value: true
         arm_tcp_link:
           Alpha: 1
-          Show Axes: false
+          Show Axes: true
           Show Trail: false
+          Value: true
         arm_wrist_1_link:
           Alpha: 1
           Show Axes: false
