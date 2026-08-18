@@ -135,6 +135,18 @@ class Parser:
         self._state = self._WAIT_SYNC0
         self._body = bytearray()
 
+    def reset(self) -> None:
+        """Drop half-received framing state, keeping the counters.
+
+        Called when the serial port is reopened. Bytes captured before the
+        port died must not be joined to bytes that arrive after it comes back:
+        the join would almost certainly fail CRC, but "almost certainly" is
+        not the guarantee wanted on the path that steers the rover. ok/bad are
+        free-running totals reported in STATUS, so they survive the reset.
+        """
+        self._state = self._WAIT_SYNC0
+        self._body.clear()
+
     def feed(self, chunk: bytes) -> List[Tuple[int, int, bytes]]:
         frames = []
         for byte in chunk:

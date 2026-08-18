@@ -70,3 +70,18 @@ def test_velocities_clamp_rather_than_wrap():
     payload = lora_frame.pack_teleop(lora_frame.Teleop(200, -200, 0, 0))
     recovered = lora_frame.unpack_teleop(payload)
     assert recovered.vx == 127 and recovered.vy == -128
+
+
+def test_reset_drops_a_partial_frame_but_keeps_the_counters():
+    # The serial port can die mid-frame. What was captured before the reopen
+    # must not be joined to what arrives after it.
+    parser = lora_frame.Parser()
+    parser.feed(TELEOP_SEQ0_10_M20_30)
+    assert parser.ok == 1
+
+    parser.feed(TELEOP_SEQ0_10_M20_30[:6])   # port dies part-way through
+    parser.reset()
+
+    got = parser.feed(TELEOP_SEQ0_10_M20_30)
+    assert len(got) == 1, "the frame after the reconnect must parse cleanly"
+    assert (parser.ok, parser.bad) == (2, 0), "counters are free-running"

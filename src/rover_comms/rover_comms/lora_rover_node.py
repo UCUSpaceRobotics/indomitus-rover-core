@@ -179,6 +179,9 @@ class LoraRoverNode(Node):
                 backoff = min(backoff * 2, 30.0)
                 continue
 
+            # Whatever was half-received when the port died must not be joined
+            # to what arrives now. Counters survive; framing state does not.
+            self.parser.reset()
             self.get_logger().info(f"listening on {self.port_name}")
             backoff = 1.0
             self._pump()
