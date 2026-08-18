@@ -45,6 +45,11 @@ WHEEL_NAMES = ["FL", "FR", "RL", "RR"]
 WHEEL_RADIUS = 0.15      # meters
 TRACK_WIDTH = 0.6        # meters, distance between left/right wheel centers
 
+# Ramp control — ADJUST to taste
+MAX_ACCEL = 2.0          # rad/s^2, applied when |target| > |current| (speeding up)
+MAX_DECEL = 3.0          # rad/s^2, applied when |target| < |current| (slowing down)
+RAMP_RATE_HZ = 50.0      # how often the ramp loop steps + sends velocity commands
+
 # ── Frame builders (same protocol as before) ─────────────────────────────────
 
 def _rad_to_counts(angle_rad: float) -> int:
@@ -149,9 +154,77 @@ class CanBus:
         self._thread.join(timeout=1.0)
         self.bus.shutdown()
 
+# ── Ramp controller (smooth accel/decel) ──────────────────────────────────────
+
+class RampController:
+    """
+    Continuously steps each wheel's commanded velocity toward a target,
+    limited by MAX_ACCEL (speeding up) / MAX_DECEL (slowing down), and
+    sends the ramped value to the bus at RAMP_RATE_HZ.
+
+    Call set_targets() to change where wheels are headed — the loop takes
+    care of getting them there smoothly.
+    """
+    def __init__(self, bus: CanBus, esc_ids: list[int]):
+        self.bus = bus
+        self.esc_ids = esc_ids
+        self.current = {esc_id: 0.0 for esc_id in esc_ids}
+        self.target = {esc_id: 0.0 for esc_id in esc_ids}
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._active = threading.Event()   # only send frames while enabled
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def set_targets(self, speeds: dict[int, float]):
+        with self._lock:
+            self.target.update(speeds)
+
+    def set_active(self, on: bool):
+        if on:
+            self._active.set()
+        else:
+            self._active.clear()
+
+    def snapshot_current(self) -> dict[int, float]:
+        with self._lock:
+            return dict(self.current)
+
+    def wait_until_settled(self, tol: float = 0.02, timeout: float = 5.0):
+        """Block until all wheels are within `tol` rad/s of their targets."""
+        start = time.time()
+        while time.time() - start < timeout:
+            with self._lock:
+                done = all(abs(self.current[i] - self.target[i]) < tol for i in self.esc_ids)
+            if done:
+                return
+            time.sleep(1.0 / RAMP_RATE_HZ)
+
+    def _run(self):
+        dt = 1.0 / RAMP_RATE_HZ
+        while not self._stop.is_set():
+            if self._active.is_set():
+                with self._lock:
+                    for esc_id in self.esc_ids:
+                        cur = self.current[esc_id]
+                        tgt = self.target[esc_id]
+                        diff = tgt - cur
+                        speeding_up = abs(tgt) > abs(cur)
+                        limit = (MAX_ACCEL if speeding_up else MAX_DECEL) * dt
+                        step = max(-limit, min(limit, diff))
+                        self.current[esc_id] = cur + step
+                    speeds = dict(self.current)
+                for esc_id, spd in speeds.items():
+                    self.bus.send(dm_velocity(esc_id, spd))
+            time.sleep(dt)
+
+    def shutdown(self):
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+
 # ── High-level actions ────────────────────────────────────────────────────────
 
-def enable_all(bus: CanBus):
+def enable_all(bus: CanBus, ramp: RampController):
     print("\n[ENABLE] Sending enable sequence...")
     for esc_id in STEER_IDS:
         bus.send(sw_clear_fault(esc_id)); time.sleep(0.02)
@@ -162,30 +235,33 @@ def enable_all(bus: CanBus):
     time.sleep(0.05)
     for esc_id in DRIVE_IDS:
         bus.send(dm_enable(esc_id)); time.sleep(0.02)
+    ramp.set_targets({esc_id: 0.0 for esc_id in DRIVE_IDS})
+    ramp.set_active(True)     # ramp loop now takes over sending velocity frames
     print("[ENABLE] Done")
 
-def disable_all(bus: CanBus):
-    print("\n[DISABLE] Zeroing commands...")
+def disable_all(bus: CanBus, ramp: RampController):
+    print("\n[DISABLE] Ramping down to zero...")
+    ramp.set_targets({esc_id: 0.0 for esc_id in DRIVE_IDS})
+    ramp.wait_until_settled(timeout=5.0)
+    ramp.set_active(False)    # stop the ramp loop from sending further frames
     for esc_id in STEER_IDS:
         bus.send(sw_abs_position(esc_id, 0.0))
-    for esc_id in DRIVE_IDS:
-        bus.send(dm_velocity(esc_id, 0.0))
-    print("[DISABLE] Waiting 1.5s to settle...")
-    time.sleep(1.5)
+    time.sleep(0.3)
     for esc_id in STEER_IDS:
         bus.send(sw_disable(esc_id))
     for esc_id in DRIVE_IDS:
         bus.send(dm_disable(esc_id))
     print("[DISABLE] All motors disabled")
 
-def send_diff_drive(bus: CanBus, vx: float, wz: float):
-    """Simple skid-steer mixing: left/right wheel speeds from vx, wz."""
+def set_diff_drive_target(ramp: RampController, vx: float, wz: float):
+    """Simple skid-steer mixing: left/right wheel target speeds from vx, wz.
+    Sets the target only — the RampController smoothly accelerates/decelerates
+    toward it in the background."""
     left_speed = (vx - wz * TRACK_WIDTH / 2.0) / WHEEL_RADIUS
     right_speed = (vx + wz * TRACK_WIDTH / 2.0) / WHEEL_RADIUS
     # DRIVE_IDS order = [FL, FR, RL, RR]
     speeds = [left_speed, right_speed, left_speed, right_speed]
-    for esc_id, spd in zip(DRIVE_IDS, speeds):
-        bus.send(dm_velocity(esc_id, spd))
+    ramp.set_targets(dict(zip(DRIVE_IDS, speeds)))
     return speeds
 
 # ── Display helpers ────────────────────────────────────────────────────────────
@@ -214,28 +290,39 @@ def get_key() -> str:
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-HELP = """
+HELP = f"""
 ╔══════════════════════════════════════════╗
 ║   chassis_driver standalone test (no ROS) ║
 ╠══════════════════════════════════════════╣
 ║  e   Enable all motors                   ║
-║  d   Disable all motors                  ║
-║  ─── scenarios ─────────────────────────║
+║  d   Disable all motors (smooth ramp-down)║
+║  ─── scenarios (smooth ramp) ───────────║
 ║  1   Straight forward  0.5 m/s           ║
 ║  2   Spin in place     1.0 rad/s         ║
 ║  3   Turn left         0.5 m/s + 0.5ω   ║
 ║  4   (steer test placeholder — no steer  ║
 ║       motors configured)                 ║
-║  s   Stop (velocity = 0)                 ║
+║  s   Stop (target = 0, ramps down)       ║
 ║  ─── info ──────────────────────────────║
-║  f   Print motor feedback                ║
+║  f   Print motor feedback + current speed║
 ║  q   Quit                                ║
+╠══════════════════════════════════════════╣
+║  accel={MAX_ACCEL:.1f} rad/s²  decel={MAX_DECEL:.1f} rad/s²  ║
 ╚══════════════════════════════════════════╝
 """
+
+def print_ramp_state(ramp: RampController):
+    cur = ramp.snapshot_current()
+    with ramp._lock:
+        tgt = dict(ramp.target)
+    print("\n  Ramp state (current → target, rad/s):")
+    for esc_id in DRIVE_IDS:
+        print(f"    esc={esc_id:2d}  {cur[esc_id]:+.3f} → {tgt[esc_id]:+.3f}")
 
 def main():
     print(f"Opening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
     bus = CanBus(CAN_CHANNEL, CAN_BITRATE)
+    ramp = RampController(bus, DRIVE_IDS)
     print(HELP)
 
     try:
@@ -243,35 +330,36 @@ def main():
             key = get_key()
 
             if key == 'e':
-                enable_all(bus)
+                enable_all(bus, ramp)
 
             elif key == 'd':
-                disable_all(bus)
+                disable_all(bus, ramp)
 
             elif key == '1':
-                print("\nSCENARIO: STRAIGHT FORWARD 0.5 m/s")
-                speeds = send_diff_drive(bus, vx=0.5, wz=0.0)
-                print(f"  wheel speeds (rad/s): {speeds}")
+                print("\nSCENARIO: STRAIGHT FORWARD 0.5 m/s (ramping...)")
+                speeds = set_diff_drive_target(ramp, vx=0.5, wz=0.0)
+                print(f"  target wheel speeds (rad/s): {speeds}")
 
             elif key == '2':
-                print("\nSCENARIO: SPIN IN PLACE 1.0 rad/s")
-                speeds = send_diff_drive(bus, vx=0.0, wz=1.0)
-                print(f"  wheel speeds (rad/s): {speeds}")
+                print("\nSCENARIO: SPIN IN PLACE 1.0 rad/s (ramping...)")
+                speeds = set_diff_drive_target(ramp, vx=0.0, wz=1.0)
+                print(f"  target wheel speeds (rad/s): {speeds}")
 
             elif key == '3':
-                print("\nSCENARIO: TURN LEFT")
-                speeds = send_diff_drive(bus, vx=0.5, wz=0.5)
-                print(f"  wheel speeds (rad/s): {speeds}")
+                print("\nSCENARIO: TURN LEFT (ramping...)")
+                speeds = set_diff_drive_target(ramp, vx=0.5, wz=0.5)
+                print(f"  target wheel speeds (rad/s): {speeds}")
 
             elif key == '4':
                 print("\n[TEST 4] No steer motors configured — skipping.")
 
             elif key == 's':
-                print("\n[STOP] Zero velocity")
-                send_diff_drive(bus, vx=0.0, wz=0.0)
+                print("\n[STOP] Target = 0, ramping down")
+                set_diff_drive_target(ramp, vx=0.0, wz=0.0)
 
             elif key == 'f':
                 print_feedback(bus)
+                print_ramp_state(ramp)
 
             elif key in ('q', '\x03'):
                 print("\nQuitting...")
@@ -283,7 +371,13 @@ def main():
     except Exception as e:
         print(f"\nError: {e}")
     finally:
-        print("\nShutting down bus...")
+        print("\n[SHUTDOWN] Ramping down before exit...")
+        set_diff_drive_target(ramp, vx=0.0, wz=0.0)
+        ramp.wait_until_settled(timeout=3.0)
+        ramp.set_active(False)
+        for esc_id in DRIVE_IDS:
+            bus.send(dm_disable(esc_id))
+        ramp.shutdown()
         bus.shutdown()
 
 
