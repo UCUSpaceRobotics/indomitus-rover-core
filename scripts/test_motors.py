@@ -48,7 +48,10 @@ TRACK_WIDTH = 0.6        # meters, distance between left/right wheel centers
 # Ramp control — ADJUST to taste
 MAX_ACCEL = 2.0          # rad/s^2, applied when |target| > |current| (speeding up)
 MAX_DECEL = 3.0          # rad/s^2, applied when |target| < |current| (slowing down)
-RAMP_RATE_HZ = 50.0      # how often the ramp loop steps + sends velocity commands
+CMD_RATE_HZ = 100.0      # command loop frequency — sends a velocity frame to every
+                          # enabled motor every cycle, whether or not the target
+                          # changed. This is also what keeps the motor's CAN
+                          # communication-loss watchdog (TIMEOUT register) happy.
 
 # ── Frame builders (same protocol as before) ─────────────────────────────────
 
@@ -158,9 +161,18 @@ class CanBus:
 
 class RampController:
     """
-    Continuously steps each wheel's commanded velocity toward a target,
-    limited by MAX_ACCEL (speeding up) / MAX_DECEL (slowing down), and
-    sends the ramped value to the bus at RAMP_RATE_HZ.
+    Continuous command loop, running at CMD_RATE_HZ (100 Hz by default).
+
+    Every cycle — regardless of whether the target changed since the last
+    cycle — it:
+      1. Steps each wheel's commanded velocity toward its target, limited
+         by MAX_ACCEL (speeding up) / MAX_DECEL (slowing down).
+      2. Sends the resulting velocity frame to every enabled motor.
+
+    This means motors get a steady stream of commands the whole time
+    they're enabled, not just on state changes — which also keeps each
+    motor's CAN communication-loss watchdog (TIMEOUT register) satisfied
+    even while sitting still at zero velocity.
 
     Call set_targets() to change where wheels are headed — the loop takes
     care of getting them there smoothly.
@@ -173,6 +185,7 @@ class RampController:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._active = threading.Event()   # only send frames while enabled
+        self._sent_count = 0
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -190,6 +203,9 @@ class RampController:
         with self._lock:
             return dict(self.current)
 
+    def sent_count(self) -> int:
+        return self._sent_count
+
     def wait_until_settled(self, tol: float = 0.02, timeout: float = 5.0):
         """Block until all wheels are within `tol` rad/s of their targets."""
         start = time.time()
@@ -198,10 +214,11 @@ class RampController:
                 done = all(abs(self.current[i] - self.target[i]) < tol for i in self.esc_ids)
             if done:
                 return
-            time.sleep(1.0 / RAMP_RATE_HZ)
+            time.sleep(1.0 / CMD_RATE_HZ)
 
     def _run(self):
-        dt = 1.0 / RAMP_RATE_HZ
+        dt = 1.0 / CMD_RATE_HZ
+        next_tick = time.monotonic()
         while not self._stop.is_set():
             if self._active.is_set():
                 with self._lock:
@@ -216,7 +233,15 @@ class RampController:
                     speeds = dict(self.current)
                 for esc_id, spd in speeds.items():
                     self.bus.send(dm_velocity(esc_id, spd))
-            time.sleep(dt)
+                self._sent_count += 1
+            # fixed-rate scheduling: sleep to the next tick rather than a flat
+            # dt, so the loop doesn't drift below CMD_RATE_HZ over time
+            next_tick += dt
+            sleep_for = next_tick - time.monotonic()
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+            else:
+                next_tick = time.monotonic()   # we're behind; resync
 
     def shutdown(self):
         self._stop.set()
@@ -305,9 +330,11 @@ HELP = f"""
 ║  s   Stop (target = 0, ramps down)       ║
 ║  ─── info ──────────────────────────────║
 ║  f   Print motor feedback + current speed║
+║  r   Measure actual command send rate    ║
 ║  q   Quit                                ║
 ╠══════════════════════════════════════════╣
 ║  accel={MAX_ACCEL:.1f} rad/s²  decel={MAX_DECEL:.1f} rad/s²  ║
+║  cmd_rate={CMD_RATE_HZ:.0f} Hz (continuous while enabled)   ║
 ╚══════════════════════════════════════════╝
 """
 
@@ -315,9 +342,17 @@ def print_ramp_state(ramp: RampController):
     cur = ramp.snapshot_current()
     with ramp._lock:
         tgt = dict(ramp.target)
-    print("\n  Ramp state (current → target, rad/s):")
+    active = ramp._active.is_set()
+    print(f"\n  Ramp state (active={active}, ~{CMD_RATE_HZ:.0f} Hz target):")
     for esc_id in DRIVE_IDS:
-        print(f"    esc={esc_id:2d}  {cur[esc_id]:+.3f} → {tgt[esc_id]:+.3f}")
+        print(f"    esc={esc_id:2d}  {cur[esc_id]:+.3f} → {tgt[esc_id]:+.3f} rad/s")
+
+def measure_send_rate(ramp: RampController, duration: float = 1.0) -> float:
+    """Sample sent_count() over `duration` seconds to report actual Hz."""
+    before = ramp.sent_count()
+    time.sleep(duration)
+    after = ramp.sent_count()
+    return (after - before) / duration
 
 def main():
     print(f"Opening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
@@ -360,6 +395,11 @@ def main():
             elif key == 'f':
                 print_feedback(bus)
                 print_ramp_state(ramp)
+
+            elif key == 'r':
+                print("\n[MEASURE] Sampling send rate for 1s...")
+                hz = measure_send_rate(ramp, duration=1.0)
+                print(f"  actual command rate ≈ {hz:.1f} Hz  (target: {CMD_RATE_HZ:.0f} Hz)")
 
             elif key in ('q', '\x03'):
                 print("\nQuitting...")
