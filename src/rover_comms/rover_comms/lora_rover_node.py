@@ -111,10 +111,18 @@ class LoraRoverNode(Node):
         self.max_angular = float(self.get_parameter("max_angular").value)
         self.limit_linear = abs(float(self.get_parameter("limit_linear").value))
         self.limit_angular = abs(float(self.get_parameter("limit_angular").value))
+        self.publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
+        if self.publish_rate_hz <= 0.0:
+            # A zero here would be a ZeroDivisionError in the constructor, which
+            # takes bringup down - the one thing this node must never do.
+            self.get_logger().warn(
+                f"publish_rate_hz={self.publish_rate_hz} is not positive, "
+                f"falling back to 10 Hz")
+            self.publish_rate_hz = 10.0
 
         self.pub_cmd = self.create_publisher(Twist, "cmd_vel_lora", 10)
         self.pub_state = self.create_publisher(String, "lora/rover_state", 10)
-        self.pub_rtt_frames = self.create_publisher(Float32, "lora/rover_rx_ok", 10)
+        self.pub_rx_ok = self.create_publisher(Float32, "lora/rover_rx_ok", 10)
         self.pub_estop = self.create_publisher(Bool, "lora/rover_estop", 10)
 
         self.parser = lora_frame.Parser()
@@ -136,8 +144,7 @@ class LoraRoverNode(Node):
         self.ser = None
 
         threading.Thread(target=self._reader, daemon=True).start()
-        self.create_timer(
-            1.0 / float(self.get_parameter("publish_rate_hz").value), self._publish)
+        self.create_timer(1.0 / self.publish_rate_hz, self._publish)
 
         # The wire scale is logged because it is half of a cross-repository
         # contract with nothing enforcing it at runtime: if this line and
@@ -285,7 +292,7 @@ class LoraRoverNode(Node):
         self.pub_cmd.publish(twist)
 
         self.pub_state.publish(String(data="FAILSAFE" if failsafe else "LINKED"))
-        self.pub_rtt_frames.publish(Float32(data=float(self.parser.ok)))
+        self.pub_rx_ok.publish(Float32(data=float(self.parser.ok)))
         self.pub_estop.publish(
             Bool(data=bool(command.flags & lora_frame.FLAG_ESTOP)))
 

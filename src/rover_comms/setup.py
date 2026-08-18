@@ -15,6 +15,11 @@ setup(
         (os.path.join('share', package_name, 'launch'),
             glob(os.path.join('launch', '*.launch.py'))),
     ],
+    # Not a console_script: it is a standalone diagnostic, wanted precisely
+    # when the node will not start, on a rover where the installed workspace
+    # may be all there is. Installed so `ros2 run rover_comms uart_loopback.py`
+    # works without the source tree.
+    scripts=['tools/uart_loopback.py'],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='yuriifito',

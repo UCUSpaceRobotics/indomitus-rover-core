@@ -42,6 +42,9 @@ TYPE_STATUS = 0x02
 
 # Teleop flags
 FLAG_ESTOP = 0x01
+# Set by the mast, unread on the rover: this end drives what it is given and
+# has no mode of its own. Defined because all three copies of the format must
+# agree on the bit, not because anything here looks at it.
 FLAG_MODE = 0x02
 
 # Status flags
