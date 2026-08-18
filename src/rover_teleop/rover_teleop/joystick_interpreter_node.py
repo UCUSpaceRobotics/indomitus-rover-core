@@ -2,7 +2,6 @@
 """
 Joystick Interpreter Node.
 """
-import glob
 import math
 
 import rclpy
@@ -15,17 +14,13 @@ from indomitus_interfaces.srv import SetTrafficLight
 from controller_manager_msgs.srv import SetHardwareComponentState, SwitchController
 from lifecycle_msgs.msg import State
 
+from rover_teleop.controller_led import ControllerLed, led_colour
 
-# DualSense light bar, exposed by the kernel's hid-playstation driver. The
-# input index changes on every reconnect, hence the glob. Writing needs the
-# udev rule from system/rules.d/99-playstation-led.rules; without it — or on a
-# controller with no RGB bar, e.g. any Xbox pad — the glob simply finds nothing.
-LED_GLOB = '/sys/class/leds/*:rgb:indicator/multi_intensity'
 
-LED_MOTORS_OFF     = (255, 0, 0)      # red    — hardware inactive
-LED_CONTROLLER_OFF = (255, 120, 0)    # orange — motors on, controller inactive
-LED_NAV            = (0, 0, 255)      # blue   — yielding to nav
-LED_DRIVING        = (0, 255, 0)      # green  — joystick in command
+# How often a repaint that did not take is retried. A freshly plugged-in
+# controller needs a moment before its LED device exists and udev has handed it
+# to plugdev; ControllerLed gives up after a handful of these.
+LED_RETRY_PERIOD = 0.5
 
 
 def apply_deadzone(value: float, deadzone: float) -> float:
@@ -167,6 +162,15 @@ class JoystickInterpreterNode(Node):
         self._vy_enabled = bool(declare_and_get('vy_enabled_default', False))
         self._motors_enabled = False
         self._controller_active = False
+        # Set once drive faults have been cleared: the interpreter still counts
+        # the motors as enabled, but the hardware will not drive until the
+        # motor button is cycled. See _clear_motor_errors().
+        self._motors_inhibited = False
+        # Newest switch_controller request wins. Replies can land out of order,
+        # and an old one must not be allowed to write back a stale
+        # _controller_active — that is how the light bar ends up green with the
+        # controller actually inactive.
+        self._switch_generation = 0
 
         self._cmd_timeout = float(declare_and_get('cmd_timeout', 0.5))
         self._timeout_pub_rate = float(declare_and_get('timeout_pub_rate', 10.0))
@@ -208,6 +212,9 @@ class JoystickInterpreterNode(Node):
             SwitchController,
             '/controller_manager/switch_controller',
         )
+
+        self._led = ControllerLed(self.get_logger())
+        self._led_timer = self.create_timer(LED_RETRY_PERIOD, self._led.retry_tick)
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
         self._publish_timer = self.create_timer(1.0 / max(0.001, self._cmd_pub_rate), self._publish_timer_cb)
@@ -395,6 +402,13 @@ class JoystickInterpreterNode(Node):
             return
 
         if response.success:
+            # The hardware can no longer drive, but nothing told the
+            # interpreter to drop _motors_enabled / _controller_active, and
+            # clearing them here would cut across the recovery sequence. Track
+            # it as its own state instead, so the light bar stops claiming the
+            # joystick is in command.
+            self._motors_inhibited = True
+            self._refresh_led()
             self.get_logger().info(
                 f'Motor errors cleared: {response.message} — '
                 f'cycle the motor button to re-enable')
@@ -402,19 +416,27 @@ class JoystickInterpreterNode(Node):
             self.get_logger().error(f'Motor errors not cleared: {response.message}')
 
     def _timeout_check(self):
-        """Apply /joy freshness timeout and publish safe zero commands when stale."""
-        if not self._active:
-            return
+        """Apply /joy freshness timeout and publish safe zero commands when stale.
 
+        Timeout *detection* runs whether or not the joystick holds control:
+        while yielding to nav there is nothing to publish, but a controller
+        that drops and comes back still needs its light bar repainted, and that
+        repaint hangs off the timed-out → recovered edge in _on_joy(). Only the
+        zero-command publishing is conditional on _active.
+        """
         now = self._now_seconds()
         dt = now - self._last_joy_msg_time if self._last_joy_msg_time > 0.0 else float('inf')
 
         if dt > self._cmd_timeout:
             if not self._timed_out:
                 self._timed_out = True
-                self.get_logger().warn('Joystick input timed out — publishing zeros to /cmd_vel')
+                self.get_logger().warn(
+                    'Joystick input timed out — publishing zeros to /cmd_vel'
+                    if self._active else
+                    'Joystick input timed out (inactive — nav holds /cmd_vel)')
 
-            self._publish_cmd(0.0, 0.0, 0.0)
+            if self._active:
+                self._publish_cmd(0.0, 0.0, 0.0)
 
     def _publish_cmd(self, vx: float, vy: float, wz: float):
         out = Twist()
@@ -431,21 +453,12 @@ class JoystickInterpreterNode(Node):
 
     def _refresh_led(self):
         """Paint the controller's light bar with the current drive state."""
-        if not self._motors_enabled:
-            colour = LED_MOTORS_OFF
-        elif not self._controller_active:
-            colour = LED_CONTROLLER_OFF
-        elif not self._active:
-            colour = LED_NAV
-        else:
-            colour = LED_DRIVING
-
-        for path in glob.glob(LED_GLOB):
-            try:
-                with open(path, 'w') as handle:
-                    handle.write('{} {} {}'.format(*colour))
-            except OSError as exc:
-                self.get_logger().debug(f'controller LED write failed: {exc!r}')
+        self._led.set(led_colour(
+            motors_enabled=self._motors_enabled,
+            motors_inhibited=self._motors_inhibited,
+            controller_active=self._controller_active,
+            joystick_active=self._active,
+        ))
 
     def _now_seconds(self) -> float:
         return float(self.get_clock().now().nanoseconds) * 1e-9
@@ -498,6 +511,9 @@ class JoystickInterpreterNode(Node):
 
         if response.ok:
             self._motors_enabled = desired_state
+            # Cycling the motor button is exactly the recovery step that lifts
+            # the post-clear inhibit.
+            self._motors_inhibited = False
             self._set_swerve_controller_state(desired_state)
 
         status = 'ENABLED' if self._motors_enabled else 'DISABLED'
@@ -516,11 +532,23 @@ class JoystickInterpreterNode(Node):
             req.activate_controllers = []
             req.deactivate_controllers = [self._controller_name]
         req.strictness = SwitchController.Request.BEST_EFFORT
-        self._controller_state_client.call_async(req).add_done_callback(
-            lambda f: self._on_switch_controller_result(f, activate))
 
-    def _on_switch_controller_result(self, future, activate: bool):
+        self._switch_generation += 1
+        generation = self._switch_generation
+        self._controller_state_client.call_async(req).add_done_callback(
+            lambda f: self._on_switch_controller_result(f, activate, generation))
+
+    def _on_switch_controller_result(self, future, activate: bool, generation: int):
         target = 'active' if activate else 'inactive'
+
+        if generation != self._switch_generation:
+            # A newer request has already been sent; this reply describes a
+            # superseded intent. Acting on it would write back a stale
+            # _controller_active and mislead the light bar.
+            self.get_logger().debug(
+                f'ignoring stale switch_controller reply (→ {target})')
+            return
+
         try:
             response = future.result()
         except Exception as exc:
