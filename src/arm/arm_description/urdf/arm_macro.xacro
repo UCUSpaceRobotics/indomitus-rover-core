@@ -157,11 +157,11 @@
     <link name="arm_end_effector_link">
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
         <visual>
-          <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_v2.stl" scale="${stl_scale}"/></geometry>
+          <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_v3.stl" scale="${stl_scale}"/></geometry>
           <material name="light_grey"/>
         </visual>
         <collision>
-          <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_v2.stl" scale="${stl_scale}"/></geometry>
+          <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_v3.stl" scale="${stl_scale}"/></geometry>
         </collision>
       </xacro:if>
       
@@ -172,16 +172,35 @@
     </link>
 
     <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
-      <!-- From CAD, origin of each finger relative to gripper origin (mm):
-           finger 1 (right): closed (3.5, -10.72, 122.133)  -> open (15.5, -10.72, 122.133)
-           finger 2 (left):  closed (-3.5, 13.78, 122.133)  -> open (-15.5, 13.78, 122.133)
-           X is symmetric (+-3.5mm closed, +-12mm stroke); Y is NOT mirrored between the two
-           fingers on purpose (offset so the finger pads clear each other near full close). -->
-      <xacro:property name="finger_x_closed" value="-0.0035"/>
+      <!-- v3: no CAD dimension doc available (unlike v2 above). Derived from
+           the STL geometry itself: arm_jaw_gripper_finger_v3.stl is exported
+           in the gripper's own assembly frame (same frame as
+           arm_jaw_gripper_v3.stl), not in a per-part local frame like v2 was.
+           Its bbox (X[-48.83,11] Y[-16.91,14.08] Z[53,161.52]mm) already sits
+           correctly relative to the body bbox (Z[0,76]mm, overlap 53-76mm =
+           mechanism recessed into the body, 76-161.5mm = fingers protruding)
+           when placed with a plain identity origin. Stroke has no v3 source
+           of truth yet, kept at the v2 value pending visual confirmation of
+           open/close range in sim.
+
+           finger_x_closed is NOT zero, unlike the rest: mirroring the mesh
+           180 deg about Z at a plain (0,0,0) origin leaves the two finger
+           surfaces apart at rest, so each side is shifted inward. 17.24mm
+           brings the grasp band's tightest ridge (Z~130-163mm) to ~0 gap;
+           the rest of that band stays open because the mesh is curved,
+           not flat, there — pushing the offset further to close more of
+           it makes the fingers visibly cross rather than sit closed.
+
+           Collisions between the two finger links are excluded from each
+           other via SDF collide_bitmask (gazebo reference blocks below):
+           real Gazebo physics deadlocks the prismatic joint against its
+           own contact force when their meshes overlap, and they only
+           ever need to push against a grasped object, not each other. -->
+      <xacro:property name="finger_x_closed" value="0.01724"/>
       <xacro:property name="finger_stroke" value="0.012"/>
-      <xacro:property name="finger_z" value="0.122133"/>
-      <xacro:property name="finger_right_y" value="0.01072"/>
-      <xacro:property name="finger_left_y" value="-0.01378"/>
+      <xacro:property name="finger_z" value="0.0"/>
+      <xacro:property name="finger_right_y" value="0.0"/>
+      <xacro:property name="finger_left_y" value="0.0"/>
 
       <xacro:macro name="jaw_gripper_finger" params="side x_closed y yaw axis_sign limit_lower limit_upper">
         <joint name="arm_jaw_gripper_finger_${side}_joint" type="prismatic">
@@ -190,25 +209,21 @@
           <origin xyz="${x_closed} ${y} ${finger_z}" rpy="0 0 ${yaw}"/>
           <axis xyz="${axis_sign} 0 0"/>
           <limit lower="${limit_lower}" upper="${limit_upper}" effort="20.0" velocity="0.05"/>
-          <xacro:unless value="${side == 'right'}">
-            <!-- Right and left are mirror images (180 deg about Z), so their axes
-                 point opposite ways in the parent frame — multiplier=-1.0 makes
-                 them slide apart symmetrically as the right joint opens, rather
-                 than translating together with a fixed gap. Left's own range is
-                 shifted negative to match, since its opening motion is the
-                 mirror of right's (mimic must stay within the child's own
-                 declared limits). -->
-            <mimic joint="arm_jaw_gripper_finger_right_joint" multiplier="-1.0" offset="0.0"/>
-          </xacro:unless>
+          <!-- Left was a <mimic> of right until a live disturbance test
+               (Gazebo Transport, bypassing ROS) caught DART's mimic
+               constraint drifting out of sync and sticking, invisibly to
+               ROS/RViz since a <mimic> joint has no state interface of
+               its own. Left now has its own ros2_control interface below
+               and is commanded in lockstep with right instead. -->
         </joint>
 
         <link name="arm_jaw_gripper_finger_${side}_link">
           <visual>
-            <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_finger_v2.stl" scale="${stl_scale}"/></geometry>
+            <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_finger_v3.stl" scale="${stl_scale}"/></geometry>
             <material name="light_grey"/>
           </visual>
           <collision>
-            <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_finger_v2.stl" scale="${stl_scale}"/></geometry>
+            <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_finger_v3.stl" scale="${stl_scale}"/></geometry>
           </collision>
           <xacro:dummy_inertia mass="0.05"/>
         </link>
@@ -225,7 +240,20 @@
       <child link="arm_tcp_link"/>
       
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
-        <origin xyz="0 -0.0015 0.2072" rpy="0 0 0"/>
+        <!-- v3: X=Y=0 by construction (right/left fingers are the same mesh
+             mirrored 180 deg about Z through the shared origin, see the
+             finger properties comment above, so that origin is the natural
+             symmetric grasp centerline). Z = max Z of
+             arm_jaw_gripper_finger_v3.stl (161.5187mm, fingertip reach in
+             the shared assembly frame); same derivation the old v2 value
+             used (finger_z + finger local Z max), simplified here since
+             finger_z is now 0. This places the TCP at the fingertip
+             plane, not the grasp center, ~46mm further out than v2's TCP
+             — a correct consequence of v3's fingers being physically
+             shorter than v2's, not a calculation error; the formula
+             itself is unchanged from v2 and matches the SRDF's own
+             tip_link convention for arm_tcp_link (indomitus_arm.srdf). -->
+        <origin xyz="0 0 0.1615" rpy="0 0 0"/>
       </xacro:if>
       
       <xacro:if value="${'$(arg end_effector)' != 'jaw'}">
@@ -238,13 +266,23 @@
     <joint name="arm_camera_joint" type="fixed">
       <parent link="arm_end_effector_link"/>
       <child link="arm_camera_link"/>
-      <origin xyz="0.0012604892253875732 -0.045 0.07839690148830414" rpy="0 ${-pi/2} ${pi/2}"/>
+      <!-- Ground truth click on the mount recess: (2.47, 21.72, 23.86)mm
+           surface point (see history above/git log for the RViz Publish
+           Point capture). Y is offset from that surface point by the
+           box's own half-extent along the axis that actually faces this
+           direction: arm_camera_link's local Z maps to global -Y here (see
+           the rpy below, unchanged throughout), and local Z is the box's
+           HEIGHT dimension (third size number below); keep this offset
+           at HALF THE CURRENT HEIGHT whenever that size number changes, or
+           the box either gaps off the surface or buries into it. Currently
+           0.05m tall -> 25mm half-extent -> Y = 21.72 + 25 = 46.72mm. -->
+      <origin xyz="0.00247 0.04672 0.02386" rpy="0 ${-pi/2} ${pi/2}"/>
     </joint>
 
     <link name="arm_camera_link">
       <visual>
         <geometry>
-          <box size="0.06 0.06 0.06"/>
+          <box size="0.035 0.035 0.05"/>
         </geometry>
         <material name="camera_blue">
           <color rgba="0.0 0.0 1.0 1.0"/>
@@ -253,7 +291,7 @@
 
       <collision>
         <geometry>
-          <box size="0.06 0.06 0.06"/>
+          <box size="0.035 0.035 0.05"/>
         </geometry>
       </collision>
     </link>
@@ -261,7 +299,28 @@
     <joint name="arm_camera_optical_joint" type="fixed">
       <parent link="arm_camera_link"/>
       <child link="arm_camera_optical_frame"/>
-      <origin xyz="0.045 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <!-- 0.045 was sized for the old 60mm camera box (half-extent 30mm)
+           and never revisited when the box shrank to 35mm; it put the
+           lens 45mm out along camera_link's local +X (= +Z in
+           arm_end_effector_link), landing deep inside the v3 gripper body
+           instead of at the box's own front face. An actual captured
+           /camera/image_raw frame confirmed this: flat solid grey, the lens
+           pressed against the body's own material. Set to 0.0175, the
+           current box's half-extent, so the lens sits flush with its front
+           face instead of floating 27.5mm past it. rpy confirmed 180 deg
+           rolled from a live captured frame (fingers rendered correctly
+           shaped but upside down); flipping the sign of roll and yaw
+           (pitch stays 0) is an exact 180 deg roll about the optical Z
+           (viewing) axis: verified by matrix multiplication that the
+           combined camera_joint*optical_joint rotation keeps the same +Z
+           forward direction with X/Y both negated, not a re-aim.
+
+           Verified against the Gazebo <sensor><pose> roll fix below with
+           a live pixel-projection test (TF chain + camera K-matrix
+           predicted a pixel that landed exactly on a known mesh point in
+           a captured frame); the rotation is also quaternion-derived, so
+           it cannot represent a reflection/X-inversion regardless. -->
+      <origin xyz="0.0175 0 0" rpy="${pi/2} 0 ${pi/2}"/>
     </joint>
 
     <link name="arm_camera_optical_frame"/>
@@ -335,15 +394,26 @@
       <xacro:arm_joint_control joint_name="arm_wrist_1_wrist_2_joint"     motor_id="24" direction="-1" offset="0.0"  kp="400.0" kd="5.0"/>
       <xacro:arm_joint_control joint_name="arm_wrist_2_end_effector_joint" motor_id="25" direction="1"  offset="0.0"  kp="350.0" kd="5.0"/>
 
-      <!-- Only the right finger needs an interface: left is a <mimic> of it.
-           Excluded on real hardware — ArmCanSystem hardcodes NUM_JOINTS=6 and
-           would fail with "Expected 6 joints, got 7"; the JawGripperStub
-           component below covers that case instead. -->
+      <!-- Both fingers get their own interface — left used to be a bare
+           <mimic> of right with no ros2_control entry, which made its real
+           simulated state invisible to ROS (see the joint definition above
+           for the full story of why that was dropped). Excluded on real
+           hardware — ArmCanSystem hardcodes NUM_JOINTS=6 and would fail with
+           "Expected 6 joints, got 7"; the JawGripperStub component below
+           covers that case instead. -->
       <xacro:if value="${('$(arg end_effector)' == 'jaw') and (('$(arg sim)' == 'true') or ('$(arg use_fake_hardware)' == 'true'))}">
         <joint name="arm_jaw_gripper_finger_right_joint">
           <command_interface name="position">
             <param name="min">0</param>
             <param name="max">${finger_stroke}</param>
+          </command_interface>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+        <joint name="arm_jaw_gripper_finger_left_joint">
+          <command_interface name="position">
+            <param name="min">${-finger_stroke}</param>
+            <param name="max">0</param>
           </command_interface>
           <state_interface name="position"/>
           <state_interface name="velocity"/>
@@ -464,6 +534,16 @@
               <specular>0.3 0.3 0.3 1.0</specular>
             </material>
           </visual>
+          <!-- Distinct bitmasks (0x01/0x02) exclude only this pair from
+               colliding with each other; both keep the default 0xff
+               against everything else (grasped object, environment). -->
+          <collision>
+            <surface>
+              <contact>
+                <collide_bitmask>0x01</collide_bitmask>
+              </contact>
+            </surface>
+          </collision>
         </gazebo>
 
         <gazebo reference="arm_jaw_gripper_finger_left_link">
@@ -474,13 +554,31 @@
               <specular>0.3 0.3 0.3 1.0</specular>
             </material>
           </visual>
+          <!-- See arm_jaw_gripper_finger_right_link above: excludes this
+               pair from each other (0x01 & 0x02 = 0) only. -->
+          <collision>
+            <surface>
+              <contact>
+                <collide_bitmask>0x02</collide_bitmask>
+              </contact>
+            </surface>
+          </collision>
         </gazebo>
       </xacro:if>
 
       <xacro:if value="$(arg camera)">
       <gazebo reference="arm_camera_link">
         <sensor name="arm_camera" type="camera">
-          <pose>0.045 0 0 0 0 0</pose>
+          <!-- This is the pose gz-sim actually renders from, separate
+               from, and NOT driven by, arm_camera_optical_joint's TF chain
+               (that joint only labels frame_id for ROS consumers via
+               optical_frame_id below; editing its rpy alone was verified,
+               via repeated live-captured /camera/image_raw frames, to have
+               zero effect on the rendered image). X was the same stale
+               0.045 (old 60mm box) bug as arm_camera_optical_joint had;
+               fixed to 0.0175 (current box half-extent). Roll=pi added
+               here to fix the confirmed 180 deg upside-down image. -->
+          <pose>0.0175 0 0 3.14159265 0 0</pose>
           <camera>
             <optical_frame_id>arm_camera_optical_frame</optical_frame_id>
             <horizontal_fov>1.047</horizontal_fov>
