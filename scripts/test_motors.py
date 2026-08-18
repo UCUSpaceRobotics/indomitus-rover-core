@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
 """
-chassis_driver test — interactive.
+chassis_driver test — standalone, NO ROS2 required.
 
-Requires chassis_driver_node + can_hw_bridge_node running
+Talks directly to the CAN bus via python-can / SocketCAN, instead of going
+through rclpy topics and custom message types (WheelTargets, ChassisStatus).
+
+Install dependency:
+    pip install python-can --break-system-packages
+
+Make sure the CAN interface is up first, e.g.:
+    sudo ip link set can0 up type can bitrate 1000000
 
 Controls:
-    e       Enable all motors  (publishes init frames to /to_can_bus)
-    d       Disable all motors (zero → wait 1.5s → disable frames)
+    e       Enable all motors
+    d       Disable all motors  (zero → wait 1.5s → disable)
     1       Test: straight forward 0.5 m/s
     2       Test: spin in place left
-    3       Test: turn left (Ackermann)
-    4       Test: all wheels max steer angle, no drive
-    s       Stop drive (publish cmd_vel zeros)
-    f       Print latest /chassis/motor_states feedback
+    3       Test: turn left (differential)
+    4       Test: max steer angle placeholder (no steer motors configured)
+    s       Stop drive (publish zero velocity)
+    f       Print latest decoded feedback per motor
     q       Quit
-
-Publishes to  : /cmd_vel, /to_can_bus
-Subscribes to : /wheel_targets, /to_can_bus, /chassis/motor_states, /joint_states
 """
 import math
 import struct
@@ -26,235 +30,182 @@ import threading
 import time
 import tty
 
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+import can
 
-from geometry_msgs.msg import Twist
-from can_msgs.msg import Frame
-from indomitus_interfaces.msg import WheelTargets, ChassisStatus
+# ── Config ──────────────────────────────────────────────────────────────────
 
-# ── Config ────────────────────────────────────────────────────────────────────
+CAN_CHANNEL = "can0"
+CAN_BITRATE = 1_000_000          # must match what's actually configured on the bus
 
-STEER_IDS = [11, 13, 15, 17]   # Steadywin, [FL, FR, RL, RR]
-DRIVE_IDS = [10, 12, 14, 16]   # Damiao,    [FL, FR, RL, RR]
+STEER_IDS = []                    # Steadywin, [FL, FR, RL, RR] — none in this build
+DRIVE_IDS = [10, 12, 14, 16]      # Damiao,    [FL, FR, RL, RR]
+WHEEL_NAMES = ["FL", "FR", "RL", "RR"]
 
-WHEEL_NAMES = ['FL', 'FR', 'RL', 'RR']
+# Skid-steer geometry — ADJUST to your actual rover dimensions
+WHEEL_RADIUS = 0.15      # meters
+TRACK_WIDTH = 0.6        # meters, distance between left/right wheel centers
 
-# ── Frame builders (mirrors chassis_driver protocol headers) ──────────────────
-
-def _frame(can_id: int, data: bytes) -> Frame:
-    f = Frame()
-    f.id  = can_id
-    f.dlc = len(data)
-    for i, b in enumerate(data):
-        f.data[i] = b
-    return f
+# ── Frame builders (same protocol as before) ─────────────────────────────────
 
 def _rad_to_counts(angle_rad: float) -> int:
     return int(angle_rad * 16384 / (2 * math.pi))
 
 # Steadywin
-def sw_clear_fault(esc_id: int) -> Frame:
-    return _frame(esc_id, bytes([0xAF]))
+def sw_clear_fault(esc_id: int) -> can.Message:
+    return can.Message(arbitration_id=esc_id, data=bytes([0xAF]), is_extended_id=False)
 
-def sw_abs_position(esc_id: int, angle_rad: float) -> Frame:
+def sw_abs_position(esc_id: int, angle_rad: float) -> can.Message:
     counts = _rad_to_counts(angle_rad)
-    return _frame(esc_id, bytes([0xC2]) + struct.pack('<i', counts))
+    return can.Message(arbitration_id=esc_id,
+                        data=bytes([0xC2]) + struct.pack('<i', counts),
+                        is_extended_id=False)
 
-def sw_disable(esc_id: int) -> Frame:
-    return _frame(esc_id, bytes([0xCF]))
+def sw_disable(esc_id: int) -> can.Message:
+    return can.Message(arbitration_id=esc_id, data=bytes([0xCF]), is_extended_id=False)
 
-def sw_status_query(esc_id: int) -> Frame:
-    return _frame(esc_id, bytes([0xAE]))
+def sw_status_query(esc_id: int) -> can.Message:
+    return can.Message(arbitration_id=esc_id, data=bytes([0xAE]), is_extended_id=False)
 
 # Damiao
-def dm_set_mode(esc_id: int, mode: int) -> Frame:
-    f = _frame(0x7FF, bytes([esc_id & 0xFF, (esc_id >> 8) & 0xFF, 0x55, 0x0A, mode, 0, 0, 0]))
-    f.is_extended = True  # ros2_socketcan Humble rejects 0x7FF without this flag
-    return f
+def dm_set_mode(esc_id: int, mode: int) -> can.Message:
+    data = bytes([esc_id & 0xFF, (esc_id >> 8) & 0xFF, 0x55, 0x0A, mode, 0, 0, 0])
+    return can.Message(arbitration_id=0x7FF, data=data, is_extended_id=False)
 
-def dm_enable(esc_id: int) -> Frame:
-    return _frame(esc_id, bytes([0xFF] * 7 + [0xFC]))
+def dm_enable(esc_id: int) -> can.Message:
+    return can.Message(arbitration_id=esc_id, data=bytes([0xFF] * 7 + [0xFC]), is_extended_id=False)
 
-def dm_disable(esc_id: int) -> Frame:
-    return _frame(esc_id, bytes([0xFF] * 7 + [0xFD]))
+def dm_disable(esc_id: int) -> can.Message:
+    return can.Message(arbitration_id=esc_id, data=bytes([0xFF] * 7 + [0xFD]), is_extended_id=False)
 
-def dm_velocity(esc_id: int, vel_rad_s: float) -> Frame:
-    return _frame(0x200 + esc_id, struct.pack('<f', vel_rad_s))
+def dm_velocity(esc_id: int, vel_rad_s: float) -> can.Message:
+    return can.Message(arbitration_id=0x200 + esc_id,
+                        data=struct.pack('<f', vel_rad_s),
+                        is_extended_id=False)
 
-# ── Frame decoder (for /to_can_bus display) ───────────────────────────────────
+# ── Feedback decode (Damiao feedback frame, per motor manual) ────────────────
+# D0 = ID | ERR<<4 , D1-2 = POS(16b), D3-4 = VEL(12b)|T[11:8], D5 = T[7:0],
+# D6 = T_MOS, D7 = T_Rotor
+# NOTE: converting raw POS/VEL/T fields to physical units requires reading
+# PMAX/VMAX/TMAX from the motor's registers (21/22/23). Raw values shown here.
 
-def decode_frame(f: Frame) -> str:
-    cid  = f.id
-    data = bytes(f.data[:f.dlc])
+def decode_feedback(msg: can.Message) -> dict | None:
+    d = msg.data
+    if len(d) != 8:
+        return None
+    ctrl_id = d[0] & 0x0F
+    err = (d[0] >> 4) & 0x0F
+    pos_raw = (d[1] << 8) | d[2]
+    vel_raw = (d[3] << 4) | (d[4] >> 4)
+    t_raw = ((d[4] & 0x0F) << 8) | d[5]
+    t_mos = d[6]
+    t_rotor = d[7]
+    return {
+        "can_id": msg.arbitration_id,
+        "ctrl_id": ctrl_id,
+        "err": err,
+        "pos_raw": pos_raw,
+        "vel_raw": vel_raw,
+        "torque_raw": t_raw,
+        "t_mos_c": t_mos,
+        "t_rotor_c": t_rotor,
+    }
 
-    # Damiao velocity
-    if f.dlc == 4 and 0x200 < cid <= 0x210:
-        vel, = struct.unpack('<f', data)
-        return f"DAMIAO  VELOCITY  motor={cid-0x200:2d}  vel={vel:+.3f} rad/s"
+ERR_NAMES = {
+    0: "DISABLED", 1: "ENABLED", 8: "OVERVOLTAGE", 9: "UNDERVOLTAGE",
+    0xA: "OVERCURRENT", 0xB: "MOS_OVERTEMP", 0xC: "COIL_OVERTEMP",
+    0xD: "COMM_LOST", 0xE: "OVERLOAD",
+}
 
-    # Damiao setMode
-    if cid == 0x7FF and f.dlc == 8 and data[2] == 0x55:
-        esc = data[0] | (data[1] << 8)
-        return f"DAMIAO  SET_MODE  motor={esc:2d}  mode={data[4]}"
+# ── Bus wrapper with background listener ─────────────────────────────────────
 
-    # Damiao enable / disable
-    if f.dlc == 8 and data[7] in (0xFC, 0xFD):
-        cmd = "ENABLE" if data[7] == 0xFC else "DISABLE"
-        return f"DAMIAO  {cmd}   motor={cid:2d}"
-
-    # Steadywin abs position (0xC2)
-    if f.dlc == 5 and data[0] == 0xC2:
-        counts, = struct.unpack('<i', data[1:5])
-        angle = counts * 2 * math.pi / 16384
-        return f"STEADYW ABS_POS   motor={cid:2d}  counts={counts:6d}  angle={math.degrees(angle):+.2f}°"
-
-    # Steadywin 1-byte commands
-    if f.dlc == 1:
-        names = {0xAF: "CLEAR_FAULT", 0xCF: "DISABLE", 0xAE: "STATUS_QUERY"}
-        name = names.get(data[0], f"CMD_0x{data[0]:02X}")
-        return f"STEADYW {name}  motor={cid:2d}"
-
-    return f"RAW  id=0x{cid:03X}  dlc={f.dlc}  data={data.hex().upper()}"
-
-# ── ROS2 node ─────────────────────────────────────────────────────────────────
-
-class PipelineNode(Node):
-    def __init__(self):
-        super().__init__('pipeline_test')
-        qos = QoSProfile(depth=50, reliability=ReliabilityPolicy.RELIABLE)
-
-        self.cmd_vel_pub  = self.create_publisher(Twist,         '/cmd_vel',      qos)
-        self.can_pub      = self.create_publisher(Frame,         '/to_can_bus',   qos)
-
-        self.create_subscription(WheelTargets, '/wheel_targets',
-                                 self._on_wheel_targets, qos)
-        self.create_subscription(Frame, '/to_can_bus',
-                                 self._on_can_frame, qos)
-        self.create_subscription(ChassisStatus, '/chassis/motor_states',
-                                 self._on_chassis_status, qos)
-
-        self.last_wheel_targets: WheelTargets | None = None
-        self.can_frames: list[Frame] = []
-        self.last_chassis_status: ChassisStatus | None = None
+class CanBus:
+    def __init__(self, channel: str, bitrate: int):
+        self.bus = can.interface.Bus(channel=channel, bustype="socketcan", bitrate=bitrate)
+        self.latest_feedback: dict[int, dict] = {}
         self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._listen, daemon=True)
+        self._thread.start()
 
-    # subscriptions
-    def _on_wheel_targets(self, msg: WheelTargets):
+    def _listen(self):
+        while not self._stop.is_set():
+            msg = self.bus.recv(timeout=0.2)
+            if msg is None:
+                continue
+            fb = decode_feedback(msg)
+            if fb:
+                with self._lock:
+                    self.latest_feedback[msg.arbitration_id] = fb
+
+    def send(self, msg: can.Message):
+        self.bus.send(msg)
+
+    def snapshot(self) -> dict[int, dict]:
         with self._lock:
-            self.last_wheel_targets = msg
+            return dict(self.latest_feedback)
 
-    def _on_can_frame(self, msg: Frame):
-        with self._lock:
-            self.can_frames.append(msg)
-            if len(self.can_frames) > 200:
-                self.can_frames = self.can_frames[-200:]
+    def shutdown(self):
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+        self.bus.shutdown()
 
-    def _on_chassis_status(self, msg: ChassisStatus):
-        with self._lock:
-            self.last_chassis_status = msg
+# ── High-level actions ────────────────────────────────────────────────────────
 
-    # publishers
-    def publish_twist(self, vx: float, wz: float):
-        tw = Twist()
-        tw.linear.x  = vx
-        tw.angular.z = wz
-        self.cmd_vel_pub.publish(tw)
+def enable_all(bus: CanBus):
+    print("\n[ENABLE] Sending enable sequence...")
+    for esc_id in STEER_IDS:
+        bus.send(sw_clear_fault(esc_id)); time.sleep(0.02)
+    for esc_id in STEER_IDS:
+        bus.send(sw_abs_position(esc_id, 0.0)); time.sleep(0.02)
+    for esc_id in DRIVE_IDS:
+        bus.send(dm_set_mode(esc_id, 3)); time.sleep(0.02)   # mode 3 = Velocity
+    time.sleep(0.05)
+    for esc_id in DRIVE_IDS:
+        bus.send(dm_enable(esc_id)); time.sleep(0.02)
+    print("[ENABLE] Done")
 
-    def publish_enable(self):
-        """Replicate chassis_driver sendEnableFrames() via /to_can_bus."""
-        print("\n[ENABLE] Sending enable sequence...")
-        for esc_id in STEER_IDS:
-            self.can_pub.publish(sw_clear_fault(esc_id))
-        for esc_id in STEER_IDS:
-            self.can_pub.publish(sw_abs_position(esc_id, 0.0))
-        for esc_id in DRIVE_IDS:
-            self.can_pub.publish(dm_set_mode(esc_id, 3))
-        time.sleep(0.05)
-        for esc_id in DRIVE_IDS:
-            self.can_pub.publish(dm_enable(esc_id))
-        print("[ENABLE] Done")
+def disable_all(bus: CanBus):
+    print("\n[DISABLE] Zeroing commands...")
+    for esc_id in STEER_IDS:
+        bus.send(sw_abs_position(esc_id, 0.0))
+    for esc_id in DRIVE_IDS:
+        bus.send(dm_velocity(esc_id, 0.0))
+    print("[DISABLE] Waiting 1.5s to settle...")
+    time.sleep(1.5)
+    for esc_id in STEER_IDS:
+        bus.send(sw_disable(esc_id))
+    for esc_id in DRIVE_IDS:
+        bus.send(dm_disable(esc_id))
+    print("[DISABLE] All motors disabled")
 
-    def publish_disable(self):
-        """Replicate chassis_driver sendDisableFrames() via /to_can_bus."""
-        print("\n[DISABLE] Zeroing commands...")
-        for esc_id in STEER_IDS:
-            self.can_pub.publish(sw_abs_position(esc_id, 0.0))
-        for esc_id in DRIVE_IDS:
-            self.can_pub.publish(dm_velocity(esc_id, 0.0))
-        print("[DISABLE] Waiting 1.5s to settle...")
-        time.sleep(1.5)
-        for esc_id in STEER_IDS:
-            self.can_pub.publish(sw_disable(esc_id))
-        for esc_id in DRIVE_IDS:
-            self.can_pub.publish(dm_disable(esc_id))
-        print("[DISABLE] All motors disabled")
+def send_diff_drive(bus: CanBus, vx: float, wz: float):
+    """Simple skid-steer mixing: left/right wheel speeds from vx, wz."""
+    left_speed = (vx - wz * TRACK_WIDTH / 2.0) / WHEEL_RADIUS
+    right_speed = (vx + wz * TRACK_WIDTH / 2.0) / WHEEL_RADIUS
+    # DRIVE_IDS order = [FL, FR, RL, RR]
+    speeds = [left_speed, right_speed, left_speed, right_speed]
+    for esc_id, spd in zip(DRIVE_IDS, speeds):
+        bus.send(dm_velocity(esc_id, spd))
+    return speeds
 
-    def collect_can_frames(self, duration: float) -> list[Frame]:
-        """Collect /to_can_bus frames for `duration` seconds."""
-        with self._lock:
-            self.can_frames.clear()
-        time.sleep(duration)
-        with self._lock:
-            return list(self.can_frames)
+# ── Display helpers ────────────────────────────────────────────────────────────
 
-# ── Display helpers ───────────────────────────────────────────────────────────
-
-def print_chassis_status(status: ChassisStatus | None):
-    if status is None:
-        print("  (no /chassis/motor_states received yet)")
+def print_feedback(bus: CanBus):
+    snap = bus.snapshot()
+    if not snap:
+        print("  (no feedback frames received yet)")
         return
-    print(f"\n  /chassis/motor_states  [{len(status.motors)} motors]")
-    for m in status.motors:
-        enabled = "ON " if m.enabled else "OFF"
-        fault   = f" FAULT=0x{m.fault_code:02X}" if m.fault_code else ""
-        kin     = f"pos={m.position:+.3f}rad vel={m.velocity:+.3f}rad/s" if m.kinematic_valid else "no-kin"
-        health  = (f"V={m.voltage:.1f}V I={m.current:.3f}A T={m.temperature:.0f}°C mode={m.mode}"
-                   if m.health_valid else "no-health")
-        print(f"    [{enabled}] {m.motor_type:9s} esc={m.esc_id:2d} {m.joint_name:25s}"
-              f"  {kin}  {health}{fault}")
-
-def print_can_frames(frames: list[Frame]):
-    # Deduplicate: keep last per (id, dlc, data[0])
-    seen: dict[tuple, Frame] = {}
-    for f in frames:
-        key = (f.id, f.dlc, f.data[0] if f.dlc > 0 else -1)
-        seen[key] = f
-    print(f"\n  /to_can_bus  ({len(seen)} unique frames):")
-    for f in sorted(seen.values(), key=lambda x: x.id):
-        print(f"    {decode_frame(f)}")
-
-def print_wheel_targets(wt: WheelTargets | None):
-    if wt is None:
-        print("  /wheel_targets: not received")
-        return
-    print("  /wheel_targets:")
-    labels = ['FL', 'FR', 'RL', 'RR']
-    angles = [wt.fl_angle, wt.fr_angle, wt.rl_angle, wt.rr_angle]
-    speeds = [wt.fl_speed, wt.fr_speed, wt.rl_speed, wt.rr_speed]
-    for i in range(4):
-        print(f"    {labels[i]}  angle={math.degrees(angles[i]):+7.2f}°  speed={speeds[i]:+7.3f} rad/s")
-
-# ── Test scenarios ────────────────────────────────────────────────────────────
-
-def run_scenario(node: PipelineNode, vx: float, wz: float, label: str):
-    print(f"\n{'='*60}")
-    print(f"SCENARIO: {label}  (vx={vx:.2f} m/s  wz={wz:.2f} rad/s)")
-    print(f"{'='*60}")
-
-    node.publish_twist(vx, wz)
-    frames = node.collect_can_frames(0.5)
-
-    with node._lock:
-        wt = node.last_wheel_targets
-    print_wheel_targets(wt)
-    print_can_frames(frames)
+    print(f"\n  Latest feedback  [{len(snap)} motor(s)]")
+    for can_id, fb in sorted(snap.items()):
+        err_name = ERR_NAMES.get(fb["err"], f"0x{fb['err']:X}")
+        print(f"    can_id=0x{can_id:03X} ctrl_id={fb['ctrl_id']:2d} "
+              f"status={err_name:12s} pos_raw={fb['pos_raw']:5d} "
+              f"vel_raw={fb['vel_raw']:4d} torque_raw={fb['torque_raw']:4d} "
+              f"T_mos={fb['t_mos_c']}C T_rotor={fb['t_rotor_c']}C")
 
 # ── Keyboard input ────────────────────────────────────────────────────────────
 
 def get_key() -> str:
-    """Read a single key from stdin without echoing."""
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
@@ -265,7 +216,7 @@ def get_key() -> str:
 
 HELP = """
 ╔══════════════════════════════════════════╗
-║      chassis_driver pipeline test        ║
+║   chassis_driver standalone test (no ROS) ║
 ╠══════════════════════════════════════════╣
 ║  e   Enable all motors                   ║
 ║  d   Disable all motors                  ║
@@ -273,27 +224,18 @@ HELP = """
 ║  1   Straight forward  0.5 m/s           ║
 ║  2   Spin in place     1.0 rad/s         ║
 ║  3   Turn left         0.5 m/s + 0.5ω   ║
-║  4   Max steer angle   no drive          ║
-║  s   Stop (cmd_vel = 0)                  ║
+║  4   (steer test placeholder — no steer  ║
+║       motors configured)                 ║
+║  s   Stop (velocity = 0)                 ║
 ║  ─── info ──────────────────────────────║
 ║  f   Print motor feedback                ║
 ║  q   Quit                                ║
 ╚══════════════════════════════════════════╝
 """
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-
 def main():
-    rclpy.init()
-    node = PipelineNode()
-    executor = rclpy.executors.SingleThreadedExecutor()
-    executor.add_node(node)
-
-    spin_thread = threading.Thread(target=executor.spin, daemon=True)
-    spin_thread.start()
-
-    print("Waiting 1s for nodes to connect...")
-    time.sleep(1.0)
+    print(f"Opening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
+    bus = CanBus(CAN_CHANNEL, CAN_BITRATE)
     print(HELP)
 
     try:
@@ -301,53 +243,48 @@ def main():
             key = get_key()
 
             if key == 'e':
-                node.publish_enable()
+                enable_all(bus)
 
             elif key == 'd':
-                node.publish_disable()
+                disable_all(bus)
 
             elif key == '1':
-                run_scenario(node, vx=0.5, wz=0.0, label="STRAIGHT FORWARD 0.5 m/s")
+                print("\nSCENARIO: STRAIGHT FORWARD 0.5 m/s")
+                speeds = send_diff_drive(bus, vx=0.5, wz=0.0)
+                print(f"  wheel speeds (rad/s): {speeds}")
 
             elif key == '2':
-                run_scenario(node, vx=0.0, wz=1.0, label="SPIN IN PLACE 1.0 rad/s")
+                print("\nSCENARIO: SPIN IN PLACE 1.0 rad/s")
+                speeds = send_diff_drive(bus, vx=0.0, wz=1.0)
+                print(f"  wheel speeds (rad/s): {speeds}")
 
             elif key == '3':
-                run_scenario(node, vx=0.5, wz=0.5, label="TURN LEFT (Ackermann)")
+                print("\nSCENARIO: TURN LEFT")
+                speeds = send_diff_drive(bus, vx=0.5, wz=0.5)
+                print(f"  wheel speeds (rad/s): {speeds}")
 
             elif key == '4':
-                # Max steer angle with no drive — publishes directly to /to_can_bus
-                print("\n[TEST 4] Max steer angle, no drive")
-                max_angle = math.radians(45.0)
-                for esc_id in STEER_IDS:
-                    node.can_pub.publish(sw_abs_position(esc_id, max_angle))
-                for esc_id in DRIVE_IDS:
-                    node.can_pub.publish(dm_velocity(esc_id, 0.0))
-                frames = node.collect_can_frames(0.3)
-                print_can_frames(frames)
+                print("\n[TEST 4] No steer motors configured — skipping.")
 
             elif key == 's':
-                print("\n[STOP] Publishing cmd_vel = 0")
-                node.publish_twist(0.0, 0.0)
+                print("\n[STOP] Zero velocity")
+                send_diff_drive(bus, vx=0.0, wz=0.0)
 
             elif key == 'f':
-                with node._lock:
-                    status = node.last_chassis_status
-                print_chassis_status(status)
+                print_feedback(bus)
 
-            elif key in ('q', '\x03'):   # q or Ctrl+C
+            elif key in ('q', '\x03'):
                 print("\nQuitting...")
                 break
 
             else:
-                print(f"  (unknown key '{key}' — press h for help)")
+                print(f"  (unknown key '{key}')")
 
     except Exception as e:
         print(f"\nError: {e}")
     finally:
-        print("\nStopping...")
-        executor.shutdown()
-        rclpy.shutdown()
+        print("\nShutting down bus...")
+        bus.shutdown()
 
 
 if __name__ == '__main__':
