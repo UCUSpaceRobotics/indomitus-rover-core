@@ -47,6 +47,9 @@ On a PlayStation controller, `joystick_interpreter` paints the light bar with th
 | 🟠 Orange | Motors on, controller inactive |
 | 🔵 Blue | Yielding to navigation |
 | 🟢 Green | Joystick in command |
+| ⚪ White | `joystick_interpreter` is not running |
+
+White is painted as the node shuts down.
 
 Magenta appears after the clear-errors button: the faults are gone, but the hardware will not drive again until the motor button is cycled off and on.
 
@@ -93,5 +96,7 @@ Both light-bar shapes the `hid-playstation` driver exposes are handled:
 | DualShock 4 (PS4) | separate `*:red` / `*:green` / `*:blue` LEDs plus a `*:global` gate |
 
 `brightness` is written as well as the colour: the light bar's output is intensity × brightness, and the driver resets brightness when a controller reconnects, so setting the colour alone can leave the bar dark.
+
+The colour is rewritten twice a second, not only when the state changes. This node is not the only writer: the kernel driver picks a colour when a controller enumerates, and SDL — which `game_controller_node` is built on — sets the bar when it opens the device, blue for player 1. Without the periodic rewrite, a freshly reconnected controller sits on someone else's colour until the operator happens to toggle something, and SDL's blue is indistinguishable from this node's "yielding to navigation".
 
 > **Note:** Controllers with no light bar (e.g. Xbox pads) are skipped silently — this is a normal setup, not an error. A light bar that *is* found but cannot be written is logged as a warning, since that means the udev rule or `plugdev` membership is missing.

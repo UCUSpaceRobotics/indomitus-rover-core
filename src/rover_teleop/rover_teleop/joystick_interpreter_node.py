@@ -5,6 +5,7 @@ Joystick Interpreter Node.
 import math
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 from geometry_msgs.msg import Twist
@@ -14,13 +15,10 @@ from indomitus_interfaces.srv import SetTrafficLight
 from controller_manager_msgs.srv import SetHardwareComponentState, SwitchController
 from lifecycle_msgs.msg import State
 
-from rover_teleop.controller_led import ControllerLed, led_colour
+from rover_teleop.controller_led import LED_NODE_DOWN, ControllerLed, led_colour
 
 
-# How often a repaint that did not take is retried. A freshly plugged-in
-# controller needs a moment before its LED device exists and udev has handed it
-# to plugdev; ControllerLed gives up after a handful of these.
-LED_RETRY_PERIOD = 0.5
+LED_REPAINT_PERIOD = 0.5
 
 
 def apply_deadzone(value: float, deadzone: float) -> float:
@@ -214,7 +212,9 @@ class JoystickInterpreterNode(Node):
         )
 
         self._led = ControllerLed(self.get_logger())
-        self._led_timer = self.create_timer(LED_RETRY_PERIOD, self._led.retry_tick)
+        # Recomputes the colour each tick, so this also carries state changes
+        # that no button press announces.
+        self._led_timer = self.create_timer(LED_REPAINT_PERIOD, self._refresh_led)
 
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
         self._publish_timer = self.create_timer(1.0 / max(0.001, self._cmd_pub_rate), self._publish_timer_cb)
@@ -451,6 +451,9 @@ class JoystickInterpreterNode(Node):
         self.get_logger().info(f'Joystick control: {state_str}')
         self._refresh_led()
 
+    def mark_led_offline(self):
+        self._led.set(LED_NODE_DOWN)
+
     def _refresh_led(self):
         """Paint the controller's light bar with the current drive state."""
         self._led.set(led_colour(
@@ -595,9 +598,15 @@ def main(args=None):
     node = JoystickInterpreterNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # Ctrl-C arrives as KeyboardInterrupt. SIGTERM — 'systemctl stop rover',
+        # 'docker stop', ros2 launch tearing down its children — is handled by
+        # rclpy itself, which shuts the context down and makes spin() raise
+        # ExternalShutdownException. Catching it keeps the exit clean; either
+        # way the finally block below still runs.
         pass
     finally:
+        node.mark_led_offline()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

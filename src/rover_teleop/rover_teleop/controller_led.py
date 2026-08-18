@@ -31,6 +31,10 @@ LED_CONTROLLER_OFF   = (255, 120, 0)    # orange  — motors on, controller inac
 LED_NAV              = (0, 0, 255)      # blue    — yielding to nav
 LED_DRIVING          = (0, 255, 0)      # green   — joystick in command
 
+# Not a drive state — the absence of one. Painted on the way out so the bar
+# stops advertising whatever was true when the interpreter was last alive.
+LED_NODE_DOWN        = (255, 255, 255)  # white   — interpreter not running
+
 
 def led_colour(motors_enabled: bool, motors_inhibited: bool,
                controller_active: bool, joystick_active: bool):
@@ -67,26 +71,36 @@ def _max_brightness(base: str, fallback: str = '255') -> str:
 class ControllerLed:
     """Paints a PlayStation light bar with the current drive state.
 
-    Repaints are retried for a short while because a controller that has just
-    been plugged in races us: the LED device may not exist yet, and when it
-    does, udev may not have handed it to `plugdev` yet. Without the retry a
-    reconnect can leave the bar showing the driver's default blue — a state the
-    operator would read as 'yielding to navigation'.
+    The colour is rewritten on a timer rather than only when the state
+    changes, because this node is not the only thing that touches the bar:
+
+      * the kernel driver picks its own colour when a controller enumerates;
+      * SDL — which `game_controller_node` is built on — sets the light bar
+        when it opens the device, blue for player 1;
+      * udev may not have handed the new LED device to `plugdev` yet at the
+        moment a reconnect is first noticed, so the first write can fail.
+
+    Any of those leaves the bar showing something the rover never chose —
+    default blue reads as 'yielding to navigation' to an operator. Rewriting
+    unconditionally means the bar converges on the truth within one period no
+    matter who painted over it, and no matter why.
+
+    Writes are cheap (a couple of small sysfs writes) and idempotent, so this
+    costs nothing worth measuring.
     """
 
-    def __init__(self, logger, retry_attempts: int = 6,
+    def __init__(self, logger,
                  dualsense_glob: str = DUALSENSE_GLOB,
                  dualshock_glob: str = DUALSHOCK_GLOB):
         self._log = logger
-        self._retry_attempts = retry_attempts
         self._dualsense_glob = dualsense_glob
         self._dualshock_glob = dualshock_glob
 
         self._colour = None
-        self._retries_left = 0
         # Failure kinds already reported at warn level. Keyed by errno rather
         # than by path so a permission problem is announced once, not once per
-        # reconnect — the path carries an input index that keeps changing.
+        # reconnect — the path carries an input index that keeps changing, and
+        # with a repaint timer running an un-deduped warning would be endless.
         self._warned = set()
 
     @property
@@ -94,20 +108,15 @@ class ControllerLed:
         """Colour last asked for, or None if nothing has been painted yet."""
         return self._colour
 
-    @property
-    def retry_pending(self) -> bool:
-        return self._retries_left > 0
-
     def set(self, colour) -> bool:
-        """Paint `colour` now, and keep retrying briefly if it does not take."""
+        """Paint `colour` now and remember it for subsequent repaints."""
         self._colour = colour
-        self._retries_left = self._retry_attempts
         return self._attempt()
 
-    def retry_tick(self) -> bool:
-        """Re-attempt a repaint that has not succeeded yet. Cheap no-op once
-        the light bar is showing the right colour, or once we have given up."""
-        if not self._retries_left or self._colour is None:
+    def repaint(self) -> bool:
+        """Rewrite the last colour. Driven by a timer; see the class docstring
+        for why this is unconditional rather than only-when-stale."""
+        if self._colour is None:
             return False
         return self._attempt()
 
@@ -116,10 +125,9 @@ class ControllerLed:
 
         if not targets:
             # No light bar. Either the pad has none (any Xbox controller), or
-            # it is a PlayStation pad whose LED device has not appeared yet.
-            # Retries cover the second case and cost nothing in the first, so
-            # this is never worth a warning.
-            self._retries_left = max(0, self._retries_left - 1)
+            # it is a PlayStation pad that has not enumerated yet. Both are
+            # normal and neither is worth a warning; the next repaint picks the
+            # device up as soon as it appears.
             return False
 
         ok = True
@@ -131,16 +139,18 @@ class ControllerLed:
                 ok = False
                 self._report(path, exc)
 
-        self._retries_left = 0 if ok else max(0, self._retries_left - 1)
         return ok
 
     def _report(self, path: str, exc: OSError):
         """A found-but-unwritable light bar is a real misconfiguration — say so
-        out loud, but only the first time each kind of failure shows up."""
-        self._log.debug(f'controller LED write to {path} failed: {exc!r}')
+        out loud, but only the first time each kind of failure shows up.
 
+        Deduped rather than throttled: with a repaint running on a timer this
+        would otherwise repeat forever, at debug level as much as at warn.
+        """
         if exc.errno in self._warned:
             return
+        self._log.debug(f'controller LED write to {path} failed: {exc!r}')
         self._warned.add(exc.errno)
         self._log.warning(
             f'controller LED found at {path} but not writable: {exc!r} — '
