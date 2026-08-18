@@ -139,7 +139,8 @@ def generate_launch_description() -> LaunchDescription:
             package="controller_manager",
             executable="spawner",
             arguments=[
-                "gripper_controller",
+                "gripper_right_controller",
+                "gripper_left_controller",
                 "--controller-manager-timeout", "60",
                 "--switch-timeout", "60",
                 "--service-call-timeout", "70",

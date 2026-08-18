@@ -94,7 +94,6 @@ def generate_launch_description() -> LaunchDescription:
         arguments=[
             "joint_state_broadcaster",
             "indomitus_arm_controller",
-            "gripper_controller",
             "--controller-manager-timeout", "60",
             "--switch-timeout", "60",
             "--service-call-timeout", "70",
@@ -127,6 +126,40 @@ def generate_launch_description() -> LaunchDescription:
         OnProcessExit(
             target_action=spawn_entity,
             on_exit=_after_spawn,
+        )
+    )
+
+    # Spawned only after indomitus_arm_controller is confirmed loaded and
+    # active (chained off controller_spawner's own exit, not run alongside
+    # it) — gz_ros2_control was found to sometimes silently drop a gripper
+    # joint's very first write when its controller activated in the same
+    # burst as the arm's; giving it a separate, later spawn call avoids
+    # that startup window entirely instead of guessing at a fixed delay.
+    gripper_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[
+            "gripper_right_controller",
+            "gripper_left_controller",
+            "--controller-manager-timeout", "60",
+            "--switch-timeout", "60",
+            "--service-call-timeout", "70",
+        ],
+        output="screen",
+    )
+
+    def _after_arm_controller(event, context):
+        if event.returncode != 0:
+            return [
+                LogInfo(msg=f"Controller activation failed (exit code {event.returncode})."),
+                Shutdown(reason="controller activation failed"),
+            ]
+        return [gripper_spawner]
+
+    delayed_gripper_spawner = RegisterEventHandler(
+        OnProcessExit(
+            target_action=controller_spawner,
+            on_exit=_after_arm_controller,
         )
     )
 
@@ -183,6 +216,7 @@ def generate_launch_description() -> LaunchDescription:
             ros_gz_bridge_no_camera,
             delayed_controller_spawners,
             delayed_move_group,
+            delayed_gripper_spawner,
         ]
     )
 
