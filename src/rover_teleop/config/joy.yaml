@@ -13,6 +13,12 @@ joystick_interpreter:
     scale_angular:
       yaw: 1.0
 
+    # Stick deadzone. Applied here, NOT in the joy driver — game_controller_node
+    # stops publishing /joy entirely when its own deadzone swallows resting-stick
+    # noise (ros-drivers/joystick_drivers#304), so joy.launch.py keeps the driver
+    # deadzone at 0.0 and this node filters instead.
+    deadzone: 0.05
+
     # --- SPIN IN PLACE (L2 / R2) ---
     # Curvature mode only
     axis_trigger:
@@ -20,6 +26,11 @@ joystick_interpreter:
       r2: 5
     trigger_deadzone: 0.15
     scale_rotate: 1.0        # rad/s at full trigger
+
+    # Token yaw rate sent while both triggers are held but balanced, so the
+    # wheels keep the spin-in-place shape instead of homing. rotation_scale
+    # (~0.51 m) times this must stay below the controller's park_speed (0.001).
+    rot_probe_wz: 0.00001
 
     # Curvature 1/R at full right-stick deflection, in curvature mode.
     # 2.0 -> R = 0.5 m, which puts the turn centre inside the wheelbase.

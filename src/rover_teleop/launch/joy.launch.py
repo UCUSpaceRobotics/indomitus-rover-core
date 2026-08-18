@@ -2,12 +2,12 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
-    deadzone = LaunchConfiguration('deadzone')
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
 
     default_config = PathJoinSubstitution([
@@ -23,8 +23,9 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'dev': joy_dev,
-            'deadzone': deadzone,
-            'autorepeat_rate': autorepeat_rate,
+            'deadzone': 0.0, # keep it 0.0, it fixes a bug 
+            # in game_controller node source code
+            'autorepeat_rate': ParameterValue(autorepeat_rate, value_type=float),
         }],
         respawn=True,
         respawn_delay=10.0
@@ -45,11 +46,6 @@ def generate_launch_description():
             'joy_dev',
             default_value='/dev/input/js0',
             description='Joystick device path'
-        ),
-        DeclareLaunchArgument(
-            'deadzone',
-            default_value='0.05',
-            description='Joystick deadzone'
         ),
         DeclareLaunchArgument(
             'autorepeat_rate',
