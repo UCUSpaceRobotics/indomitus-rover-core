@@ -41,7 +41,7 @@ CAN_BITRATE = 1_000_000          # must match what's actually configured on the 
 
 STEER_IDS = []                    # Steadywin, [FL, FR, RL, RR] — none in this build
 # STEER_IDS = [11, 13, 15, 17]      # Steadywin, [FL, FR, RL, RR] — none in this build
-DRIVE_IDS = [10]      # Damiao,    [FL, FR, RL, RR]
+DRIVE_IDS = [10, 12, 14, 16]      # Damiao,    [FL, FR, RL, RR]
 WHEEL_NAMES = ["FL", "FR", "RL", "RR"]
 
 # Skid-steer geometry — ADJUST to your actual rover dimensions
