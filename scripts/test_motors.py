@@ -18,6 +18,8 @@ Controls:
     2       Test: spin in place left
     3       Test: turn left (differential)
     4       Test: max steer angle placeholder (no steer motors configured)
+    +/=     Increase vx by VX_STEP (keeps current wz)
+    -/_     Decrease vx by VX_STEP (keeps current wz)
     s       Stop drive (publish zero velocity)
     f       Print latest decoded feedback per motor
     q       Quit
@@ -38,7 +40,8 @@ CAN_CHANNEL = "can0"
 CAN_BITRATE = 1_000_000          # must match what's actually configured on the bus
 
 STEER_IDS = []                    # Steadywin, [FL, FR, RL, RR] — none in this build
-DRIVE_IDS = [10, 12, 14, 16]      # Damiao,    [FL, FR, RL, RR]
+# STEER_IDS = [11, 13, 15, 17]      # Steadywin, [FL, FR, RL, RR] — none in this build
+DRIVE_IDS = [10]      # Damiao,    [FL, FR, RL, RR]
 WHEEL_NAMES = ["FL", "FR", "RL", "RR"]
 
 # Skid-steer geometry — ADJUST to your actual rover dimensions
@@ -52,6 +55,11 @@ CMD_RATE_HZ = 100.0      # command loop frequency — sends a velocity frame to 
                           # enabled motor every cycle, whether or not the target
                           # changed. This is also what keeps the motor's CAN
                           # communication-loss watchdog (TIMEOUT register) happy.
+
+# ── vx/wz live state ──────────────────────────────────────────────────────
+VX_STEP = 0.05    # m/s added/removed per '+'/'-' keypress
+
+drive_state = {"vx": 0.0, "wz": 0.0}
 
 # ── Frame builders (same protocol as before) ─────────────────────────────────
 
@@ -128,7 +136,7 @@ ERR_NAMES = {
 
 class CanBus:
     def __init__(self, channel: str, bitrate: int):
-        self.bus = can.interface.Bus(channel=channel, bustype="socketcan", bitrate=bitrate)
+        self.bus = can.interface.Bus(channel=channel, interface="socketcan", bitrate=bitrate)
         self.latest_feedback: dict[int, dict] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -266,6 +274,7 @@ def enable_all(bus: CanBus, ramp: RampController):
 
 def disable_all(bus: CanBus, ramp: RampController):
     print("\n[DISABLE] Ramping down to zero...")
+    drive_state["vx"], drive_state["wz"] = 0.0, 0.0
     ramp.set_targets({esc_id: 0.0 for esc_id in DRIVE_IDS})
     ramp.wait_until_settled(timeout=5.0)
     ramp.set_active(False)    # stop the ramp loop from sending further frames
@@ -288,6 +297,14 @@ def set_diff_drive_target(ramp: RampController, vx: float, wz: float):
     speeds = [left_speed, right_speed, left_speed, right_speed]
     ramp.set_targets(dict(zip(DRIVE_IDS, speeds)))
     return speeds
+
+def adjust_vx(ramp: RampController, state: dict, delta: float):
+    """Nudge vx up/down by `delta`, keep current wz, reapply target."""
+    state["vx"] += delta
+    speeds = set_diff_drive_target(ramp, vx=state["vx"], wz=state["wz"])
+    print(f"\n[VX] vx = {state['vx']:+.2f} m/s   (wz = {state['wz']:+.2f} rad/s)")
+    print(f"  target wheel speeds (rad/s): {speeds}")
+    return state["vx"]
 
 # ── Display helpers ────────────────────────────────────────────────────────────
 
@@ -327,6 +344,8 @@ HELP = f"""
 ║  3   Turn left         0.5 m/s + 0.5ω   ║
 ║  4   (steer test placeholder — no steer  ║
 ║       motors configured)                 ║
+║  +/= Increase vx by {VX_STEP:.2f} m/s (keeps wz)  ║
+║  -/_ Decrease vx by {VX_STEP:.2f} m/s (keeps wz)  ║
 ║  s   Stop (target = 0, ramps down)       ║
 ║  ─── info ──────────────────────────────║
 ║  f   Print motor feedback + current speed║
@@ -372,24 +391,34 @@ def main():
 
             elif key == '1':
                 print("\nSCENARIO: STRAIGHT FORWARD 0.5 m/s (ramping...)")
-                speeds = set_diff_drive_target(ramp, vx=0.5, wz=0.0)
+                drive_state["vx"], drive_state["wz"] = 0.5, 0.0
+                speeds = set_diff_drive_target(ramp, vx=drive_state["vx"], wz=drive_state["wz"])
                 print(f"  target wheel speeds (rad/s): {speeds}")
 
             elif key == '2':
                 print("\nSCENARIO: SPIN IN PLACE 1.0 rad/s (ramping...)")
-                speeds = set_diff_drive_target(ramp, vx=0.0, wz=1.0)
+                drive_state["vx"], drive_state["wz"] = 0.0, 1.0
+                speeds = set_diff_drive_target(ramp, vx=drive_state["vx"], wz=drive_state["wz"])
                 print(f"  target wheel speeds (rad/s): {speeds}")
 
             elif key == '3':
                 print("\nSCENARIO: TURN LEFT (ramping...)")
-                speeds = set_diff_drive_target(ramp, vx=0.5, wz=0.5)
+                drive_state["vx"], drive_state["wz"] = 0.5, 0.5
+                speeds = set_diff_drive_target(ramp, vx=drive_state["vx"], wz=drive_state["wz"])
                 print(f"  target wheel speeds (rad/s): {speeds}")
 
             elif key == '4':
                 print("\n[TEST 4] No steer motors configured — skipping.")
 
+            elif key in ('+', '='):
+                adjust_vx(ramp, drive_state, VX_STEP)
+
+            elif key in ('-', '_'):
+                adjust_vx(ramp, drive_state, -VX_STEP)
+
             elif key == 's':
                 print("\n[STOP] Target = 0, ramping down")
+                drive_state["vx"], drive_state["wz"] = 0.0, 0.0
                 set_diff_drive_target(ramp, vx=0.0, wz=0.0)
 
             elif key == 'f':
@@ -412,6 +441,7 @@ def main():
         print(f"\nError: {e}")
     finally:
         print("\n[SHUTDOWN] Ramping down before exit...")
+        drive_state["vx"], drive_state["wz"] = 0.0, 0.0
         set_diff_drive_target(ramp, vx=0.0, wz=0.0)
         ramp.wait_until_settled(timeout=3.0)
         ramp.set_active(False)
