@@ -547,11 +547,16 @@ class ServoController(Node):
         return points
 
     def stop(self):
-        """Zero out all velocity components, halting Cartesian motion.
+        """Zero out all velocity components, halting Cartesian and gripper motion.
 
-        Equivalent to calling ``set_velocity()`` with no arguments.
+        Equivalent to calling ``set_velocity()`` with no arguments plus
+        ``set_gripper_velocity(0.0)``. The publish timer keeps running on
+        exit (it's spun on its own thread until destroy_node()), so every
+        exit/stop path — ESC, X, a lost keyboard device, a /joy timeout —
+        must go through this to also stop the gripper, not just the arm.
         """
         self.set_velocity()
+        self.set_gripper_velocity(0.0)
         self._hold_quat = None
 
     def _controller_states(self) -> dict:
@@ -1024,11 +1029,20 @@ class ServoController(Node):
     def _publish_gripper(self):
         """Integrate gripper position from ``gripper_vel`` and publish.
 
+        Withheld entirely until the first /joint_states sync (see
+        _gripper_position above) — otherwise this would command the
+        default-assumed 0.0 (closed) from the very first tick, which on a
+        restart while the real gripper is open would slam it shut before
+        any real state ever arrived.
+
         Runs every publish tick (100Hz) for smooth motion. Right and left
         each have their own single-joint controller (see GRIPPER_JOINT_NAME
         above) and are published separately every time; left is always
         -right.
         """
+        if not self._gripper_state_received:
+            return
+
         now = time.monotonic()
         if self.gripper_vel != 0.0:
             if self._last_gripper_tick_time is not None:
@@ -1250,7 +1264,6 @@ class KeyboardInputLoop:
                 self._pressed.clear()
                 self._gripper_pressed.clear()
             self._controller.stop()
-            self._controller.set_gripper_velocity(0.0)
             print('Moving to home...')
             if self._controller.move_to_safe_pose():
                 if self._exit_event.is_set():

@@ -15,6 +15,7 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.events.process import ProcessExited
 from launch.launch_context import LaunchContext
@@ -132,8 +133,14 @@ def generate_launch_description() -> LaunchDescription:
 
     # generate_demo_launch() only spawns ARM_CONTROLLER_NAME (the one
     # trajectory-execution controller MoveIt itself knows about) — the
-    # gripper's own position controller isn't part of that and needs its
-    # own spawner.
+    # gripper's own position controller(s) aren't part of that and need
+    # their own spawner. Which controllers exist depends on the same
+    # use_fake_hardware split arm_macro.xacro makes for the gripper
+    # <ros2_control> block: fake hardware (or sim) exposes both fingers,
+    # but real hardware only stubs the right one (JawGripperStub — the real
+    # arm has no gripper motor yet, see arm_macro.xacro) with no left-finger
+    # interface at all, so spawning gripper_left_controller there would
+    # just fail waiting for an interface that will never exist.
     ld.add_action(
         Node(
             package="controller_manager",
@@ -146,6 +153,21 @@ def generate_launch_description() -> LaunchDescription:
                 "--service-call-timeout", "70",
             ],
             output="screen",
+            condition=IfCondition(use_fake_hardware),
+        )
+    )
+    ld.add_action(
+        Node(
+            package="controller_manager",
+            executable="spawner",
+            arguments=[
+                "gripper_right_controller",
+                "--controller-manager-timeout", "60",
+                "--switch-timeout", "60",
+                "--service-call-timeout", "70",
+            ],
+            output="screen",
+            condition=UnlessCondition(use_fake_hardware),
         )
     )
 

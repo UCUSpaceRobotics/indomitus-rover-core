@@ -198,9 +198,15 @@
            ever need to push against a grasped object, not each other. -->
       <xacro:property name="finger_x_closed" value="0.01724"/>
       <xacro:property name="finger_stroke" value="0.012"/>
-      <!-- Declared joint/command_interface limit, wider than finger_stroke on
-           purpose — see the finger declarations below for why. -->
-      <xacro:property name="finger_limit_margin" value="${2 * finger_stroke}"/>
+      <!-- Small buffer past the real endpoints (0 and finger_stroke), wider
+           than finger_stroke on purpose — see the finger declarations
+           below for why. A/B/C-tested live (2026-08): padding only the
+           command_interface with the physical <joint><limit> left tight
+           did NOT fix the stuck-finger bug (gz_ros2_control had no effect
+           — DART's own joint stop, from the physical limit, is what the
+           finger was actually resting against); a small epsilon on the
+           physical limit itself did. -->
+      <xacro:property name="finger_limit_epsilon" value="0.002"/>
       <xacro:property name="finger_z" value="0.0"/>
       <xacro:property name="finger_right_y" value="0.0"/>
       <xacro:property name="finger_left_y" value="0.0"/>
@@ -235,19 +241,18 @@
       <!-- Same part mounted twice: "left" is the "right" finger rotated 180 deg about Z,
            so both slide outward along their own local +X (axis) to open — no mirrored mesh needed.
 
-           Both use finger_limit_margin (2x finger_stroke), wider than either one's
-           actually-used range (right only ever commanded in [0, finger_stroke],
-           left in [-finger_stroke, 0] — see keyboard_servo_node.py), because
-           gz_ros2_control 0.7.20 was found (repeated fresh-instance trials) to
-           sometimes silently drop writes to a joint sitting at or very near its own
-           declared command_interface bound — both the 0 rest position and the
-           finger_stroke fully-open position are real endpoints a finger sits at
-           continuously, so neither can be left at the edge of the declared range.
-           Doubling the margin puts both comfortably in the interior; nothing in
-           this repo ever actually commands either finger outside its original,
-           narrower range regardless. -->
-      <xacro:jaw_gripper_finger side="right" x_closed="${finger_x_closed}"  y="${finger_right_y}" yaw="0"      axis_sign="-1" limit_lower="${-finger_limit_margin}" limit_upper="${finger_limit_margin}"/>
-      <xacro:jaw_gripper_finger side="left"  x_closed="${-finger_x_closed}" y="${finger_left_y}"  yaw="${pi}" axis_sign="1"  limit_lower="${-finger_limit_margin}" limit_upper="${finger_limit_margin}"/>
+           Both use finger_limit_epsilon padding past their real travel
+           (right only ever commanded in [0, finger_stroke], left in
+           [-finger_stroke, 0] — see keyboard_servo_node.py), because the
+           0 rest position and the finger_stroke fully-open position are
+           real endpoints a finger sits at continuously, and DART (Gazebo's
+           physics engine) was found to sometimes silently ignore further
+           position commands once a prismatic joint settles exactly on its
+           own <limit> joint stop. See finger_limit_epsilon's declaration
+           above for the A/B/C test that pinned this to the physical
+           <limit>, not the command_interface bound. -->
+      <xacro:jaw_gripper_finger side="right" x_closed="${finger_x_closed}"  y="${finger_right_y}" yaw="0"      axis_sign="-1" limit_lower="${-finger_limit_epsilon}" limit_upper="${finger_stroke + finger_limit_epsilon}"/>
+      <xacro:jaw_gripper_finger side="left"  x_closed="${-finger_x_closed}" y="${finger_left_y}"  yaw="${pi}" axis_sign="1"  limit_lower="${-finger_stroke - finger_limit_epsilon}" limit_upper="${finger_limit_epsilon}"/>
     </xacro:if>
 
     <joint name="arm_tcp_joint" type="fixed">
@@ -420,16 +425,16 @@
       <xacro:if value="${('$(arg end_effector)' == 'jaw') and (('$(arg sim)' == 'true') or ('$(arg use_fake_hardware)' == 'true'))}">
         <joint name="arm_jaw_gripper_finger_right_joint">
           <command_interface name="position">
-            <param name="min">${-finger_limit_margin}</param>
-            <param name="max">${finger_limit_margin}</param>
+            <param name="min">${-finger_limit_epsilon}</param>
+            <param name="max">${finger_stroke + finger_limit_epsilon}</param>
           </command_interface>
           <state_interface name="position"/>
           <state_interface name="velocity"/>
         </joint>
         <joint name="arm_jaw_gripper_finger_left_joint">
           <command_interface name="position">
-            <param name="min">${-finger_limit_margin}</param>
-            <param name="max">${finger_limit_margin}</param>
+            <param name="min">${-finger_stroke - finger_limit_epsilon}</param>
+            <param name="max">${finger_limit_epsilon}</param>
           </command_interface>
           <state_interface name="position"/>
           <state_interface name="velocity"/>

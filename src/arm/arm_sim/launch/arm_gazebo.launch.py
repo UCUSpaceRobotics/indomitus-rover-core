@@ -131,10 +131,12 @@ def generate_launch_description() -> LaunchDescription:
 
     # Spawned only after indomitus_arm_controller is confirmed loaded and
     # active (chained off controller_spawner's own exit, not run alongside
-    # it) — gz_ros2_control was found to sometimes silently drop a gripper
-    # joint's very first write when its controller activated in the same
-    # burst as the arm's; giving it a separate, later spawn call avoids
-    # that startup window entirely instead of guessing at a fixed delay.
+    # it). This ordering was originally added to test a startup-race
+    # hypothesis for the gripper reliability bug; that hypothesis was
+    # disproven (the real cause was gz_ros2_control 0.7.20 dropping writes
+    # at a joint's own command_interface bound, fixed via
+    # finger_limit_margin in arm_macro.xacro). Kept anyway since it's a
+    # harmless, slightly cleaner startup order.
     gripper_spawner = Node(
         package="controller_manager",
         executable="spawner",
