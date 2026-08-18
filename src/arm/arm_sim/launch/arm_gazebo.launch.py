@@ -94,7 +94,6 @@ def generate_launch_description() -> LaunchDescription:
         arguments=[
             "joint_state_broadcaster",
             "indomitus_arm_controller",
-            "gripper_controller",
             "--controller-manager-timeout", "60",
             "--switch-timeout", "60",
             "--service-call-timeout", "70",
@@ -127,6 +126,42 @@ def generate_launch_description() -> LaunchDescription:
         OnProcessExit(
             target_action=spawn_entity,
             on_exit=_after_spawn,
+        )
+    )
+
+    # Spawned only after indomitus_arm_controller is confirmed loaded and
+    # active (chained off controller_spawner's own exit, not run alongside
+    # it). This ordering was originally added to test a startup-race
+    # hypothesis for the gripper reliability bug; that hypothesis was
+    # disproven (the real cause was gz_ros2_control 0.7.20 dropping writes
+    # at a joint's own command_interface bound, fixed via
+    # finger_limit_margin in arm_macro.xacro). Kept anyway since it's a
+    # harmless, slightly cleaner startup order.
+    gripper_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[
+            "gripper_right_controller",
+            "gripper_left_controller",
+            "--controller-manager-timeout", "60",
+            "--switch-timeout", "60",
+            "--service-call-timeout", "70",
+        ],
+        output="screen",
+    )
+
+    def _after_arm_controller(event, context):
+        if event.returncode != 0:
+            return [
+                LogInfo(msg=f"Controller activation failed (exit code {event.returncode})."),
+                Shutdown(reason="controller activation failed"),
+            ]
+        return [gripper_spawner]
+
+    delayed_gripper_spawner = RegisterEventHandler(
+        OnProcessExit(
+            target_action=controller_spawner,
+            on_exit=_after_arm_controller,
         )
     )
 
@@ -183,6 +218,7 @@ def generate_launch_description() -> LaunchDescription:
             ros_gz_bridge_no_camera,
             delayed_controller_spawners,
             delayed_move_group,
+            delayed_gripper_spawner,
         ]
     )
 
