@@ -16,7 +16,7 @@ The link is slow and this does not pretend otherwise. Measured on the bench:
 operator's stick to this node, three updates a second. It exists so a rover that
 has lost Wi-Fi can be crawled somewhere recoverable, not so it can be driven.
 
-Two things keep it safe:
+Three things keep it safe:
 
   * It only ever transmits in reply. The channel is half-duplex and shared, so
     if both ends talk at once the frames collide and both are lost. The mast
@@ -25,6 +25,24 @@ Two things keep it safe:
   * It publishes zero and keeps publishing zero when the polls stop. Failing to
     stopped, never to last-known-good, and it starts in that state rather than
     waiting for a first timeout.
+  * It clamps what it drives, at this end, to limit_linear/limit_angular. The
+    crawl-home cap is enforced by the machine with the motors, not asked for
+    politely of whoever is transmitting.
+
+Scale and cap are separate on purpose, and conflating them is the easiest way
+to break this link quietly:
+
+  * max_linear/max_angular are the *wire scale*. The frame carries percent of
+    full scale, not m/s, so these MUST equal lora_gateway_node's on the ground
+    station. Mismatch them and every command is silently rescaled - it still
+    drives, just not at the speed the operator asked for, with nothing logged.
+  * limit_linear/limit_angular are the *cap*, and are ours alone. They are what
+    makes this a crawl-home link rather than a driving one, and the ground
+    station neither knows nor needs to know them.
+
+Using a deliberately-too-small wire scale to get a lower top speed would appear
+to work and would also shrink every command below the cap by the same ratio,
+which is a rescale, not a limit.
 
 Command output goes to cmd_vel_lora, which twist_mux carries at a priority
 below cmd_vel_ext. That means the rover-side failover needs no logic at all:
@@ -49,6 +67,15 @@ from std_msgs.msg import Bool, Float32, String
 from rover_comms import lora_frame
 
 
+def _clamp_percent(value):
+    """Wire percentages are -100..100; the signed byte carrying them is not."""
+    return max(-100, min(100, value))
+
+
+def _clamp(value, limit):
+    return max(-limit, min(limit, value))
+
+
 class LoraRoverNode(Node):
 
     def __init__(self):
@@ -64,11 +91,17 @@ class LoraRoverNode(Node):
         # Full-scale values the wire percentages map back to. These MUST match
         # lora_gateway_node's max_linear/max_angular on the ground station -
         # the wire carries percent, not m/s, so a mismatch here silently scales
-        # every command the operator gives. Lower than the Wi-Fi path's limits
-        # on purpose: a link with 0.5 s of lag and three updates a second should
-        # not be driving at full speed.
-        self.declare_parameter("max_linear", 0.3)
-        self.declare_parameter("max_angular", 0.6)
+        # every command the operator gives. Those in turn match the joystick's
+        # linear_x_scale/angular_z_scale, so 100% means the same thing all the
+        # way from the stick to here. This is not where the speed limit lives.
+        self.declare_parameter("max_linear", 0.5)
+        self.declare_parameter("max_angular", 1.0)
+        # The speed limit, applied after decoding. Lower than the Wi-Fi path on
+        # purpose: a link with 0.5 s of lag and three updates a second should
+        # not be driving at full speed. Enforced here rather than trusted from
+        # the sender, because this end is the one attached to the motors.
+        self.declare_parameter("limit_linear", 0.3)
+        self.declare_parameter("limit_angular", 0.6)
         self.declare_parameter("publish_rate_hz", 10.0)
 
         self.port_name = self.get_parameter("port").value
@@ -76,6 +109,8 @@ class LoraRoverNode(Node):
         self.failsafe_timeout = float(self.get_parameter("failsafe_timeout").value)
         self.max_linear = float(self.get_parameter("max_linear").value)
         self.max_angular = float(self.get_parameter("max_angular").value)
+        self.limit_linear = abs(float(self.get_parameter("limit_linear").value))
+        self.limit_angular = abs(float(self.get_parameter("limit_angular").value))
 
         self.pub_cmd = self.create_publisher(Twist, "cmd_vel_lora", 10)
         self.pub_state = self.create_publisher(String, "lora/rover_state", 10)
@@ -104,10 +139,16 @@ class LoraRoverNode(Node):
         self.create_timer(
             1.0 / float(self.get_parameter("publish_rate_hz").value), self._publish)
 
+        # The wire scale is logged because it is half of a cross-repository
+        # contract with nothing enforcing it at runtime: if this line and
+        # lora_gateway_node's disagree, that is the bug, and it is otherwise
+        # invisible - the link works, at the wrong speed.
         self.get_logger().info(
             f"lora_rover_node: {self.port_name} at {self.baud}, "
             f"failsafe {self.failsafe_timeout}s, "
-            f"scales {self.max_linear} m/s / {self.max_angular} rad/s")
+            f"wire scale {self.max_linear} m/s / {self.max_angular} rad/s "
+            f"(must match lora_gateway_node), "
+            f"capped at {self.limit_linear} m/s / {self.limit_angular} rad/s")
 
     # -- radio -------------------------------------------------------------
 
@@ -169,6 +210,16 @@ class LoraRoverNode(Node):
         if command.flags & lora_frame.FLAG_ESTOP:
             # Zero it here rather than trusting the sender to have done so.
             command = lora_frame.Teleop(0, 0, 0, command.flags)
+        else:
+            # The payload is a signed byte, so it carries -128..127, but the
+            # protocol says percent: -100..100. lora_gateway_node clamps before
+            # transmitting, and a CRC-checked frame is unlikely to be corrupt,
+            # but neither of those is a reason for this end to act on 127% -
+            # the ESP32 bench rig is a second sender, and the format is
+            # documented as three copies with no shared source of truth.
+            command = lora_frame.Teleop(
+                _clamp_percent(command.vx), _clamp_percent(command.vy),
+                _clamp_percent(command.wz), command.flags)
         with self._lock:
             self.command = command
             self.last_frame_at = self.get_clock().now()
@@ -214,9 +265,15 @@ class LoraRoverNode(Node):
 
         twist = Twist()
         if not failsafe:
-            twist.linear.x = command.vx / 100.0 * self.max_linear
-            twist.linear.y = command.vy / 100.0 * self.max_linear
-            twist.angular.z = command.wz / 100.0 * self.max_angular
+            # Decode at the scale the sender encoded at, then cap. The cap is
+            # ours; the scale is the ground station's. See the module docstring
+            # for why using one to do the other's job breaks this link quietly.
+            twist.linear.x = _clamp(
+                command.vx / 100.0 * self.max_linear, self.limit_linear)
+            twist.linear.y = _clamp(
+                command.vy / 100.0 * self.max_linear, self.limit_linear)
+            twist.angular.z = _clamp(
+                command.wz / 100.0 * self.max_angular, self.limit_angular)
         # A failsafed node keeps publishing zeros rather than going silent. Once
         # twist_mux has this input selected, going quiet would let it fall
         # through to a lower priority instead of commanding a stop.
