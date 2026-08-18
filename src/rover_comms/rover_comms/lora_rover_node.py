@@ -16,7 +16,9 @@ The link is slow and this does not pretend otherwise. Measured on the bench:
 operator's stick to this node, three updates a second. It exists so a rover that
 has lost Wi-Fi can be crawled somewhere recoverable, not so it can be driven.
 
-Three things keep it safe:
+This node is the ROS and serial half. Everything that decides whether the rover
+moves is in link_state.LinkState, which has no ROS in it and is tested directly
+in test/test_link_state.py:
 
   * It only ever transmits in reply. The channel is half-duplex and shared, so
     if both ends talk at once the frames collide and both are lost. The mast
@@ -64,16 +66,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import Bool, Float32, String
 
-from rover_comms import lora_frame
-
-
-def _clamp_percent(value):
-    """Wire percentages are -100..100; the signed byte carrying them is not."""
-    return max(-100, min(100, value))
-
-
-def _clamp(value, limit):
-    return max(-limit, min(limit, value))
+from rover_comms import link_state, lora_frame
 
 
 class LoraRoverNode(Node):
@@ -106,11 +99,6 @@ class LoraRoverNode(Node):
 
         self.port_name = self.get_parameter("port").value
         self.baud = int(self.get_parameter("baud").value)
-        self.failsafe_timeout = float(self.get_parameter("failsafe_timeout").value)
-        self.max_linear = float(self.get_parameter("max_linear").value)
-        self.max_angular = float(self.get_parameter("max_angular").value)
-        self.limit_linear = abs(float(self.get_parameter("limit_linear").value))
-        self.limit_angular = abs(float(self.get_parameter("limit_angular").value))
         self.publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
         if self.publish_rate_hz <= 0.0:
             # A zero here would be a ZeroDivisionError in the constructor, which
@@ -120,20 +108,26 @@ class LoraRoverNode(Node):
                 f"falling back to 10 Hz")
             self.publish_rate_hz = 10.0
 
+        # time.monotonic, not the ROS clock: this is a link watchdog, and it
+        # must not be defeated by an NTP step or a paused /clock. A Jetson
+        # syncs time some seconds after boot, which is exactly when a rover is
+        # most likely to be sitting there waiting for its first frame.
+        self.state = link_state.LinkState(
+            failsafe_timeout=float(self.get_parameter("failsafe_timeout").value),
+            max_linear=float(self.get_parameter("max_linear").value),
+            max_angular=float(self.get_parameter("max_angular").value),
+            limit_linear=float(self.get_parameter("limit_linear").value),
+            limit_angular=float(self.get_parameter("limit_angular").value),
+        )
+
         self.pub_cmd = self.create_publisher(Twist, "cmd_vel_lora", 10)
         self.pub_state = self.create_publisher(String, "lora/rover_state", 10)
         self.pub_rx_ok = self.create_publisher(Float32, "lora/rover_rx_ok", 10)
         self.pub_estop = self.create_publisher(Bool, "lora/rover_estop", 10)
 
         self.parser = lora_frame.Parser()
-        self.command = lora_frame.Teleop()
         self.tx_seq = 0
         self.tx_frames = 0
-        self.last_frame_at = None
-        # Start failsafed: a rover that has never heard from the mast is in
-        # exactly the state a rover that stopped hearing from it is in.
-        self.failsafe = True
-        self._lock = threading.Lock()
 
         # Opened in the reader thread, not here. This is the fallback link: if
         # the radio is unplugged, or the cable is loose, or nvgetty grabbed the
@@ -152,10 +146,11 @@ class LoraRoverNode(Node):
         # invisible - the link works, at the wrong speed.
         self.get_logger().info(
             f"lora_rover_node: {self.port_name} at {self.baud}, "
-            f"failsafe {self.failsafe_timeout}s, "
-            f"wire scale {self.max_linear} m/s / {self.max_angular} rad/s "
-            f"(must match lora_gateway_node), "
-            f"capped at {self.limit_linear} m/s / {self.limit_angular} rad/s")
+            f"failsafe {self.state.failsafe_timeout}s, "
+            f"wire scale {self.state.max_linear} m/s / "
+            f"{self.state.max_angular} rad/s (must match lora_gateway_node), "
+            f"capped at {self.state.limit_linear} m/s / "
+            f"{self.state.limit_angular} rad/s")
 
     # -- radio -------------------------------------------------------------
 
@@ -208,42 +203,17 @@ class LoraRoverNode(Node):
                 if frame_type != lora_frame.TYPE_TELEOP:
                     # Our own reply looped back, or a throughput-test frame.
                     continue
-                self._on_teleop(payload)
+                if self.state.on_teleop(payload):
+                    self.get_logger().info("link up - taking commands over LoRa")
                 if not self._reply(seq):
                     return
 
-    def _on_teleop(self, payload):
-        command = lora_frame.unpack_teleop(payload)
-        if command.flags & lora_frame.FLAG_ESTOP:
-            # Zero it here rather than trusting the sender to have done so.
-            command = lora_frame.Teleop(0, 0, 0, command.flags)
-        else:
-            # The payload is a signed byte, so it carries -128..127, but the
-            # protocol says percent: -100..100. lora_gateway_node clamps before
-            # transmitting, and a CRC-checked frame is unlikely to be corrupt,
-            # but neither of those is a reason for this end to act on 127% -
-            # the ESP32 bench rig is a second sender, and the format is
-            # documented as three copies with no shared source of truth.
-            command = lora_frame.Teleop(
-                _clamp_percent(command.vx), _clamp_percent(command.vy),
-                _clamp_percent(command.wz), command.flags)
-        with self._lock:
-            self.command = command
-            self.last_frame_at = self.get_clock().now()
-            if self.failsafe:
-                self.get_logger().info("link up - taking commands over LoRa")
-            self.failsafe = False
-
     def _reply(self, echo_seq):
-        with self._lock:
-            flags = ((lora_frame.STATUS_FAILSAFE if self.failsafe else 0) |
-                     (lora_frame.STATUS_ESTOP
-                      if self.command.flags & lora_frame.FLAG_ESTOP else 0))
         status = lora_frame.Status(
             echo_seq=echo_seq,
             rx_ok=self.parser.ok & 0xFF,
             rx_bad=self.parser.bad & 0xFF,
-            flags=flags,
+            flags=self.state.status_flags(),
         )
         self.tx_seq = (self.tx_seq + 1) & 0xFF
         frame = lora_frame.encode(
@@ -259,42 +229,24 @@ class LoraRoverNode(Node):
     # -- ROS ---------------------------------------------------------------
 
     def _publish(self):
-        with self._lock:
-            if not self.failsafe and self.last_frame_at is not None:
-                age = (self.get_clock().now() - self.last_frame_at).nanoseconds / 1e9
-                if age > self.failsafe_timeout:
-                    self.failsafe = True
-                    # Zero the velocities but keep the flags. A silent link is
-                    # not the operator releasing the e-stop, and reporting it as
-                    # one - on lora/rover_estop and in the STATUS reply the mast
-                    # reads back - would be a lie in the direction of "safe to
-                    # approach". It clears when a frame says it clears.
-                    self.command = lora_frame.Teleop(0, 0, 0, self.command.flags)
-                    self.get_logger().warn(
-                        f"no valid teleop frame for {age:.1f}s - command zeroed")
-            command = self.command
-            failsafe = self.failsafe
+        age = self.state.check_timeout()
+        if age is not None:
+            self.get_logger().warn(
+                f"no valid teleop frame for {age:.1f}s - command zeroed")
 
         twist = Twist()
-        if not failsafe:
-            # Decode at the scale the sender encoded at, then cap. The cap is
-            # ours; the scale is the ground station's. See the module docstring
-            # for why using one to do the other's job breaks this link quietly.
-            twist.linear.x = _clamp(
-                command.vx / 100.0 * self.max_linear, self.limit_linear)
-            twist.linear.y = _clamp(
-                command.vy / 100.0 * self.max_linear, self.limit_linear)
-            twist.angular.z = _clamp(
-                command.wz / 100.0 * self.max_angular, self.limit_angular)
-        # A failsafed node keeps publishing zeros rather than going silent. Once
-        # twist_mux has this input selected, going quiet would let it fall
-        # through to a lower priority instead of commanding a stop.
+        # Zero while failsafed, and a failsafed node keeps publishing them
+        # rather than going silent. Once twist_mux has this input selected,
+        # going quiet would let it fall through to a lower priority instead of
+        # commanding a stop.
+        twist.linear.x, twist.linear.y, twist.angular.z = \
+            self.state.twist_components()
         self.pub_cmd.publish(twist)
 
-        self.pub_state.publish(String(data="FAILSAFE" if failsafe else "LINKED"))
+        self.pub_state.publish(
+            String(data="FAILSAFE" if self.state.failsafe else "LINKED"))
         self.pub_rx_ok.publish(Float32(data=float(self.parser.ok)))
-        self.pub_estop.publish(
-            Bool(data=bool(command.flags & lora_frame.FLAG_ESTOP)))
+        self.pub_estop.publish(Bool(data=self.state.estop_active()))
 
 
 def main():
