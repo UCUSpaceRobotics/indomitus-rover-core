@@ -257,7 +257,12 @@ class LoraRoverNode(Node):
                 age = (self.get_clock().now() - self.last_frame_at).nanoseconds / 1e9
                 if age > self.failsafe_timeout:
                     self.failsafe = True
-                    self.command = lora_frame.Teleop()
+                    # Zero the velocities but keep the flags. A silent link is
+                    # not the operator releasing the e-stop, and reporting it as
+                    # one - on lora/rover_estop and in the STATUS reply the mast
+                    # reads back - would be a lie in the direction of "safe to
+                    # approach". It clears when a frame says it clears.
+                    self.command = lora_frame.Teleop(0, 0, 0, self.command.flags)
                     self.get_logger().warn(
                         f"no valid teleop frame for {age:.1f}s - command zeroed")
             command = self.command
