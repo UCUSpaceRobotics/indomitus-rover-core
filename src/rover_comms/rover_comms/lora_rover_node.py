@@ -48,6 +48,17 @@ Using a deliberately-too-small wire scale to get a lower top speed would appear
 to work and would also shrink every command below the cap by the same ratio,
 which is a rescale, not a limit.
 
+FLAG_ESTOP stops *this path*, not the rover. It zeroes cmd_vel_lora and is
+reported back to the mast, but twist_mux will still select any higher-priority
+input that is active, so nav2 in particular can keep driving through it. Making
+it a rover-wide stop means a twist_mux lock, and twist_mux locks fail closed -
+`isLocked()` is `hasExpired() || data`, so a lock topic whose publisher is
+missing immobilises the rover completely. That would make a rover with
+rover_comms unbuilt refuse to move at all, which is the failure this node's
+whole startup path is written to avoid. If a real rover-wide e-stop is wanted
+it needs a lock published by something that is always running, which is a
+change to core bringup rather than to the backup radio.
+
 Command output goes to cmd_vel_lora, which twist_mux carries at a priority
 below cmd_vel_ext. That means the rover-side failover needs no logic at all:
 while Wi-Fi is alive the external input outranks this one, and when it goes
