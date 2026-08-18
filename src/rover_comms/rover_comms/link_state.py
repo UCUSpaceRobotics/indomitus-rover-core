@@ -7,7 +7,9 @@ the node is the part that talks to rclpy and the serial port. The rules:
 
   * Start failsafed. A rover that has never heard from the mast is in exactly
     the state a rover that stopped hearing from it is in.
-  * Zero on timeout.
+  * Zero on timeout, and zero immediately on a known link loss. Waiting out
+    failsafe_timeout after the port has already errored means up to a second
+    of driving on a command nobody can retract.
   * Never fail to last-known-good.
   * Cap what is driven, here, rather than trusting the sender to have capped
     it. See lora_rover_node's docstring for wire scale vs cap.
@@ -81,6 +83,20 @@ class LinkState:
             self._last_frame_at = self._clock()
             self._failsafe = False
         return recovered
+
+    def on_link_lost(self):
+        """The port errored: stop now rather than waiting out the timeout.
+
+        Returns True if this changed anything. Flags are kept - a dead serial
+        port is not the operator releasing the e-stop.
+        """
+        with self._lock:
+            if self._failsafe:
+                return False
+            self._command = lora_frame.Teleop(0, 0, 0, self._command.flags)
+            self._last_frame_at = None
+            self._failsafe = True
+            return True
 
     def check_timeout(self):
         """Returns the age in seconds if this call tripped the failsafe."""

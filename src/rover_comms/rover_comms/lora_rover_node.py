@@ -26,7 +26,9 @@ in test/test_link_state.py:
     poll. Nothing here is on a timer.
   * It publishes zero and keeps publishing zero when the polls stop. Failing to
     stopped, never to last-known-good, and it starts in that state rather than
-    waiting for a first timeout.
+    waiting for a first timeout. A serial error zeroes the command immediately
+    rather than waiting out failsafe_timeout: the port is known dead at that
+    point, and the timeout only exists for the case where it is not.
   * It clamps what it drives, at this end, to limit_linear/limit_angular. The
     crawl-home cap is enforced by the machine with the motors, not asked for
     politely of whoever is transmitting.
@@ -79,7 +81,9 @@ class LoraRoverNode(Node):
         # Three missed polls at the mast's 3 Hz. Long enough to ride out a
         # single dropped frame, short enough that a dead link stops the rover
         # before it travels far. At 0.3 m/s this is still ~30 cm of coasting,
-        # which is why the LoRa speed limits below are deliberately low.
+        # which is why the LoRa speed limits below are deliberately low. It is
+        # the backstop for a link that goes quiet without the port noticing; a
+        # port that errors is handled immediately instead.
         self.declare_parameter("failsafe_timeout", 1.0)
         # Full-scale values the wire percentages map back to. These MUST match
         # lora_gateway_node's max_linear/max_angular on the ground station -
@@ -178,6 +182,13 @@ class LoraRoverNode(Node):
             self.get_logger().info(f"listening on {self.port_name}")
             backoff = 1.0
             self._pump()
+
+            # The port is known dead here, so there is nothing to wait for:
+            # zero the command now rather than letting it stand for up to
+            # failsafe_timeout while the reopen is attempted.
+            if self.state.on_link_lost():
+                self.get_logger().warn(
+                    "serial link lost - command zeroed immediately")
             try:
                 self.ser.close()
             except (serial.SerialException, OSError):
