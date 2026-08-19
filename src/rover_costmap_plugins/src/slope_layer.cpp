@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "pluginlib/class_list_macros.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
@@ -14,6 +15,23 @@ using nav2_costmap_2d::NO_INFORMATION;
 namespace rover_costmap_plugins
 {
 
+namespace
+{
+// Rotate vector (x,y,z) by unit quaternion (qw,qx,qy,qz): v' = q*v*q^-1.
+void rotateByQuat(
+  double qw, double qx, double qy, double qz,
+  double x, double y, double z,
+  double & ox, double & oy, double & oz)
+{
+  double tx = 2.0 * (qy * z - qz * y);
+  double ty = 2.0 * (qz * x - qx * z);
+  double tz = 2.0 * (qx * y - qy * x);
+  ox = x + qw * tx + (qy * tz - qz * ty);
+  oy = y + qw * ty + (qz * tx - qx * tz);
+  oz = z + qw * tz + (qx * ty - qy * tx);
+}
+}  // namespace
+
 SlopeLayer::SlopeLayer() {}
 
 void SlopeLayer::onInitialize()
@@ -23,15 +41,17 @@ void SlopeLayer::onInitialize()
   declareParameter("enabled", rclcpp::ParameterValue(true));
   declareParameter("cloud_topic", rclcpp::ParameterValue(std::string("/zed2i/points")));
   declareParameter("base_frame", rclcpp::ParameterValue(std::string("base_footprint")));
-  declareParameter("grid_resolution", rclcpp::ParameterValue(0.15));
+  declareParameter("grid_resolution", rclcpp::ParameterValue(0.25));
   declareParameter("grid_range", rclcpp::ParameterValue(4.0));
   declareParameter("min_height", rclcpp::ParameterValue(-0.30));
   declareParameter("max_height", rclcpp::ParameterValue(2.40));
-  declareParameter("min_points_per_cell", rclcpp::ParameterValue(5));
+  declareParameter("min_points_per_cell", rclcpp::ParameterValue(7));
   declareParameter("traversable_slope_deg", rclcpp::ParameterValue(16.0));
   declareParameter("lethal_slope_deg", rclcpp::ParameterValue(28.0));
   declareParameter("roughness_std_thresh", rclcpp::ParameterValue(0.045));
   declareParameter("roughness_range_coeff", rclcpp::ParameterValue(0.015));
+  declareParameter("self_filter_margin", rclcpp::ParameterValue(0.10));
+  declareParameter("roughness_saturation_mult", rclcpp::ParameterValue(4.0));
 
   node->get_parameter(name_ + ".enabled", enabled_);
   node->get_parameter(name_ + ".cloud_topic", cloud_topic_);
@@ -45,6 +65,8 @@ void SlopeLayer::onInitialize()
   node->get_parameter(name_ + ".lethal_slope_deg", lethal_slope_deg_);
   node->get_parameter(name_ + ".roughness_std_thresh", roughness_std_thresh_);
   node->get_parameter(name_ + ".roughness_range_coeff", roughness_range_coeff_);
+  node->get_parameter(name_ + ".self_filter_margin", self_filter_margin_);
+  node->get_parameter(name_ + ".roughness_saturation_mult", roughness_saturation_mult_);
 
   clock_ = node->get_clock();
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(clock_);
@@ -56,6 +78,27 @@ void SlopeLayer::onInitialize()
 
   debug_pub_ = node->create_publisher<sensor_msgs::msg::PointCloud2>(
     name_ + "/debug_cloud", rclcpp::SensorDataQoS());
+
+  // Self-return exclusion box: footprint bounds + margin.
+  const auto & footprint = layered_costmap_->getFootprint();
+  if (!footprint.empty()) {
+    self_filter_min_x_ = self_filter_min_y_ = std::numeric_limits<double>::max();
+    self_filter_max_x_ = self_filter_max_y_ = std::numeric_limits<double>::lowest();
+    for (const auto & pt : footprint) {
+      self_filter_min_x_ = std::min(self_filter_min_x_, pt.x);
+      self_filter_max_x_ = std::max(self_filter_max_x_, pt.x);
+      self_filter_min_y_ = std::min(self_filter_min_y_, pt.y);
+      self_filter_max_y_ = std::max(self_filter_max_y_, pt.y);
+    }
+    self_filter_min_x_ -= self_filter_margin_;
+    self_filter_max_x_ += self_filter_margin_;
+    self_filter_min_y_ -= self_filter_margin_;
+    self_filter_max_y_ += self_filter_margin_;
+  } else {
+    RCLCPP_WARN(
+      node->get_logger(),
+      "SlopeLayer '%s': footprint unavailable at init, self-filter disabled", name_.c_str());
+  }
 
   grid_w_ = static_cast<int>(std::ceil((2.0 * grid_range_) / grid_resolution_));
   grid_h_ = grid_w_;
@@ -76,12 +119,16 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
 {
   sensor_msgs::msg::PointCloud2 cloud_in_base;
   double base_tx = 0.0, base_ty = 0.0, base_yaw = 0.0;
+  double grav_qw = 1.0, grav_qx = 0.0, grav_qy = 0.0, grav_qz = 0.0;
   try {
     geometry_msgs::msg::TransformStamped tf = tf_buffer_->lookupTransform(
       base_frame_, msg->header.frame_id, msg->header.stamp,
       rclcpp::Duration::from_seconds(0.1));
     tf2::doTransform(*msg, cloud_in_base, tf);
 
+    // Pose at the cloud's own timestamp -- reused in updateCosts so grid_
+    // is always reprojected with the pose it was built from, not whatever
+    // heading the robot has by the time updateCosts runs.
     geometry_msgs::msg::TransformStamped base_tf = tf_buffer_->lookupTransform(
       base_frame_, layered_costmap_->getGlobalFrameID(), msg->header.stamp,
       rclcpp::Duration::from_seconds(0.1));
@@ -89,10 +136,14 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
     base_ty = base_tf.transform.translation.y;
     const auto & q = base_tf.transform.rotation;
     base_yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+
+    // base_tf's rotation is global_frame -> base_frame_; its conjugate
+    // (base_frame_ -> global_frame) is what recomputeGrid needs.
+    grav_qw = q.w; grav_qx = -q.x; grav_qy = -q.y; grav_qz = -q.z;
   } catch (const std::exception & ex) {
     RCLCPP_WARN_THROTTLE(
       node_.lock()->get_logger(), *clock_, 5000,
-      "TF %s->%s failed: %s", msg->header.frame_id.c_str(), base_frame_.c_str(), ex.what());
+      "TF lookup failed for SlopeLayer '%s': %s", name_.c_str(), ex.what());
     return;
   }
 
@@ -100,6 +151,10 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
   captured_tx_ = base_tx;
   captured_ty_ = base_ty;
   captured_yaw_ = base_yaw;
+  captured_gqw_ = grav_qw;
+  captured_gqx_ = grav_qx;
+  captured_gqy_ = grav_qy;
+  captured_gqz_ = grav_qz;
   std::fill(grid_.begin(), grid_.end(), SlopeCell());
 
   sensor_msgs::PointCloud2ConstIterator<float> it_x(cloud_in_base, "x");
@@ -111,6 +166,9 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
     if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {continue;}
     if (z < min_height_ || z > max_height_) {continue;}
     if (std::abs(x) > grid_range_ || std::abs(y) > grid_range_) {continue;}
+    // Rocker/wheel self-returns: skip points inside the robot's own footprint.
+    if (x > self_filter_min_x_ && x < self_filter_max_x_ &&
+        y > self_filter_min_y_ && y < self_filter_max_y_) {continue;}
 
     int gx = static_cast<int>((x - grid_origin_x_) / grid_resolution_);
     int gy = static_cast<int>((y - grid_origin_y_) / grid_resolution_);
@@ -147,8 +205,8 @@ void SlopeLayer::recomputeGrid()
       double cxz = c.sxz / n - mx * mz;
       double cyz = c.syz / n - my * mz;
 
-      // Power iteration on (trace*I - C) converges to the eigenvector of C's
-      // smallest eigenvalue, i.e. the fitted plane normal.
+      // Power iteration on (trace*I - C) converges to C's smallest
+      // eigenvector, i.e. the fitted plane normal.
       double trace = cxx + cyy + czz;
       double Ax = trace - cxx, Ay = -cxy, Az = -cxz;
       double Bx = -cxy, By = trace - cyy, Bz = -cyz;
@@ -163,25 +221,31 @@ void SlopeLayer::recomputeGrid()
         if (norm < 1e-9) {break;}
         vx = nx / norm; vy = ny / norm; vz = nz / norm;
       }
-      if (vz < 0) {vx = -vx; vy = -vy; vz = -vz;}
 
-      double slope_rad = std::acos(std::clamp(vz, -1.0, 1.0));
+      // Rotate the fitted normal from base_frame_ into the global costmap
+      // frame so slope is measured against gravity, not vehicle attitude.
+      double gvx, gvy, gvz;
+      rotateByQuat(
+        captured_gqw_, captured_gqx_, captured_gqy_, captured_gqz_,
+        vx, vy, vz, gvx, gvy, gvz);
+      if (gvz < 0) {gvx = -gvx; gvy = -gvy; gvz = -gvz;}
+
+      double slope_rad = std::acos(std::clamp(gvz, -1.0, 1.0));
       c.slope_deg = slope_rad * 180.0 / M_PI;
 
+      // Variance along the normal = deviation from the fitted plane (roughness).
+      // Quadratic form, so sign of (vx,vy,vz) doesn't matter.
       double residual_var = vx * vx * cxx + vy * vy * cyy + vz * vz * czz +
         2.0 * vx * vy * cxy + 2.0 * vx * vz * cxz + 2.0 * vy * vz * cyz;
       double planar_residual = std::sqrt(std::max(0.0, residual_var));
 
+      // Widen the residual threshold with range (stereo noise grows with
+      // distance/angle) and with point sparsity (few points -> unreliable fit).
       double cell_x = grid_origin_x_ + (gx + 0.5) * grid_resolution_;
       double cell_y = grid_origin_y_ + (gy + 0.5) * grid_resolution_;
       double range_m = std::sqrt(cell_x * cell_x + cell_y * cell_y);
       double effective_thresh = roughness_std_thresh_ + roughness_range_coeff_ * range_m;
 
-      // A cell right at an occlusion edge (e.g. the far side of a hill
-      // crest, hidden from the camera) gets only a handful of points and a
-      // residual estimate that's inherently noisy from sample size alone,
-      // not from real roughness. Give sparse cells extra slack, tapering
-      // off by 3x the minimum point count.
       const int sparsity_span = min_points_per_cell_ * 2;
       if (sparsity_span > 0 && c.point_count < min_points_per_cell_ + sparsity_span) {
         double sparsity_factor = static_cast<double>(
@@ -193,9 +257,12 @@ void SlopeLayer::recomputeGrid()
       c.residual = planar_residual;
       c.valid = true;
       if (planar_residual > effective_thresh) {
+        // Scale into the graded cost band instead of jumping straight to
+        // lethal; only saturates to lethal well past the threshold.
         double excess_ratio = (planar_residual - effective_thresh) / effective_thresh;
         double roughness_slope = traversable_slope_deg_ +
-          std::min(excess_ratio, 2.0) * (lethal_slope_deg_ - traversable_slope_deg_) / 2.0;
+          std::min(excess_ratio, roughness_saturation_mult_) *
+          (lethal_slope_deg_ - traversable_slope_deg_) / roughness_saturation_mult_;
         c.slope_deg = std::max(c.slope_deg, roughness_slope);
       }
     }
@@ -280,7 +347,7 @@ void SlopeLayer::updateCosts(
       if (gx < 0 || gx >= grid_w_ || gy < 0 || gy >= grid_h_) {continue;}
 
       const SlopeCell & c = grid_[gy * grid_w_ + gx];
-      if (!c.valid) {continue;}
+      if (!c.valid) {continue;}  // no info here -> don't overwrite other layers
 
       unsigned char cost;
       if (c.slope_deg >= lethal_slope_deg_) {
@@ -293,8 +360,7 @@ void SlopeLayer::updateCosts(
         cost = static_cast<unsigned char>(t * (LETHAL_OBSTACLE - 1));
       }
 
-      // Only raise cost over what earlier layers (voxel/obstacle) already
-      // wrote here -- never downgrade a cell they marked lethal.
+      // Only raise cost over what earlier layers already wrote here.
       unsigned char old_cost = master_grid.getCost(i, j);
       if (old_cost == NO_INFORMATION || cost > old_cost) {
         master_grid.setCost(i, j, cost);

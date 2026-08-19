@@ -289,19 +289,21 @@ local_costmap:
         enabled: true
         cloud_topic: "/zed2i/points"
         base_frame: "base_footprint"
-        grid_resolution: 0.15
+        grid_resolution: 0.25
         grid_range: 4.0
         min_height: -0.30
         max_height: 2.40
-        min_points_per_cell: 5
+        min_points_per_cell: 7
         traversable_slope_deg: 16.0
         lethal_slope_deg: 28.0
         roughness_std_thresh: 0.045
         roughness_range_coeff: 0.015
+        self_filter_margin: 0.10
+        roughness_saturation_mult: 4.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0
-        inflation_radius: 0.55
+        inflation_radius: 0.85
       always_send_full_costmap: false
 
 global_costmap:
@@ -348,19 +350,21 @@ global_costmap:
         enabled: true
         cloud_topic: "/zed2i/points"
         base_frame: "base_footprint"
-        grid_resolution: 0.15
+        grid_resolution: 0.25
         grid_range: 4.0
         min_height: -0.30
         max_height: 2.40
-        min_points_per_cell: 5
+        min_points_per_cell: 7
         traversable_slope_deg: 16.0
         lethal_slope_deg: 28.0
         roughness_std_thresh: 0.045
         roughness_range_coeff: 0.015
+        self_filter_margin: 0.10
+        roughness_saturation_mult: 4.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0
-        inflation_radius: 0.5
+        inflation_radius: 0.8
       always_send_full_costmap: false
 
 # ============================================================
