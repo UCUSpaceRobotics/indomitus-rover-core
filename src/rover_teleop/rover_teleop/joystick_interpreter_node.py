@@ -16,6 +16,7 @@ from controller_manager_msgs.srv import SetHardwareComponentState, SwitchControl
 from lifecycle_msgs.msg import State
 
 from rover_teleop.controller_led import LED_NODE_DOWN, ControllerLed, led_colour
+from rover_teleop.teleop_state import GenerationGuard, JoyWatchdog
 
 
 LED_REPAINT_PERIOD = 0.5
@@ -51,7 +52,7 @@ class ButtonToggle:
         self._on_press = on_press
         self._prev_state = 0
 
-    def update(self, buttons) -> bool:
+    def update(self, buttons: list[int]) -> bool:
         """Feed the latest Joy.buttons array in; returns True if this was a press edge."""
         current = buttons[self.button_index] if self.button_index < len(buttons) else 0
         pressed = current == 1 and self._prev_state == 0
@@ -104,7 +105,7 @@ class BoolLight:
         except Exception as exc:
             self._node.get_logger().error(f'{self.name} service call failed: {exc!r}')
             return
-        
+
         if response.success:
             self.on = desired
 
@@ -168,16 +169,16 @@ class JoystickInterpreterNode(Node):
         # and an old one must not be allowed to write back a stale
         # _controller_active — that is how the light bar ends up green with the
         # controller actually inactive.
-        self._switch_generation = 0
+        self._switch_guard = GenerationGuard()
 
-        self._cmd_timeout = float(declare_and_get('cmd_timeout', 0.5))
         self._timeout_pub_rate = float(declare_and_get('timeout_pub_rate', 10.0))
-        self._timed_out = bool(declare_and_get('initial_timed_out', True))
+        self._watchdog = JoyWatchdog(
+            timeout=float(declare_and_get('cmd_timeout', 0.5)),
+            timed_out=bool(declare_and_get('initial_timed_out', True)),
+        )
 
         self._cmd_pub_rate = float(declare_and_get('cmd_pub_rate', 20.0))
         self._active       =  bool(declare_and_get('active_default', True))
-
-        self._last_joy_msg_time: float = 0.0
 
         self.raw_vx: float = 0.0
         self.raw_vy: float = 0.0
@@ -267,9 +268,7 @@ class JoystickInterpreterNode(Node):
         """
         Refresh the watchdog timestamp and run every button's edge detector.
         """
-        self._last_joy_msg_time = self._now_seconds()
-        if self._timed_out:
-            self._timed_out = False
+        if self._watchdog.on_message(self._now_seconds()):
             self.get_logger().info('Joystick input recovered — resuming command forwarding')
             # A controller that dropped and came back has lost whatever colour
             # it was wearing, so repaint it.
@@ -306,7 +305,7 @@ class JoystickInterpreterNode(Node):
         """Publish the latest known command at a fixed rate (default 20 Hz),
         regardless of how often /joy actually fires. Suppressed while timed out —
         _timeout_check takes over publishing zeros in that case."""
-        if self._timed_out or not self._active:
+        if self._watchdog.timed_out or not self._active:
             return
 
         vx = self.raw_vx
@@ -315,12 +314,6 @@ class JoystickInterpreterNode(Node):
         if self._row_twist_mode:
             wz = self.raw_wz
             if not self._vy_enabled:
-                # Raw mode only. Same intent as v_signed in the RIDING branch
-                # below — keep the turn centre on the same side of the rover
-                # when reversing — but done as a correction after the fact,
-                # because here wz comes straight off the stick and was never
-                # derived from a speed. No controller can infer this for us:
-                # by the time the Twist exists the driver's intent is gone.
                 wz = self._apply_swerve_wz_correction(vx, vy, wz)
 
         elif self.triggers_held or self.raw_rot != 0.0:
@@ -424,19 +417,16 @@ class JoystickInterpreterNode(Node):
         repaint hangs off the timed-out → recovered edge in _on_joy(). Only the
         zero-command publishing is conditional on _active.
         """
-        now = self._now_seconds()
-        dt = now - self._last_joy_msg_time if self._last_joy_msg_time > 0.0 else float('inf')
+        tick = self._watchdog.tick(self._now_seconds(), self._active)
 
-        if dt > self._cmd_timeout:
-            if not self._timed_out:
-                self._timed_out = True
-                self.get_logger().warn(
-                    'Joystick input timed out — publishing zeros to /cmd_vel'
-                    if self._active else
-                    'Joystick input timed out (inactive — nav holds /cmd_vel)')
+        if tick.went_stale:
+            self.get_logger().warn(
+                'Joystick input timed out — publishing zeros to /cmd_vel'
+                if self._active else
+                'Joystick input timed out (inactive — nav holds /cmd_vel)')
 
-            if self._active:
-                self._publish_cmd(0.0, 0.0, 0.0)
+        if tick.publish_zero:
+            self._publish_cmd(0.0, 0.0, 0.0)
 
     def _publish_cmd(self, vx: float, vy: float, wz: float):
         out = Twist()
@@ -536,15 +526,14 @@ class JoystickInterpreterNode(Node):
             req.deactivate_controllers = [self._controller_name]
         req.strictness = SwitchController.Request.BEST_EFFORT
 
-        self._switch_generation += 1
-        generation = self._switch_generation
+        generation = self._switch_guard.start()
         self._controller_state_client.call_async(req).add_done_callback(
             lambda f: self._on_switch_controller_result(f, activate, generation))
 
     def _on_switch_controller_result(self, future, activate: bool, generation: int):
         target = 'active' if activate else 'inactive'
 
-        if generation != self._switch_generation:
+        if not self._switch_guard.is_current(generation):
             # A newer request has already been sent; this reply describes a
             # superseded intent. Acting on it would write back a stale
             # _controller_active and mislead the light bar.
@@ -614,3 +603,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
