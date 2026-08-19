@@ -7,23 +7,24 @@ which link it's using.
                      ┌──────────────┐
    10.42.0.0/24      │   Jetson     │     10.43.0.0/24
   (rover hotspot)    │   (rover)    │   (laptop tether)
-        ┌────────────┤   10.42.0.1  ├───────────────┐
+        ┌────────────┤  10.42.0.1   ├───────────────┐
         │            │ (AP, static) │               │
    Laptop / clients  └───────┬──────┘         Laptop (direct)
    10.42.0.50–150            │               10.43.0.1 (static)
                              │
                              │ Wi-Fi client
                              | Jetson: DHCP
-                       ┌─────┴─────┐
-                       │  Mast Pi  │
-                       │ 10.42.0.2 │
-                       └─────┬─────┘
-                             │ wired, 10.44.0.0/24
-                       ┌─────┴─────┐
-                       │   GS PC   │
-                       │ 10.44.0.10│
-                       └───────────┘
-               Mast Pi's wired side: 10.44.0.1
+                    ┌────────┴───────┐
+                    │     Mast Pi    │
+                    │ (Raspberry Pi) │
+                    │    10.42.0.2   │
+                    └───────┬────────┘
+                            │ wired, 10.44.0.0/24
+                      ┌─────┴─────┐
+                      │   GS PC   │
+                      │ 10.44.0.10│
+                      └───────────┘
+                Mast Pi's wired side: 10.44.0.1
 ```
 
 ## 1. Laptop ↔ Jetson, over rover Wi-Fi hotspot
