@@ -2,16 +2,44 @@
 """
 Joystick Interpreter Node.
 """
+import math
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 from indomitus_interfaces.srv import SetTrafficLight
 from controller_manager_msgs.srv import SetHardwareComponentState, SwitchController
 from lifecycle_msgs.msg import State
+
+from rover_teleop.controller_led import LED_NODE_DOWN, ControllerLed, led_colour
+from rover_teleop.teleop_state import GenerationGuard, JoyWatchdog
+
+
+LED_REPAINT_PERIOD = 0.5
+
+
+def apply_deadzone(value: float, deadzone: float) -> float:
+    """Zero out small stick values, rescaling the rest so the response stays
+    continuous at the deadzone edge.
+    """
+    if deadzone <= 0.0:
+        return value
+    if abs(value) < deadzone:
+        return 0.0
+    return math.copysign((abs(value) - deadzone) / (1.0 - deadzone), value)
+
+
+def trigger_diff(axes, l2_index: int, r2_index: int, deadzone: float) -> float:
+    """L2 minus R2, deadzoned. Positive = L2 held = counter-clockwise spin."""
+    def value(index: int) -> float:
+        return axes[index] if 0 <= index < len(axes) else 0.0
+
+    diff = value(r2_index) - value(l2_index)
+    return 0.0 if abs(diff) < deadzone else diff
 
 
 class ButtonToggle:
@@ -24,7 +52,7 @@ class ButtonToggle:
         self._on_press = on_press
         self._prev_state = 0
 
-    def update(self, buttons) -> bool:
+    def update(self, buttons: list[int]) -> bool:
         """Feed the latest Joy.buttons array in; returns True if this was a press edge."""
         current = buttons[self.button_index] if self.button_index < len(buttons) else 0
         pressed = current == 1 and self._prev_state == 0
@@ -77,7 +105,7 @@ class BoolLight:
         except Exception as exc:
             self._node.get_logger().error(f'{self.name} service call failed: {exc!r}')
             return
-        
+
         if response.success:
             self.on = desired
 
@@ -101,25 +129,65 @@ class JoystickInterpreterNode(Node):
         self._scale_vy = float(declare_and_get('scale_linear.y', 0.5))
         self._scale_wz = float(declare_and_get('scale_angular.yaw', 1.0))
 
+        # Stick deadzone, applied here instead of in the driver — see apply_deadzone().
+        # Clamped below 1.0 so the rescaling never divides by zero.
+        self._deadzone = min(max(float(declare_and_get('deadzone', 0.05)), 0.0), 0.99)
+
+        # L2 / R2 — spin-in-place while in curvature mode.
+        self._axis_l2 = int(declare_and_get('axis_trigger.l2', 4))
+        self._axis_r2 = int(declare_and_get('axis_trigger.r2', 5))
+        self._trigger_deadzone = float(declare_and_get('trigger_deadzone', 0.15))
+        self._scale_rotate     = float(declare_and_get('scale_rotate', 1.0))
+
+        # Token yaw rate that holds the spin-in-place wheel shape while both
+        # triggers are held but balanced — see _publish_timer_cb.
+        self._rot_probe_wz = float(declare_and_get('rot_probe_wz', 1e-5))
+
+        # Tightest turn the right stick can ask for, as curvature 1/R at full
+        # deflection. 2.0 means R = 0.5 m, an ICR inside the wheelbase.
+        self._max_curvature = float(declare_and_get('max_curvature', 2.0))
+
+        # Token speed used to command a wheel angle while standing still —
+        # see the RIDING branch of _publish_timer_cb.
+        self._angle_probe_speed = float(declare_and_get('angle_probe_speed', 1e-5))
+
+        # Which swerve controller this joystick drives. Switching to
+        # 'swerve_controller_test' also repoints the compact-mode service.
+        self._controller_name = str(declare_and_get('controller_name', 'swerve_controller'))
+
         self._granny_scale = float(declare_and_get('granny_speed_scale', 0.1))
         self._granny_mode = False
 
         self._vy_enabled = bool(declare_and_get('vy_enabled_default', False))
         self._motors_enabled = False
+        self._controller_active = False
+        # Set once drive faults have been cleared: the interpreter still counts
+        # the motors as enabled, but the hardware will not drive until the
+        # motor button is cycled. See _clear_motor_errors().
+        self._motors_inhibited = False
+        # Newest switch_controller request wins. Replies can land out of order,
+        # and an old one must not be allowed to write back a stale
+        # _controller_active — that is how the light bar ends up green with the
+        # controller actually inactive.
+        self._switch_guard = GenerationGuard()
 
-        self._cmd_timeout = float(declare_and_get('cmd_timeout', 0.5))
         self._timeout_pub_rate = float(declare_and_get('timeout_pub_rate', 10.0))
-        self._timed_out = bool(declare_and_get('initial_timed_out', True))
+        self._watchdog = JoyWatchdog(
+            timeout=float(declare_and_get('cmd_timeout', 0.5)),
+            timed_out=bool(declare_and_get('initial_timed_out', True)),
+        )
 
         self._cmd_pub_rate = float(declare_and_get('cmd_pub_rate', 20.0))
         self._active       =  bool(declare_and_get('active_default', True))
 
-        self._last_joy_msg_time: float = 0.0
-
         self.raw_vx: float = 0.0
         self.raw_vy: float = 0.0
         self.raw_wz: float = 0.0
+        self.raw_steer: float = 0.0
+        self.raw_rot: float = 0.0
+        self.triggers_held: bool = False
 
+        self._row_twist_mode: bool = True
         self._compact_mode: bool = False
 
         self._traffic_red    = False
@@ -144,21 +212,35 @@ class JoystickInterpreterNode(Node):
             '/controller_manager/switch_controller',
         )
 
+        self._led = ControllerLed(self.get_logger())
+        # Recomputes the colour each tick, so this also carries state changes
+        # that no button press announces.
+        self._led_timer = self.create_timer(LED_REPAINT_PERIOD, self._refresh_led)
+
         self._timeout_timer = self.create_timer(1.0 / max(0.001, self._timeout_pub_rate), self._timeout_check)
         self._publish_timer = self.create_timer(1.0 / max(0.001, self._cmd_pub_rate), self._publish_timer_cb)
-        self._compact_mode_client = self.create_client(SetBool, '/swerve_controller/set_compact_mode')
+        self._compact_mode_client = self.create_client(
+            SetBool, f'/{self._controller_name}/set_compact_mode')
 
         self._spotlight = BoolLight(self, self.create_client(SetBool, '/lights/spotlight'), 'spotlight')
         self._beautiful = BoolLight(self, self.create_client(SetBool, '/lights/beautiful'), 'beautiful')
         self._traffic_client = self.create_client(SetTrafficLight, '/lights/traffic_light')
 
+        self._clear_errors_client = self.create_client(
+            Trigger,
+            str(declare_and_get('clear_errors_service',
+                                '/rover_hardware_node/clear_motor_errors')),
+        )
+
         self._motor_guard = GuardedCall(self._motor_enable_client)
         self._compact_mode_guard = GuardedCall(self._compact_mode_client)
         self._traffic_guard = GuardedCall(self._traffic_client)
+        self._clear_errors_guard = GuardedCall(self._clear_errors_client)
 
         self._toggles = [
             ButtonToggle(declare_and_get('vy_toggle_button', 8), self._on_vy_toggle_pressed),
             ButtonToggle(declare_and_get('motor_toggle_button', 9), self._toggle_motors),
+            ButtonToggle(declare_and_get('raw_twist_mode_button', 3), self._on_raw_twist_mode_toggle_pressed),
             ButtonToggle(declare_and_get('compact_mode_button', 1), self._toggle_compact_mode),
             ButtonToggle(declare_and_get('granny_button', 10), self._on_granny_toggle_pressed),
             ButtonToggle(declare_and_get('spotlight_button', 4), self._spotlight.toggle),
@@ -168,44 +250,95 @@ class JoystickInterpreterNode(Node):
             ButtonToggle(declare_and_get('traffic_green_button',  13), lambda: self._toggle_traffic('green')),
             ButtonToggle(declare_and_get('traffic_blue_button',   14), lambda: self._toggle_traffic('blue')),
             ButtonToggle(declare_and_get('active_toggle_button', 2), self._on_active_toggle_pressed),
+            ButtonToggle(declare_and_get('clear_errors_button', 20), self._clear_motor_errors),
         ]
 
         self.get_logger().info(
             f'JoystickInterpreter started — '
             f'vy_toggle_button={self._toggles[0].button_index}, '
             f'motor_toggle_button={self._toggles[1].button_index}, '
-            f'vy_enabled={self._vy_enabled}'
+            f'vy_enabled={self._vy_enabled}, '
+            f'deadzone={self._deadzone}, '
+            f'controller={self._controller_name}'
         )
+
+        self._refresh_led()
 
     def _on_joy(self, msg: Joy):
         """
         Refresh the watchdog timestamp and run every button's edge detector.
         """
-        self._last_joy_msg_time = self._now_seconds()
-        if self._timed_out:
-            self._timed_out = False
+        if self._watchdog.on_message(self._now_seconds()):
             self.get_logger().info('Joystick input recovered — resuming command forwarding')
+            # A controller that dropped and came back has lost whatever colour
+            # it was wearing, so repaint it.
+            self._refresh_led()
 
         for toggle in self._toggles:
             toggle.update(msg.buttons)
         
-        self.raw_vx = msg.axes[self._axis_vx] * self._scale_vx
-        self.raw_vy = msg.axes[self._axis_vy] * self._scale_vy if self._vy_enabled else 0.0
-        self.raw_wz = msg.axes[self._axis_wz] * self._scale_wz
+        vx_axis = self._deadzoned(msg.axes[self._axis_vx])
+        vy_axis = self._deadzoned(msg.axes[self._axis_vy])
+        wz_axis = self._deadzoned(msg.axes[self._axis_wz])
+
+        self.raw_vx = vx_axis * self._scale_vx
+        self.raw_vy = vy_axis * self._scale_vy if self._vy_enabled else 0.0
+        self.raw_wz = wz_axis * self._scale_wz
+        # Kept unscaled: in curvature mode this stick sets a radius, not a
+        # yaw rate, so scale_angular does not apply to it.
+        self.raw_steer = wz_axis
+        self.raw_rot = self._trigger_diff(msg.axes)
+        # trigger_diff() reads zero both when nothing is touched and when both
+        # triggers are held to a draw; this tells those two apart. abs() because
+        # the triggers rest at 0.0 and read -1.0 when pulled.
+        self.triggers_held = max(
+            abs(msg.axes[self._axis_l2]),
+            abs(msg.axes[self._axis_r2])) > self._trigger_deadzone
+
+    def _deadzoned(self, value: float) -> float:
+        return apply_deadzone(value, self._deadzone)
+
+    def _trigger_diff(self, axes) -> float:
+        return trigger_diff(axes, self._axis_l2, self._axis_r2, self._trigger_deadzone)
 
     def _publish_timer_cb(self):
         """Publish the latest known command at a fixed rate (default 20 Hz),
         regardless of how often /joy actually fires. Suppressed while timed out —
         _timeout_check takes over publishing zeros in that case."""
-        if self._timed_out or not self._active:
+        if self._watchdog.timed_out or not self._active:
             return
 
         vx = self.raw_vx
         vy = self.raw_vy
-        wz = self.raw_wz
-        
-        if not self._vy_enabled:
-            wz = self._apply_swerve_wz_correction(self.raw_vx, self.raw_vy, self.raw_wz)
+
+        if self._row_twist_mode:
+            wz = self.raw_wz
+            if not self._vy_enabled:
+                wz = self._apply_swerve_wz_correction(vx, vy, wz)
+
+        elif self.triggers_held or self.raw_rot != 0.0:
+            vx = 0.0
+            vy = 0.0
+            wz = self.raw_rot * self._scale_rotate
+
+            if wz == 0.0:
+                # Held to a draw: keep the spin shape without driving. Below
+                # park_speed the controller steers with the drives at zero, and
+                # a tiny — rather than empty — twist stops idle homing.
+                wz = self._rot_probe_wz
+
+        else:
+            target_curvature = self.raw_steer * self._max_curvature
+
+            v_total  = math.hypot(vx, vy)
+            v_signed = -v_total if vx < 0.0 else v_total
+
+            if v_total < 1e-3 and target_curvature != 0.0:
+                vx = self._angle_probe_speed
+                vy = 0.0
+                wz = vx * target_curvature
+            else:
+                wz = v_signed * target_curvature
 
         if self._granny_mode:
             vx *= self._granny_scale
@@ -243,19 +376,56 @@ class JoystickInterpreterNode(Node):
         if not started:
             self.get_logger().warn('traffic_light service busy or not available')
 
-    def _timeout_check(self):
-        """Apply /joy freshness timeout and publish safe zero commands when stale."""
-        if not self._active:
+    def _clear_motor_errors(self):
+        """Ask the hardware interface to clear latched drive-motor faults.
+
+        The motors come back disabled — that is how the clear works — so
+        recovery is: clear, then cycle the motor button off/on.
+        """
+        started = self._clear_errors_guard.call(
+            Trigger.Request(), self._on_clear_errors_result)
+        if not started:
+            self.get_logger().warn('clear_motor_errors service busy or not available')
+
+    def _on_clear_errors_result(self, future):
+        try:
+            response = future.result()
+        except Exception as exc:
+            self.get_logger().error(f'clear_motor_errors call failed: {exc!r}')
             return
 
-        now = self._now_seconds()
-        dt = now - self._last_joy_msg_time if self._last_joy_msg_time > 0.0 else float('inf')
+        if response.success:
+            # The hardware can no longer drive, but nothing told the
+            # interpreter to drop _motors_enabled / _controller_active, and
+            # clearing them here would cut across the recovery sequence. Track
+            # it as its own state instead, so the light bar stops claiming the
+            # joystick is in command.
+            self._motors_inhibited = True
+            self._refresh_led()
+            self.get_logger().info(
+                f'Motor errors cleared: {response.message} — '
+                f'cycle the motor button to re-enable')
+        else:
+            self.get_logger().error(f'Motor errors not cleared: {response.message}')
 
-        if dt > self._cmd_timeout:
-            if not self._timed_out:
-                self._timed_out = True
-                self.get_logger().warn('Joystick input timed out — publishing zeros to /cmd_vel')
+    def _timeout_check(self):
+        """Apply /joy freshness timeout and publish safe zero commands when stale.
 
+        Timeout *detection* runs whether or not the joystick holds control:
+        while yielding to nav there is nothing to publish, but a controller
+        that drops and comes back still needs its light bar repainted, and that
+        repaint hangs off the timed-out → recovered edge in _on_joy(). Only the
+        zero-command publishing is conditional on _active.
+        """
+        tick = self._watchdog.tick(self._now_seconds(), self._active)
+
+        if tick.went_stale:
+            self.get_logger().warn(
+                'Joystick input timed out — publishing zeros to /cmd_vel'
+                if self._active else
+                'Joystick input timed out (inactive — nav holds /cmd_vel)')
+
+        if tick.publish_zero:
             self._publish_cmd(0.0, 0.0, 0.0)
 
     def _publish_cmd(self, vx: float, vy: float, wz: float):
@@ -269,6 +439,19 @@ class JoystickInterpreterNode(Node):
         self._active = not self._active
         state_str = 'ACTIVE (publishing to /cmd_vel)' if self._active else 'INACTIVE (yielding to nav)'
         self.get_logger().info(f'Joystick control: {state_str}')
+        self._refresh_led()
+
+    def mark_led_offline(self):
+        self._led.set(LED_NODE_DOWN)
+
+    def _refresh_led(self):
+        """Paint the controller's light bar with the current drive state."""
+        self._led.set(led_colour(
+            motors_enabled=self._motors_enabled,
+            motors_inhibited=self._motors_inhibited,
+            controller_active=self._controller_active,
+            joystick_active=self._active,
+        ))
 
     def _now_seconds(self) -> float:
         return float(self.get_clock().now().nanoseconds) * 1e-9
@@ -286,6 +469,11 @@ class JoystickInterpreterNode(Node):
             request, lambda f: self._on_motor_toggle_result(f, target_enabled))
         if not started:
             self.get_logger().warn('Motor enable service busy or not available yet')
+    
+    def _on_raw_twist_mode_toggle_pressed(self):
+        self._row_twist_mode = not self._row_twist_mode
+        state_str = 'RAW TWIST (Direct)' if self._row_twist_mode else 'PROCESSED (Curvature)'
+        self.get_logger().info(f'Switching to {state_str} mode')
 
     def _toggle_compact_mode(self):
         target = not self._compact_mode
@@ -316,13 +504,14 @@ class JoystickInterpreterNode(Node):
 
         if response.ok:
             self._motors_enabled = desired_state
-            if desired_state:
-                self._set_swerve_controller_state(True)
-            else:
-                self._set_swerve_controller_state(False)
+            # Cycling the motor button is exactly the recovery step that lifts
+            # the post-clear inhibit.
+            self._motors_inhibited = False
+            self._set_swerve_controller_state(desired_state)
 
         status = 'ENABLED' if self._motors_enabled else 'DISABLED'
         self.get_logger().info(f'Motors {status}')
+        self._refresh_led()
 
     def _set_swerve_controller_state(self, activate: bool):
         if not self._controller_state_client.service_is_ready():
@@ -330,15 +519,44 @@ class JoystickInterpreterNode(Node):
             return
         req = SwitchController.Request()
         if activate:
-            req.activate_controllers = ['swerve_controller']
+            req.activate_controllers = [self._controller_name]
             req.deactivate_controllers = []
         else:
             req.activate_controllers = []
-            req.deactivate_controllers = ['swerve_controller']
+            req.deactivate_controllers = [self._controller_name]
         req.strictness = SwitchController.Request.BEST_EFFORT
+
+        generation = self._switch_guard.start()
         self._controller_state_client.call_async(req).add_done_callback(
-            lambda f: self.get_logger().info(
-                f'swerve_controller → {"active" if activate else "inactive"}'))
+            lambda f: self._on_switch_controller_result(f, activate, generation))
+
+    def _on_switch_controller_result(self, future, activate: bool, generation: int):
+        target = 'active' if activate else 'inactive'
+
+        if not self._switch_guard.is_current(generation):
+            # A newer request has already been sent; this reply describes a
+            # superseded intent. Acting on it would write back a stale
+            # _controller_active and mislead the light bar.
+            self.get_logger().debug(
+                f'ignoring stale switch_controller reply (→ {target})')
+            return
+
+        try:
+            response = future.result()
+        except Exception as exc:
+            self.get_logger().error(
+                f'switch_controller call failed: {exc!r} — '
+                f'{self._controller_name} is not {target}')
+            return
+
+        if response.ok:
+            self._controller_active = activate
+            self.get_logger().info(f'{self._controller_name} → {target}')
+        else:
+            self.get_logger().error(
+                f'controller_manager refused to make {self._controller_name} {target}')
+
+        self._refresh_led()
 
     def _on_traffic_result(self, future, color: str, desired: bool):
         try:
@@ -369,12 +587,20 @@ def main(args=None):
     node = JoystickInterpreterNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # Ctrl-C arrives as KeyboardInterrupt. SIGTERM — 'systemctl stop rover',
+        # 'docker stop', ros2 launch tearing down its children — is handled by
+        # rclpy itself, which shuts the context down and makes spin() raise
+        # ExternalShutdownException. Catching it keeps the exit clean; either
+        # way the finally block below still runs.
         pass
     finally:
+        node.mark_led_offline()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
     main()
+

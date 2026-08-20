@@ -3,8 +3,34 @@
 #include <cstdint>
 #include <cstring>
 #include "can_msgs/msg/frame.hpp"
+#include "rover_hardware_interface/motor_fault.hpp"
 
 namespace damiao_protocol {
+
+// ERR nibble values. 0x0/0x1 are operating states, not faults — the vendor
+// named the field "ERR" but the manual (p.9) documents it as a status
+// indicator whose range happens to include the fault codes.
+constexpr uint8_t ERR_DISABLED = 0x0;
+constexpr uint8_t ERR_ENABLED  = 0x1;
+
+/// Map the ERR nibble onto the vendor-neutral taxonomy.
+/// Reserved values 0x2-0x7 must never appear; they map to UNKNOWN rather than
+/// NONE so a firmware change cannot silently look healthy.
+inline rover_fault::Fault translateFault(uint8_t err)
+{
+    switch (err) {
+        case ERR_DISABLED: return rover_fault::Fault::NOT_ENABLED;
+        case ERR_ENABLED:  return rover_fault::Fault::NONE;
+        case 0x8:          return rover_fault::Fault::OVERVOLTAGE;
+        case 0x9:          return rover_fault::Fault::UNDERVOLTAGE;
+        case 0xA:          return rover_fault::Fault::OVERCURRENT;
+        case 0xB:          return rover_fault::Fault::OVERTEMP;   // MOS
+        case 0xC:          return rover_fault::Fault::OVERTEMP;   // coil
+        case 0xD:          return rover_fault::Fault::COMM_LOSS;
+        case 0xE:          return rover_fault::Fault::OVERLOAD;
+        default:           return rover_fault::Fault::UNKNOWN;
+    }
+}
 
 struct MotorState {
     // MIT feedback (position/velocity/torque — 16/12/12-bit fixed-point)
@@ -153,6 +179,19 @@ inline can_msgs::msg::Frame buildDisableFrame(uint8_t esc_id) {
     f.dlc = 8;
     f.data.fill(0xFF);
     f.data[7] = 0xFD;
+    return f;
+}
+
+// CAN ID = esc_id, payload FF FF FF FF FF FF FF FB
+// Clears a latched error (overvoltage, overcurrent, overtemp, ...). The motor
+// stays disabled afterwards — an enable frame is still required before it will
+// take commands again.
+inline can_msgs::msg::Frame buildClearErrorFrame(uint8_t esc_id) {
+    can_msgs::msg::Frame f;
+    f.id  = esc_id;
+    f.dlc = 8;
+    f.data.fill(0xFF);
+    f.data[7] = 0xFB;
     return f;
 }
 

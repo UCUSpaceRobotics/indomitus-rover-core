@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    ZED2i Stereo Camera fragment as a macro. 
+    Parameters: `use_sim`, `simulate_rgb`, `simulate_depth`, `simulate_imu` (booleans).
+    Enables Gazebo camera and IMU plugins and topic publishing when set to true.
+    Defines the sensor links, visual, and collision geometries.
+  -->
+
+  <xacro:macro name="stereo_camera" 
+               params="use_sim:=false 
+                       simulate_rgb:=false 
+                       simulate_depth:=false 
+                       simulate_imu:=false">
+
+    <xacro:include filename="$(find zed_description)/urdf/zed_macro.urdf.xacro" />
+    <xacro:zed_camera name="zed2i" model="zed2i">
+      <gnss_origin>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+      </gnss_origin>
+    </xacro:zed_camera>
+
+    <!-- RGB CAMERA -->
+    <xacro:if value="${use_sim and simulate_rgb}">
+      <gazebo reference="zed2i_left_camera_frame">
+        <sensor type="camera" name="zed2i_rgb_sensor">
+          <always_on>true</always_on>
+          <update_rate>20.0</update_rate>
+          <topic>/zed2i/rgb/image_rect_color</topic>
+          <ignition_frame_id>zed2i_left_camera_frame_optical</ignition_frame_id>
+          <gz_frame_id>zed2i_left_camera_frame_optical</gz_frame_id>
+          <camera>
+            <camera_info_topic>/zed2i/rgb/camera_info</camera_info_topic>
+            <horizontal_fov>1.91986</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>420</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>100.0</far>
+            </clip>
+          </camera>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+    <!-- DEPTH CAMERA -->
+    <xacro:if value="${use_sim and simulate_depth}">
+      <gazebo reference="zed2i_left_camera_frame">
+        <sensor type="depth_camera" name="zed2i_depth_sensor">
+          <always_on>true</always_on>
+          <update_rate>10.0</update_rate>
+          <topic>/zed2i/depth/depth_registered</topic>
+          <ignition_frame_id>zed2i_left_camera_frame</ignition_frame_id>
+          <gz_frame_id>zed2i_left_camera_frame</gz_frame_id>
+          <camera>
+            <camera_info_topic>/zed2i/depth/camera_info</camera_info_topic>
+            <horizontal_fov>1.91986</horizontal_fov>
+            <image>
+              <width>320</width>
+              <height>180</height>
+              <format>R_FLOAT32</format> 
+            </image>
+            <clip>
+              <near>0.45</near>
+              <far>15.0</far>
+            </clip>
+          </camera>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+    <!-- IMU -->
+    <xacro:if value="${use_sim and simulate_imu}">
+      <gazebo reference="zed2i_left_camera_frame">
+        <sensor name="zed2i_imu_sensor" type="imu">
+          <always_on>true</always_on>
+          <update_rate>100.0</update_rate>
+          <topic>/zed2i/imu/data</topic>
+          <gz_frame_id>zed2i_left_camera_frame</gz_frame_id>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+</robot>

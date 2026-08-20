@@ -1,5 +1,5 @@
 """
-can_bridge.launch.py
+can.launch.py
 ====================
 Brings up ros2_socketcan sender and receiver lifecycle nodes.
 
@@ -109,23 +109,27 @@ def _fail_fast(node: LifecycleNode, label: str) -> RegisterEventHandler:
         )
     )
 
+def _launch_can_nodes(context, *args, **kwargs) -> List[Action]:
+    interface_name = LaunchConfiguration("interface").perform(context)
+    logger = launch.logging.get_logger("can_validation")
 
-def generate_launch_description() -> LaunchDescription:
-    interface_arg = DeclareLaunchArgument(
-        "interface",
-        default_value="can0",
-        description="SocketCAN network interface name (e.g. can0, can1)",
-    )
-    sender_timeout_arg = DeclareLaunchArgument(
-        "sender_timeout_sec",
-        default_value="0.01",
-        description="How long the sender waits for a message before retrying (seconds)",
-    )
-    receiver_interval_arg = DeclareLaunchArgument(
-        "receiver_interval_sec",
-        default_value="0.01",
-        description="CAN socket polling interval for the receiver (seconds)",
-    )
+    # --- validating ---
+    try:
+        result = subprocess.run(
+            ["ip", "-j", "link", "show", interface_name],
+            capture_output=True, text=True, check=True
+        )
+        interface_data = json.loads(result.stdout)
+        flags = interface_data[0].get("flags", [])
+        if "UP" not in flags:
+            logger.error(f"[CAN] ERROR: interface '{interface_name}' exists but is not UP.")
+            raise RuntimeError(f"Interface {interface_name} is down")
+        logger.info(f"[CAN] Interface '{interface_name}' is UP — OK")
+
+    except subprocess.CalledProcessError:
+        raise RuntimeError(f"[CAN] Interface '{interface_name}' does not exist.")
+    except (json.JSONDecodeError, IndexError, KeyError):
+        raise RuntimeError(f"[CAN] Failed to parse state for '{interface_name}'.")
 
     sender_node = LifecycleNode(
         package="ros2_socketcan",
@@ -147,36 +151,58 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{
             "interface": LaunchConfiguration("interface"),
             "interval_sec": LaunchConfiguration("receiver_interval_sec"),
+            "filters": LaunchConfiguration("receiver_filters"),
         }],
         arguments=["--ros-args", "--log-level", "socket_can_receiver:=WARN"],
         output="screen",
     )
 
-    sender_configure_handler = _auto_configure(sender_node, "socket_can_sender")
-    receiver_configure_handler = _auto_configure(receiver_node, "socket_can_receiver")
-    sender_activate_handler = _auto_activate(sender_node, "socket_can_sender")
-    receiver_activate_handler = _auto_activate(receiver_node, "socket_can_receiver")
-    sender_fail_fast_handler = _fail_fast(sender_node, "socket_can_sender")
-    receiver_fail_fast_handler = _fail_fast(receiver_node, "socket_can_receiver")
+    return [
+        # Event handlers
+        _auto_configure(sender_node, "socket_can_sender"),
+        _auto_configure(receiver_node, "socket_can_receiver"),
+        _auto_activate(sender_node, "socket_can_sender"),
+        _auto_activate(receiver_node, "socket_can_receiver"),
+        _fail_fast(sender_node, "socket_can_sender"),
+        _fail_fast(receiver_node, "socket_can_receiver"),
+        
+        # Nodes
+        sender_node,
+        receiver_node,
+    ]
+
+def generate_launch_description() -> LaunchDescription:
+    interface_arg = DeclareLaunchArgument(
+        "interface",
+        default_value="can0",
+        description="SocketCAN network interface name (e.g. can0, can1)",
+    )
+    sender_timeout_arg = DeclareLaunchArgument(
+        "sender_timeout_sec",
+        default_value="0.01",
+        description="How long the sender waits for a message before retrying (seconds)",
+    )
+    receiver_interval_arg = DeclareLaunchArgument(
+        "receiver_interval_sec",
+        default_value="0.5",
+        description="CAN socket polling interval for the receiver (seconds)",
+    )
+
+    receiver_filters_arg = DeclareLaunchArgument(
+        "receiver_filters",
+        default_value="300:700",
+        description="candump-syntax CAN id:mask filter (hex, no 0x prefix)",
+    )
 
     return LaunchDescription([
         # Arguments
         interface_arg,
         sender_timeout_arg,
         receiver_interval_arg,
+        receiver_filters_arg,
 
         # Validate CAN interface presence
         OpaqueFunction(function=_validate_can_interface),
 
-        # Event handlers
-        sender_configure_handler,
-        receiver_configure_handler,
-        sender_activate_handler,
-        receiver_activate_handler,
-        sender_fail_fast_handler,
-        receiver_fail_fast_handler,
-
-        # Nodes
-        sender_node,
-        receiver_node,
+        OpaqueFunction(function=_launch_can_nodes),
     ])

@@ -18,6 +18,8 @@ find_package(indomitus_interfaces REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rover_hardware_interface.cpp
+  src/can_bus.cpp
+  src/fault_detector.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -68,25 +70,44 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config
-  DESTINATION share/${PROJECT_NAME}
-)
+if(BUILD_TESTING)
+  # find_package(ament_lint_auto REQUIRED)
+  # set(ament_cmake_copyright_FOUND TRUE)
+  # set(ament_cmake_cpplint_FOUND TRUE)
+  # ament_lint_auto_find_test_dependencies()
 
-# if(BUILD_TESTING)
-#   find_package(ament_lint_auto REQUIRED)
-#   set(ament_cmake_copyright_FOUND TRUE)
-#   set(ament_cmake_cpplint_FOUND TRUE)
-#   ament_lint_auto_find_test_dependencies()
+  find_package(ament_cmake_gtest REQUIRED)
 
-#   find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_protocols
+    test/test_protocols.cpp
+  )
+  target_include_directories(test_protocols PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_target_dependencies(test_protocols can_msgs)
 
-#   ament_add_gtest(test_protocols
-#     test/test_protocols.cpp
-#   )
-#   target_include_directories(test_protocols PRIVATE
-#     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-#   )
-#   ament_target_dependencies(test_protocols can_msgs)
-# endif()
+  # Edge-triggering behaviour: pure logic, no hardware, no ROS graph.
+  ament_add_gtest(test_fault_detector
+    test/test_fault_detector.cpp
+  )
+  target_include_directories(test_fault_detector PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  target_link_libraries(test_fault_detector ${PROJECT_NAME})
+  ament_target_dependencies(test_fault_detector
+    rclcpp can_msgs indomitus_interfaces)
+
+  # Socket lifecycle. Skips itself when no CAN interface is available, so it is
+  # a no-op in a container without vcan rather than a failure.
+  ament_add_gtest(test_can_bus
+    test/test_can_bus.cpp
+    TIMEOUT 60
+  )
+  target_include_directories(test_can_bus PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  target_link_libraries(test_can_bus ${PROJECT_NAME})
+  ament_target_dependencies(test_can_bus rclcpp)
+endif()
 
 ament_package()

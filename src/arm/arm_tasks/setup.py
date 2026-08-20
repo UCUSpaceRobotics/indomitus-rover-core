@@ -9,7 +9,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name, ['package.xml', 'poses.json']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,6 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'teach_poses = arm_tasks.teach_poses:main',
+            'keyboard_servo_node = arm_tasks.keyboard_servo_node:main',
+            'gamepad_servo_node = arm_tasks.keyboard_servo_node:main_gamepad',
         ],
     },
 )

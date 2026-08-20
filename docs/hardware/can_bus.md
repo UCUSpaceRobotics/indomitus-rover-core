@@ -2,19 +2,14 @@
 
 ## Wiring
 
-### Main Rover CAN Bus
-|  Signal  | Color |
-|----------|-------|
-| CAN HIGH | BLACK |
-| CAN LOW  | RED   |
+This wiring color scheme applies to both the rover and the robotic arm.
 
-### Arm CAN Bus
-|  Signal  | Color |
+|  **Signal**  | **Color** |
 |----------|-------|
 | CAN HIGH | RED   |
 | CAN LOW  | BLACK |
 
-## On-Rover Setup (Jetson)
+## On-Rover Setup (Jetson) 
 
 CAN interface configuration and container startup are fully automated on the Jetson via udev rules and a systemd service.
 
@@ -70,3 +65,20 @@ To simplify SocketCAN filtering and avoid ID collisions, CAN identifiers are res
 ### Notes
 
 > ⚠️ Do **not** allocate IDs inside any reserved range!!! ⚠️
+
+### Helper
+
+Set motors to 0:
+```bash
+# Set origin for Motor ID 11 (0x0B)      
+cansend can0 00B#B1
+
+# Set origin for Motor ID 13 (0x0D)
+cansend can0 00D#B1
+
+# Set origin for Motor ID 15 (0x0F)
+cansend can0 00F#B1
+
+# Set origin for Motor ID 17 (0x11)
+cansend can0 011#B1
+```

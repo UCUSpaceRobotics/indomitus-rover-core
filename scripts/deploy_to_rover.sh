@@ -7,6 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 FILTER_FILE="${SCRIPT_DIR}/.rsync-filter-deploy"
 
+# IMPORT SHARED FUNCTIONS
+source "${SCRIPT_DIR}/utils.sh"
+
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
 # DEFAULT VARIABLES
@@ -137,6 +140,11 @@ if [ ! -f "$FILTER_FILE" ] && [ "$SYNC_COMPOSE_MODE" = false ]; then
     error "rsync filter file not found: $FILTER_FILE"
 fi
 
+# ENFORCE TAG OR COMMIT IN PULL MODE
+if [ "$PULL_MODE" = true ] && [ -z "$IMAGE_TAG" ] && [ -z "$IMAGE_COMMIT" ]; then
+    error "The --tag (or --commit) flag is mandatory when using pull mode."
+fi
+
 if [ -z "$IMAGE_TAG" ] && [ -z "$IMAGE_COMMIT" ]; then
     if [ "$LOCAL_BUILD_MODE" = true ] || [ "$REMOTE_BUILD_MODE" = true ]; then
         IMAGE_TAG="local-prod"
@@ -172,44 +180,8 @@ CLEANUP_FILES+=("${ARCHIVE_NAME}")
 
 connect_to_jetson() {
     step "Verifying Jetson Connection..."
-
-    if [ -n "$WIFI_SSID" ] && [ "$USE_ETH" = false ]; then
-        echo "Attempting to automatically connect to Wi-Fi network: ${WIFI_SSID}..."
-        if command -v nmcli >/dev/null 2>&1; then
-            if [ -n "$WIFI_PASS" ]; then
-                nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASS" >/dev/null 2>&1 || true
-            else
-                nmcli device wifi connect "$WIFI_SSID" >/dev/null 2>&1 || true
-            fi
-        elif command -v networksetup >/dev/null 2>&1; then
-            local WIFI_IFACE
-            WIFI_IFACE=$(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2}')
-            if [ -n "$WIFI_IFACE" ]; then
-                if [ -n "$WIFI_PASS" ]; then
-                    networksetup -setairportnetwork "$WIFI_IFACE" "$WIFI_SSID" "$WIFI_PASS" >/dev/null 2>&1 || true
-                else
-                    networksetup -setairportnetwork "$WIFI_IFACE" "$WIFI_SSID" >/dev/null 2>&1 || true
-                fi
-            fi
-        else
-            echo -e "\e[33m[WARNING]\e[0m OS not supported for auto-connect. Please switch to '${WIFI_SSID}' manually."
-        fi
-    fi
-
-    echo -n "Waiting for SSH connection to ${TARGET}..."
-    local MAX_RETRIES=15
-    local RETRY_COUNT=0
-    while ! ssh -q -o BatchMode=yes -o ConnectTimeout=2 "${SSH_OPTS[@]}" "${TARGET}" "echo 'SSH Ready'" > /dev/null 2>&1; do
-        sleep 2
-        echo -n "."
-        RETRY_COUNT=$((RETRY_COUNT+1))
-        if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
-            echo ""
-            error "Timeout: Could not connect to Jetson at ${TARGET}."
-        fi
-    done
-    echo ""
-    success "Connection established."
+    ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
+    wait_for_ssh "$TARGET" 30
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "mkdir -p -- \"${REMOTE_DIR}\""
 }
 
@@ -275,10 +247,10 @@ run_remote_build_mode() {
 
     step "Building Docker Image natively on Jetson (${IMAGE_NAME}:${IMAGE_TAG})..."
 
-    if ssh -t -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose build --progress=tty"; then
+    if ssh -t -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" && IMAGE_NAME=\"${IMAGE_NAME}\" IMAGE_TAG=\"${IMAGE_TAG}\" docker compose --progress=tty build"; then
         success "Image successfully built on the Jetson."
     else
-        error "Remote Docker build failed."
+        error "Remote Docker Compose build failed."
     fi
 
     step "Restarting Container on Jetson (Safe Mode with Rollback)..."
@@ -459,7 +431,7 @@ Make sure a CI run completed successfully for this tag."
 
 
 run_local_build_mode() {
-    warning "ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, turn off address space randomization before script usage with command 'sudo sysctl kernel.randomize_va_space=0'. After deployment, turn it back on with 'sudo sysctl kernel.randomize_va_space=2'."
+    warning "ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, turn off address space randomization with command 'sudo sysctl kernel.randomize_va_space=0'. After deployment, turn it back on with 'sudo sysctl kernel.randomize_va_space=2'."
 
     step "Running Pre-Flight Checks for Full Build..."
     if ! docker info > /dev/null 2>&1; then error "Docker is not running."; fi

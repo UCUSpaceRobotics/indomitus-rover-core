@@ -7,9 +7,9 @@ find_package(std_msgs REQUIRED)
 find_package(action_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/WheelTargets.msg"
   "msg/MotorStatus.msg"
   "msg/ChassisStatus.msg"
+  "msg/FaultEvent.msg"
   "action/ContainerLid.action"
   "srv/GetWeight.srv"
   "srv/SetSteerZero.srv"

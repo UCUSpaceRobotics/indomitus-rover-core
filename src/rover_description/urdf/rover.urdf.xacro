@@ -1,22 +1,55 @@
 <?xml version="1.0"?>
-<robot name="indomitus_s1" xmlns:xacro="http://www.ros.org/wiki/xacro">
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find rover_description)/urdf/properties.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/inertia_macros.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/rocker_assembly.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/accessories.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/stereo_camera.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/lidar.xacro"/>
+
+  <!-- mount_arm:=true bolts the indomitus_arm (arm_description) onto
+       main_body_link, matching the real hardware where the arm is
+       physically attached to the rover chassis. Defaults to false so
+       existing rover-only bringup/sim behavior is unchanged unless a
+       launch file opts in. The include is unconditional (it only defines
+       the indomitus_arm macro; no links/joints are created until it is
+       invoked below), so arm_description must be present in the overlay
+       the same way it already is for arm_bringup/arm_hardware_interface. -->
+  <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>
+  <xacro:arg name="mount_arm" default="false"/>
 
   <!-- ===================== MATERIALS ===================== -->
   <material name="blue_body">
-    <color rgba="0.2 0.4 0.8 1"/>
+    <color rgba="0.55 0.56 0.58 1"/>
   </material>
   <material name="grey_structure">
-    <color rgba="0.6 0.6 0.6 1"/>
+    <color rgba="0.55 0.56 0.58 1"/>
   </material>
   <material name="orange_mount">
-    <color rgba="0.8 0.4 0.0 1"/>
+    <color rgba="0.55 0.56 0.58 1"/>
   </material>
   <material name="dark_wheel">
     <color rgba="0.1 0.1 0.1 1"/>
   </material>
   <material name="red_axii">
-    <color rgba="0.4 0.4 0.4 1"/>
+    <color rgba="0.55 0.56 0.58 1"/>
   </material>
+  <material name="beacon_light">
+    <color rgba="0.9 0.35 0.05 1"/>
+  </material>
+  <material name="button_red">
+    <color rgba="0.7 0.05 0.05 1"/>
+  </material>
+
+  <!-- ===================== BASE FOOTPRINT ===================== -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.42" rpy="0 0 0"/>
+  </joint>
 
   <!-- ===================== BASE ===================== -->
   <link name="base_link">
@@ -30,8 +63,8 @@
   <link name="suspension_base_axii_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.5"/>
-      <inertia ixx="0.5" iyy="0.5" izz="1.0" ixy="0" ixz="0" iyz="0"/>
+      <mass value="${axii_mass}"/>
+      <xacro:box_inertia m="${axii_mass}" x="${axii_length}" y="${axii_width}" z="${axii_height}"/>
     </inertial>
     <visual>
       <origin xyz="0 -0.325 0" rpy="0 0 0"/>
@@ -43,7 +76,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.68 0.05"/>
+        <box size="${axii_length} ${axii_width} ${axii_height}"/>
       </geometry>
     </collision>
   </link>
@@ -58,20 +91,20 @@
   <link name="main_body_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="40.0"/>
-      <inertia ixx="0.608" iyy="1.283" izz="1.733" ixy="0" ixz="0" iyz="0"/>
+      <mass value="${body_mass}"/>
+      <xacro:box_inertia m="${body_mass}" x="${body_length}" y="${body_width}" z="${body_height}"/>
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.6 0.4 0.2"/>
+        <box size="${body_length} ${body_width} ${body_height}"/>
       </geometry>
       <material name="blue_body"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.6 0.4 0.15"/>
+        <box size="${body_length} ${body_width} ${body_height}"/>
       </geometry>
     </collision>
   </link>
@@ -79,318 +112,52 @@
   <joint name="main_body_joint" type="fixed">
     <parent link="suspension_base_axii_link"/>
     <child link="main_body_link"/>
-    <origin xyz="-0.04 0 0.05" rpy="0 0 0"/>
+    <origin xyz="0 0 0.02" rpy="0 0 0"/>
   </joint>
 
+  <!-- ===================== ZED2i STEREO CAMERA ===================== -->
+  <xacro:stereo_camera
+    use_sim="$(arg use_sim)"
+    simulate_rgb="$(arg stereo_camera_simulate_rgb)"
+    simulate_depth="$(arg stereo_camera_simulate_depth)"
+    simulate_imu="$(arg stereo_camera_simulate_imu)"
+  />
 
-  <!-- ===================== CAMERA ===================== -->
-  <xacro:include filename="$(find rover_description)/urdf/camera.xacro"/>
-  <xacro:camera/>
-
-  <!-- ===================== LEFT ROCKER ===================== -->
-  <link name="l_rocker_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="1.0"/>
-      <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="-0.55 0.02 -0.04" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/rocker.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="grey_structure"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="1.1 0.04 0.08"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="l_rocker_joint" type="revolute">
-    <parent link="suspension_base_axii_link"/>
-    <child link="l_rocker_link"/>
-    <origin xyz="0 0.34 0" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-0.5" upper="0.5" effort="100" velocity="1.0"/>
-    <dynamics damping="0.5" friction="0.1"/>
+  <joint name="zed2i_base_joint" type="fixed">
+    <parent link="main_body_link"/>
+    <child link="zed2i_camera_link"/>
+    <origin xyz="${zed2i_x} ${zed2i_y} ${zed2i_z}" rpy="${zed2i_rx} ${zed2i_ry} ${zed2i_rz}"/>
   </joint>
 
-  <!-- ===================== RIGHT ROCKER ===================== -->
-  <link name="r_rocker_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="1.0"/>
-      <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="-0.55 0.02 -0.04" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/rocker.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="grey_structure"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="1.1 0.04 0.08"/>
-      </geometry>
-    </collision>
-  </link>
+  <!-- ===================== RPLIDAR S2 ===================== -->
+  <xacro:lidar
+    use_sim="$(arg use_sim)"
+    simulate_scan="$(arg lidar_simulate_scan)"
+  />
 
-  <joint name="r_rocker_joint" type="revolute">
-    <parent link="suspension_base_axii_link"/>
-    <child link="r_rocker_link"/>
-    <origin xyz="0 -0.34 0" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-0.5" upper="0.5" effort="100" velocity="1.0"/>
-    <dynamics damping="0.5" friction="0.1"/>
+  <joint name="laser_joint" type="fixed">
+    <parent link="main_body_link"/>
+    <child link="laser_link"/>
+    <origin xyz="${lidar_x} ${lidar_y} ${lidar_z}" rpy="0 0 0"/>
   </joint>
 
-  <!-- ===================== FRONT LEFT WHEEL MOUNT ===================== -->
-  <link name="fl_wheel_mount_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.162"/>
-      <inertia ixx="0.0002" iyy="0.00012" izz="0.00012" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 -0.06 -0.269" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/wheel_mount.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="orange_mount"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0.11125 -0.18" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.07 0.0625 0.25"/>
-      </geometry>
-    </collision>
-  </link>
+  <!-- ===================== ROCKERS + WHEELS ===================== -->
+  <xacro:rocker_assembly side="l" y_sign="1"/>
+  <xacro:rocker_assembly side="r" y_sign="-1"/>
 
-  <joint name="fl_wheel_mount_joint" type="revolute">
-    <parent link="l_rocker_link"/>
-    <child link="fl_wheel_mount_link"/>
-    <origin xyz="0.421 0 0" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
-    <dynamics damping="0.5" friction="0.3"/>
-  </joint>
+  <!-- ===================== ACCESSORIES ===================== -->
+  <xacro:towerlight_accessory suffix="l" y_sign="1"/>
+  <xacro:towerlight_accessory suffix="r" y_sign="-1"/>
+  <xacro:stop_button_accessory suffix="l" y_sign="1"/>
+  <xacro:stop_button_accessory suffix="r" y_sign="-1"/>
 
-  <!-- ===================== FRONT LEFT WHEEL ===================== -->
-  <link name="fl_wheel_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.5"/>
-      <inertia ixx="0.00563" iyy="0.00563" izz="0.01125" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 -0.06 0" rpy="-1.5708 0 0"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/wheel.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="dark_wheel"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
-      <geometry>
-        <cylinder radius="0.15" length="0.12"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="fl_wheel_joint" type="continuous">
-    <parent link="fl_wheel_mount_link"/>
-    <child link="fl_wheel_link"/>
-    <origin xyz="0 0 -0.27" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="100" velocity="10"/>
-  </joint>
-
-  <!-- ===================== FRONT RIGHT WHEEL MOUNT ===================== -->
-  <link name="fr_wheel_mount_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.162"/>
-      <inertia ixx="0.0002" iyy="0.00012" izz="0.00012" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0.06 -0.269" rpy="0 0 3.14159"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/wheel_mount.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="orange_mount"/>
-    </visual>
-    <collision>
-      <origin xyz="0 -0.11125 -0.18" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.07 0.0625 0.25"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="fr_wheel_mount_joint" type="revolute">
-    <parent link="r_rocker_link"/>
-    <child link="fr_wheel_mount_link"/>
-    <origin xyz="0.421 0 0" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
-    <dynamics damping="0.5" friction="0.3"/>
-  </joint>
-
-  <!-- ===================== FRONT RIGHT WHEEL ===================== -->
-  <link name="fr_wheel_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.5"/>
-      <inertia ixx="0.00563" iyy="0.00563" izz="0.01125" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0.06 0" rpy="-1.5708 0 3.14159"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/wheel.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="dark_wheel"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
-      <geometry>
-        <cylinder radius="0.15" length="0.12"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="fr_wheel_joint" type="continuous">
-    <parent link="fr_wheel_mount_link"/>
-    <child link="fr_wheel_link"/>
-    <origin xyz="0 0 -0.27" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="100" velocity="10"/>
-  </joint>
-
-  <!-- ===================== BACK LEFT WHEEL MOUNT ===================== -->
-  <link name="bl_wheel_mount_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.162"/>
-      <inertia ixx="0.0002" iyy="0.00012" izz="0.00012" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 -0.06 -0.269" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/wheel_mount.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="orange_mount"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0.11125 -0.18" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.07 0.0625 0.25"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="bl_wheel_mount_joint" type="revolute">
-    <parent link="l_rocker_link"/>
-    <child link="bl_wheel_mount_link"/>
-    <origin xyz="-0.421 0 0" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
-    <dynamics damping="0.5" friction="0.3"/>
-  </joint>
-
-  <!-- ===================== BACK LEFT WHEEL ===================== -->
-  <link name="bl_wheel_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.5"/>
-      <inertia ixx="0.00563" iyy="0.00563" izz="0.01125" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 -0.06 0" rpy="-1.5708 0 0"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/wheel.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="dark_wheel"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
-      <geometry>
-        <cylinder radius="0.15" length="0.12"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="bl_wheel_joint" type="continuous">
-    <parent link="bl_wheel_mount_link"/>
-    <child link="bl_wheel_link"/>
-    <origin xyz="0 0 -0.27" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="100" velocity="10"/>
-  </joint>
-
-  <!-- ===================== BACK RIGHT WHEEL MOUNT ===================== -->
-  <link name="br_wheel_mount_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.162"/>
-      <inertia ixx="0.0002" iyy="0.00012" izz="0.00012" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0.06 -0.269" rpy="0 0 3.14159"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/wheel_mount.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="orange_mount"/>
-    </visual>
-    <collision>
-      <origin xyz="0 -0.11125 -0.18" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.07 0.0625 0.25"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="br_wheel_mount_joint" type="revolute">
-    <parent link="r_rocker_link"/>
-    <child link="br_wheel_mount_link"/>
-    <origin xyz="-0.421 0 0" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-4.71238898" upper="4.71238898" effort="500" velocity="2"/>
-    <dynamics damping="0.5" friction="0.3"/>
-  </joint>
-
-  <!-- ===================== BACK RIGHT WHEEL ===================== -->
-  <link name="br_wheel_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.5"/>
-      <inertia ixx="0.00563" iyy="0.00563" izz="0.01125" ixy="0" ixz="0" iyz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0.06 0" rpy="-1.5708 0 3.14159"/>
-      <geometry>
-        <mesh filename="package://rover_description/meshes/suspension/wheel.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="dark_wheel"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
-      <geometry>
-        <cylinder radius="0.15" length="0.12"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="br_wheel_joint" type="continuous">
-    <parent link="br_wheel_mount_link"/>
-    <child link="br_wheel_link"/>
-    <origin xyz="0 0 -0.27" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="100" velocity="10"/>
-  </joint>
+  <!-- ===================== ARM (OPTIONAL) ===================== -->
+  <!-- Placeholder mount pose; update once the real MR_ARM_ATT attachment
+       point from CAD is known. -->
+  <xacro:if value="$(arg mount_arm)">
+    <xacro:indomitus_arm parent_link="main_body_link">
+      <origin xyz="0.2 0 0.1" rpy="0 0 0"/>
+    </xacro:indomitus_arm>
+  </xacro:if>
 
 </robot>

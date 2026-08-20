@@ -17,6 +17,9 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
+
+ament_python_install_package(${PROJECT_NAME})
 
 if(BUILD_TESTING)
     find_package(ament_lint_auto REQUIRED)
@@ -34,7 +37,7 @@ install(DIRECTORY resource
 )
 
 # Install config files
-install(DIRECTORY config urdf
+install(DIRECTORY config
     DESTINATION share/${PROJECT_NAME}
     OPTIONAL
 )

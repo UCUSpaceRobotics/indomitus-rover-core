@@ -8,9 +8,15 @@ controller_manager:
 
     swerve_controller:
       type: rover_controller/RoverSwerveController
-    
+
+    swerve_controller_test:
+      type: rover_controller/RoverSwerveControllerTest
+
     odometry_controller:
       type: rover_controller/RoverOdometryController
+
+    diff_bar_effort_controller:
+      type: rover_sim/RockerDiffController
 
 swerve_controller:
   ros__parameters:
@@ -34,8 +40,61 @@ swerve_controller:
     max_steer_deg: 90.0
     max_steer_rate_deg: 90.0 
 
+swerve_controller_test:
+  ros__parameters:
+    drive_joint_names:
+      - fl_wheel_joint
+      - fr_wheel_joint
+      - bl_wheel_joint
+      - br_wheel_joint
+    steer_joint_names:
+      - fl_wheel_mount_joint
+      - fr_wheel_mount_joint
+      - bl_wheel_mount_joint
+      - br_wheel_mount_joint
+
+    max_linear_speed:  1.0
+    max_accel:         0.6
+    max_decel:         1.2
+    cmd_vel_timeout_s: 0.5
+
+    # 135 to match the real rover rather than the 90 used above. Spin-in-place
+    # works either way -- it wants ~129 deg, but from a neutral start the IK
+    # picks the equivalent -51 deg with reversed wheel speed, which fits in 90
+    # too. The limit only changes the answer when a wheel is already parked
+    # near the far side, so matching hardware keeps those cases honest.
+    # The URDF allows +-270, so 135 is within joint range.
+    max_steer_deg: 135.0
+    max_steer_rate_deg: 90.0
+
+    # The steering joints' own travel, from the URDF. max_steer_deg restricts
+    # the kinematic angle; compact mode folds ±180° on top of that, and the sum
+    # is what the joint actually sees. Checked and clamped by the controller.
+    max_joint_angle_deg: 270.0
+
+    max_theta_rate_rad: 1.5708   # pi/2
+    # 0.74, not the 1.0 used on hardware: same 2.10 gain from phi to wheel
+    # angle, but sim's max_steer_rate_deg is 90 (1.571 rad/s), so 1.571/2.10.
+    max_phi_rate_rad:   0.74
+    rotation_scale_length: 0.0   # auto = wheel half-diagonal
+    park_speed: 0.001
+
+    # Measured standstill — snapping the shape and homing the wheels both wait
+    # on it, so that neither can happen while the rover is still rolling.
+    standstill_speed: 0.02
+    standstill_hold_s: 0.2
+
+    idle_home_delay: 0.5         # negative disables return-to-zero
+
+    # The swerve_controller block above omits these and silently takes the
+    # code defaults (1.20 / 0.80 / 0.15); set them here to match odometry.
+    wheelbase:    0.842
+    track_width:  0.689
+    wheel_radius: 0.15
+
 odometry_controller:
   ros__parameters:
+    odom_topic: "/wheels/odom"
     wheelbase: 0.842
     track_width: 0.689
     wheel_radius: 0.15
@@ -49,3 +108,9 @@ odometry_controller:
       - fr_wheel_joint
       - bl_wheel_joint
       - br_wheel_joint
+
+diff_bar_effort_controller:
+  ros__parameters:
+    k_stiffness: 2000.0
+    d_damping: 10.0
+    effort_limit: 150.0

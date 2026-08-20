@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    RPLIDAR S2 fragment as a macro. 
+    Parameters: `use_sim`, `simulate_scan` (booleans).
+    Enables Gazebo GPU lidar plugin and topic publishing when set to true.
+    Defines the sensor link, visual, and collision geometries.
+  -->
+
+  <xacro:macro name="lidar" params="use_sim:=false simulate_scan:=false">
+
+    <material name="lidar_black">
+      <color rgba="0.05 0.05 0.05 1.0"/>
+    </material>
+
+    <link name="laser_link">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.19"/>
+        <inertia ixx="0.0001" iyy="0.0001" izz="0.0002" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 -0.057" rpy="-1.5708 0 3.1416"/>
+        <geometry>
+          <mesh filename="package://rover_description/meshes/navigation/rplidar_s2.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="lidar_black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="0.0385" length="0.039"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <xacro:if value="${use_sim and simulate_scan}">
+      <gazebo reference="laser_link">
+        <sensor type="gpu_lidar" name="generic_laser">
+          <always_on>true</always_on>
+          <update_rate>10.0</update_rate>
+          <topic>/rplidar/scan</topic>
+          <gz_frame_id>laser_link</gz_frame_id>
+          <lidar>
+            <scan>
+              <horizontal>
+                <samples>3000</samples>
+                <resolution>1</resolution>
+                <min_angle>-3.141592</min_angle>
+                <max_angle>3.141592</max_angle>
+              </horizontal>
+            </scan>
+            <range>
+              <min>0.05</min>
+              <max>18.0</max>
+              <resolution>0.01</resolution>
+            </range>
+          </lidar>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+
+</robot>

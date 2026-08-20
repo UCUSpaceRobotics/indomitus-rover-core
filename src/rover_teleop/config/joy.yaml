@@ -1,0 +1,81 @@
+joystick_interpreter:
+  ros__parameters:
+    axis_linear:
+      x: 1 # Left stick vertical (forward/backward)
+      y: 0 # Left stick horizontal (strafing left/right)
+    scale_linear:
+      x: 1.0
+      y: 1.0
+
+    # --- ANGULAR CONTROLS (Right Stick) ---
+    axis_angular:
+      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise)
+    scale_angular:
+      yaw: 1.0
+
+    # Stick deadzone. Applied here, NOT in the joy driver — game_controller_node
+    # stops publishing /joy entirely when its own deadzone swallows resting-stick
+    # noise (ros-drivers/joystick_drivers#304), so joy.launch.py keeps the driver
+    # deadzone at 0.0 and this node filters instead.
+    deadzone: 0.05
+
+    # --- SPIN IN PLACE (L2 / R2) ---
+    # Curvature mode only
+    axis_trigger:
+      l2: 4   # positive difference -> counter-clockwise
+      r2: 5
+    trigger_deadzone: 0.15
+    scale_rotate: 1.0        # rad/s at full trigger
+
+    # Token yaw rate sent while both triggers are held but balanced, so the
+    # wheels keep the spin-in-place shape instead of homing. rotation_scale
+    # (~0.51 m) times this must stay below the controller's park_speed (0.001).
+    rot_probe_wz: 0.00001
+
+    # Curvature 1/R at full right-stick deflection, in curvature mode.
+    # 2.0 -> R = 0.5 m, which puts the turn centre inside the wheelbase.
+    max_curvature: 2.0
+
+    # Token speed used to steer the wheels while parked. Must stay
+    # below the controller's park_speed (0.001)
+    angle_probe_speed: 0.00001
+
+    controller_name: swerve_controller_test
+
+
+    # --- GRANNY MODE ---
+    granny_speed_scale: 0.1
+    granny_button: 0
+
+    # --- VY (strafing) ---
+    vy_enabled_default: false
+    vy_toggle_button: 4   # Share button
+
+    # --- MOTORS / COMPACT MODE ---
+    motor_toggle_button: 6   # Options button
+    compact_mode_button: 1
+
+    active_toggle_button: 2
+    active_default: true
+
+    # --- CLEAR MOTOR ERRORS ---
+    # Sends the Damiao clear-error frame (FF..FB) to every drive motor.
+    # Motors come back disabled — cycle motor_toggle_button to re-enable.
+    clear_errors_button: 20
+    clear_errors_service: /rover_hardware_node/clear_motor_errors
+
+    # --- TIMEOUT / PUBLISH RATE ---
+    cmd_timeout: 0.2
+    timeout_pub_rate: 20.0
+    initial_timed_out: true
+    cmd_pub_rate: 20.0
+
+    # --- LIGHTS ---
+    spotlight_button: 9   # L1
+    beautiful_button: 10   # R1
+
+    # --- TRAFFIC LIGHT ---
+    traffic_red_button: 11      # ←
+    traffic_yellow_button: 12   # →
+    traffic_green_button: 13    # ↑
+    traffic_blue_button: 14     # ↓

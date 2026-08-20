@@ -4,7 +4,6 @@
 #include <stdexcept>
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
-#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "pluginlib/class_list_macros.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 
@@ -42,10 +41,9 @@ RoverOdometryController::on_configure(const rclcpp_lifecycle::State & /*prev*/)
 
     build_kinematics_matrix();
 
+    std::string odom_topic = get_node()->get_parameter("odom_topic").as_string();
     odom_pub_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
-        "/odom", rclcpp::SystemDefaultsQoS());
-
-    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(get_node());
+        odom_topic, rclcpp::SystemDefaultsQoS());
 
     RCLCPP_INFO(get_node()->get_logger(),
         "[OdomController] Configured — wheelbase=%.3f m  track=%.3f m  r_wheel=%.4f m",
@@ -136,18 +134,15 @@ RoverOdometryController::update(
 
     // Skip integration on the very first cycle — we only have one snapshot.
     if (first_update_) {
-        bool any_nonzero = false;
-        for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
-            if (std::abs(drive_pos[i]) > 1e-6) { any_nonzero = true; break; }
-        }
-
         for (std::size_t i = 0; i < ODOM_NUM_WHEELS; ++i) {
             prev_drive_pos_[i] = drive_pos[i];
         }
+        first_update_ = false;
 
-        if (any_nonzero) {
-            first_update_ = false;
-        }
+        // Publish the initial pose immediately (rover starts at rest at the
+        // origin) so /odom and odom->base_footprint exist as soon as the controller
+        // activates, before any motion occurs.
+        publish_odom(0.0, 0.0, 0.0, time);
         return controller_interface::return_type::OK;
     }
 
@@ -216,9 +211,10 @@ void RoverOdometryController::declare_parameters()
         catch (const std::exception &) { /* already declared */ }
     };
 
-    decl("wheelbase",    0.842);
-    decl("track_width",  0.682);
+    decl("wheelbase", 0.842);
+    decl("track_width", 0.682);
     decl("wheel_radius", 0.16);
+    decl("odom_topic", std::string("/wheels/odom"));
 
     decl("steer_joint_names",
         std::vector<std::string>{
@@ -373,7 +369,7 @@ void RoverOdometryController::publish_odom(
     nav_msgs::msg::Odometry odom;
     odom.header.stamp            = stamp;
     odom.header.frame_id         = "odom";
-    odom.child_frame_id          = "base_link";
+    odom.child_frame_id          = "base_footprint";
 
     odom.pose.pose.position.x    = x_;
     odom.pose.pose.position.y    = y_;
@@ -384,21 +380,25 @@ void RoverOdometryController::publish_odom(
     odom.twist.twist.linear.y    = vy;
     odom.twist.twist.angular.z   = wz;
 
+    // --- Covariance ---
+    for (auto & c : odom.pose.covariance)  { c = 0.0; }
+    for (auto & c : odom.twist.covariance) { c = 0.0; }
+
+    odom.pose.covariance[0]  = 0.01;   // var(x)
+    odom.pose.covariance[7]  = 0.01;   // var(y)
+    odom.pose.covariance[14] = 1e6;    // var(z)
+    odom.pose.covariance[21] = 1e6;    // var(roll)
+    odom.pose.covariance[28] = 1e6;    // var(pitch)
+    odom.pose.covariance[35] = 0.02;   // var(yaw)
+
+    odom.twist.covariance[0]  = 0.02;  // var(vx)
+    odom.twist.covariance[7]  = 0.02;  // var(vy)
+    odom.twist.covariance[14] = 1e6;   // var(vz)
+    odom.twist.covariance[21] = 1e6;   // var(v_roll)
+    odom.twist.covariance[28] = 1e6;   // var(v_pitch)
+    odom.twist.covariance[35] = 0.03;  // var(wz)
+
     odom_pub_->publish(odom);
-
-    // TF broadcast
-
-    geometry_msgs::msg::TransformStamped tf;
-    tf.header.stamp            = stamp;
-    tf.header.frame_id         = "odom";
-    tf.child_frame_id          = "base_link";
-
-    tf.transform.translation.x = x_;
-    tf.transform.translation.y = y_;
-    tf.transform.rotation.z    = qz;
-    tf.transform.rotation.w    = qw;
-
-    tf_broadcaster_->sendTransform(tf);
 }
 
 }  // namespace rover_controller
