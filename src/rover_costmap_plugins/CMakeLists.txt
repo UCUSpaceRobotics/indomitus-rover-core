@@ -14,6 +14,8 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(eigen3_cmake_module REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/slope_layer.cpp
@@ -24,9 +26,13 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
+target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC
+  ${EIGEN3_INCLUDE_DIRS}
+)
+
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
-ament_target_dependencies(${PROJECT_NAME} PUBLIC
+ament_target_dependencies(${PROJECT_NAME} SYSTEM PUBLIC
   rclcpp
   nav2_costmap_2d
   pluginlib
@@ -35,6 +41,7 @@ ament_target_dependencies(${PROJECT_NAME} PUBLIC
   tf2_ros
   tf2_sensor_msgs
   geometry_msgs
+  Eigen3
 )
 
 pluginlib_export_plugin_description_file(nav2_costmap_2d plugins.xml)

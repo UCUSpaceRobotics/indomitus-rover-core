@@ -4,6 +4,8 @@
 #include <cmath>
 #include <limits>
 
+#include <Eigen/Eigenvalues>
+
 #include "pluginlib/class_list_macros.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "tf2_sensor_msgs/tf2_sensor_msgs.hpp"
@@ -207,22 +209,20 @@ void SlopeLayer::recomputeGrid()
       double cxz = c.sxz / n - mx * mz;
       double cyz = c.syz / n - my * mz;
 
-      // Power iteration on (trace*I - C) converges to C's smallest
-      // eigenvector, i.e. the fitted plane normal.
-      double trace = cxx + cyy + czz;
-      double Ax = trace - cxx, Ay = -cxy, Az = -cxz;
-      double Bx = -cxy, By = trace - cyy, Bz = -cyz;
-      double Cx = -cxz, Cy = -cyz, Cz = trace - czz;
+      Eigen::Matrix3d cov;
+      cov << cxx, cxy, cxz,
+             cxy, cyy, cyz,
+             cxz, cyz, czz;
 
-      double vx = 0.0, vy = 0.0, vz = 1.0;
-      for (int iter = 0; iter < 12; ++iter) {
-        double nx = Ax * vx + Ay * vy + Az * vz;
-        double ny = Bx * vx + By * vy + Bz * vz;
-        double nz = Cx * vx + Cy * vy + Cz * vz;
-        double norm = std::sqrt(nx * nx + ny * ny + nz * nz);
-        if (norm < 1e-9) {break;}
-        vx = nx / norm; vy = ny / norm; vz = nz / norm;
-      }
+      // Closed-form 3x3 symmetric eigensolve. Eigenvalues come back
+      // ascending: index 0 is the smallest, whose eigenvector is the
+      // fitted plane normal and whose eigenvalue is the planar residual
+      // variance (roughness) directly.
+      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver;
+      solver.computeDirect(cov);
+      const Eigen::Vector3d normal = solver.eigenvectors().col(0);
+      double vx = normal.x(), vy = normal.y(), vz = normal.z();
+      double planar_residual = std::sqrt(std::max(0.0, solver.eigenvalues()(0)));
 
       // Rotate the fitted normal from base_frame_ into the global costmap
       // frame so slope is measured against gravity, not vehicle attitude.
@@ -234,12 +234,6 @@ void SlopeLayer::recomputeGrid()
 
       double slope_rad = std::acos(std::clamp(gvz, -1.0, 1.0));
       c.slope_deg = slope_rad * 180.0 / M_PI;
-
-      // Variance along the normal = deviation from the fitted plane (roughness).
-      // Quadratic form, so sign of (vx,vy,vz) doesn't matter.
-      double residual_var = vx * vx * cxx + vy * vy * cyy + vz * vz * czz +
-        2.0 * vx * vy * cxy + 2.0 * vx * vz * cxz + 2.0 * vy * vz * cyz;
-      double planar_residual = std::sqrt(std::max(0.0, residual_var));
 
       // Widen the residual threshold with range (stereo noise grows with
       // distance/angle) and with point sparsity (few points -> unreliable fit).
