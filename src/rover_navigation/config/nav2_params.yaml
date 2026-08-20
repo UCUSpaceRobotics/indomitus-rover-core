@@ -361,6 +361,7 @@ global_costmap:
         roughness_range_coeff: 0.015
         self_filter_margin: 0.10
         roughness_saturation_mult: 4.0
+        tf_tolerance: 2.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0

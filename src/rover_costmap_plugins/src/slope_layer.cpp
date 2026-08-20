@@ -52,6 +52,7 @@ void SlopeLayer::onInitialize()
   declareParameter("roughness_range_coeff", rclcpp::ParameterValue(0.015));
   declareParameter("self_filter_margin", rclcpp::ParameterValue(0.10));
   declareParameter("roughness_saturation_mult", rclcpp::ParameterValue(4.0));
+  declareParameter("tf_tolerance", rclcpp::ParameterValue(0.1));
 
   node->get_parameter(name_ + ".enabled", enabled_);
   node->get_parameter(name_ + ".cloud_topic", cloud_topic_);
@@ -67,6 +68,7 @@ void SlopeLayer::onInitialize()
   node->get_parameter(name_ + ".roughness_range_coeff", roughness_range_coeff_);
   node->get_parameter(name_ + ".self_filter_margin", self_filter_margin_);
   node->get_parameter(name_ + ".roughness_saturation_mult", roughness_saturation_mult_);
+  node->get_parameter(name_ + ".tf_tolerance", tf_tolerance_);
 
   clock_ = node->get_clock();
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(clock_);
@@ -123,7 +125,7 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
   try {
     geometry_msgs::msg::TransformStamped tf = tf_buffer_->lookupTransform(
       base_frame_, msg->header.frame_id, msg->header.stamp,
-      rclcpp::Duration::from_seconds(0.1));
+      rclcpp::Duration::from_seconds(tf_tolerance_));
     tf2::doTransform(*msg, cloud_in_base, tf);
 
     // Pose at the cloud's own timestamp -- reused in updateCosts so grid_
@@ -131,7 +133,7 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
     // heading the robot has by the time updateCosts runs.
     geometry_msgs::msg::TransformStamped base_tf = tf_buffer_->lookupTransform(
       base_frame_, layered_costmap_->getGlobalFrameID(), msg->header.stamp,
-      rclcpp::Duration::from_seconds(0.1));
+      rclcpp::Duration::from_seconds(tf_tolerance_));
     base_tx = base_tf.transform.translation.x;
     base_ty = base_tf.transform.translation.y;
     const auto & q = base_tf.transform.rotation;

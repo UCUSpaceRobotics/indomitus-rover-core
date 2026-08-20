@@ -75,6 +75,8 @@ private:
   // treated as rover self-returns and excluded.
   double self_filter_min_x_ = 0.0, self_filter_max_x_ = 0.0;
   double self_filter_min_y_ = 0.0, self_filter_max_y_ = 0.0;
+
+  double tf_tolerance_ = 0.1;
 };
 }  // namespace rover_costmap_plugins
 #endif  // ROVER_COSTMAP_PLUGINS__SLOPE_LAYER_HPP_
