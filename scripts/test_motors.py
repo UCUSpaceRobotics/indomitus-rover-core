@@ -8,7 +8,7 @@ active state) and a scrolling event log below it showing every keypress
 and action as it happens.
 
 Install dependencies:
-    pip install python-can textual --break-system-packages
+    pip install python-can textual
 
 Make sure the CAN interface is up first, e.g.:
     sudo ip link set can0 up type can bitrate 500000
@@ -50,7 +50,7 @@ except ImportError as e:
     print(f"Missing dependency: {pkg}")
     print()
     print("Install with:")
-    print(f"    pip install {pkg} --break-system-packages")
+    print(f"    pip install {pkg}")
     sys.exit(1)
 
 # ── Config ──────────────────────────────────────────────────────────────
