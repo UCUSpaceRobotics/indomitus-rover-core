@@ -413,24 +413,34 @@ class ChassisTUI(App):
     }
     #can_status {
         width: 2fr;
-        border: solid green;
+        height: 100%;
+        border: round green;
         padding: 0 1;
         content-align: left middle;
     }
     #motors_status {
         width: 1fr;
-        border: solid yellow;
+        height: 100%;
+        border: round yellow;
         padding: 0 1;
         content-align: left middle;
     }
     #motion_status {
         width: 1fr;
-        border: solid cyan;
+        height: 100%;
+        border: round cyan;
         padding: 0 1;
         content-align: left middle;
     }
     #log {
-        border: solid #4a4a4a;
+        border: round #4a4a4a;
+        scrollbar-size-vertical: 1;
+        scrollbar-background: transparent;
+        scrollbar-background-hover: transparent;
+        scrollbar-background-active: transparent;
+        scrollbar-color: #4a4a4a;
+        scrollbar-color-hover: #888888;
+        scrollbar-color-active: #aaaaaa;
     }
     """
 
