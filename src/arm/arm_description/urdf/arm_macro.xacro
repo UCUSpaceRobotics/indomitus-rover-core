@@ -149,7 +149,7 @@
     <joint name="arm_wrist_2_end_effector_joint" type="revolute">
       <parent link="arm_wrist_2_link"/>
       <child link="arm_end_effector_link"/>
-      <origin xyz="0.0323 0 -0.035" rpy="${-pi/2} ${pi/2} ${-pi/2}"/>
+      <origin xyz="0.0323 0 -0.035" rpy="${-pi/2} ${pi/3} ${-pi/2}"/>
       <axis xyz="0 0 1"/>
       <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
@@ -442,13 +442,13 @@
       </xacro:if>
     </ros2_control>
 
-    <!-- There is no gripper motor on the real arm yet, but the finger joint must
-         still report state: without it joint_state_broadcaster never publishes
-         the joint, the planning scene monitor sees an incomplete robot state,
-         and move_group/Servo silently refuse to move. GenericSystem echoes
-         commands back as state, so the joint exists for MoveIt while nothing
-         physical moves. Replace with the real gripper hardware plugin once the
-         motor is wired up. -->
+    <!-- There is no gripper motor on the real arm yet, but both finger joints
+         must still report state: without it joint_state_broadcaster never
+         publishes them, the planning scene monitor sees an incomplete robot
+         state, and move_group/Servo silently refuse to move. GenericSystem
+         echoes commands back as state, so both joints exist for MoveIt while
+         nothing physical moves. Replace with the real gripper hardware plugin
+         once the motor is wired up. -->
     <xacro:if value="${('$(arg end_effector)' == 'jaw') and ('$(arg sim)' == 'false') and ('$(arg use_fake_hardware)' == 'false')}">
       <ros2_control name="JawGripperStub" type="system">
         <hardware>
@@ -458,6 +458,16 @@
           <command_interface name="position">
             <param name="min">0</param>
             <param name="max">${finger_stroke}</param>
+          </command_interface>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+          <state_interface name="velocity"/>
+        </joint>
+        <joint name="arm_jaw_gripper_finger_left_joint">
+          <command_interface name="position">
+            <param name="min">${-finger_stroke}</param>
+            <param name="max">0</param>
           </command_interface>
           <state_interface name="position">
             <param name="initial_value">0.0</param>

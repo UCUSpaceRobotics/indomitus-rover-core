@@ -567,6 +567,26 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
     const std::array<float, NUM_JOINTS> gravity_tff =
         gravity_ff_enabled_ ? compute_gravity_feedforward() : std::array<float, NUM_JOINTS>{};
 
+    {
+        // One combined snapshot of all 6 joints together, instead of each
+        // motor logging independently as its own CAN frame happens to
+        // arrive (staggered, arbitrary order) — much easier to read live.
+        static rclcpp::Clock steady_clock(RCL_STEADY_TIME);
+        std::array<float, NUM_JOINTS> torque_snapshot;
+        {
+            std::lock_guard<std::mutex> fb_lock(feedback_mutex_);
+            torque_snapshot = last_torque_nm_;
+        }
+        RCLCPP_INFO_THROTTLE(logger_, steady_clock, 1000,
+            "Torque (Nm): %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f",
+            joint_names_[0].c_str(), torque_snapshot[0],
+            joint_names_[1].c_str(), torque_snapshot[1],
+            joint_names_[2].c_str(), torque_snapshot[2],
+            joint_names_[3].c_str(), torque_snapshot[3],
+            joint_names_[4].c_str(), torque_snapshot[4],
+            joint_names_[5].c_str(), torque_snapshot[5]);
+    }
+
     std::lock_guard<std::mutex> lock(can_tx_mutex_);
 
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
@@ -782,6 +802,7 @@ void ArmCanSystem::rx_thread_fn()
                 hw_position_states_[sw_idx] = motor_to_urdf(sw_idx, fb.pos_rad);
                 hw_velocity_states_[sw_idx] = fb.vel_rps * joint_directions_[sw_idx];
                 feedback_seen_[sw_idx] = true;
+                last_torque_nm_[sw_idx] = fb.torque_nm;
             }
             continue;
         }
@@ -824,6 +845,7 @@ void ArmCanSystem::rx_thread_fn()
         hw_position_states_[dm_idx] = motor_to_urdf(dm_idx, fb.pos_rad);
         hw_velocity_states_[dm_idx] = fb.vel_rps * joint_directions_[dm_idx];
         feedback_seen_[dm_idx] = true;
+        last_torque_nm_[dm_idx] = fb.torque_nm;
     }
 }
 

@@ -120,10 +120,10 @@ DEFAULT_HOME_POSE     = [-1.552, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
 DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
 # Index of the gamepad button held to shift the right stick from
 # up-down + yaw to pitch + roll. Not portable across controller models or
-# connections (a Stadia pad over Bluetooth had R1 at 10, not 5) — if it does
-# nothing on your pad, read the real index from the /joy raw log
-# (_log_raw_joy) and override with --ros-args -p gamepad_shift_button:=<n>.
-DEFAULT_GAMEPAD_SHIFT_BUTTON = 5
+# connections (some pads have R1 at 5 instead of 10) — if it does nothing
+# on your pad, read the real index from the /joy raw log (_log_raw_joy)
+# and override with --ros-args -p gamepad_shift_button:=<n>.
+DEFAULT_GAMEPAD_SHIFT_BUTTON = 10
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
 # The home move goes straight to the trajectory controller, so none of
 # Servo's velocity scaling applies — this duration is the only thing bounding
@@ -884,6 +884,12 @@ class ServoController(Node):
         """
         code = msg.data
         if code != self._servo_status:
+            name = SERVO_STATUS_NAMES.get(code, f'UNKNOWN({code})')
+            if code in (SERVO_STATUS_OK, SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY,
+                        SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY):
+                self.get_logger().info(f'Servo status -> {name}')
+            else:
+                self.get_logger().warn(f'Servo status -> {name} (motion stopped by Servo)')
             if code == SERVO_STATUS_HALT_FOR_SINGULARITY:
                 self.start_servo()
         self._servo_status = code
@@ -1444,6 +1450,7 @@ GAMEPAD_HELP = """
 ║               ←→  — yaw   (TCP)              ║
 ║  R1 + right   ↑↓  — pitch (TCP)              ║
 ║               ←→  — roll  (TCP)              ║
+║  9 (button)       — push boost (hold)        ║
 ║  A                — home + start servo       ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
@@ -1484,7 +1491,23 @@ class GamepadInputLoop:
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to home + start servo
     BUTTON_EXIT = 2        # 'X' — exit
-    BUTTON_LB = 4          # unmapped (settle check only)
+    # Held to scale up commanded velocity ("push boost"). Servo re-anchors
+    # its position setpoint to the measured pose every cycle (see
+    # servo.yaml), so the per-cycle step (commanded velocity *
+    # publish_period) is the only position error the MIT loop ever sees —
+    # against real resistance (e.g. pressing a switch) that step, not
+    # kp/kd or the gravity-ff clamp, is what caps the arm's static push
+    # force. Scaling the commanded velocity up here raises that step
+    # directly. Also gates _joy_settling below (must be released, like
+    # the sticks, before settling completes). Index is controller-
+    # dependent like gamepad_shift_button — verify against _log_raw_joy
+    # if it does nothing on your pad.
+    BUTTON_PUSH_BOOST = 9
+    # Bounded by max_cmd_speed_rad_s (arm_macro.xacro): the hardware
+    # interface rate-limits actual motion to that many rad/s regardless
+    # of what Servo asks for, so beyond a certain multiplier this stops
+    # helping and max_cmd_speed_rad_s becomes the real ceiling instead.
+    PUSH_BOOST_MULTIPLIER = 3.0
     # Shift button has no class constant: its real index is controller-
     # dependent (see DEFAULT_GAMEPAD_SHIFT_BUTTON), read via self._shift_button.
 
@@ -1738,7 +1761,7 @@ class GamepadInputLoop:
                 self._sticks_centered(axes)
                 and self._trigger_amount(axes, self.AXIS_L2) == 0.0
                 and self._trigger_amount(axes, self.AXIS_R2) == 0.0
-                and not self._button_pressed(buttons, self.BUTTON_LB)
+                and not self._button_pressed(buttons, self.BUTTON_PUSH_BOOST)
                 and not self._button_pressed(buttons, self._shift_button)
             )
             self._controller.stop()
@@ -1751,12 +1774,20 @@ class GamepadInputLoop:
         if not self._trigger_rest and self._sticks_centered(axes):
             self._calibrate_triggers(axes)
 
+        # Held BUTTON_PUSH_BOOST scales up the commanded velocity — see its
+        # comment for why that's what actually raises the arm's static
+        # push force against resistance, not kp/kd/gravity-ff.
+        boost = (self.PUSH_BOOST_MULTIPLIER
+                 if self._button_pressed(buttons, self.BUTTON_PUSH_BOOST) else 1.0)
+        linear_speed = self._linear_speed * boost
+        angular_speed = self._angular_speed * boost
+
         # Left stick — view-relative translation in the horizontal plane.
         # Stick sign convention (see class docstring): left = +1, forward = +1;
         # camera frame is REP-103 (+X forward, +Y left), so both pass straight
         # through with no flip.
-        view_vy = self._axis(axes, self.AXIS_LEFT_X) * self._linear_speed
-        view_vx = self._axis(axes, self.AXIS_LEFT_Y) * self._linear_speed
+        view_vy = self._axis(axes, self.AXIS_LEFT_X) * linear_speed
+        view_vx = self._axis(axes, self.AXIS_LEFT_Y) * linear_speed
 
         # Right stick — two modes, mutually exclusive so a held R1 can never
         # translate and rotate at once:
@@ -1770,11 +1801,11 @@ class GamepadInputLoop:
         view_vz = 0.0
         wx = wy = wz = 0.0
         if shift:
-            wx = right_y * self._angular_speed          # pitch
-            wz = -right_x * self._angular_speed         # roll
+            wx = right_y * angular_speed          # pitch
+            wz = -right_x * angular_speed         # roll
         else:
-            view_vz = -right_y * self._linear_speed      # stick up = view +Z
-            wy = -right_x * self._angular_speed         # yaw
+            view_vz = -right_y * linear_speed      # stick up = view +Z
+            wy = -right_x * angular_speed         # yaw
 
         # Mount-frame translation is unused here — every gamepad axis is
         # view-relative or a rotation.

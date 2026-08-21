@@ -41,7 +41,7 @@ moveit_servo:
     command_out_type: std_msgs/Float64MultiArray
     # Step per cycle ≈ joint_vel * publish_period. 33 Hz keeps ~0.02 rad/cycle
     # at 0.7 rad/s so +X (W) still overcomes MIT stiction.
-    publish_period: 0.03
+    publish_period: 0.01
 
     publish_joint_positions: true
     # Float64MultiArray streaming is position-only (JointGroupPositionController).

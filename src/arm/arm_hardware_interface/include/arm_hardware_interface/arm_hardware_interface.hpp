@@ -1,4 +1,4 @@
-#pragma once
+git checkout -b feature/arm/teleop-push-boost#pragma once
 
 #include <array>
 #include <atomic>
@@ -126,6 +126,7 @@ private:
     std::array<double, NUM_JOINTS> hw_velocity_states_{};
     std::array<bool, NUM_JOINTS>   feedback_seen_{};
     std::array<uint8_t, NUM_JOINTS> dm_last_err_{};   // Damiao error nibble per joint
+    std::array<float, NUM_JOINTS>  last_torque_nm_{}; // most recent measured torque per joint
 
     // Rate limiter memory: last position command actually sent (URDF frame)
     std::array<double, NUM_JOINTS> last_sent_command_{};
