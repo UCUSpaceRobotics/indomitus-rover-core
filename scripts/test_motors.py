@@ -17,7 +17,7 @@ Controls:
     1       Test: straight forward 0.5 m/s
     2       Test: spin in place left
     3       Test: turn left (differential)
-    4       Test: max steer angle placeholder (no steer motors configured)
+    4       Rotate steer motor(s): +90°, then ±90° toggle (180° swings)
     +/=     Increase vx by VX_STEP (keeps current wz)
     -/_     Decrease vx by VX_STEP (keeps current wz)
     s       Stop drive (publish zero velocity)
@@ -37,7 +37,7 @@ import can
 # ── Config ──────────────────────────────────────────────────────────────────
 
 CAN_CHANNEL = "can0"
-CAN_BITRATE = 1_000_000          # must match what's actually configured on the bus
+CAN_BITRATE = 500_000          # must match what's actually configured on the bus
 
 STEER_IDS = []                    # Steadywin, [FL, FR, RL, RR] — none in this build
 # STEER_IDS = [11, 13, 15, 17]      # Steadywin, [FL, FR, RL, RR] — none in this build
@@ -49,12 +49,14 @@ WHEEL_RADIUS = 0.15      # meters
 TRACK_WIDTH = 0.6        # meters, distance between left/right wheel centers
 
 # Ramp control — ADJUST to taste
-MAX_ACCEL = 2.0          # rad/s^2, applied when |target| > |current| (speeding up)
-MAX_DECEL = 3.0          # rad/s^2, applied when |target| < |current| (slowing down)
-CMD_RATE_HZ = 100.0      # command loop frequency — sends a velocity frame to every
+MAX_ACCEL = 1.0          # rad/s^2, applied when |target| > |current| (speeding up)
+MAX_DECEL = 2.0          # rad/s^2, applied when |target| < |current| (slowing down)
+CMD_RATE_HZ = 10.0      # command loop frequency — sends a velocity frame to every
                           # enabled motor every cycle, whether or not the target
                           # changed. This is also what keeps the motor's CAN
                           # communication-loss watchdog (TIMEOUT register) happy.
+
+STEER_CYCLE_PERIOD_S = 2.0   # dwell time at each end before swinging the other way
 
 # ── vx/wz live state ──────────────────────────────────────────────────────
 VX_STEP = 0.05    # m/s added/removed per '+'/'-' keypress
@@ -255,6 +257,62 @@ class RampController:
         self._stop.set()
         self._thread.join(timeout=1.0)
 
+# ── Steer cycler (auto ±90° swing loop) ───────────────────────────────────────
+
+class SteerCycler:
+    """
+    Background loop that, once started, repeatedly drives all steer motors to
+    +90°, dwells `period_s`, then -90° (180° swing), dwells, then +90° (180°
+    swing back), and so on — with no further key presses needed.
+    """
+    def __init__(self, bus: CanBus, esc_ids: list[int], period_s: float):
+        self.bus = bus
+        self.esc_ids = esc_ids
+        self.period_s = period_s
+        self._next_angle_deg = 90.0
+        self._stop = threading.Event()
+        self._active = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def start(self):
+        self._active.set()
+
+    def stop(self):
+        self._active.clear()
+
+    def toggle(self):
+        if self._active.is_set():
+            self.stop()
+            print("\n[STEER] Cycle stopped")
+        else:
+            self.start()
+            print(f"\n[STEER] Cycle started (±90° swing every {self.period_s:.1f}s)")
+
+    def is_active(self) -> bool:
+        return self._active.is_set()
+
+    def _run(self):
+        while not self._stop.is_set():
+            if self._active.is_set():
+                angle_deg = self._next_angle_deg
+                angle_rad = math.radians(angle_deg)
+                print(f"\n[STEER] -> {angle_deg:+.0f}°")
+                for esc_id in self.esc_ids:
+                    self.bus.send(sw_abs_position(esc_id, angle_rad))
+                self._next_angle_deg = -angle_deg
+                # sleep in small slices so start/stop/shutdown stay responsive
+                slept = 0.0
+                while slept < self.period_s and self._active.is_set() and not self._stop.is_set():
+                    time.sleep(0.1)
+                    slept += 0.1
+            else:
+                time.sleep(0.1)
+
+    def shutdown(self):
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+
 # ── High-level actions ────────────────────────────────────────────────────────
 
 def enable_all(bus: CanBus, ramp: RampController):
@@ -272,8 +330,9 @@ def enable_all(bus: CanBus, ramp: RampController):
     ramp.set_active(True)     # ramp loop now takes over sending velocity frames
     print("[ENABLE] Done")
 
-def disable_all(bus: CanBus, ramp: RampController):
+def disable_all(bus: CanBus, ramp: RampController, steer_cycler: SteerCycler):
     print("\n[DISABLE] Ramping down to zero...")
+    steer_cycler.stop()
     drive_state["vx"], drive_state["wz"] = 0.0, 0.0
     ramp.set_targets({esc_id: 0.0 for esc_id in DRIVE_IDS})
     ramp.wait_until_settled(timeout=5.0)
@@ -342,11 +401,10 @@ HELP = f"""
 ║  1   Straight forward  0.5 m/s           ║
 ║  2   Spin in place     1.0 rad/s         ║
 ║  3   Turn left         0.5 m/s + 0.5ω   ║
-║  4   (steer test placeholder — no steer  ║
-║       motors configured)                 ║
+║  4   Steer: toggle auto ±90° swing cycle ║
 ║  +/= Increase vx by {VX_STEP:.2f} m/s (keeps wz)  ║
 ║  -/_ Decrease vx by {VX_STEP:.2f} m/s (keeps wz)  ║
-║  s   Stop (target = 0, ramps down)       ║
+║  s   Stop (drive ramps down, steer stops)║
 ║  ─── info ──────────────────────────────║
 ║  f   Print motor feedback + current speed║
 ║  r   Measure actual command send rate    ║
@@ -377,6 +435,7 @@ def main():
     print(f"Opening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
     bus = CanBus(CAN_CHANNEL, CAN_BITRATE)
     ramp = RampController(bus, DRIVE_IDS)
+    steer_cycler = SteerCycler(bus, STEER_IDS, STEER_CYCLE_PERIOD_S)
     print(HELP)
 
     try:
@@ -387,7 +446,7 @@ def main():
                 enable_all(bus, ramp)
 
             elif key == 'd':
-                disable_all(bus, ramp)
+                disable_all(bus, ramp, steer_cycler)
 
             elif key == '1':
                 print("\nSCENARIO: STRAIGHT FORWARD 0.5 m/s (ramping...)")
@@ -408,7 +467,7 @@ def main():
                 print(f"  target wheel speeds (rad/s): {speeds}")
 
             elif key == '4':
-                print("\n[TEST 4] No steer motors configured — skipping.")
+                steer_cycler.toggle()
 
             elif key in ('+', '='):
                 adjust_vx(ramp, drive_state, VX_STEP)
@@ -417,9 +476,10 @@ def main():
                 adjust_vx(ramp, drive_state, -VX_STEP)
 
             elif key == 's':
-                print("\n[STOP] Target = 0, ramping down")
+                print("\n[STOP] Target = 0, ramping down; steer cycle stopped")
                 drive_state["vx"], drive_state["wz"] = 0.0, 0.0
                 set_diff_drive_target(ramp, vx=0.0, wz=0.0)
+                steer_cycler.stop()
 
             elif key == 'f':
                 print_feedback(bus)
@@ -441,6 +501,7 @@ def main():
         print(f"\nError: {e}")
     finally:
         print("\n[SHUTDOWN] Ramping down before exit...")
+        steer_cycler.stop()
         drive_state["vx"], drive_state["wz"] = 0.0, 0.0
         set_diff_drive_target(ramp, vx=0.0, wz=0.0)
         ramp.wait_until_settled(timeout=3.0)
@@ -448,6 +509,7 @@ def main():
         for esc_id in DRIVE_IDS:
             bus.send(dm_disable(esc_id))
         ramp.shutdown()
+        steer_cycler.shutdown()
         bus.shutdown()
 
 
