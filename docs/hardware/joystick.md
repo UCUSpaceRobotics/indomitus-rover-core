@@ -35,3 +35,20 @@ Plug **USB-A** into the Jetson and **USB Type-C** into the joystick. No further 
 ## Joystick Layout
 
 ![Joystick layout](../assets/joystick_layout.png)
+
+## Light Bar
+
+On a PlayStation controller, `joystick_interpreter` paints the light bar with the current drive state. The colours are ordered by severity — the bar always shows the most serious state that applies, so green means the joystick can move the rover *right now*:
+
+| Color | Meaning |
+|-------|---------|
+| 🔴 Red | Motors off — hardware inactive |
+| 🟣 Magenta | Motor faults cleared — cycle the motor button to re-enable |
+| 🟠 Orange | Motors on, controller inactive |
+| 🔵 Blue | Yielding to navigation |
+| 🟢 Green | Joystick in command |
+| ⚪ White | `joystick_interpreter` is not running |
+
+White is painted as the node shuts down.
+
+Magenta appears after the clear-errors button: the faults are gone, but the hardware will not drive again until the motor button is cycled off and on.
