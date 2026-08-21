@@ -78,7 +78,7 @@ sudo nmcli connection add type ethernet ifname eno1 con-name "Normal Internet" i
 3. **Create the "Jetson Tether" profile:** This configures the port to share your laptop's Wi-Fi internet with the Jetson when plugged into the rover.
 
 ```bash
-sudo nmcli connection add type ethernet ifname eno1 con-name "Jetson Tether" ipv4.method shared ipv4.addresses 10.44.0.1/24
+sudo nmcli connection add type ethernet ifname eno1 con-name "Jetson Tether" ipv4.method shared ipv4.addresses 10.43.0.1/24
 ```
 
 **How to switch connections:** From now on, when you plug in an Ethernet cable, click the Network icon in your taskbar. Choose **Jetson Tether** when plugging into the rover, or **Normal Internet** when plugging into a router.

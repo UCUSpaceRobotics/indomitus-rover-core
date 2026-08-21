@@ -13,6 +13,12 @@ jobs:
       packages: write
 
     steps:
+      - name: Lowercase Repository Name
+        id: lowercase-repo
+        run: |
+          REPO="${{ github.event.repository.name }}"
+          echo "name=${REPO,,}" >> $GITHUB_OUTPUT
+
       - name: Determine Target Tags
         id: set-target
         run: |
@@ -28,7 +34,17 @@ jobs:
           fi
 
       - name: Delete Images from GHCR
+        continue-on-error: true
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          package: ${{ steps.lowercase-repo.outputs.name }}
+          delete-tags: ${{ steps.set-target.outputs.target }}
+
+      - name: Delete Build Cache Images from GHCR
+        continue-on-error: true
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          package: ${{ steps.lowercase-repo.outputs.name }}-cache
           delete-tags: ${{ steps.set-target.outputs.target }}

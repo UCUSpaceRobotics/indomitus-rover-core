@@ -54,8 +54,8 @@ swerve_controller_test:
       - br_wheel_mount_joint
 
     max_linear_speed:  1.0
-    max_accel:         0.3
-    max_decel:         0.6
+    max_accel:         0.6
+    max_decel:         1.2
     cmd_vel_timeout_s: 0.5
 
     # 135 to match the real rover rather than the 90 used above. Spin-in-place

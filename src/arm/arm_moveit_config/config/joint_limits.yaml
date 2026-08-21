@@ -5,36 +5,51 @@
 default_velocity_scaling_factor: 0.1
 default_acceleration_scaling_factor: 0.1
 
-# Specific joint properties can be changed with the keys [max_position, min_position, max_velocity, max_acceleration]
-# Joint limits can be turned off with [has_velocity_limits, has_acceleration_limits]
+# Specific joint properties can be changed with the keys
+# [max_position, min_position, max_velocity, max_acceleration, max_jerk].
+# Joint limits can be turned off with
+# [has_velocity_limits, has_acceleration_limits, has_jerk_limits].
+# max_jerk is used by Ruckig smoothing (AddRuckigTrajectorySmoothing).
 joint_limits:
   arm_base_shoulder_joint:
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
-    max_acceleration: 0.0
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+    has_jerk_limits: true
+    max_jerk: 5.0
   arm_forearm_wrist_1_joint:
     has_velocity_limits: true
-    max_velocity: 1.0
-    has_acceleration_limits: false
-    max_acceleration: 0.0
+    max_velocity: 0.8
+    has_acceleration_limits: true
+    max_acceleration: 2.5
+    has_jerk_limits: true
+    max_jerk: 12.5
   arm_mount_base_joint:
     has_velocity_limits: true
-    max_velocity: 1.0
-    has_acceleration_limits: false
-    max_acceleration: 0.0
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.5
+    has_jerk_limits: true
+    max_jerk: 7.5
   arm_shoulder_forearm_joint:
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
-    max_acceleration: 0.0
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+    has_jerk_limits: true
+    max_jerk: 5.0
   arm_wrist_1_wrist_2_joint:
     has_velocity_limits: true
-    max_velocity: 1.0
-    has_acceleration_limits: false
-    max_acceleration: 0.0
+    max_velocity: 0.8
+    has_acceleration_limits: true
+    max_acceleration: 2.5
+    has_jerk_limits: true
+    max_jerk: 12.5
   arm_wrist_2_end_effector_joint:
     has_velocity_limits: true
-    max_velocity: 1.0
-    has_acceleration_limits: false
-    max_acceleration: 0.0
+    max_velocity: 0.8
+    has_acceleration_limits: true
+    max_acceleration: 2.5
+    has_jerk_limits: true
+    max_jerk: 12.5

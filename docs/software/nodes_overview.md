@@ -164,7 +164,7 @@ Visualization tooling.
 - **`arm_hardware_interface`** — ros2_control hardware plugin for the real arm (`plugins.xml`)
 - **`arm_moveit_config`** — MoveIt2 configuration: SRDF, kinematics, joint limits, controllers, Servo config; launch files for `move_group`, RViz, controller spawning, virtual joint TFs, setup assistant, warehouse DB
 - **`arm_sim`** — simulation support for the arm (structure only; no launch/config files yet)
-- **`arm_tasks`** (Python) — task-level nodes; includes `keyboard_servo_node.py`
+- **`arm_tasks`** (Python) — `teach_poses`, `keyboard_servo_node` / `gamepad_servo_node`
 - **`arm_viz`** — RViz config for the arm (`rviz/arm.rviz`)
 
 ---
