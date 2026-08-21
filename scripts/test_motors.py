@@ -8,16 +8,15 @@ active state) and a scrolling event log below it showing every keypress
 and action as it happens.
 
 Install dependencies:
-    pip install python-can textual
+    pip install python-can textual --break-system-packages
 
 Make sure the CAN interface is up first, e.g.:
     sudo ip link set can0 up type can bitrate 500000
 
 Motor selection (choose which motors get enabled/commanded):
     --all                 test all 8 motors
-    --damiao [ID ...]     test damiao motors. No IDs = all 4. E.g. --damiao 1 3
-    --steadywin [ID ...]  test steadywin motors. No IDs = all 4. E.g. --steadywin 2
-    (IDs are wheel indices 0-3, matching FL, FR, RL, RR)
+    --damiao [ID ...]     test damiao motors by CAN ID. No IDs = all 4. E.g. --damiao 10 14
+    --steadywin [ID ...]  test steadywin motors by CAN ID. No IDs = all 4. E.g. --steadywin 13
 
 Controls (vim-style) — also shown in the footer:
     e   Enable selected motors
@@ -51,7 +50,7 @@ except ImportError as e:
     print(f"Missing dependency: {pkg}")
     print()
     print("Install with:")
-    print(f"    pip install {pkg}")
+    print(f"    pip install {pkg} --break-system-packages")
     sys.exit(1)
 
 # ── Config ──────────────────────────────────────────────────────────────
@@ -61,7 +60,6 @@ CAN_BITRATE = 500_000             # must match what's actually configured on the
 
 STEER_IDS = [11, 13, 15, 17]      # Steadywin, [FL, FR, RL, RR]
 DRIVE_IDS = [10, 12, 14, 16]      # Damiao,    [FL, FR, RL, RR]
-WHEEL_NAMES = ["FL", "FR", "RL", "RR"]
 
 MAX_ACCEL = 1.0          # rad/s^2, applied when |target| > |current| (speeding up)
 MAX_DECEL = 2.0          # rad/s^2, applied when |target| < |current| (slowing down)
@@ -377,16 +375,18 @@ def measure_send_rate(motion: MotionController, duration: float = 1.0) -> float:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Test CAN bus motors")
     parser.add_argument(
-        "--damiao", nargs="*", type=int, metavar="ID", choices=range(4),
-        help="Test damiao motors. No IDs = all 4. E.g. --damiao 1 3"
+        "--damiao", nargs="*", type=int, metavar="ID",
+        help=f"Test damiao motors by CAN ID. No IDs = known set {DRIVE_IDS}. "
+             f"Any ID works, including ones not in that list. E.g. --damiao 10 14 20"
     )
     parser.add_argument(
-        "--steadywin", nargs="*", type=int, metavar="ID", choices=range(4),
-        help="Test steadywin motors. No IDs = all 4. E.g. --steadywin 2"
+        "--steadywin", nargs="*", type=int, metavar="ID",
+        help=f"Test steadywin motors by CAN ID. No IDs = known set {STEER_IDS}. "
+             f"Any ID works, including ones not in that list. E.g. --steadywin 13 19"
     )
     parser.add_argument(
         "--all", action="store_true",
-        help="Test all 8 motors"
+        help="Test all motors in the known set"
     )
     args = parser.parse_args()
     if not args.all and args.damiao is None and args.steadywin is None:
@@ -399,9 +399,9 @@ def resolve_selected_ids(args: argparse.Namespace) -> tuple[list[int], list[int]
     drive_ids: list[int] = []
     steer_ids: list[int] = []
     if args.damiao is not None:
-        drive_ids = [DRIVE_IDS[i] for i in args.damiao] if len(args.damiao) > 0 else list(DRIVE_IDS)
+        drive_ids = list(args.damiao) if len(args.damiao) > 0 else list(DRIVE_IDS)
     if args.steadywin is not None:
-        steer_ids = [STEER_IDS[i] for i in args.steadywin] if len(args.steadywin) > 0 else list(STEER_IDS)
+        steer_ids = list(args.steadywin) if len(args.steadywin) > 0 else list(STEER_IDS)
     return drive_ids, steer_ids
 
 # ── TUI app ─────────────────────────────────────────────────────────────────
