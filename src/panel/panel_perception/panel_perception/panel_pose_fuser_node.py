@@ -38,8 +38,15 @@ from panel_perception.panel_geometry import (
 )
 
 DEFAULT_ARUCO_DETECTIONS_TOPIC = '/aruco_detections'
-DEFAULT_PANEL_POSE_TOPIC = 'panel_pose'
-DEFAULT_PANEL_VISIBLE_TOPIC = 'panel_visible'
+# Absolute on purpose, matching keyboard_servo_node.py's and
+# panel_align_node.py's own DEFAULT_PANEL_POSE_TOPIC — this node isn't
+# launched under a namespace by anything in the repo today, so a relative
+# default happened to resolve to the same absolute topic either way, but
+# would silently stop matching the moment this node is later added to a
+# launch file under any namespace (e.g. the panel_state_publisher's own
+# namespace="panel" pattern elsewhere in this repo).
+DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
+DEFAULT_PANEL_VISIBLE_TOPIC = '/panel_visible'
 DEFAULT_PANEL_TF_FRAME = 'panel'
 # Disagreement thresholds: with only 1 marker visible these are moot (no
 # comparison possible); with 2-3, exceeding either means the candidate
