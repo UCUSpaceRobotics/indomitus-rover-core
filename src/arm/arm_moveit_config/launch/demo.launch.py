@@ -43,9 +43,18 @@ def generate_launch_description() -> LaunchDescription:
         description="Whether to use fake hardware or real CAN bus",
     )
 
+    # planning_pipelines restricted to ompl on purpose — same fix as
+    # arm_gazebo.launch.py (see its own comment for the full story): with
+    # chomp/pilz_industrial_motion_planner also loaded, move_group picks
+    # an ambiguous "planning_plugin" between them and silently falls back
+    # to CHOMP even when a request explicitly asks for pipeline_id='ompl'
+    # (as panel_align_node.py's align requests do), and CHOMP rejects any
+    # Cartesian pose-constraint goal outright. This is the real-hardware
+    # launch path, so panel align needs the same fix here as in sim.
     moveit_config = (
         MoveItConfigsBuilder("indomitus_arm", package_name="arm_moveit_config")
         .robot_description(mappings={"use_fake_hardware": use_fake_hardware})
+        .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
 

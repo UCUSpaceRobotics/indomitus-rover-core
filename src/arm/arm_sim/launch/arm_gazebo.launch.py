@@ -245,9 +245,21 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
+    # planning_pipelines restricted to ompl on purpose: with none of the
+    # config yaml files it discovers for chomp/pilz_industrial_motion_planner
+    # actually present in this package (only ompl_planning.yaml exists),
+    # letting MoveItConfigsBuilder auto-load its bundled default configs
+    # for all three still left move_group picking an ambiguous
+    # "planning_plugin" between them ("Multiple planning plugins
+    # available... Using 'chomp_interface/CHOMPPlanner' for now" — even
+    # when the request explicitly asked for the 'ompl' pipeline_id).
+    # panel_align_node's Cartesian pose-constraint goals need real OMPL
+    # (CHOMP only accepts joint-space goals and rejects the rest outright
+    # with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS); nothing in this repo
+    # uses chomp or pilz, so there's no reason to load them at all.
     moveit_config = MoveItConfigsBuilder(
         "indomitus_arm", package_name="arm_moveit_config"
-    ).to_moveit_configs()
+    ).planning_pipelines(pipelines=["ompl"]).to_moveit_configs()
     move_group_launch = generate_move_group_launch(moveit_config)
 
     moveit_config_dir = get_package_share_directory("arm_moveit_config")

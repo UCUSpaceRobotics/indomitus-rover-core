@@ -47,6 +47,7 @@ from moveit_msgs.msg import (
     OrientationConstraint, PlanningOptions, PlanningScene, PlanningSceneWorld,
     PositionConstraint,
 )
+from controller_manager_msgs.srv import SwitchController
 from moveit_msgs.srv import ApplyPlanningScene
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -64,6 +65,10 @@ GROUP_NAME = 'indomitus_arm'
 TIP_LINK = 'arm_tcp_link'  # confirmed in arm_moveit_config/config/indomitus_arm.srdf
 CAMERA_OPTICAL_FRAME = 'arm_camera_optical_frame'
 CONTROLLER_NAME = 'indomitus_arm_controller'  # matches move_to_safe_pose()'s controller
+# The streaming controller Servo actually claims the joints with while
+# running — ExecuteTrajectory needs CONTROLLER_NAME (JTC) active instead,
+# see _use_trajectory_controller().
+FORWARD_CONTROLLER_NAME = 'indomitus_arm_forward_position_controller'
 # SRDF group's base_link, and the frame every hand-verified reachability
 # check this feature was built against actually used. Goal constraints and
 # the panel CollisionObject used to be submitted with
@@ -139,7 +144,13 @@ class PanelAlignNode(Node):
         self.declare_parameter('panel_pose_topic', DEFAULT_PANEL_POSE_TOPIC)
         self.declare_parameter('camera_info_topic', DEFAULT_CAMERA_INFO_TOPIC)
         self.declare_parameter('max_panel_pose_age_sec', DEFAULT_MAX_PANEL_POSE_AGE_SEC)
-        self.declare_parameter('standoff_margin_multiplier', 1.15)
+        # 1.15 fit the panel in frame with barely any margin; 1.4 fit it
+        # comfortably but pushed arm_mount_base_joint to only 3.4% clear of
+        # its limit (need 8%, see _check_joint_margins) — confirmed live at
+        # the current panel placement (arm_gazebo.launch.py's PANEL_X/Y/Z/YAW).
+        # 1.3 is the compromise: more framing margin than 1.15, still clear
+        # of the joint-limit rejection 1.4 hit.
+        self.declare_parameter('standoff_margin_multiplier', 1.3)
         self.declare_parameter('standoff_min_floor', 0.15)
         self.declare_parameter('standoff_max_reach', 0.75)
         # Was defaulted True (small fixed distance) while the sim test
@@ -175,6 +186,14 @@ class PanelAlignNode(Node):
         self._latest_panel_pose: PoseStamped | None = None
         self._latest_camera_info: CameraInfo | None = None
         self._camera_to_tip = None  # cached at startup, see _try_cache_camera_to_tip
+        self._last_status_message = ''
+        # Guards align_to_panel() against running twice at once — the
+        # 'align' service is registered on a ReentrantCallbackGroup (see
+        # module docstring) so its own sub-calls can interleave, but that
+        # also means a second concurrent /panel_align/align request would
+        # otherwise run this whole sequence in parallel with the first,
+        # against the same physical arm.
+        self._align_running = threading.Lock()
 
         # See module docstring: everything here shares one reentrant group
         # so the align service callback and its own sub-calls' response
@@ -202,6 +221,8 @@ class PanelAlignNode(Node):
             ApplyPlanningScene, '/apply_planning_scene', callback_group=cb_group)
         self._stop_servo_client = self.create_client(
             Trigger, 'servo_node/stop_servo', callback_group=cb_group)
+        self._switch_controller_client = self.create_client(
+            SwitchController, 'controller_manager/switch_controller', callback_group=cb_group)
 
         self.create_service(
             Trigger, 'panel_align/align', self._on_align_request, callback_group=cb_group)
@@ -244,10 +265,30 @@ class PanelAlignNode(Node):
     # ---- the actual sequence --------------------------------------------
 
     def align_to_panel(self) -> bool:
+        """Run the align sequence, refusing to overlap a concurrent call.
+
+        See _align_running's declaration in __init__ for why this guard
+        exists. A rejected concurrent call still gets a clean Trigger
+        failure response instead of interleaving with the in-flight one.
+        """
+        if not self._align_running.acquire(blocking=False):
+            self.get_logger().warn('Align already in progress — ignoring concurrent request.')
+            return self._fail('Another panel align is already in progress.')
+        try:
+            return self._align_to_panel_locked()
+        finally:
+            self._align_running.release()
+
+    def _align_to_panel_locked(self) -> bool:
         self._last_status_message = ''
 
         if not self._call_stop_servo():
             return self._fail('Could not confirm Servo stopped — aborting panel align.')
+
+        if not self._use_trajectory_controller():
+            return self._fail(
+                'Could not activate the trajectory controller — aborting panel align.'
+            )
 
         panel_pose = self._latest_panel_pose
         if panel_pose is None:
@@ -367,6 +408,41 @@ class PanelAlignNode(Node):
             return False
         return bool(result.get('r') and result['r'].success)
 
+    def _use_trajectory_controller(self) -> bool:
+        """Switch ros2_control from the streaming controller to the JTC.
+
+        _call_stop_servo() only stops moveit_servo's own internal loop —
+        it does not touch which ros2_control controller currently owns
+        the joints. While Servo is running, FORWARD_CONTROLLER_NAME is
+        the active one and CONTROLLER_NAME (the JTC that
+        /execute_trajectory actually sends goals to, via
+        moveit_simple_controller_manager) is inactive; confirmed live,
+        skipping this step made every align attempt plan successfully and
+        then abort on execution (GoalStatus.STATUS_ABORTED). BEST_EFFORT
+        strictness (not STRICT) because a repeat align call after a
+        previous one already left the JTC active would otherwise error on
+        a no-op request.
+        """
+        if not self._switch_controller_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn('controller_manager/switch_controller not available')
+            return False
+        req = SwitchController.Request()
+        req.activate_controllers = [CONTROLLER_NAME]
+        req.deactivate_controllers = [FORWARD_CONTROLLER_NAME]
+        req.strictness = SwitchController.Request.BEST_EFFORT
+        req.activate_asap = True
+        done = threading.Event()
+        result = {}
+
+        def _cb(fut):
+            result['r'] = fut.result()
+            done.set()
+
+        self._switch_controller_client.call_async(req).add_done_callback(_cb)
+        if not done.wait(timeout=5.0):
+            return False
+        return bool(result.get('r') and result['r'].ok)
+
     def _apply_panel_collision_object(self, panel_pose: PoseStamped) -> bool:
         if not self._apply_scene_client.wait_for_service(timeout_sec=3.0):
             self.get_logger().error('/apply_planning_scene service not available')
@@ -416,6 +492,17 @@ class PanelAlignNode(Node):
         goal = MoveGroup.Goal()
         req = goal.request
         req.group_name = GROUP_NAME
+        # Explicit on purpose: this request is a Cartesian (position +
+        # orientation constraint) goal, which CHOMP cannot plan for at all
+        # ("Only joint-space goals are supported" — move_group rejects the
+        # whole request with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS
+        # before planning even starts). Leaving pipeline_id empty does NOT
+        # reliably fall back to the configured default_planning_pipeline
+        # (ompl) — confirmed live: once arm_moveit_config also loads chomp
+        # and pilz_industrial_motion_planner alongside ompl, an empty
+        # pipeline_id on this MoveGroup action request resolved to chomp
+        # instead.
+        req.pipeline_id = 'ompl'
         req.num_planning_attempts = self.get_parameter('num_planning_attempts').value
         req.allowed_planning_time = self.get_parameter('allowed_planning_time').value
         req.max_velocity_scaling_factor = self.get_parameter('max_velocity_scaling_factor').value
@@ -507,6 +594,10 @@ class PanelAlignNode(Node):
             gh.get_result_async().add_done_callback(_result_cb)
 
         self._execute_client.send_goal_async(goal).add_done_callback(_goal_cb)
+        # This 60s, summed with every other wait_for_service/server +
+        # done.wait() in align_to_panel()'s sequence, must stay under
+        # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
+        # comment for the full worst-case budget.
         if not done.wait(timeout=60.0):
             return False, 'execution timed out'
 
