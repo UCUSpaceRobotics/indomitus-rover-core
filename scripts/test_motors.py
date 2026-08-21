@@ -2,10 +2,13 @@
 """
 chassis_driver test — standalone TUI, NO ROS2 required.
 
-Talks directly to the CAN bus via python-can / SocketCAN. 
+Talks directly to the CAN bus via python-can / SocketCAN. Uses Textual for
+a proper terminal UI: a fixed status panel at the top (live speed/angle/
+active state) and a scrolling event log below it showing every keypress
+and action as it happens.
 
 Install dependencies:
-    pip install python-can textual --break-system-packages
+    pip install python-can textual
 
 Make sure the CAN interface is up first, e.g.:
     sudo ip link set can0 up type can bitrate 500000
@@ -33,13 +36,24 @@ import math
 import re
 import struct
 import subprocess
+import sys
 import threading
 import time
 
-import can
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.widgets import Header, Footer, Static, RichLog
+try:
+    import can
+    from textual.app import App, ComposeResult
+    from textual.binding import Binding
+    from textual.containers import Horizontal
+    from textual.widgets import Header, Footer, Static, RichLog
+except ImportError as e:
+    pkg = {"can": "python-can"}.get(e.name, e.name)
+    print(f"Missing dependency: {pkg}")
+    print()
+    print("Install with:")
+    print(f"    pip install {pkg}")
+    sys.exit(1)
+
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
@@ -385,9 +399,18 @@ def resolve_selected_ids(args: argparse.Namespace) -> tuple[list[int], list[int]
 
 class ChassisTUI(App):
     CSS = """
-    #status {
-        height: 8;
+    #status_row {
+        height: 5;
+    }
+    #can_status {
+        width: 3fr;
         border: solid green;
+        padding: 0 1;
+        content-align: left middle;
+    }
+    #motion_status {
+        width: 1fr;
+        border: solid cyan;
         padding: 0 1;
         content-align: left middle;
     }
@@ -419,7 +442,9 @@ class ChassisTUI(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(id="status")
+        with Horizontal(id="status_row"):
+            yield Static(id="can_status")
+            yield Static(id="motion_status")
         yield RichLog(id="log", wrap=True, highlight=True, markup=True)
         yield Footer()
 
@@ -443,19 +468,11 @@ class ChassisTUI(App):
         self.set_interval(1 / 10, self.update_status)
 
     def update_status(self) -> None:
-        lines: list[str] = []
-
-        if self.motion:
-            state = self.motion.snapshot()
-            lines.append(f"active: {self.motion.is_active()}")
-            lines.append(f"speed:  {state['speed_current']:+.3f} -> {state['speed_target']:+.3f} rad/s")
-            lines.append(f"angle:  {math.degrees(state['angle']):+.1f} deg")
-        else:
-            lines.append("[bold red]CAN bus not connected[/bold red]")
-
+        # ── left panel: CAN link state ──
+        can_lines: list[str] = []
         link = self.link_monitor.snapshot() if self.link_monitor else {}
         if link.get("error"):
-            lines.append(f"{CAN_CHANNEL}: [red]{link['error']}[/red]")
+            can_lines.append(f"{CAN_CHANNEL}: [red]{link['error']}[/red]")
         else:
             can_state = link.get("state") or "?"
             color = {
@@ -470,17 +487,26 @@ class ChassisTUI(App):
             berr_rx = link.get("berr_rx")
             rx = link.get("rx", {})
             tx = link.get("tx", {})
-            lines.append(
+            can_lines.append(
                 f"{CAN_CHANNEL}: [{color}]{can_state}[/{color}]  {bitrate_s}  "
                 f"berr(tx={berr_tx} rx={berr_rx})"
             )
-            lines.append(
-                f"  rx: errors={rx.get('errors', '?')} dropped={rx.get('dropped', '?')}   "
+            can_lines.append(
+                f"rx: errors={rx.get('errors', '?')} dropped={rx.get('dropped', '?')}   "
                 f"tx: errors={tx.get('errors', '?')} dropped={tx.get('dropped', '?')}"
             )
+        self.query_one("#can_status", Static).update("\n".join(can_lines))
 
-        status = self.query_one("#status", Static)
-        status.update("\n".join(lines))
+        # ── right panel: current speed / angle ──
+        if self.motion:
+            state = self.motion.snapshot()
+            motion_text = (
+                f"speed: {state['speed_current']:+.2f} rad/s\n"
+                f"angle: {math.degrees(state['angle']):+.1f} deg"
+            )
+        else:
+            motion_text = "speed: --\nangle: --"
+        self.query_one("#motion_status", Static).update(motion_text)
 
     def log_write(self, msg: str) -> None:
         self.query_one("#log", RichLog).write(msg)
