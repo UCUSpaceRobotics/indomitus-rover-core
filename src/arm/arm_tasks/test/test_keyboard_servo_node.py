@@ -346,30 +346,7 @@ def test_align_does_not_learn_position_on_service_failure(controller, monkeypatc
     assert controller._panel_target_positions is None
 
 
-# ── save_panel_position() ────────────────────────────────────────────────
-
-def test_save_panel_position_fails_when_not_visible(controller):
-    assert controller.save_panel_position() is False
-    assert controller._panel_target_positions is None
-
-
-def test_save_panel_position_succeeds_when_visible(controller):
-    controller._on_panel_pose(PoseStamped())
-    controller._on_joint_state(make_arm_joint_state([1.0] * len(HOME_POSE_JOINTS)))
-    assert controller.save_panel_position() is True
-    assert controller._panel_target_positions == [1.0] * len(HOME_POSE_JOINTS)
-
-
-def test_save_panel_position_overwrites_previous(controller):
-    controller._on_panel_pose(PoseStamped())
-    controller._on_joint_state(make_arm_joint_state([1.0] * len(HOME_POSE_JOINTS)))
-    controller.save_panel_position()
-    controller._on_joint_state(make_arm_joint_state([2.0] * len(HOME_POSE_JOINTS)))
-    controller.save_panel_position()
-    assert controller._panel_target_positions == [2.0] * len(HOME_POSE_JOINTS)
-
-
-# ── keyboard: panel prompt / align / save handlers ──────────────────────
+# ── keyboard: panel prompt / align handlers ──────────────────────────────
 
 def test_keyboard_check_panel_visibility_prompts_on_rising_edge(controller, monkeypatch):
     loop = KeyboardInputLoop(controller)
@@ -380,15 +357,6 @@ def test_keyboard_check_panel_visibility_prompts_on_rising_edge(controller, monk
     assert loop._panel_was_visible is True
 
 
-def test_keyboard_check_panel_visibility_no_prompt_when_silenced(controller, monkeypatch):
-    loop = KeyboardInputLoop(controller)
-    monkeypatch.setattr(controller, 'is_panel_visible', lambda: True)
-    monkeypatch.setattr(controller, 'stop', lambda: None)
-    loop._panel_notifications_silenced = True
-    loop._check_panel_visibility()
-    assert loop._panel_prompt_pending is False
-
-
 def test_keyboard_handle_panel_align_resumes_servo_regardless_of_outcome(controller, monkeypatch):
     loop = KeyboardInputLoop(controller)
     monkeypatch.setattr(controller, 'align_to_panel', lambda: False)
@@ -396,20 +364,6 @@ def test_keyboard_handle_panel_align_resumes_servo_regardless_of_outcome(control
     monkeypatch.setattr(controller, 'start_servo', lambda: started.append(True))
     loop._handle_panel_align()
     assert started == [True]
-
-
-def test_keyboard_handle_panel_save_reports_success(controller, monkeypatch, capsys):
-    loop = KeyboardInputLoop(controller)
-    monkeypatch.setattr(controller, 'save_panel_position', lambda: True)
-    loop._handle_panel_save()
-    assert 'saved' in capsys.readouterr().out.lower()
-
-
-def test_keyboard_handle_panel_save_reports_failure(controller, monkeypatch, capsys):
-    loop = KeyboardInputLoop(controller)
-    monkeypatch.setattr(controller, 'save_panel_position', lambda: False)
-    loop._handle_panel_save()
-    assert 'could not save' in capsys.readouterr().out.lower()
 
 
 # ── safe-pose gating (keyboard) ─────────────────────────────────────────
@@ -457,20 +411,6 @@ def test_gamepad_panel_align_button_replays_remembered_position(controller, monk
     loop._on_joy(make_joy(buttons=buttons))
 
     assert aligned == [True]
-
-
-def test_gamepad_panel_dismiss_button_silences_prompt(controller, monkeypatch):
-    loop = GamepadInputLoop(controller)
-    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda: True)
-    monkeypatch.setattr(controller, 'start_servo', lambda: True)
-    loop._handle_safe_pose()  # unlocks teleop
-
-    loop._on_joy(make_joy())
-    buttons = [0] * 13
-    buttons[loop.BUTTON_PANEL_DISMISS] = 1
-    loop._on_joy(make_joy(buttons=buttons))
-
-    assert loop._panel_notifications_silenced is True
 
 
 # ── safe-pose gating + joy timeout (gamepad) ────────────────────────────
