@@ -9,7 +9,7 @@ Install dependency:
     pip install python-can --break-system-packages
 
 Make sure the CAN interface is up first, e.g.:
-    sudo ip link set can0 up type can bitrate 1000000
+    sudo ip link set can0 up type can bitrate 500000
 
 Motor selection (choose which motors get enabled/commanded):
     --all                 test all 8 motors
@@ -42,16 +42,16 @@ import can
 # ── Config ──────────────────────────────────────────────────────────────────
 
 CAN_CHANNEL = "can0"
-CAN_BITRATE = 1_000_000          # must match what's actually configured on the bus
+CAN_BITRATE = 500_000          # must match what's actually configured on the bus
 
 STEER_IDS = [11, 13, 15, 17]      # Steadywin, [FL, FR, RL, RR]
 DRIVE_IDS = [10, 12, 14, 16]      # Damiao,    [FL, FR, RL, RR]
 WHEEL_NAMES = ["FL", "FR", "RL", "RR"]
 
 # Ramp control for drive speed — ADJUST to taste
-MAX_ACCEL = 2.0          # rad/s^2, applied when |target| > |current| (speeding up)
-MAX_DECEL = 3.0          # rad/s^2, applied when |target| < |current| (slowing down)
-CMD_RATE_HZ = 100.0      # command loop frequency — sends a frame to every enabled
+MAX_ACCEL = 1.0          # rad/s^2, applied when |target| > |current| (speeding up)
+MAX_DECEL = 2.0          # rad/s^2, applied when |target| < |current| (slowing down)
+CMD_RATE_HZ = 10.0       # command loop frequency — sends a frame to every enabled
                           # motor every cycle, whether or not the target changed.
                           # This is also what keeps each motor's CAN
                           # communication-loss watchdog (TIMEOUT register) happy.
@@ -409,8 +409,6 @@ def main():
 
     print(f"Selected damiao IDs:    {drive_ids or '(none)'}")
     print(f"Selected steadywin IDs: {steer_ids or '(none)'}")
-    print(HELP)
-
 
     print(f"\nOpening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
     bus = CanBus(CAN_CHANNEL, CAN_BITRATE)
@@ -457,6 +455,11 @@ def main():
 
             elif key == 'f':
                 print_feedback(bus, motion)
+
+            elif key == 'r':
+                print("\n[MEASURE] Sampling send rate for 1s...")
+                hz = measure_send_rate(motion, duration=1.0)
+                print(f"  actual command rate ≈ {hz:.1f} Hz  (target: {CMD_RATE_HZ:.0f} Hz)")
 
             elif key in ('q', '\x03'):
                 print("\nQuitting...")
