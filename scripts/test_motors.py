@@ -11,19 +11,24 @@ Install dependency:
 Make sure the CAN interface is up first, e.g.:
     sudo ip link set can0 up type can bitrate 1000000
 
-Controls:
-    e       Enable all motors
-    d       Disable all motors  (zero → wait 1.5s → disable)
-    1       Test: straight forward 0.5 m/s
-    2       Test: spin in place left
-    3       Test: turn left (differential)
-    4       Test: max steer angle placeholder (no steer motors configured)
-    +/=     Increase vx by VX_STEP (keeps current wz)
-    -/_     Decrease vx by VX_STEP (keeps current wz)
-    s       Stop drive (publish zero velocity)
-    f       Print latest decoded feedback per motor
+Motor selection (choose which motors get enabled/commanded):
+    --all                 test all 8 motors
+    --damiao [ID ...]     test damiao motors. No IDs = all 4. E.g. --damiao 1 3
+    --steadywin [ID ...]  test steadywin motors. No IDs = all 4. E.g. --steadywin 2
+    (IDs are wheel indices 0-3, matching FL, FR, RL, RR)
+
+Controls (vim-style):
+    e       Enable selected motors
+    d       Disable selected motors (zero → wait → disable)
+    k       Increase drive speed (all damiao move together)
+    j       Decrease drive speed
+    l       Increase steer angle (all steadywin move together)
+    h       Decrease steer angle
+    s       Stop drive (speed target -> 0, ramps down; angle unchanged)
+    f       Print latest decoded feedback + current speed/angle
     q       Quit
 """
+import argparse
 import math
 import struct
 import sys
@@ -39,27 +44,21 @@ import can
 CAN_CHANNEL = "can0"
 CAN_BITRATE = 1_000_000          # must match what's actually configured on the bus
 
-STEER_IDS = []                    # Steadywin, [FL, FR, RL, RR] — none in this build
-# STEER_IDS = [11, 13, 15, 17]      # Steadywin, [FL, FR, RL, RR] — none in this build
+STEER_IDS = [11, 13, 15, 17]      # Steadywin, [FL, FR, RL, RR]
 DRIVE_IDS = [10, 12, 14, 16]      # Damiao,    [FL, FR, RL, RR]
 WHEEL_NAMES = ["FL", "FR", "RL", "RR"]
 
-# Skid-steer geometry — ADJUST to your actual rover dimensions
-WHEEL_RADIUS = 0.15      # meters
-TRACK_WIDTH = 0.6        # meters, distance between left/right wheel centers
-
-# Ramp control — ADJUST to taste
+# Ramp control for drive speed — ADJUST to taste
 MAX_ACCEL = 2.0          # rad/s^2, applied when |target| > |current| (speeding up)
 MAX_DECEL = 3.0          # rad/s^2, applied when |target| < |current| (slowing down)
-CMD_RATE_HZ = 100.0      # command loop frequency — sends a velocity frame to every
-                          # enabled motor every cycle, whether or not the target
-                          # changed. This is also what keeps the motor's CAN
+CMD_RATE_HZ = 100.0      # command loop frequency — sends a frame to every enabled
+                          # motor every cycle, whether or not the target changed.
+                          # This is also what keeps each motor's CAN
                           # communication-loss watchdog (TIMEOUT register) happy.
 
-# ── vx/wz live state ──────────────────────────────────────────────────────
-VX_STEP = 0.05    # m/s added/removed per '+'/'-' keypress
-
-drive_state = {"vx": 0.0, "wz": 0.0}
+# Step sizes for keyboard control
+SPEED_STEP = 0.1          # rad/s added/removed per 'k'/'j' keypress
+ANGLE_STEP_DEG = 5.0      # degrees added/removed per 'l'/'h' keypress
 
 # ── Frame builders (same protocol as before) ─────────────────────────────────
 
@@ -165,31 +164,24 @@ class CanBus:
         self._thread.join(timeout=1.0)
         self.bus.shutdown()
 
-# ── Ramp controller (smooth accel/decel) ──────────────────────────────────────
+# ── Motion controller ──────────────────────────────────────────────────────
+#
+# Single shared drive speed for all active damiao motors (ramped smoothly),
+# and a single shared steer angle for all active steadywin motors (sent
+# directly — steering position doesn't need accel/decel limiting the way
+# velocity does). Both are re-sent every cycle at CMD_RATE_HZ so each
+# motor's CAN watchdog stays happy even while holding still.
 
-class RampController:
-    """
-    Continuous command loop, running at CMD_RATE_HZ (100 Hz by default).
-
-    Every cycle — regardless of whether the target changed since the last
-    cycle — it:
-      1. Steps each wheel's commanded velocity toward its target, limited
-         by MAX_ACCEL (speeding up) / MAX_DECEL (slowing down).
-      2. Sends the resulting velocity frame to every enabled motor.
-
-    This means motors get a steady stream of commands the whole time
-    they're enabled, not just on state changes — which also keeps each
-    motor's CAN communication-loss watchdog (TIMEOUT register) satisfied
-    even while sitting still at zero velocity.
-
-    Call set_targets() to change where wheels are headed — the loop takes
-    care of getting them there smoothly.
-    """
-    def __init__(self, bus: CanBus, esc_ids: list[int]):
+class MotionController:
+    def __init__(self, bus: CanBus, drive_ids: list[int], steer_ids: list[int]):
         self.bus = bus
-        self.esc_ids = esc_ids
-        self.current = {esc_id: 0.0 for esc_id in esc_ids}
-        self.target = {esc_id: 0.0 for esc_id in esc_ids}
+        self.drive_ids = drive_ids
+        self.steer_ids = steer_ids
+
+        self.speed_current = 0.0
+        self.speed_target = 0.0
+        self.angle = 0.0   # radians, sent directly (no ramping)
+
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._active = threading.Event()   # only send frames while enabled
@@ -197,9 +189,13 @@ class RampController:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def set_targets(self, speeds: dict[int, float]):
+    def set_speed_target(self, speed: float):
         with self._lock:
-            self.target.update(speeds)
+            self.speed_target = speed
+
+    def set_angle(self, angle_rad: float):
+        with self._lock:
+            self.angle = angle_rad
 
     def set_active(self, on: bool):
         if on:
@@ -207,19 +203,23 @@ class RampController:
         else:
             self._active.clear()
 
-    def snapshot_current(self) -> dict[int, float]:
+    def snapshot(self) -> dict:
         with self._lock:
-            return dict(self.current)
+            return {
+                "speed_current": self.speed_current,
+                "speed_target": self.speed_target,
+                "angle": self.angle,
+            }
 
     def sent_count(self) -> int:
         return self._sent_count
 
     def wait_until_settled(self, tol: float = 0.02, timeout: float = 5.0):
-        """Block until all wheels are within `tol` rad/s of their targets."""
+        """Block until drive speed is within `tol` rad/s of its target."""
         start = time.time()
         while time.time() - start < timeout:
             with self._lock:
-                done = all(abs(self.current[i] - self.target[i]) < tol for i in self.esc_ids)
+                done = abs(self.speed_current - self.speed_target) < tol
             if done:
                 return
             time.sleep(1.0 / CMD_RATE_HZ)
@@ -230,18 +230,20 @@ class RampController:
         while not self._stop.is_set():
             if self._active.is_set():
                 with self._lock:
-                    for esc_id in self.esc_ids:
-                        cur = self.current[esc_id]
-                        tgt = self.target[esc_id]
-                        diff = tgt - cur
-                        speeding_up = abs(tgt) > abs(cur)
-                        limit = (MAX_ACCEL if speeding_up else MAX_DECEL) * dt
-                        step = max(-limit, min(limit, diff))
-                        self.current[esc_id] = cur + step
-                    speeds = dict(self.current)
-                for esc_id, spd in speeds.items():
-                    self.bus.send(dm_velocity(esc_id, spd))
+                    diff = self.speed_target - self.speed_current
+                    speeding_up = abs(self.speed_target) > abs(self.speed_current)
+                    limit = (MAX_ACCEL if speeding_up else MAX_DECEL) * dt
+                    step = max(-limit, min(limit, diff))
+                    self.speed_current += step
+                    speed = self.speed_current
+                    angle = self.angle
+
+                for esc_id in self.drive_ids:
+                    self.bus.send(dm_velocity(esc_id, speed))
+                for esc_id in self.steer_ids:
+                    self.bus.send(sw_abs_position(esc_id, angle))
                 self._sent_count += 1
+
             # fixed-rate scheduling: sleep to the next tick rather than a flat
             # dt, so the loop doesn't drift below CMD_RATE_HZ over time
             next_tick += dt
@@ -257,69 +259,68 @@ class RampController:
 
 # ── High-level actions ────────────────────────────────────────────────────────
 
-def enable_all(bus: CanBus, ramp: RampController):
+def enable_all(bus: CanBus, motion: MotionController):
     print("\n[ENABLE] Sending enable sequence...")
-    for esc_id in STEER_IDS:
+    for esc_id in motion.steer_ids:
         bus.send(sw_clear_fault(esc_id)); time.sleep(0.02)
-    for esc_id in STEER_IDS:
+    for esc_id in motion.steer_ids:
         bus.send(sw_abs_position(esc_id, 0.0)); time.sleep(0.02)
-    for esc_id in DRIVE_IDS:
+    for esc_id in motion.drive_ids:
         bus.send(dm_set_mode(esc_id, 3)); time.sleep(0.02)   # mode 3 = Velocity
     time.sleep(0.05)
-    for esc_id in DRIVE_IDS:
+    for esc_id in motion.drive_ids:
         bus.send(dm_enable(esc_id)); time.sleep(0.02)
-    ramp.set_targets({esc_id: 0.0 for esc_id in DRIVE_IDS})
-    ramp.set_active(True)     # ramp loop now takes over sending velocity frames
+    motion.set_speed_target(0.0)
+    motion.set_angle(0.0)
+    motion.set_active(True)     # motion loop now takes over sending frames
     print("[ENABLE] Done")
 
-def disable_all(bus: CanBus, ramp: RampController):
-    print("\n[DISABLE] Ramping down to zero...")
-    drive_state["vx"], drive_state["wz"] = 0.0, 0.0
-    ramp.set_targets({esc_id: 0.0 for esc_id in DRIVE_IDS})
-    ramp.wait_until_settled(timeout=5.0)
-    ramp.set_active(False)    # stop the ramp loop from sending further frames
-    for esc_id in STEER_IDS:
+def disable_all(bus: CanBus, motion: MotionController):
+    print("\n[DISABLE] Ramping speed down to zero...")
+    motion.set_speed_target(0.0)
+    motion.wait_until_settled(timeout=5.0)
+    motion.set_active(False)    # stop the motion loop from sending further frames
+    for esc_id in motion.steer_ids:
         bus.send(sw_abs_position(esc_id, 0.0))
     time.sleep(0.3)
-    for esc_id in STEER_IDS:
+    for esc_id in motion.steer_ids:
         bus.send(sw_disable(esc_id))
-    for esc_id in DRIVE_IDS:
+    for esc_id in motion.drive_ids:
         bus.send(dm_disable(esc_id))
     print("[DISABLE] All motors disabled")
 
-def set_diff_drive_target(ramp: RampController, vx: float, wz: float):
-    """Simple skid-steer mixing: left/right wheel target speeds from vx, wz.
-    Sets the target only — the RampController smoothly accelerates/decelerates
-    toward it in the background."""
-    left_speed = (vx - wz * TRACK_WIDTH / 2.0) / WHEEL_RADIUS
-    right_speed = (vx + wz * TRACK_WIDTH / 2.0) / WHEEL_RADIUS
-    # DRIVE_IDS order = [FL, FR, RL, RR]
-    speeds = [left_speed, right_speed, left_speed, right_speed]
-    ramp.set_targets(dict(zip(DRIVE_IDS, speeds)))
-    return speeds
+def adjust_speed(motion: MotionController, delta: float):
+    snap = motion.snapshot()
+    new_target = snap["speed_target"] + delta
+    motion.set_speed_target(new_target)
+    print(f"\n[SPEED] target = {new_target:+.2f} rad/s")
 
-def adjust_vx(ramp: RampController, state: dict, delta: float):
-    """Nudge vx up/down by `delta`, keep current wz, reapply target."""
-    state["vx"] += delta
-    speeds = set_diff_drive_target(ramp, vx=state["vx"], wz=state["wz"])
-    print(f"\n[VX] vx = {state['vx']:+.2f} m/s   (wz = {state['wz']:+.2f} rad/s)")
-    print(f"  target wheel speeds (rad/s): {speeds}")
-    return state["vx"]
+def adjust_angle(motion: MotionController, delta_rad: float):
+    snap = motion.snapshot()
+    new_angle = snap["angle"] + delta_rad
+    motion.set_angle(new_angle)
+    print(f"\n[ANGLE] target = {math.degrees(new_angle):+.1f} deg")
 
 # ── Display helpers ────────────────────────────────────────────────────────────
 
-def print_feedback(bus: CanBus):
+def print_feedback(bus: CanBus, motion: MotionController):
     snap = bus.snapshot()
     if not snap:
         print("  (no feedback frames received yet)")
-        return
-    print(f"\n  Latest feedback  [{len(snap)} motor(s)]")
-    for can_id, fb in sorted(snap.items()):
-        err_name = ERR_NAMES.get(fb["err"], f"0x{fb['err']:X}")
-        print(f"    can_id=0x{can_id:03X} ctrl_id={fb['ctrl_id']:2d} "
-              f"status={err_name:12s} pos_raw={fb['pos_raw']:5d} "
-              f"vel_raw={fb['vel_raw']:4d} torque_raw={fb['torque_raw']:4d} "
-              f"T_mos={fb['t_mos_c']}C T_rotor={fb['t_rotor_c']}C")
+    else:
+        print(f"\n  Latest feedback  [{len(snap)} motor(s)]")
+        for can_id, fb in sorted(snap.items()):
+            err_name = ERR_NAMES.get(fb["err"], f"0x{fb['err']:X}")
+            print(f"    can_id=0x{can_id:03X} ctrl_id={fb['ctrl_id']:2d} "
+                  f"status={err_name:12s} pos_raw={fb['pos_raw']:5d} "
+                  f"vel_raw={fb['vel_raw']:4d} torque_raw={fb['torque_raw']:4d} "
+                  f"T_mos={fb['t_mos_c']}C T_rotor={fb['t_rotor_c']}C")
+
+    state = motion.snapshot()
+    active = motion._active.is_set()
+    print(f"\n  Motion state (active={active}):")
+    print(f"    speed: {state['speed_current']:+.3f} -> {state['speed_target']:+.3f} rad/s")
+    print(f"    angle: {math.degrees(state['angle']):+.1f} deg")
 
 # ── Keyboard input ────────────────────────────────────────────────────────────
 
@@ -333,50 +334,87 @@ def get_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 HELP = f"""
-╔══════════════════════════════════════════╗
-║   chassis_driver standalone test (no ROS) ║
-╠══════════════════════════════════════════╣
-║  e   Enable all motors                   ║
-║  d   Disable all motors (smooth ramp-down)║
-║  ─── scenarios (smooth ramp) ───────────║
-║  1   Straight forward  0.5 m/s           ║
-║  2   Spin in place     1.0 rad/s         ║
-║  3   Turn left         0.5 m/s + 0.5ω   ║
-║  4   (steer test placeholder — no steer  ║
-║       motors configured)                 ║
-║  +/= Increase vx by {VX_STEP:.2f} m/s (keeps wz)  ║
-║  -/_ Decrease vx by {VX_STEP:.2f} m/s (keeps wz)  ║
-║  s   Stop (target = 0, ramps down)       ║
-║  ─── info ──────────────────────────────║
-║  f   Print motor feedback + current speed║
-║  r   Measure actual command send rate    ║
-║  q   Quit                                ║
-╠══════════════════════════════════════════╣
-║  accel={MAX_ACCEL:.1f} rad/s²  decel={MAX_DECEL:.1f} rad/s²  ║
-║  cmd_rate={CMD_RATE_HZ:.0f} Hz (continuous while enabled)   ║
-╚══════════════════════════════════════════╝
+╔════════════════════════════════════════════╗
+║   chassis_driver standalone test           ║
+╠════════════════════════════════════════════╣
+║  e   Enable selected motors                ║
+║  d   Disable selected motors (ramp down)   ║
+║  ─── drive / steer (vim-style) ──────────  ║
+║  k   Increase speed by {SPEED_STEP:.2f} rad/s          ║
+║  j   Decrease speed by {SPEED_STEP:.2f} rad/s          ║
+║  l   Increase steer angle by {ANGLE_STEP_DEG:.0f} deg         ║
+║  h   Decrease steer angle by {ANGLE_STEP_DEG:.0f} deg         ║
+║  s   Stop drive (speed -> 0, ramps down)   ║
+║  ─── info ───────────────────────────────  ║
+║  f   Print motor feedback + current state  ║
+║  r   Measure actual command send rate      ║
+║  q   Quit                                  ║
+╠════════════════════════════════════════════╣
+║  accel={MAX_ACCEL:.1f} rad/s²  decel={MAX_DECEL:.1f} rad/s²        ║
+║  cmd_rate={CMD_RATE_HZ:.0f} Hz (continuous while enabled)║
+╚════════════════════════════════════════════╝
 """
 
-def print_ramp_state(ramp: RampController):
-    cur = ramp.snapshot_current()
-    with ramp._lock:
-        tgt = dict(ramp.target)
-    active = ramp._active.is_set()
-    print(f"\n  Ramp state (active={active}, ~{CMD_RATE_HZ:.0f} Hz target):")
-    for esc_id in DRIVE_IDS:
-        print(f"    esc={esc_id:2d}  {cur[esc_id]:+.3f} → {tgt[esc_id]:+.3f} rad/s")
-
-def measure_send_rate(ramp: RampController, duration: float = 1.0) -> float:
+def measure_send_rate(motion: MotionController, duration: float = 1.0) -> float:
     """Sample sent_count() over `duration` seconds to report actual Hz."""
-    before = ramp.sent_count()
+    before = motion.sent_count()
     time.sleep(duration)
-    after = ramp.sent_count()
+    after = motion.sent_count()
     return (after - before) / duration
 
+# ── Argument parsing ──────────────────────────────────────────────────────
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Test CAN bus motors")
+
+    parser.add_argument(
+        "--damiao", nargs="*", type=int, metavar="ID", choices=range(4),
+        help="Test damiao motors. No IDs = all 4. E.g. --damiao 1 3"
+    )
+    parser.add_argument(
+        "--steadywin", nargs="*", type=int, metavar="ID", choices=range(4),
+        help="Test steadywin motors. No IDs = all 4. E.g. --steadywin 2"
+    )
+    parser.add_argument(
+        "--all", action="store_true",
+        help="Test all 8 motors"
+    )
+
+    args = parser.parse_args()
+
+    if not args.all and args.damiao is None and args.steadywin is None:
+        parser.error("No motors selected. Use --all, --damiao, or --steadywin.")
+
+    return args
+
+def resolve_selected_ids(args: argparse.Namespace) -> tuple[list[int], list[int]]:
+    if args.all:
+        return list(DRIVE_IDS), list(STEER_IDS)
+
+    drive_ids: list[int] = []
+    steer_ids: list[int] = []
+
+    if args.damiao is not None:
+        drive_ids = [DRIVE_IDS[i] for i in args.damiao] if len(args.damiao) > 0 else list(DRIVE_IDS)
+    if args.steadywin is not None:
+        steer_ids = [STEER_IDS[i] for i in args.steadywin] if len(args.steadywin) > 0 else list(STEER_IDS)
+
+    return drive_ids, steer_ids
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
 def main():
-    print(f"Opening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
+    args = parse_args()
+    drive_ids, steer_ids = resolve_selected_ids(args)
+
+    print(f"Selected damiao IDs:    {drive_ids or '(none)'}")
+    print(f"Selected steadywin IDs: {steer_ids or '(none)'}")
+    print(HELP)
+
+
+    print(f"\nOpening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
     bus = CanBus(CAN_CHANNEL, CAN_BITRATE)
-    ramp = RampController(bus, DRIVE_IDS)
+    motion = MotionController(bus, drive_ids, steer_ids)
     print(HELP)
 
     try:
@@ -384,51 +422,41 @@ def main():
             key = get_key()
 
             if key == 'e':
-                enable_all(bus, ramp)
+                enable_all(bus, motion)
 
             elif key == 'd':
-                disable_all(bus, ramp)
+                disable_all(bus, motion)
 
-            elif key == '1':
-                print("\nSCENARIO: STRAIGHT FORWARD 0.5 m/s (ramping...)")
-                drive_state["vx"], drive_state["wz"] = 0.5, 0.0
-                speeds = set_diff_drive_target(ramp, vx=drive_state["vx"], wz=drive_state["wz"])
-                print(f"  target wheel speeds (rad/s): {speeds}")
+            elif key == 'k':
+                if not motion.drive_ids:
+                    print("\n  (no damiao motors selected — nothing to speed up)")
+                else:
+                    adjust_speed(motion, SPEED_STEP)
 
-            elif key == '2':
-                print("\nSCENARIO: SPIN IN PLACE 1.0 rad/s (ramping...)")
-                drive_state["vx"], drive_state["wz"] = 0.0, 1.0
-                speeds = set_diff_drive_target(ramp, vx=drive_state["vx"], wz=drive_state["wz"])
-                print(f"  target wheel speeds (rad/s): {speeds}")
+            elif key == 'j':
+                if not motion.drive_ids:
+                    print("\n  (no damiao motors selected — nothing to slow down)")
+                else:
+                    adjust_speed(motion, -SPEED_STEP)
 
-            elif key == '3':
-                print("\nSCENARIO: TURN LEFT (ramping...)")
-                drive_state["vx"], drive_state["wz"] = 0.5, 0.5
-                speeds = set_diff_drive_target(ramp, vx=drive_state["vx"], wz=drive_state["wz"])
-                print(f"  target wheel speeds (rad/s): {speeds}")
+            elif key == 'l':
+                if not motion.steer_ids:
+                    print("\n  (no steadywin motors selected — nothing to steer)")
+                else:
+                    adjust_angle(motion, math.radians(ANGLE_STEP_DEG))
 
-            elif key == '4':
-                print("\n[TEST 4] No steer motors configured — skipping.")
-
-            elif key in ('+', '='):
-                adjust_vx(ramp, drive_state, VX_STEP)
-
-            elif key in ('-', '_'):
-                adjust_vx(ramp, drive_state, -VX_STEP)
+            elif key == 'h':
+                if not motion.steer_ids:
+                    print("\n  (no steadywin motors selected — nothing to steer)")
+                else:
+                    adjust_angle(motion, -math.radians(ANGLE_STEP_DEG))
 
             elif key == 's':
-                print("\n[STOP] Target = 0, ramping down")
-                drive_state["vx"], drive_state["wz"] = 0.0, 0.0
-                set_diff_drive_target(ramp, vx=0.0, wz=0.0)
+                print("\n[STOP] speed target = 0, ramping down")
+                motion.set_speed_target(0.0)
 
             elif key == 'f':
-                print_feedback(bus)
-                print_ramp_state(ramp)
-
-            elif key == 'r':
-                print("\n[MEASURE] Sampling send rate for 1s...")
-                hz = measure_send_rate(ramp, duration=1.0)
-                print(f"  actual command rate ≈ {hz:.1f} Hz  (target: {CMD_RATE_HZ:.0f} Hz)")
+                print_feedback(bus, motion)
 
             elif key in ('q', '\x03'):
                 print("\nQuitting...")
@@ -441,13 +469,14 @@ def main():
         print(f"\nError: {e}")
     finally:
         print("\n[SHUTDOWN] Ramping down before exit...")
-        drive_state["vx"], drive_state["wz"] = 0.0, 0.0
-        set_diff_drive_target(ramp, vx=0.0, wz=0.0)
-        ramp.wait_until_settled(timeout=3.0)
-        ramp.set_active(False)
-        for esc_id in DRIVE_IDS:
+        motion.set_speed_target(0.0)
+        motion.wait_until_settled(timeout=3.0)
+        motion.set_active(False)
+        for esc_id in motion.drive_ids:
             bus.send(dm_disable(esc_id))
-        ramp.shutdown()
+        for esc_id in motion.steer_ids:
+            bus.send(sw_disable(esc_id))
+        motion.shutdown()
         bus.shutdown()
 
 
