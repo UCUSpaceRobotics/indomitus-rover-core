@@ -54,8 +54,7 @@ except ImportError as e:
     print(f"    pip install {pkg}")
     sys.exit(1)
 
-
-# ── Config ──────────────────────────────────────────────────────────────────
+# ── Config ──────────────────────────────────────────────────────────────
 
 CAN_CHANNEL = "can0"
 CAN_BITRATE = 500_000             # must match what's actually configured on the bus
@@ -70,6 +69,8 @@ CMD_RATE_HZ = 10.0       # command loop frequency — see MotionController
 
 SPEED_STEP = 0.1          # rad/s added/removed per 'k'/'j' keypress
 ANGLE_STEP_DEG = 5.0      # degrees added/removed per 'l'/'h' keypress
+
+STALE_THRESHOLD_S = 1.0   # motor ID shown red if no feedback received within this long
 
 # ── Frame builders ────────────────────────────────────────────────────────
 
@@ -132,6 +133,7 @@ class CanBus:
     def __init__(self, channel: str, bitrate: int):
         self.bus = can.interface.Bus(channel=channel, interface="socketcan", bitrate=bitrate)
         self.latest_feedback: dict[int, dict] = {}
+        self.last_seen: dict[int, float] = {}   # can_id -> time.monotonic() of last feedback
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._listen, daemon=True)
@@ -146,6 +148,7 @@ class CanBus:
             if fb:
                 with self._lock:
                     self.latest_feedback[msg.arbitration_id] = fb
+                    self.last_seen[msg.arbitration_id] = time.monotonic()
 
     def send(self, msg: can.Message):
         self.bus.send(msg)
@@ -153,6 +156,12 @@ class CanBus:
     def snapshot(self) -> dict[int, dict]:
         with self._lock:
             return dict(self.latest_feedback)
+
+    def snapshot_ages(self) -> dict[int, float]:
+        """seconds since feedback was last received, per can_id — empty if never seen"""
+        now = time.monotonic()
+        with self._lock:
+            return {can_id: now - ts for can_id, ts in self.last_seen.items()}
 
     def shutdown(self):
         self._stop.set()
@@ -403,8 +412,14 @@ class ChassisTUI(App):
         height: 5;
     }
     #can_status {
-        width: 3fr;
+        width: 2fr;
         border: solid green;
+        padding: 0 1;
+        content-align: left middle;
+    }
+    #motors_status {
+        width: 1fr;
+        border: solid yellow;
         padding: 0 1;
         content-align: left middle;
     }
@@ -444,6 +459,7 @@ class ChassisTUI(App):
         yield Header()
         with Horizontal(id="status_row"):
             yield Static(id="can_status")
+            yield Static(id="motors_status")
             yield Static(id="motion_status")
         yield RichLog(id="log", wrap=True, highlight=True, markup=True)
         yield Footer()
@@ -496,6 +512,19 @@ class ChassisTUI(App):
                 f"tx: errors={tx.get('errors', '?')} dropped={tx.get('dropped', '?')}"
             )
         self.query_one("#can_status", Static).update("\n".join(can_lines))
+
+        # ── middle panel: per-motor health (green = fresh feedback, red = stale/none) ──
+        ages = self.bus.snapshot_ages() if self.bus else {}
+
+        def fmt_id(esc_id: int) -> str:
+            age = ages.get(esc_id)
+            ok = age is not None and age < STALE_THRESHOLD_S
+            color = "green" if ok else "red"
+            return f"[{color}]{esc_id}[/{color}]"
+
+        drive_line = "D: " + (" ".join(fmt_id(i) for i in self.drive_ids) if self.drive_ids else "(none)")
+        steer_line = "S: " + (" ".join(fmt_id(i) for i in self.steer_ids) if self.steer_ids else "(none)")
+        self.query_one("#motors_status", Static).update(f"{drive_line}\n{steer_line}")
 
         # ── right panel: current speed / angle ──
         if self.motion:
