@@ -1,22 +1,26 @@
-"""Gripper sync/gating/limits and safe-pose gripper reset.
+"""Gripper sync/gating/limits, safe-pose gripper reset, and panel-align memory.
 
-Internal methods (_on_joint_state, _publish_gripper, _handle_safe_pose) are
-called directly rather than round-tripped through real pub/sub or a running
-Gazebo/controller_manager, since the behavior under test lives entirely in
-this node's own state machine — feeding it through the real /joint_states
-topic would also reintroduce a genuine flakiness trap found while verifying
-this by hand: against a busy topic (e.g. a live sim publishing at 100Hz),
-rclpy.spin_once can starve this node's own publish timer indefinitely and
-report a false failure.
+Internal methods (_on_joint_state, _publish_gripper, _handle_safe_pose,
+_check_panel_visibility, ...) are called directly rather than round-tripped
+through real pub/sub or a running Gazebo/controller_manager, since the
+behavior under test lives entirely in this node's own state machine —
+feeding it through the real /joint_states topic would also reintroduce a
+genuine flakiness trap found while verifying this by hand: against a busy
+topic (e.g. a live sim publishing at 100Hz), rclpy.spin_once can starve
+this node's own publish timer indefinitely and report a false failure.
 """
 import time
 
 import pytest
 import rclpy
-from sensor_msgs.msg import JointState
+from geometry_msgs.msg import PoseStamped
+from rclpy.duration import Duration
+from sensor_msgs.msg import JointState, Joy
 
 from arm_tasks.keyboard_servo_node import (
     GRIPPER_JOINT_NAME,
+    HOME_POSE_JOINTS,
+    GamepadInputLoop,
     KeyboardInputLoop,
     ServoController,
     ecodes,
@@ -44,6 +48,23 @@ def make_joint_state(position, name=GRIPPER_JOINT_NAME):
     return msg
 
 
+def make_arm_joint_state(values):
+    """A /joint_states message covering all 6 HOME_POSE_JOINTS."""
+    msg = JointState()
+    msg.name = list(HOME_POSE_JOINTS)
+    msg.position = list(values)
+    return msg
+
+
+def make_joy(axes=None, buttons=None):
+    msg = Joy()
+    # index: 0/1 left stick, 2/3 right stick, 4/5 L2/R2; wide enough to
+    # cover the panel buttons (11/12) without every caller specifying them.
+    msg.axes = axes if axes is not None else [0.0, 0.0, 0.0, 0.0, 1.0, 1.0]
+    msg.buttons = buttons if buttons is not None else [0] * 13
+    return msg
+
+
 def publish_ticks(controller, n=5, dt=0.05):
     """Call _publish_gripper() n times with a fixed, simulated tick interval.
 
@@ -59,6 +80,19 @@ def publish_ticks(controller, n=5, dt=0.05):
         if controller._last_gripper_tick_time is not None:
             controller._last_gripper_tick_time = time.monotonic() - dt
         controller._publish_gripper()
+
+
+class _FakeFuture:
+    """Stand-in for an rclpy Future that resolves synchronously."""
+
+    def __init__(self, result):
+        self._result = result
+
+    def result(self):
+        return self._result
+
+    def add_done_callback(self, cb):
+        cb(self)
 
 
 # ── gripper sync (restart while partially/fully open) ──────────────────────
@@ -206,3 +240,279 @@ def test_keyboard_safe_pose_clears_gripper_state(controller, monkeypatch):
 
     assert loop._gripper_pressed == set()
     assert controller.gripper_vel == 0.0
+
+
+# ── panel visibility / remembered-position state ────────────────────────
+
+def test_is_panel_visible_false_initially(controller):
+    assert controller.is_panel_visible() is False
+
+
+def test_is_panel_visible_true_after_pose(controller):
+    controller._on_panel_pose(PoseStamped())
+    assert controller.is_panel_visible() is True
+
+
+def test_is_panel_visible_false_once_stale(controller):
+    controller._on_panel_pose(PoseStamped())
+    controller._last_panel_visible_time = (
+        controller.get_clock().now()
+        - Duration(seconds=controller._panel_visible_max_age_sec + 1.0)
+    )
+    assert controller.is_panel_visible() is False
+
+
+def test_has_remembered_panel_position_reflects_state(controller):
+    assert controller.has_remembered_panel_position is False
+    controller._panel_target_positions = [0.0] * len(HOME_POSE_JOINTS)
+    assert controller.has_remembered_panel_position is True
+
+
+# ── align_to_panel(): the three cases ────────────────────────────────────
+
+def test_align_fails_without_calling_service_when_nothing_known(controller, monkeypatch):
+    service_checked = []
+    monkeypatch.setattr(
+        controller._panel_align_client, 'wait_for_service',
+        lambda timeout_sec=0: service_checked.append(True) or True,
+    )
+    assert controller.align_to_panel() is False
+    assert service_checked == []  # no memory, not visible: never even asked
+
+
+def test_align_replays_remembered_position_without_calling_service(controller, monkeypatch):
+    controller._panel_target_positions = [0.1] * len(HOME_POSE_JOINTS)
+    service_checked = []
+    monkeypatch.setattr(
+        controller._panel_align_client, 'wait_for_service',
+        lambda timeout_sec=0: service_checked.append(True) or True,
+    )
+    monkeypatch.setattr(controller, 'stop_servo', lambda: True)
+    monkeypatch.setattr(controller, 'use_trajectory_controller', lambda: True)
+    moved = []
+    monkeypatch.setattr(
+        controller, '_move_to_joint_positions',
+        lambda positions, label: moved.append((positions, label)) or True,
+    )
+
+    assert controller.align_to_panel() is True
+    assert service_checked == []
+    assert moved == [([0.1] * len(HOME_POSE_JOINTS), 'remembered panel position')]
+
+
+def test_align_replays_remembered_position_even_when_panel_not_visible(controller, monkeypatch):
+    controller._panel_target_positions = [0.2] * len(HOME_POSE_JOINTS)
+    monkeypatch.setattr(controller, 'stop_servo', lambda: True)
+    monkeypatch.setattr(controller, 'use_trajectory_controller', lambda: True)
+    monkeypatch.setattr(controller, '_move_to_joint_positions', lambda p, l: True)
+
+    assert controller.is_panel_visible() is False
+    assert controller.align_to_panel() is True
+
+
+def test_align_calls_service_and_learns_position_on_first_success(controller, monkeypatch):
+    controller._on_panel_pose(PoseStamped())
+    controller._on_joint_state(make_arm_joint_state([0.3] * len(HOME_POSE_JOINTS)))
+
+    monkeypatch.setattr(controller._panel_align_client, 'wait_for_service', lambda timeout_sec=0: True)
+
+    class _Result:
+        success = True
+        message = 'aligned'
+
+    monkeypatch.setattr(
+        controller._panel_align_client, 'call_async', lambda req: _FakeFuture(_Result())
+    )
+
+    assert controller.align_to_panel() is True
+    assert controller._panel_target_positions == [0.3] * len(HOME_POSE_JOINTS)
+
+
+def test_align_does_not_learn_position_on_service_failure(controller, monkeypatch):
+    controller._on_panel_pose(PoseStamped())
+    controller._on_joint_state(make_arm_joint_state([0.3] * len(HOME_POSE_JOINTS)))
+
+    monkeypatch.setattr(controller._panel_align_client, 'wait_for_service', lambda timeout_sec=0: True)
+
+    class _Result:
+        success = False
+        message = 'planning failed'
+
+    monkeypatch.setattr(
+        controller._panel_align_client, 'call_async', lambda req: _FakeFuture(_Result())
+    )
+
+    assert controller.align_to_panel() is False
+    assert controller._panel_target_positions is None
+
+
+# ── save_panel_position() ────────────────────────────────────────────────
+
+def test_save_panel_position_fails_when_not_visible(controller):
+    assert controller.save_panel_position() is False
+    assert controller._panel_target_positions is None
+
+
+def test_save_panel_position_succeeds_when_visible(controller):
+    controller._on_panel_pose(PoseStamped())
+    controller._on_joint_state(make_arm_joint_state([1.0] * len(HOME_POSE_JOINTS)))
+    assert controller.save_panel_position() is True
+    assert controller._panel_target_positions == [1.0] * len(HOME_POSE_JOINTS)
+
+
+def test_save_panel_position_overwrites_previous(controller):
+    controller._on_panel_pose(PoseStamped())
+    controller._on_joint_state(make_arm_joint_state([1.0] * len(HOME_POSE_JOINTS)))
+    controller.save_panel_position()
+    controller._on_joint_state(make_arm_joint_state([2.0] * len(HOME_POSE_JOINTS)))
+    controller.save_panel_position()
+    assert controller._panel_target_positions == [2.0] * len(HOME_POSE_JOINTS)
+
+
+# ── keyboard: panel prompt / align / save handlers ──────────────────────
+
+def test_keyboard_check_panel_visibility_prompts_on_rising_edge(controller, monkeypatch):
+    loop = KeyboardInputLoop(controller)
+    monkeypatch.setattr(controller, 'is_panel_visible', lambda: True)
+    monkeypatch.setattr(controller, 'stop', lambda: None)
+    loop._check_panel_visibility()
+    assert loop._panel_prompt_pending is True
+    assert loop._panel_was_visible is True
+
+
+def test_keyboard_check_panel_visibility_no_prompt_when_silenced(controller, monkeypatch):
+    loop = KeyboardInputLoop(controller)
+    monkeypatch.setattr(controller, 'is_panel_visible', lambda: True)
+    monkeypatch.setattr(controller, 'stop', lambda: None)
+    loop._panel_notifications_silenced = True
+    loop._check_panel_visibility()
+    assert loop._panel_prompt_pending is False
+
+
+def test_keyboard_handle_panel_align_resumes_servo_regardless_of_outcome(controller, monkeypatch):
+    loop = KeyboardInputLoop(controller)
+    monkeypatch.setattr(controller, 'align_to_panel', lambda: False)
+    started = []
+    monkeypatch.setattr(controller, 'start_servo', lambda: started.append(True))
+    loop._handle_panel_align()
+    assert started == [True]
+
+
+def test_keyboard_handle_panel_save_reports_success(controller, monkeypatch, capsys):
+    loop = KeyboardInputLoop(controller)
+    monkeypatch.setattr(controller, 'save_panel_position', lambda: True)
+    loop._handle_panel_save()
+    assert 'saved' in capsys.readouterr().out.lower()
+
+
+def test_keyboard_handle_panel_save_reports_failure(controller, monkeypatch, capsys):
+    loop = KeyboardInputLoop(controller)
+    monkeypatch.setattr(controller, 'save_panel_position', lambda: False)
+    loop._handle_panel_save()
+    assert 'could not save' in capsys.readouterr().out.lower()
+
+
+# ── safe-pose gating (keyboard) ─────────────────────────────────────────
+
+def test_keyboard_starts_locked_out(controller):
+    loop = KeyboardInputLoop(controller)
+    assert loop._servo_started is False
+
+
+def test_keyboard_safe_pose_starts_servo_only_on_success(controller, monkeypatch):
+    loop = KeyboardInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda: True)
+    started = []
+    monkeypatch.setattr(controller, 'start_servo', lambda: started.append(True) or True)
+    loop._handle_safe_pose()
+    assert loop._servo_started is True
+    assert started == [True]
+
+
+def test_keyboard_safe_pose_does_not_start_servo_on_failure(controller, monkeypatch):
+    loop = KeyboardInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda: False)
+    started = []
+    monkeypatch.setattr(controller, 'start_servo', lambda: started.append(True))
+    loop._handle_safe_pose()
+    assert loop._servo_started is False
+    assert started == []
+
+
+# ── gamepad: panel align button ─────────────────────────────────────────
+
+def test_gamepad_panel_align_button_replays_remembered_position(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda: True)
+    monkeypatch.setattr(controller, 'start_servo', lambda: True)
+    loop._handle_safe_pose()  # unlocks teleop
+
+    controller._panel_target_positions = [0.0] * len(HOME_POSE_JOINTS)
+    aligned = []
+    monkeypatch.setattr(loop, '_handle_panel_align', lambda: aligned.append(True))
+
+    loop._on_joy(make_joy())  # establishes a button baseline
+    buttons = [0] * 13
+    buttons[loop.BUTTON_PANEL_ALIGN] = 1
+    loop._on_joy(make_joy(buttons=buttons))
+
+    assert aligned == [True]
+
+
+def test_gamepad_panel_dismiss_button_silences_prompt(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda: True)
+    monkeypatch.setattr(controller, 'start_servo', lambda: True)
+    loop._handle_safe_pose()  # unlocks teleop
+
+    loop._on_joy(make_joy())
+    buttons = [0] * 13
+    buttons[loop.BUTTON_PANEL_DISMISS] = 1
+    loop._on_joy(make_joy(buttons=buttons))
+
+    assert loop._panel_notifications_silenced is True
+
+
+# ── safe-pose gating + joy timeout (gamepad) ────────────────────────────
+
+def test_gamepad_starts_teleop_locked(controller):
+    loop = GamepadInputLoop(controller)
+    assert loop._teleop_locked is True
+
+
+def test_gamepad_stick_input_ignored_while_locked(controller):
+    loop = GamepadInputLoop(controller)
+    controller.vx = 999.0  # sentinel: only stop() would clear this
+    loop._on_joy(make_joy(axes=[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]))  # right stick forward
+    assert controller.vx == 0.0
+
+
+def test_gamepad_safe_pose_unlocks_teleop_on_success(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda: True)
+    monkeypatch.setattr(controller, 'start_servo', lambda: True)
+    loop._handle_safe_pose()
+    assert loop._teleop_locked is False
+
+
+def test_gamepad_safe_pose_stays_locked_on_failure(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda: False)
+    loop._handle_safe_pose()
+    assert loop._teleop_locked is True
+
+
+def test_gamepad_joy_timeout_stops_the_arm(controller):
+    loop = GamepadInputLoop(controller)
+    controller.vx = 999.0
+    loop._last_joy_time = controller.get_clock().now() - Duration(seconds=1.0)
+    loop._check_joy_timeout()
+    assert controller.vx == 0.0
+
+
+def test_gamepad_no_timeout_when_joy_recently_seen(controller):
+    loop = GamepadInputLoop(controller)
+    controller.vx = 999.0
+    loop._last_joy_time = controller.get_clock().now()
+    loop._check_joy_timeout()
+    assert controller.vx == 999.0  # untouched: no timeout yet
