@@ -408,12 +408,16 @@ def resolve_selected_ids(args: argparse.Namespace) -> tuple[list[int], list[int]
 
 class ChassisTUI(App):
     CSS = """
+    Screen {
+        background: #121214;
+    }
     #status_row {
         height: 5;
     }
     #can_status {
         width: 2fr;
         height: 100%;
+        background: #1c1c1e;
         border: round green;
         padding: 0 1;
         content-align: left middle;
@@ -421,6 +425,7 @@ class ChassisTUI(App):
     #motors_status {
         width: 1fr;
         height: 100%;
+        background: #1c1c1e;
         border: round yellow;
         padding: 0 1;
         content-align: left middle;
@@ -428,16 +433,18 @@ class ChassisTUI(App):
     #motion_status {
         width: 1fr;
         height: 100%;
+        background: #1c1c1e;
         border: round cyan;
         padding: 0 1;
         content-align: left middle;
     }
     #log {
+        background: #1c1c1e;
         border: round #4a4a4a;
         scrollbar-size-vertical: 1;
-        scrollbar-background: transparent;
-        scrollbar-background-hover: transparent;
-        scrollbar-background-active: transparent;
+        scrollbar-background: #1c1c1e;
+        scrollbar-background-hover: #1c1c1e;
+        scrollbar-background-active: #1c1c1e;
         scrollbar-color: #4a4a4a;
         scrollbar-color-hover: #888888;
         scrollbar-color-active: #aaaaaa;
