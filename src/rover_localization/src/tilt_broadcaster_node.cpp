@@ -29,7 +29,7 @@ public:
     declare_parameter("child_frame", std::string("base_link"));
     // Height of base_link above base_footprint/ground -- must match
     // base_link_ground_height in rover_description/urdf/properties.xacro.
-    declare_parameter("ground_height");
+    declare_parameter("ground_height", 0.0);
     declare_parameter("tf_tolerance", 0.1);
 
     parent_frame_ = get_parameter("parent_frame").as_string();
