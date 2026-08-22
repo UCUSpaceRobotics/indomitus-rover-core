@@ -1,5 +1,5 @@
 # Flat textured quad for ArUco marker decal
-mtllib panel_marker_top_left.mtl
+mtllib marker_13.mtl
 usemtl marker
 
 v -0.02 -0.0011 -0.02
