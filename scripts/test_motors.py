@@ -2,10 +2,7 @@
 """
 chassis_driver test — standalone TUI, NO ROS2 required.
 
-Talks directly to the CAN bus via python-can / SocketCAN. Uses Textual for
-a proper terminal UI: a fixed status panel at the top (live speed/angle/
-active state) and a scrolling event log below it showing every keypress
-and action as it happens.
+Talks directly to the CAN bus via python-can / SocketCAN.
 
 Install dependencies:
     pip install python-can textual
@@ -26,9 +23,12 @@ Controls (vim-style) — also shown in the footer:
     l   Increase steer angle
     h   Decrease steer angle
     s   Stop drive (speed target -> 0, ramps down)
-    f   Print latest decoded feedback
+    f   Print latest decoded feedback + per-motor diagnostics
     r   Measure actual command send rate
     q   Quit
+
+Motor health panel (middle) — green if the motor is sending diagnostics,
+red if it is not (damiao: MIT feedback frame, steadywin: 0xAE response).
 """
 import argparse
 import math
@@ -69,6 +69,7 @@ SPEED_STEP = 0.1          # rad/s added/removed per 'k'/'j' keypress
 ANGLE_STEP_DEG = 5.0      # degrees added/removed per 'l'/'h' keypress
 
 STALE_THRESHOLD_S = 1.0   # motor ID shown red if no feedback received within this long
+DIAG_POLL_HZ = 2.0        # 0xAE status query rate per steadywin motor — see DiagnosticsPoller
 
 # ── Frame builders ────────────────────────────────────────────────────────
 
@@ -87,6 +88,11 @@ def sw_abs_position(esc_id: int, angle_rad: float) -> can.Message:
 def sw_disable(esc_id: int) -> can.Message:
     return can.Message(arbitration_id=esc_id, data=bytes([0xCF]), is_extended_id=False)
 
+def sw_status_query(esc_id: int) -> can.Message:
+    """0xAE — ask for bus voltage / current / temperature / mode / fault code.
+    The motor answers at its own ID with a DLC 8 frame (protocol V3.06b0 p.5)."""
+    return can.Message(arbitration_id=esc_id, data=bytes([0xAE]), is_extended_id=False)
+
 def dm_set_mode(esc_id: int, mode: int) -> can.Message:
     data = bytes([esc_id & 0xFF, (esc_id >> 8) & 0xFF, 0x55, 0x0A, mode, 0, 0, 0])
     return can.Message(arbitration_id=0x7FF, data=data, is_extended_id=False)
@@ -103,8 +109,22 @@ def dm_velocity(esc_id: int, vel_rad_s: float) -> can.Message:
                         is_extended_id=False)
 
 # ── Feedback decode ─────────────────────────────────────────────────────────
+#
+# The two vendors speak different protocols, so they get different decoders and
+# frames are routed by sender CAN ID (see CanBus._listen) rather than sniffed
+# from the payload:
+#
+#   Damiao    — one fixed MIT feedback frame, always DLC 8 (manual p.8).
+#   Steadywin — command-code-keyed responses of varying DLC (protocol V3.06b0):
+#               0xAE/0xCF -> DLC 8 diagnostics, 0xA3/0xC2/0xC3/0xC4 -> DLC 7
+#               position, 0xAF -> DLC 2 fault ack.
+#
+# Running a steadywin frame through the damiao layout yields plausible-looking
+# nonsense — a 0xAE encoder-fault report decodes as "OVERCURRENT" — so each
+# decoder validates the payload it is handed and returns None otherwise.
 
-def decode_feedback(msg: can.Message) -> dict | None:
+def decode_damiao_feedback(msg: can.Message) -> dict | None:
+    """Damiao MIT feedback frame (manual p.8). Always DLC 8."""
     d = msg.data
     if len(d) != 8:
         return None
@@ -125,13 +145,85 @@ ERR_NAMES = {
     0xD: "COMM_LOST", 0xE: "OVERLOAD",
 }
 
+SW_MODES = {0: "OFF", 1: "VOLTAGE", 2: "IQ_CURRENT", 3: "SPEED", 4: "POSITION"}
+
+# Fault bitmask, 0xAE byte[7] (protocol V3.06b0 p.5)
+SW_FAULT_BITS = [
+    (0x01, "VOLTAGE"), (0x02, "CURRENT"), (0x04, "TEMPERATURE"),
+    (0x08, "ENCODER"), (0x40, "HARDWARE"), (0x80, "SOFTWARE"),
+]
+SW_FAULT_RESERVED = 0x30   # bits 4-5 undocumented — if set, the value means something we don't know
+
+def sw_fault_names(code: int) -> str:
+    if code == 0:
+        return "OK"
+    names = [name for bit, name in SW_FAULT_BITS if code & bit]
+    if code & SW_FAULT_RESERVED:
+        names.append(f"RESERVED(0x{code & SW_FAULT_RESERVED:02X})")
+    return "+".join(names)
+
+def decode_steadywin(msg: can.Message) -> dict | None:
+    """Steadywin response frame (protocol V3.06b0). Dispatches on the command
+    code in D[0] and returns a partial state dict for the caller to merge —
+    position and diagnostics arrive in separate frames."""
+    d = msg.data
+    if not d:
+        return None
+    cmd = d[0]
+
+    # 0xAE status report (p.5); the 0xCF disable response carries the same
+    # payload (p.11). A motor with a latched fault also emits 0xAE unprompted
+    # every 200 ms — which is the only time diagnostics arrive without a poll.
+    if cmd in (0xAE, 0xCF) and len(d) >= 8:
+        return {
+            "kind": "diag",
+            "voltage": ((d[2] << 8) | d[1]) * 0.01,   # 2u, 0.01 V
+            "current": ((d[4] << 8) | d[3]) * 0.01,   # 2u, 0.01 A
+            "temp_c": d[5],
+            "mode": d[6],
+            "fault": d[7],
+        }
+
+    # 0xA3 angle query and the 0xC2/0xC3/0xC4 motion responses share one
+    # payload: single-turn uint16 + multi-turn int32, 16384 counts/rev (p.5).
+    # This is the frame the old length check threw away — it is DLC 7, and it
+    # is the only thing a steer motor sends back during normal driving.
+    if cmd in (0xA3, 0xC2, 0xC3, 0xC4) and len(d) >= 7:
+        multi_counts = struct.unpack('<i', bytes(d[3:7]))[0]
+        return {
+            "kind": "pos",
+            "angle_rad": multi_counts * (2 * math.pi) / 16384,
+            "single_counts": (d[2] << 8) | d[1],
+        }
+
+    # 0xAF clear-fault ack — fault bitmask only, no other telemetry (p.6)
+    if cmd == 0xAF and len(d) >= 2:
+        return {"kind": "fault_ack", "fault": d[1]}
+
+    return None
+
 # ── Bus wrapper with background listener ─────────────────────────────────────
 
 class CanBus:
-    def __init__(self, channel: str, bitrate: int):
+    """Receives in the background and hands each frame to the decoder for the
+    vendor that owns that CAN ID — steer IDs to the steadywin decoder,
+    everything else to the damiao one.
+
+    Tracks two clocks per motor: last decoded frame of any kind, and last frame
+    that actually carried diagnostics. For damiao they are the same clock (the
+    MIT feedback frame is the diagnostic channel). For steadywin they are not:
+    a motor answering position commands while ignoring the 0xAE query is alive
+    but mute, and the panel must not show that as healthy."""
+
+    def __init__(self, channel: str, bitrate: int,
+                 drive_ids: list[int], steer_ids: list[int]):
         self.bus = can.interface.Bus(channel=channel, interface="socketcan", bitrate=bitrate)
-        self.latest_feedback: dict[int, dict] = {}
-        self.last_seen: dict[int, float] = {}   # can_id -> time.monotonic() of last feedback
+        self.steer_ids = set(steer_ids)
+        self.damiao_feedback: dict[int, dict] = {}
+        self.steadywin_state: dict[int, dict] = {}  # merged across response types
+        self.last_seen: dict[int, float] = {}       # can_id -> monotonic, any decoded frame
+        self.last_diag: dict[int, float] = {}       # can_id -> monotonic, diagnostics only
+        self.undecoded: dict[int, int] = {}         # can_id -> frames we could not decode
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._listen, daemon=True)
@@ -142,29 +234,112 @@ class CanBus:
             msg = self.bus.recv(timeout=0.2)
             if msg is None:
                 continue
-            fb = decode_feedback(msg)
-            if fb:
-                with self._lock:
-                    self.latest_feedback[msg.arbitration_id] = fb
-                    self.last_seen[msg.arbitration_id] = time.monotonic()
+            if msg.arbitration_id in self.steer_ids:
+                self._on_steadywin(msg)
+            else:
+                self._on_damiao(msg)
+
+    def _on_steadywin(self, msg: can.Message):
+        can_id = msg.arbitration_id
+        part = decode_steadywin(msg)
+        if part is None:
+            with self._lock:
+                self.undecoded[can_id] = self.undecoded.get(can_id, 0) + 1
+            return
+        kind = part.pop("kind")
+        now = time.monotonic()
+        with self._lock:
+            state = self.steadywin_state.setdefault(can_id, {})
+            state.update(part)
+            self.last_seen[can_id] = now
+            if kind == "diag":
+                state["diag_ts"] = now
+                self.last_diag[can_id] = now
+            elif kind == "pos":
+                state["pos_ts"] = now
+
+    def _on_damiao(self, msg: can.Message):
+        fb = decode_damiao_feedback(msg)
+        if not fb:
+            return
+        now = time.monotonic()
+        with self._lock:
+            self.damiao_feedback[msg.arbitration_id] = fb
+            self.last_seen[msg.arbitration_id] = now
+            # The MIT feedback frame carries the ERR nibble and both
+            # temperatures in every frame — receiving it *is* the diagnostic.
+            self.last_diag[msg.arbitration_id] = now
 
     def send(self, msg: can.Message):
         self.bus.send(msg)
 
-    def snapshot(self) -> dict[int, dict]:
+    def snapshot_damiao(self) -> dict[int, dict]:
         with self._lock:
-            return dict(self.latest_feedback)
+            return dict(self.damiao_feedback)
+
+    def snapshot_steadywin(self) -> dict[int, dict]:
+        with self._lock:
+            return {k: dict(v) for k, v in self.steadywin_state.items()}
 
     def snapshot_ages(self) -> dict[int, float]:
-        """seconds since feedback was last received, per can_id — empty if never seen"""
+        """seconds since any frame was decoded, per can_id — empty if never seen"""
         now = time.monotonic()
         with self._lock:
             return {can_id: now - ts for can_id, ts in self.last_seen.items()}
+
+    def snapshot_diag_ages(self) -> dict[int, float]:
+        """seconds since diagnostics last arrived, per can_id — empty if never"""
+        now = time.monotonic()
+        with self._lock:
+            return {can_id: now - ts for can_id, ts in self.last_diag.items()}
+
+    def snapshot_undecoded(self) -> dict[int, int]:
+        with self._lock:
+            return dict(self.undecoded)
 
     def shutdown(self):
         self._stop.set()
         self._thread.join(timeout=1.0)
         self.bus.shutdown()
+
+# ── Steadywin diagnostics poller ────────────────────────────────────────────
+
+class DiagnosticsPoller:
+    """Periodically asks each steadywin motor for its status (0xAE).
+
+    Steadywin motors only volunteer diagnostics when a fault is already latched
+    — every 200 ms, protocol V3.06b0 p.5. Without an explicit poll the
+    voltage/current/temperature/mode/fault fields never arrive at all, so a
+    healthy motor and an absent one look identical. Damiao needs no equivalent:
+    its MIT feedback frame carries that data unprompted.
+
+    Runs whether or not the motors are enabled — knowing a motor answers before
+    you command it is the point."""
+
+    def __init__(self, bus: CanBus, steer_ids: list[int], rate_hz: float = DIAG_POLL_HZ):
+        self.bus = bus
+        self.steer_ids = steer_ids
+        self.rate_hz = rate_hz
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        period = 1.0 / self.rate_hz
+        while not self._stop.is_set():
+            for esc_id in self.steer_ids:
+                if self._stop.is_set():
+                    return
+                try:
+                    self.bus.send(sw_status_query(esc_id))
+                except can.CanError:
+                    pass   # bus trouble shows up in the CAN link panel; keep polling
+                self._stop.wait(0.005)   # space the queries out on the bus
+            self._stop.wait(period)
+
+    def shutdown(self):
+        self._stop.set()
+        self._thread.join(timeout=1.0)
 
 # ── CAN link stats (from `ip -details -statistics link show <iface>`) ───────
 # Read-only, no sudo needed. Gives us bitrate, bus-error state, and rx/tx
@@ -471,6 +646,7 @@ class ChassisTUI(App):
         self.bus: CanBus | None = None
         self.motion: MotionController | None = None
         self.link_monitor: CanLinkMonitor | None = None
+        self.diag_poller: DiagnosticsPoller | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -492,9 +668,15 @@ class ChassisTUI(App):
 
         log.write(f"Opening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
         try:
-            self.bus = CanBus(CAN_CHANNEL, CAN_BITRATE)
+            self.bus = CanBus(CAN_CHANNEL, CAN_BITRATE, self.drive_ids, self.steer_ids)
             self.motion = MotionController(self.bus, self.drive_ids, self.steer_ids)
-            log.write("[green]Ready.[/green]")
+            if self.steer_ids:
+                # Steadywin sends nothing diagnostic unless asked — see DiagnosticsPoller
+                self.diag_poller = DiagnosticsPoller(self.bus, self.steer_ids)
+                log.write(f"[green]Ready.[/green] polling steadywin 0xAE "
+                          f"at {DIAG_POLL_HZ:.0f} Hz")
+            else:
+                log.write("[green]Ready.[/green]")
         except Exception as e:
             log.write(f"[bold red]Failed to open CAN bus: {e}[/bold red]")
 
@@ -530,18 +712,26 @@ class ChassisTUI(App):
             )
         self.query_one("#can_status", Static).update("\n".join(can_lines))
 
-        # ── middle panel: per-motor health (green = fresh feedback, red = stale/none) ──
-        ages = self.bus.snapshot_ages() if self.bus else {}
+        # ── middle panel: per-motor health ──
+        # green = diagnostics arriving, red = not. For damiao that is the MIT
+        # feedback frame, for steadywin the 0xAE response to our poll.
+        diag_ages = self.bus.snapshot_diag_ages() if self.bus else {}
+
+        def has_diag(esc_id: int) -> bool:
+            age = diag_ages.get(esc_id)
+            return age is not None and age < STALE_THRESHOLD_S
 
         def fmt_id(esc_id: int) -> str:
-            age = ages.get(esc_id)
-            ok = age is not None and age < STALE_THRESHOLD_S
-            color = "green" if ok else "red"
+            color = "green" if has_diag(esc_id) else "red"
             return f"[{color}]{esc_id}[/{color}]"
 
         drive_line = "D: " + (" ".join(fmt_id(i) for i in self.drive_ids) if self.drive_ids else "(none)")
         steer_line = "S: " + (" ".join(fmt_id(i) for i in self.steer_ids) if self.steer_ids else "(none)")
-        self.query_one("#motors_status", Static).update(f"{drive_line}\n{steer_line}")
+        selected = self.drive_ids + self.steer_ids
+        n_diag = sum(1 for i in selected if has_diag(i))
+        summary = f"diag {n_diag}/{len(selected)}" if selected else ""
+        self.query_one("#motors_status", Static).update(
+            f"{drive_line}\n{steer_line}\n{summary}")
 
         # ── right panel: current speed / angle ──
         if self.motion:
@@ -621,18 +811,55 @@ class ChassisTUI(App):
     def action_feedback(self) -> None:
         if not self.bus:
             return
-        snap = self.bus.snapshot()
-        if not snap:
-            self.log_write("f: (no feedback frames received yet)")
-            return
-        self.log_write(f"f: feedback [{len(snap)} motor(s)]")
-        for can_id, fb in sorted(snap.items()):
+        dm = self.bus.snapshot_damiao()
+        sw = self.bus.snapshot_steadywin()
+        ages = self.bus.snapshot_ages()
+
+        def age_s(esc_id: int) -> str:
+            age = ages.get(esc_id)
+            return f"{age:.1f}s ago" if age is not None else "never"
+
+        self.log_write("f: feedback")
+
+        if self.drive_ids:
+            self.log_write("  [bold]damiao[/bold] — MIT feedback frame")
+        for esc_id in self.drive_ids:
+            fb = dm.get(esc_id)
+            if fb is None:
+                self.log_write(f"   [red]{esc_id:3d} silent — no feedback frame received[/red]")
+                continue
             err_name = ERR_NAMES.get(fb["err"], f"0x{fb['err']:X}")
             self.log_write(
-                f"   0x{can_id:03X} ctrl={fb['ctrl_id']:2d} status={err_name:12s} "
-                f"pos={fb['pos_raw']:5d} vel={fb['vel_raw']:4d} torque={fb['torque_raw']:4d} "
-                f"T_mos={fb['t_mos_c']}C T_rotor={fb['t_rotor_c']}C"
+                f"   {esc_id:3d} status={err_name:12s} pos={fb['pos_raw']:5d} "
+                f"vel={fb['vel_raw']:4d} torque={fb['torque_raw']:4d} "
+                f"T_mos={fb['t_mos_c']}C T_rotor={fb['t_rotor_c']}C  ({age_s(esc_id)})"
             )
+
+        if self.steer_ids:
+            self.log_write("  [bold]steadywin[/bold] — 0xAE status response")
+        for esc_id in self.steer_ids:
+            state = sw.get(esc_id)
+            if state is None:
+                self.log_write(f"   [red]{esc_id:3d} silent — no response to any command[/red]")
+                continue
+            pos = (f"pos={math.degrees(state['angle_rad']):+8.1f}deg"
+                   if "angle_rad" in state else "pos=      --")
+            if "diag_ts" in state:
+                mode = SW_MODES.get(state["mode"], f"0x{state['mode']:02X}")
+                fault = sw_fault_names(state["fault"])
+                healthy = state["fault"] == 0 and state["mode"] != 0
+                color = "green" if healthy else "yellow"
+                diag = (f"[{color}]{state['voltage']:5.2f}V {state['current']:5.2f}A "
+                        f"{state['temp_c']:3d}C mode={mode} fault={fault}[/{color}]")
+            else:
+                diag = "[red]no diagnostics — replying, but not to the 0xAE query[/red]"
+            self.log_write(f"   {esc_id:3d} {pos}  {diag}  ({age_s(esc_id)})")
+
+        selected = set(self.drive_ids) | set(self.steer_ids)
+        noise = {c: n for c, n in self.bus.snapshot_undecoded().items() if c in selected}
+        if noise:
+            self.log_write("   [yellow]undecodable frames:[/yellow] " +
+                           ", ".join(f"{c}x{n}" for c, n in sorted(noise.items())))
 
     def action_measure_rate(self) -> None:
         if not self.motion:
@@ -652,6 +879,8 @@ class ChassisTUI(App):
         self.exit()
 
     def _cleanup_hardware(self) -> None:
+        if self.diag_poller:
+            self.diag_poller.shutdown()
         if self.motion:
             self.motion.set_speed_target(0.0)
             self.motion.wait_until_settled(timeout=3.0)
