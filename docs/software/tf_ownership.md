@@ -9,7 +9,7 @@ map
  └── odom
       └── base_footprint  (flat: z=0, roll=pitch=0)
            └── base_link  (real, tilted 6-DOF pose)
-                ├── base_link_ground_ref  (z=0, tilts with base_link)
+                ├── base_link_ground_ref  (offset from base_link; rotates with base_link)
                 ├── suspension_base_axii_link
                 │    └── main_body_link
                 │         ├── zed2i_camera_link
