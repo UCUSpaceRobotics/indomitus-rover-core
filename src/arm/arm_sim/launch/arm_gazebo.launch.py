@@ -1,4 +1,5 @@
 import os
+import random
 
 import numpy as np
 import yaml
@@ -100,15 +101,48 @@ def generate_launch_description() -> LaunchDescription:
     _panel_yaw_f = float(PANEL_YAW)
     PANEL_QZ, PANEL_QW = str(np.sin(_panel_yaw_f / 2)), str(np.cos(_panel_yaw_f / 2))
 
+    # Randomized fresh on every launch (not just once and cached) — per
+    # competition rules, any 3 of ArUco IDs {11,13,14,15} may be used, in
+    # any of the panel's 3 physical mount positions, so this exercises
+    # panel_geometry.py's generalized (ID-agnostic) orientation fit
+    # against a genuinely different layout each run instead of always
+    # the same one. random.sample already returns non-repeating picks;
+    # the assignment to the 3 named roles below is itself the "any
+    # position" half of the randomization.
+    ALLOWED_MARKER_IDS = [11, 13, 14, 15]
+    marker_id_top_left, marker_id_top_right, marker_id_bottom_left = random.sample(
+        ALLOWED_MARKER_IDS, 3)
+
     panel_description_content = ParameterValue(
         Command([
             "xacro ", panel_xacro_file,
             " sim:=true",
             " panel_x:=", PANEL_X, " panel_y:=", PANEL_Y,
             " panel_z:=", PANEL_Z, " panel_yaw:=", PANEL_YAW,
+            " marker_id_top_left:=", str(marker_id_top_left),
+            " marker_id_top_right:=", str(marker_id_top_right),
+            " marker_id_bottom_left:=", str(marker_id_bottom_left),
         ]),
         value_type=str,
     )
+
+    # panel_pose_fuser_node is launched separately (its own terminal, per
+    # this repo's usual sim workflow) and has no direct way to see the
+    # random choice made above. Rather than rely on the operator copying
+    # parameters by hand from console output, write it to a well-known
+    # file that panel_pose_fuser_node itself checks at startup (see that
+    # file's own matching PANEL_MARKER_LAYOUT_SIM_FILE constant) — so
+    # `ros2 run panel_perception panel_pose_fuser_node` with NO extra
+    # args just works in sim. /tmp is fine here: both processes run in
+    # the same container, and this is sim-only convenience state, not
+    # anything that needs to survive a container restart.
+    PANEL_MARKER_LAYOUT_SIM_FILE = "/tmp/panel_marker_layout.yaml"
+    with open(PANEL_MARKER_LAYOUT_SIM_FILE, "w") as f:
+        yaml.safe_dump({
+            "top_left": marker_id_top_left,
+            "top_right": marker_id_top_right,
+            "bottom_left": marker_id_bottom_left,
+        }, f)
 
     panel_state_publisher = Node(
         package="robot_state_publisher",
