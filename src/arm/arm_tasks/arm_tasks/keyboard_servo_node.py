@@ -726,7 +726,7 @@ class ServoController(Node):
         """Call the Servo ``stop_servo`` service and wait for confirmation.
 
         Waits up to 2 seconds for the service to become available and up to
-        3 seconds for the asynchronous call to complete. After Servo stops,
+        10 seconds for the asynchronous call to complete. After Servo stops,
         re-activates the trajectory controller so home / Execute can run.
 
         Returns:
@@ -746,7 +746,11 @@ class ServoController(Node):
         future = self._stop_client.call_async(Trigger.Request())
         future.add_done_callback(_cb)
 
-        if not done_event.wait(timeout=3.0):
+        # 10s, not 3s: measured live on real hardware at ~2.5s (vs.
+        # near-instant in sim) — real CAN/controller round-trips are
+        # slower than sim's instant state updates. See start_servo()'s
+        # own comment for the matching (much larger) start-side gap.
+        if not done_event.wait(timeout=10.0):
             self.get_logger().warn('Servo stop timed out')
             return False
 
@@ -1034,7 +1038,7 @@ class ServoController(Node):
         """Switch to streaming controller, then start MoveIt Servo.
 
         Waits up to 2 seconds for the service to become available and up to
-        3 seconds for the call to complete. Falls back to the trajectory
+        20 seconds for the call to complete. Falls back to the trajectory
         controller on any failure, so the joints are never left claimed by
         the streaming controller with Servo not actually running.
 
@@ -1068,7 +1072,13 @@ class ServoController(Node):
         future = self._start_client.call_async(Trigger.Request())
         future.add_done_callback(_cb)
 
-        if not done_event.wait(timeout=3.0):
+        # 20s, not 3s: measured live on real hardware at a consistent
+        # ~12s per call (both first and repeat calls) — moveit_servo's
+        # start_servo handler is simply much slower against the real CAN
+        # round-trip than it ever was in sim, where 3s had margin to
+        # spare. Not a one-time warm-up cost, so no shortcut available
+        # other than waiting it out.
+        if not done_event.wait(timeout=20.0):
             self.get_logger().error('Servo start timed out')
             self.use_trajectory_controller()
             return False
