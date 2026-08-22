@@ -21,6 +21,12 @@ def generate_launch_description():
         description='Use mock_components/GenericSystem instead of the real CAN hardware interface'
     )
 
+    end_effector_arg = DeclareLaunchArgument(
+        'end_effector',
+        default_value='jaw',
+        description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"
+    )
+
     # Pure kinematic preview: sliders drive /joint_states directly, no ros2_control,
     # no CAN, no real/mock hardware loop at all. Mutually exclusive with actually
     # controlling anything — never run this together with the real arm.
@@ -33,7 +39,8 @@ def generate_launch_description():
     robot_description_content = ParameterValue(
         Command([
             'xacro ', xacro_file,
-            ' use_fake_hardware:=', LaunchConfiguration('use_fake_hardware')
+            ' use_fake_hardware:=', LaunchConfiguration('use_fake_hardware'),
+            ' end_effector:=', LaunchConfiguration('end_effector')
         ]),
         value_type=str
     )
@@ -41,6 +48,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         use_fake_hardware_arg,
+        end_effector_arg,
         gui_only_arg,
 
         Node(

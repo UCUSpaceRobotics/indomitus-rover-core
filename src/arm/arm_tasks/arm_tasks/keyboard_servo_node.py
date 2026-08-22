@@ -91,14 +91,24 @@ import evdev
 from evdev import ecodes
 
 
-DEFAULT_LINEAR_SPEED  = 0.2
-DEFAULT_ANGULAR_SPEED = 0.6
+DEFAULT_LINEAR_SPEED  = 0.6
+DEFAULT_ANGULAR_SPEED = 1.8
 DEFAULT_PUBLISH_RATE  = 100.0
 # Q/E (±Z) folds the shoulder/elbow; without ω the TCP pitch walks.
 # Hold attitude only — do not scale XYZ (that made teleop feel slow).
 HOLD_ANGULAR_GAIN = 6.0
 HOLD_ANGULAR_MAX = 0.8
 HOLD_CMD_EPS = 1e-4
+# Drill mode's _drill_level_hold target — the FIXED direction (in
+# linear_frame) arm_tcp_link's local Z (the tool's roll/reach axis — see
+# arm_tcp_joint in arm_macro.xacro, drill_sampling shares jaw's TCP
+# point/axis on purpose) must always point. Only 2 DOF (a direction), not
+# a full orientation: roll (spin about that axis) is deliberately
+# unconstrained, so there is no "heading" to fix, unlike a full target
+# quaternion would imply. -Z assumes linear_frame's own Z is world-up —
+# the same assumption arm_hardware_interface's gravity compensation
+# already makes.
+DRILL_DOWN_AXIS = (0.0, 0.0, -1.0)
 # Cartesian teleop publishes the twist in arm_mount_link (Servo command frame).
 # Stick XYZ are already in that frame. Stick roll/pitch/yaw are interpreted in
 # arm_tcp_link and rotated into mount before publish so orientation stays
@@ -344,6 +354,22 @@ class ServoController(Node):
         else:
             self._safe_pose = pose_from_param
             pose_source = 'safe_pose parameter'
+        # Drill mode's own A/R target — press A while drill mode is armed
+        # (BUTTON_DRILL_MODE) and this is used instead of self._safe_pose.
+        # No hardcoded fallback number here on purpose: until poses.json
+        # has a real "drill_home" entry, falling back to the jaw pose is
+        # the safe choice (a known-good pose) rather than guessing values
+        # for a tool this code has never actually driven.
+        self._drill_home_pose_name = 'drill_home'
+        drill_pose_from_json = _load_home_pose_from_json(self._drill_home_pose_name)
+        if drill_pose_from_json is not None:
+            self._drill_home_pose = drill_pose_from_json
+        else:
+            self._drill_home_pose = self._safe_pose
+            self.get_logger().warn(
+                'No "drill_home" entry in poses.json — drill mode\'s A/R '
+                'will use the jaw home pose until one is added.'
+            )
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._gamepad_shift_button = int(self.get_parameter('gamepad_shift_button').value)
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
@@ -364,6 +390,17 @@ class ServoController(Node):
         self.view_vy = 0.0
         self.view_vz = 0.0
         self._hold_quat = None
+        # Scales HOLD_ANGULAR_GAIN/HOLD_ANGULAR_MAX in _orientation_hold —
+        # set via set_velocity's hold_boost so a boosted push (stronger
+        # disturbance torque on the wrist) gets a proportionally stronger
+        # orientation-hold correction, not the same fixed correction fighting
+        # a 3x-stronger push.
+        self._hold_boost = 1.0
+        # Set via set_drill_mode() (GamepadInputLoop's BUTTON_DRILL_MODE
+        # toggle). Selects _drill_level_hold over _orientation_hold in
+        # _publish() — see _drill_level_hold's docstring for why these are
+        # separate mechanisms rather than one covering both cases.
+        self._drill_mode = False
         self._joint_positions = {}
 
         self.gripper_vel = 0.0
@@ -454,9 +491,20 @@ class ServoController(Node):
         """Return the Joy button index that shifts the right stick."""
         return self._gamepad_shift_button
 
+    @property
+    def drill_home_pose(self):
+        """Return the joint targets A/R drives to while drill mode is armed."""
+        return self._drill_home_pose
+
+    @property
+    def drill_home_pose_name(self) -> str:
+        """Return the poses.json key drill_home_pose came from (for logging)."""
+        return self._drill_home_pose_name
+
     def set_velocity(self, vx=0.0, vy=0.0, vz=0.0,
                      wx=0.0, wy=0.0, wz=0.0,
-                     view_vx=0.0, view_vy=0.0, view_vz=0.0):
+                     view_vx=0.0, view_vy=0.0, view_vz=0.0,
+                     hold_boost=1.0):
         """Set the current Cartesian velocity command.
 
         Args:
@@ -482,9 +530,16 @@ class ServoController(Node):
             into ``linear_frame`` and *added* to vx/vy/vz, so pressing keys
             from both sets at once simply sums the two motions.
 
-            The three trailing arguments are keyword-friendly on purpose:
-            ``gamepad_servo_node`` calls this with six positional values and
-            must keep working unchanged.
+            The three trailing arguments (plus hold_boost) are keyword-
+            friendly on purpose: ``gamepad_servo_node`` calls this with six
+            positional values and must keep working unchanged.
+
+            hold_boost: Multiplier applied to _orientation_hold's gain/cap
+                for this cycle. Pass the same multiplier used to scale the
+                push (e.g. a held push-boost button) so the wrist's
+                resistance to being bent by reaction torque grows with the
+                push strength instead of staying fixed while the push
+                triples.
         """
         self.vx = vx
         self.vy = vy
@@ -495,6 +550,7 @@ class ServoController(Node):
         self.view_vx = view_vx
         self.view_vy = view_vy
         self.view_vz = view_vz
+        self._hold_boost = hold_boost
 
     def set_gripper_velocity(self, vel: float):
         """Set the current gripper velocity command, in meters per second.
@@ -557,6 +613,17 @@ class ServoController(Node):
         """
         self.set_velocity()
         self.set_gripper_velocity(0.0)
+        self._hold_quat = None
+
+    def set_drill_mode(self, active: bool):
+        """Arm/disarm drill mode — see _drill_level_hold for what this changes.
+
+        Drops _hold_quat so _orientation_hold starts clean if drill mode
+        is later turned back off mid-translation. Drill mode's own target
+        (DRILL_DOWN_AXIS) is a fixed constant, not a captured reference,
+        so there is nothing to reset for it here.
+        """
+        self._drill_mode = active
         self._hold_quat = None
 
     def _controller_states(self) -> dict:
@@ -694,7 +761,7 @@ class ServoController(Node):
         # Prefer JTC when teleop is idle so Plan&Execute / home work.
         return self.use_trajectory_controller()
 
-    def move_to_safe_pose(self):
+    def move_to_safe_pose(self, positions=None, name=None):
         """Stop motion and drive the arm to the configured home pose.
 
         Halts current velocity commands, confirms Servo has stopped, then
@@ -707,6 +774,15 @@ class ServoController(Node):
         legitimately takes longer in wall time). This method runs on a
         dedicated thread, so waiting does not stall keyboard handling.
 
+        Args:
+            positions: Joint targets to use instead of ``self._safe_pose``
+                (same order as ``HOME_POSE_JOINTS``) — e.g. drill mode
+                passes ``self._drill_home_pose`` here so A/R lands
+                somewhere else than the jaw home pose. Defaults to
+                ``self._safe_pose`` when omitted.
+            name: Label for the log line only (defaults to
+                ``self._home_pose_name``); has no effect on motion.
+
         Returns:
             bool: True if the controller reported the goal SUCCEEDED with
             error code SUCCESSFUL; False if Servo could not be confirmed
@@ -714,6 +790,9 @@ class ServoController(Node):
             rejected, the trajectory was aborted/canceled or finished with
             a controller error, or no result arrived within the timeout.
         """
+        target_positions = list(self._safe_pose) if positions is None else list(positions)
+        target_name = self._home_pose_name if name is None else name
+
         self.stop()
 
         if not self.stop_servo():
@@ -735,7 +814,7 @@ class ServoController(Node):
         traj = JointTrajectory()
         traj.joint_names = HOME_POSE_JOINTS
         q0 = self._current_arm_positions()
-        q1 = list(self._safe_pose)
+        q1 = target_positions
         if q0 is None:
             self.get_logger().warn(
                 'No joint_states yet — home is a single waypoint'
@@ -757,8 +836,8 @@ class ServoController(Node):
         goal.trajectory = traj
 
         self.get_logger().info(
-            f'Moving to home ({self._home_pose_name}): '
-            f'{[round(v, 4) for v in self._safe_pose]}'
+            f'Moving to home ({target_name}): '
+            f'{[round(v, 4) for v in target_positions]}'
         )
 
         done_event = threading.Event()
@@ -999,9 +1078,78 @@ class ServoController(Node):
         q_err = _quat_multiply(_quat_conj(quat), self._hold_quat)
         rx, ry, rz = _quat_rotvec(q_err)
         hx, hy, hz = _rotate_vector_by_quat(quat, rx, ry, rz)
-        wx = max(-HOLD_ANGULAR_MAX, min(HOLD_ANGULAR_MAX, wx + HOLD_ANGULAR_GAIN * hx))
-        wy = max(-HOLD_ANGULAR_MAX, min(HOLD_ANGULAR_MAX, wy + HOLD_ANGULAR_GAIN * hy))
-        wz = max(-HOLD_ANGULAR_MAX, min(HOLD_ANGULAR_MAX, wz + HOLD_ANGULAR_GAIN * hz))
+        # Scaled by hold_boost (see set_velocity) so a boosted push doesn't
+        # out-muscle a fixed-strength hold — the wrist's resistance to being
+        # bent grows with the push instead of staying constant.
+        gain = HOLD_ANGULAR_GAIN * self._hold_boost
+        cap = HOLD_ANGULAR_MAX * self._hold_boost
+        wx = max(-cap, min(cap, wx + gain * hx))
+        wy = max(-cap, min(cap, wy + gain * hy))
+        wz = max(-cap, min(cap, wz + gain * hz))
+        return wx, wy, wz
+
+    def _drill_level_hold(self, wx, wy, wz):
+        """Keep the tool pointed straight down (pitch+yaw locked) while
+        drill mode is on — the target is the FIXED DRILL_DOWN_AXIS, not
+        wherever the arm happened to be when drill mode was armed.
+
+        Deliberately a separate mechanism from _orientation_hold, not a
+        variant of it, for two reasons:
+
+        1. _orientation_hold only engages during PURE translation (any
+           commanded rotation drops it) because for jaw teleop, rotating IS
+           the operator overriding the hold on purpose. Drill mode inverts
+           that: roll (wz) is a normal, expected, CONTINUOUS input — the
+           hold must stay engaged WHILE wz is nonzero, correcting only
+           pitch/yaw drift and leaving wz completely untouched. Reusing
+           _orientation_hold's "any wx/wy/wz drops the hold" gate would
+           mean the level hold dies the instant you touch roll.
+        2. Its target is one fixed constant, not a per-arm-cycle reference
+           captured from live TF — the "always straight down" requirement
+           means the target must never depend on pose history, unlike
+           _orientation_hold's per-translation-burst captured reference.
+
+        The correction is computed geometrically (current pointing axis ->
+        DRILL_DOWN_AXIS via the shortest rotation, axis = current x
+        target), NOT by taking a full orientation-error quaternion and
+        discarding its roll component like _orientation_hold does. That
+        quaternion-component-drop trick is only a valid "pitch/yaw-only"
+        correction for SMALL errors (a linear approximation) — it's fine
+        for _orientation_hold, which only ever corrects tiny per-cycle
+        drift, but drill mode's very first correction after arming from
+        an arbitrary pose can be up to 180 deg, where that approximation
+        breaks down and was observed spinning the tool erratically
+        instead of converging. The cross-product method below is exact at
+        any angle and, since DRILL_DOWN_AXIS is aligned with linear_frame
+        Z, mathematically has zero component along the roll axis by
+        construction — nothing to discard, roll is untouched for free.
+        """
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._linear_frame, self._ee_frame, rclpy.time.Time()
+            )
+        except TransformException:
+            return wx, wy, wz
+        q = transform.transform.rotation
+        # Current pointing (roll/reach) axis, in linear_frame.
+        zx, zy, zz = _rotate_vector_by_quat(q, 0.0, 0.0, 1.0)
+        tx, ty, tz = DRILL_DOWN_AXIS
+        dot = max(-1.0, min(1.0, zx * tx + zy * ty + zz * tz))
+        angle = math.acos(dot)
+        axis_x = zy * tz - zz * ty
+        axis_y = zz * tx - zx * tz
+        axis_len = math.hypot(axis_x, axis_y)
+        if axis_len < 1e-8:
+            # Already pointing down (or exactly opposite — no unique
+            # shortest-rotation axis either way; leave uncorrected rather
+            # than divide by ~0).
+            return wx, wy, wz
+        scale = angle / axis_len
+        hx, hy = axis_x * scale, axis_y * scale
+        gain = HOLD_ANGULAR_GAIN * self._hold_boost
+        cap = HOLD_ANGULAR_MAX * self._hold_boost
+        wx = max(-cap, min(cap, wx + gain * hx))
+        wy = max(-cap, min(cap, wy + gain * hy))
         return wx, wy, wz
 
     def _publish(self):
@@ -1017,7 +1165,10 @@ class ServoController(Node):
         """
         vx, vy, vz = self._linear_in_command_frame()
         wx, wy, wz = self._angular_in_command_frame()
-        wx, wy, wz = self._orientation_hold(wx, wy, wz)
+        if self._drill_mode:
+            wx, wy, wz = self._drill_level_hold(wx, wy, wz)
+        else:
+            wx, wy, wz = self._orientation_hold(wx, wy, wz)
 
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -1451,6 +1602,9 @@ GAMEPAD_HELP = """
 ║  R1 + right   ↑↓  — pitch (TCP)              ║
 ║               ←→  — roll  (TCP)              ║
 ║  9 (button)       — push boost (hold)        ║
+║  4 (button)       — drill mode (toggle)      ║
+║   in drill mode: right ↑↓ up/down, ←→ roll   ║
+║   (pitch/yaw locked level; A/R -> drill home) ║
 ║  A                — home + start servo       ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
@@ -1511,6 +1665,15 @@ class GamepadInputLoop:
     # Shift button has no class constant: its real index is controller-
     # dependent (see DEFAULT_GAMEPAD_SHIFT_BUTTON), read via self._shift_button.
 
+    # Toggled (rising edge, not held) to switch the right stick into drill
+    # mode: up/down + roll only, no pitch/yaw stick input at all — the
+    # tool's attitude is instead held level by ServoController's
+    # _drill_level_hold (see there for why this is a separate mechanism
+    # from _orientation_hold, not a variant of it). Index is controller-
+    # dependent like gamepad_shift_button/BUTTON_PUSH_BOOST — verify
+    # against _log_raw_joy if it does nothing on your pad.
+    BUTTON_DRILL_MODE = 4
+
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
     _WATCHDOG_PERIOD_SEC = 0.1
@@ -1530,6 +1693,10 @@ class GamepadInputLoop:
         self._linear_speed = controller.linear_speed
         self._angular_speed = controller.angular_speed
         self._shift_button = controller.gamepad_shift_button
+        # Mirrors ServoController's own _drill_mode (set via set_drill_mode)
+        # — needed here too since it decides how the right stick maps to
+        # wx/wy/wz/view_vz, not just which orientation-hold runs at publish.
+        self._drill_mode = False
         self._exit_event = threading.Event()
         # None means "no trustworthy baseline yet" — the first message
         # after startup or a /joy dropout only seeds this, it never
@@ -1727,6 +1894,7 @@ class GamepadInputLoop:
         # working while locked or the arm could never be armed at all.
         safe_pose_pressed = self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE)
         exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
+        drill_mode_pressed = self._button_rising_edge(buttons, self.BUTTON_DRILL_MODE)
 
         # Log the raw state on any button change, not just the mapped ones,
         # so an unmapped shift button still shows up.
@@ -1748,6 +1916,14 @@ class GamepadInputLoop:
 
         if exit_pressed:
             self._exit_event.set()
+
+        if drill_mode_pressed:
+            self._drill_mode = not self._drill_mode
+            self._controller.set_drill_mode(self._drill_mode)
+            self._controller.get_logger().info(
+                f'Drill mode {"ON" if self._drill_mode else "OFF"} — '
+                f'right stick now {"up/down + roll (level hold)" if self._drill_mode else "up/down + yaw (or R1: pitch + roll)"}.'
+            )
 
         if safe_pose_pressed:
             threading.Thread(target=self._handle_safe_pose, daemon=True).start()
@@ -1789,18 +1965,27 @@ class GamepadInputLoop:
         view_vy = self._axis(axes, self.AXIS_LEFT_X) * linear_speed
         view_vx = self._axis(axes, self.AXIS_LEFT_Y) * linear_speed
 
-        # Right stick — two modes, mutually exclusive so a held R1 can never
-        # translate and rotate at once:
+        # Right stick — normally two modes, mutually exclusive so a held R1
+        # can never translate and rotate at once:
         #   plain:   up/down = view +Z/-Z, left/right = yaw
         #   R1 held: up/down = pitch,      left/right = roll
         # Rotation stays about the TCP axes, same as the keyboard's I/K/U/O/J/L.
+        #
+        # Drill mode overrides all of that: up/down = view +Z/-Z (same as
+        # plain), left/right = roll — no pitch or yaw stick input exists in
+        # this mode at all (R1/shift is ignored), because ServoController's
+        # _drill_level_hold locks pitch+yaw to level on every cycle; roll is
+        # the one attitude axis the operator still controls directly.
         right_x = self._axis(axes, self.AXIS_RIGHT_X)
         right_y = self._axis(axes, self.AXIS_RIGHT_Y)
         shift = self._button_pressed(buttons, self._shift_button)
 
         view_vz = 0.0
         wx = wy = wz = 0.0
-        if shift:
+        if self._drill_mode:
+            view_vz = -right_y * linear_speed      # stick up = view +Z
+            wz = -right_x * angular_speed          # roll — pitch/yaw locked level
+        elif shift:
             wx = right_y * angular_speed          # pitch
             wz = -right_x * angular_speed         # roll
         else:
@@ -1812,6 +1997,7 @@ class GamepadInputLoop:
         self._controller.set_velocity(
             0.0, 0.0, 0.0, wx, wy, wz,
             view_vx=view_vx, view_vy=view_vy, view_vz=view_vz,
+            hold_boost=boost,
         )
 
         cmd = (view_vx, view_vy, view_vz, wx, wy, wz)
@@ -1842,7 +2028,14 @@ class GamepadInputLoop:
         try:
             self._controller.stop()
             print('Moving to home...')
-            if self._controller.move_to_safe_pose():
+            if self._drill_mode:
+                home_ok = self._controller.move_to_safe_pose(
+                    positions=self._controller.drill_home_pose,
+                    name=self._controller.drill_home_pose_name,
+                )
+            else:
+                home_ok = self._controller.move_to_safe_pose()
+            if home_ok:
                 print('Starting servo...')
                 if self._controller.start_servo():
                     self._teleop_locked = False

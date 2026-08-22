@@ -10,16 +10,17 @@ spawned successfully so /joint_states and the hardware stack are up.
 """
 
 import os
+import sys
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events.process import ProcessExited
 from launch.launch_context import LaunchContext
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_demo_launch
@@ -35,17 +36,49 @@ def load_yaml(package_name: str, relative_path: str):
         return yaml.safe_load(f)
 
 
+def _arg_from_argv(name: str, default: str) -> str:
+    """Read a `name:=value` launch argument straight from sys.argv.
+
+    MoveItConfigsBuilder.robot_description(mappings=...) only takes the
+    single-xacro-evaluation "eager" path when every mapping value is a
+    plain str (see moveit_configs_builder.py) — passing LaunchConfiguration
+    substitutions instead sends it down the lazy per-node Xacro path, and
+    xacro.process_file() caches <xacro:arg> defaults at the module level
+    across calls in one process. With multiple nodes (robot_state_publisher,
+    move_group, ros2_control_node, servo_node) each independently
+    re-evaluating that Xacro substitution, some ended up with a stale
+    default (jaw) instead of the override (e.g. drill_sampling) — confirmed
+    by diffing the actual per-node parameter files under /tmp/launch_params_*
+    after a real run. Reading argv here and passing plain strings forces the
+    eager, single-evaluation path instead, so every node gets identical XML.
+    """
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return default
+
+
 def generate_launch_description() -> LaunchDescription:
-    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
     declare_use_fake_hardware_cmd = DeclareLaunchArgument(
         "use_fake_hardware",
         default_value="true",
         description="Whether to use fake hardware or real CAN bus",
     )
 
+    end_effector = LaunchConfiguration("end_effector")
+    declare_end_effector_cmd = DeclareLaunchArgument(
+        "end_effector",
+        default_value="jaw",
+        description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro",
+    )
+
     moveit_config = (
         MoveItConfigsBuilder("indomitus_arm", package_name="arm_moveit_config")
-        .robot_description(mappings={"use_fake_hardware": use_fake_hardware})
+        .robot_description(mappings={
+            "use_fake_hardware": _arg_from_argv("use_fake_hardware", "true"),
+            "end_effector": _arg_from_argv("end_effector", "jaw"),
+        })
         .to_moveit_configs()
     )
 
@@ -118,6 +151,7 @@ def generate_launch_description() -> LaunchDescription:
 
     ld = LaunchDescription()
     ld.add_action(declare_use_fake_hardware_cmd)
+    ld.add_action(declare_end_effector_cmd)
     for action in demo_launch.entities:
         ld.add_action(action)
     ld.add_action(forward_spawner)
@@ -134,13 +168,16 @@ def generate_launch_description() -> LaunchDescription:
     # generate_demo_launch() only spawns ARM_CONTROLLER_NAME (the one
     # trajectory-execution controller MoveIt itself knows about) — the
     # gripper's own position controller(s) aren't part of that and need
-    # their own spawner. Which controllers exist depends on the same
-    # use_fake_hardware split arm_macro.xacro makes for the gripper
-    # <ros2_control> block: fake hardware (or sim) exposes both fingers,
-    # but real hardware only stubs the right one (JawGripperStub — the real
-    # arm has no gripper motor yet, see arm_macro.xacro) with no left-finger
-    # interface at all, so spawning gripper_left_controller there would
-    # just fail waiting for an interface that will never exist.
+    # their own spawner. Only meaningful for end_effector:=jaw — every other
+    # tool (other_tool, drill_sampling) has no gripper finger joints at all,
+    # so spawning gripper_right_controller/gripper_left_controller there
+    # would just fail waiting for interfaces that will never exist (exactly
+    # the "Not existing: [arm_jaw_gripper_finger_right_joint/position]"
+    # error this condition is meant to prevent).
+    # Both fake/sim hardware and real hardware (JawGripperStub) now expose
+    # BOTH finger interfaces — see arm_macro.xacro — so unlike before, this
+    # no longer needs a separate use_fake_hardware split; one spawner for
+    # both controllers, gated only on end_effector.
     ld.add_action(
         Node(
             package="controller_manager",
@@ -153,21 +190,7 @@ def generate_launch_description() -> LaunchDescription:
                 "--service-call-timeout", "70",
             ],
             output="screen",
-            condition=IfCondition(use_fake_hardware),
-        )
-    )
-    ld.add_action(
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            arguments=[
-                "gripper_right_controller",
-                "--controller-manager-timeout", "60",
-                "--switch-timeout", "60",
-                "--service-call-timeout", "70",
-            ],
-            output="screen",
-            condition=UnlessCondition(use_fake_hardware),
+            condition=IfCondition(PythonExpression(["'", end_effector, "' == 'jaw'"])),
         )
     )
 

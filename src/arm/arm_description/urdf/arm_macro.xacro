@@ -154,6 +154,20 @@
       <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
+    <!-- Drill/sample tool masses and volumetric centroids below are computed
+         directly from drill.stl / sampling.stl via the STL divergence-
+         theorem method (signed tetrahedron volumes from the mesh origin) —
+         not vertex-averaging, which is biased by triangulation density
+         (sampling.stl at 77k triangles vs drill.stl at 3.6k would otherwise
+         skew badly). Cross-checked: drill_sampling.stl's own volume
+         (732.47 cm^3) exactly equals drill.stl's (136.67) + sampling.stl's
+         (595.80), confirming both share one assembly frame with
+         arm_end_effector_link (same convention as arm_jaw_gripper_v3.stl) —
+         so both mount here with a plain identity origin, same as jaw.
+         Density is NOT uniform between the two (drill ~14.6 g/cm^3, sample
+         ~1.0 g/cm^3), so drill_sampling's combined COM is the MASS-weighted
+         average of the two tools' own COMs below, not drill_sampling.stl's
+         own (volume-weighted) centroid — those are different points. -->
     <link name="arm_end_effector_link">
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
         <visual>
@@ -164,11 +178,42 @@
           <geometry><mesh filename="${mesh_path}/arm_jaw_gripper_v3.stl" scale="${stl_scale}"/></geometry>
         </collision>
       </xacro:if>
-      
+
       <xacro:if value="${'$(arg end_effector)' == 'other_tool'}">
       </xacro:if>
 
-      <xacro:dummy_inertia mass="0.2"/>
+      <!-- Drill + sample mounted together: one combined mesh (avoids
+           double-rendering drill.stl + sampling.stl on top of each other —
+           drill_sampling.stl already IS their union, see note above).
+           rpy="0 pi pi/2" (unlike jaw's plain identity origin): the raw
+           STL's assembly frame had the tool misoriented relative to
+           arm_end_effector_link's actual orientation — confirmed visually
+           in rviz. ee_tool_com_{x,y,z} below in the <ros2_control> block is
+           rotated the SAME way — URDF rpy convention R = Rz(yaw)*Ry(pitch)*
+           Rx(roll), so here R = Rz(pi/2)*Ry(pi), giving x'=-y, y'=-x, z'=-z
+           — if this origin ever changes again, that COM must be re-rotated
+           to match, or gravity compensation will hold the wrong point. -->
+      <xacro:if value="${'$(arg end_effector)' == 'drill_sampling'}">
+        <visual>
+          <origin xyz="0 0 0" rpy="0 ${pi} ${pi/2}"/>
+          <geometry><mesh filename="${mesh_path}/drill_sampling.stl" scale="${stl_scale}"/></geometry>
+          <material name="light_grey"/>
+        </visual>
+        <collision>
+          <origin xyz="0 0 0" rpy="0 ${pi} ${pi/2}"/>
+          <geometry><mesh filename="${mesh_path}/drill_sampling.stl" scale="${stl_scale}"/></geometry>
+        </collision>
+      </xacro:if>
+
+      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+        <xacro:dummy_inertia mass="0.2"/>
+      </xacro:if>
+      <xacro:if value="${'$(arg end_effector)' == 'drill_sampling'}">
+        <xacro:dummy_inertia mass="2.6"/>
+      </xacro:if>
+      <xacro:if value="${'$(arg end_effector)' == 'other_tool'}">
+        <xacro:dummy_inertia mass="0.2"/>
+      </xacro:if>
     </link>
 
     <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
@@ -259,7 +304,7 @@
       <parent link="arm_end_effector_link"/>
       <child link="arm_tcp_link"/>
       
-      <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
+      <xacro:if value="${('$(arg end_effector)' == 'jaw') or ('$(arg end_effector)' == 'drill_sampling')}">
         <!-- v3: X=Y=0 by construction (right/left fingers are the same mesh
              mirrored 180 deg about Z through the shared origin, see the
              finger properties comment above, so that origin is the natural
@@ -273,11 +318,15 @@
              v3's fingers being physically shorter than v2's, not a
              calculation error; the formula itself is unchanged from v2
              and matches the SRDF's own tip_link convention for
-             arm_tcp_link (indomitus_arm.srdf). -->
+             arm_tcp_link (indomitus_arm.srdf).
+             drill_sampling deliberately shares this SAME point (not its
+             own offset) — keyboard_servo_node's drill mode rolls about
+             arm_tcp_link's local Z, and that must be the same physical
+             point/axis jaw already uses, not a second, different pivot. -->
         <origin xyz="0 0 0.1615" rpy="0 0 0"/>
       </xacro:if>
-      
-      <xacro:if value="${'$(arg end_effector)' != 'jaw'}">
+
+      <xacro:if value="${('$(arg end_effector)' != 'jaw') and ('$(arg end_effector)' != 'drill_sampling')}">
         <origin xyz="0 -0.23 0" rpy="0 0 0"/>
       </xacro:if>
     </joint>
@@ -366,12 +415,41 @@
             <!-- Activation aborts if any motor is silent for this long -->
             <param name="feedback_timeout_secs">2.0</param>
             <param name="gravity_ff_enabled">true</param>
-            <!-- ~3.8 kg hangs below the shoulder with its COM ~0.3 m out, so the
-                 holding torque there reaches ~11 Nm on extended poses. The two
-                 motor families are an order of magnitude apart: Steadywin is
-                 rated 48 Nm, Damiao only 9 Nm continuous. -->
-            <param name="gravity_ff_max_nm_steadywin">20.0</param>
-            <param name="gravity_ff_max_nm_damiao">6.0</param>
+            <!-- Set to each motor family's own real rated capacity, not the
+                 shared MIT-protocol packing scale (48 Nm) — that scale is
+                 NOT a safe ceiling for Damiao on its own: Damiao is only
+                 rated 9 Nm continuous, so clamping it at the protocol's
+                 48 Nm would let sustained gravity-holding torque run at
+                 over 5x its continuous rating. Steadywin's 48 Nm here
+                 already equals its own rated capacity, so this is the most
+                 gravity-ff can use on either family without exceeding what
+                 the motor itself can sustain indefinitely. -->
+            <param name="gravity_ff_max_nm_steadywin">48.0</param>
+            <param name="gravity_ff_max_nm_damiao">9.0</param>
+
+            <!-- Payload mass + volumetric centroid (assembly frame, meters)
+                 for gravity compensation — see arm_end_effector_link above
+                 for how these were computed and cross-checked. jaw and
+                 other_tool are left unset on purpose: ArmCanSystem's own
+                 defaults (0.4 kg, {0,0,0.06}) are the live-tuned jaw value
+                 from arm_hardware_interface.cpp — do not duplicate it here. -->
+            <xacro:if value="${'$(arg end_effector)' == 'drill_sampling'}">
+              <!-- Mass-weighted average of the drill's own COM (2.0 kg,
+                   (0.45169,-0.00000,-0.02825)) and the sample's own COM
+                   (0.6 kg, (0.00184,0.00317,-0.08465)) in the RAW STL frame
+                   — NOT drill_sampling.stl's own volumetric centroid, which
+                   would be volume-weighted and wrong here since the two
+                   parts have very different density (drill ~14.6 g/cm^3,
+                   sample ~1.0 g/cm^3). Rotated to match the visual/collision
+                   <origin rpy="0 pi pi/2"> above (raw-frame weighted value
+                   was (0.34788, 0.00073, -0.04127); R = Rz(pi/2)*Ry(pi) ->
+                   x'=-y, y'=-x, z'=-z). Keep this in sync if that <origin>
+                   ever changes — see its comment above. -->
+              <param name="ee_tool_mass_kg">2.6</param>
+              <param name="ee_tool_com_x">-0.00073</param>
+              <param name="ee_tool_com_y">-0.34788</param>
+              <param name="ee_tool_com_z">0.04127</param>
+            </xacro:if>
           </xacro:unless>
         </xacro:unless>
       </hardware>
