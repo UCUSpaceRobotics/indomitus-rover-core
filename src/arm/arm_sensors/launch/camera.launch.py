@@ -41,18 +41,19 @@ arm_gazebo.launch.py + config/gz_bridge.yaml) -- aruco_tracker,
 panel_pose_fuser_node, and everything else downstream in the CV pipeline
 need no changes to run against this real driver instead of the sim one.
 
-No camera_info_url is set by default (empty = uncalibrated, all-zero
-distortion/intrinsics) -- fine for initial bringup/eyeballing the image,
-but NOT for anything that trusts the camera's pose output: ArUco/panel
-pose estimation needs real intrinsics, and uncalibrated (all-zero
-distortion) numbers will silently produce wrong poses, not an obvious
-error. Run a real checkerboard calibration (ros2 run camera_calibration
-cameracalibrator) once the camera is mounted on the arm AT THE
-RESOLUTION THAT WILL ACTUALLY BE USED IN PRODUCTION, then pass the
-resulting yaml's file:// URI via the camera_info_url launch argument.
-Not done as part of this package (yet) on purpose -- calibration only
-means something done in the camera's final mounted position, and that
-hasn't happened.
+camera_info_url defaults to this repo's own checked-in calibration
+(scripts/arm/calibration/wrist_camera.yaml, done with the wrist camera
+mounted on the arm) -- if a DIFFERENT physical camera unit or mounting
+ever replaces this one, that calibration is no longer valid and needs
+redoing: run a real checkerboard calibration (ros2 run camera_calibration
+cameracalibrator) with the camera mounted on the arm AT THE RESOLUTION
+THAT WILL ACTUALLY BE USED IN PRODUCTION, then either overwrite that
+file or pass a different yaml's file:// URI via the camera_info_url
+launch argument. Pass camera_info_url:="" to go back to uncalibrated
+(all-zero distortion/intrinsics) for quick bringup/eyeballing the image
+-- NOT fine for anything that trusts the camera's pose output: ArUco/
+panel pose estimation needs real intrinsics, and uncalibrated numbers
+will silently produce wrong poses, not an obvious error.
 
 USB backend has a `disable_autofocus` argument to disable continuous
 autofocus and pin a fixed `focus_absolute` instead (confirmed live:
@@ -240,7 +241,10 @@ def generate_launch_description() -> LaunchDescription:
                         "Jetson hardware."),
         DeclareLaunchArgument("csi_height", default_value="720"),
         DeclareLaunchArgument("frame_id", default_value="arm_camera_optical_frame"),
-        DeclareLaunchArgument("camera_info_url", default_value=""),
+        DeclareLaunchArgument(
+            "camera_info_url",
+            default_value="file:///work/scripts/arm/calibration/wrist_camera.yaml",
+            description="Set to \"\" for uncalibrated (all-zero intrinsics) bringup"),
         DeclareLaunchArgument(
             "disable_autofocus", default_value="false",
             description="USB backend only: disable continuous autofocus hunting and pin focus_absolute "
