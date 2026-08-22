@@ -11,8 +11,8 @@ and publishes two separate signals at two separate confidence bars:
   by itself (a single marker's pose, especially depth/roll-about-its-own
   -normal, is noticeably less reliable than a multi-marker fit).
 - ``panel_pose`` (``geometry_msgs/msg/PoseStamped``), the fused pose,
-  gated behind ``min_markers_to_publish`` (default 2 — see that
-  parameter's own comment for why 1 isn't enough in practice) — the
+  gated behind ``min_markers_to_publish`` (default 3 — see that
+  parameter's own comment for why 1-2 isn't enough in practice) — the
   actually actionable signal, consumed by panel_align_node before
   planning any motion.
 
@@ -24,7 +24,11 @@ asymmetric layout (3 of a rectangle's 4 corners, 0.27m horizontal vs
 ``panel_geometry.py`` for the actual (hand-rolled) fusion method.
 """
 
+import math
+import os
+
 import rclpy
+import yaml
 from aruco_opencv_msgs.msg import ArucoDetection
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from rclpy.node import Node
@@ -32,7 +36,9 @@ from std_msgs.msg import Bool
 from tf2_ros import TransformBroadcaster
 
 from panel_perception.panel_geometry import (
-    KNOWN_MARKER_LOCAL_POSITIONS,
+    BOTTOM_LEFT_LOCAL_POSITION,
+    TOP_LEFT_LOCAL_POSITION,
+    TOP_RIGHT_LOCAL_POSITION,
     MarkerDetection,
     fuse_panel_pose,
 )
@@ -62,7 +68,58 @@ DEFAULT_PANEL_TF_FRAME = 'panel'
 # occluded marker showed 0.30-0.40m disagreement against the other two
 # in the same test), just no longer rejects normal-quality detections.
 DEFAULT_MAX_POSITION_DISAGREEMENT = 0.08  # meters
-DEFAULT_MAX_ORIENTATION_DISAGREEMENT = 0.3  # radians (~17 deg)
+# Tightened on explicit request to 5 deg. NOTE this is still slightly
+# below the real noise floor measured live with all 3 markers visible
+# (~0.09-0.14rad / 5.6-8deg for genuinely good frames — 7deg was
+# confirmed working, see git history). Expect panel_pose to reject a
+# good chunk of frames and update less often than at 7deg — if 'p'
+# starts reporting "no panel pose received yet" too often, raise this
+# back toward 7-8deg.
+DEFAULT_MAX_ORIENTATION_DISAGREEMENT = math.radians(5)
+# Final fallback marker-ID assignment (15 unused) — matches
+# panel_macro.xacro's own matching defaults, for consistency when
+# neither an explicit --ros-args override nor the sim auto-layout file
+# below is present (e.g. a real panel started without configuring
+# marker_id_top_left/top_right/bottom_left yet).
+FALLBACK_MARKER_ID_TOP_LEFT = 11
+FALLBACK_MARKER_ID_TOP_RIGHT = 13
+FALLBACK_MARKER_ID_BOTTOM_LEFT = 14
+# Written fresh by arm_sim/launch/arm_gazebo.launch.py on every sim
+# launch (see its own matching constant) with that run's randomized
+# marker_id_top_left/top_right/bottom_left — lets `ros2 run
+# panel_perception panel_pose_fuser_node` just work in sim with no
+# --ros-args needed, despite the two nodes being launched separately
+# (this repo's usual sim workflow) with no other way to share that
+# choice. Irrelevant on real hardware (nothing ever writes this file
+# there) — an explicit --ros-args override always wins over it either
+# way, see _resolve_marker_id.
+PANEL_MARKER_LAYOUT_SIM_FILE = '/tmp/panel_marker_layout.yaml'
+# Sentinel: declare_parameter's default can't be "unset", so this
+# stands in for "no explicit --ros-args override was given" — see
+# _resolve_marker_id.
+_UNSET_MARKER_ID = -1
+
+
+def _resolve_marker_id(explicit_value: int, sim_layout: dict, role: str, fallback: int) -> int:
+    """explicit --ros-args value, else the sim auto-layout file, else fallback."""
+    if explicit_value != _UNSET_MARKER_ID:
+        return explicit_value
+    if role in sim_layout:
+        return sim_layout[role]
+    return fallback
+
+
+def _load_sim_marker_layout(logger) -> dict:
+    if not os.path.isfile(PANEL_MARKER_LAYOUT_SIM_FILE):
+        return {}
+    try:
+        with open(PANEL_MARKER_LAYOUT_SIM_FILE) as f:
+            layout = yaml.safe_load(f) or {}
+        logger.info(f'Loaded sim marker layout from {PANEL_MARKER_LAYOUT_SIM_FILE}: {layout}')
+        return layout
+    except (OSError, yaml.YAMLError) as exc:
+        logger.warn(f'Could not read {PANEL_MARKER_LAYOUT_SIM_FILE}: {exc}')
+        return {}
 
 
 class PanelPoseFuser(Node):
@@ -83,13 +140,31 @@ class PanelPoseFuser(Node):
         # testing produced a "panel" 1.08m from the camera (arm's real
         # reach is ~0.9m), i.e. a single marker's monocular pose estimate
         # was off badly enough to compute a physically unreachable
-        # target. Back to requiring 2+; panel_align_node has no way to
-        # know how many markers a given PoseStamped was built from (plain
+        # target. Raised from 2 to 3 on explicit request: panel_geometry's
+        # fuse_panel_pose only uses its accurate, layout-based (Kabsch)
+        # orientation fit — immune to individual markers' own noisy
+        # solvePnP orientation, see that function's docstring — when ALL
+        # 3 known markers are visible; with only 1-2 it silently falls
+        # back to averaging each marker's own noisier orientation
+        # estimate. Requiring 3 here means panel_align_node only ever
+        # acts on the accurate fit. panel_align_node has no way to know
+        # how many markers a given PoseStamped was built from (plain
         # geometry_msgs type, no count field) — so this gate is enforced
         # here, by simply not publishing panel_pose at all below this
         # count, rather than inventing a custom message type to carry a
         # count downstream.
-        self.declare_parameter('min_markers_to_publish', 2)
+        self.declare_parameter('min_markers_to_publish', 3)
+        # Which ArUco ID is mounted at which of the panel's 3 fixed
+        # physical mounts — per competition rules any 3 of IDs
+        # {11,13,14,15} may be used, in any of the 3 positions, so this
+        # is a runtime choice, not a constant. Sentinel default (-1)
+        # means "not explicitly overridden" — see _resolve_marker_id for
+        # what wins: an explicit --ros-args value, then the sim
+        # auto-layout file (PANEL_MARKER_LAYOUT_SIM_FILE), then the
+        # hardcoded fallback.
+        self.declare_parameter('marker_id_top_left', _UNSET_MARKER_ID)
+        self.declare_parameter('marker_id_top_right', _UNSET_MARKER_ID)
+        self.declare_parameter('marker_id_bottom_left', _UNSET_MARKER_ID)
 
         detections_topic = self.get_parameter('aruco_detections_topic').value
         pose_topic = self.get_parameter('panel_pose_topic').value
@@ -99,13 +174,34 @@ class PanelPoseFuser(Node):
         self._max_orient_disagreement = self.get_parameter('max_orientation_disagreement').value
         self._min_markers_to_publish = self.get_parameter('min_markers_to_publish').value
 
+        sim_layout = _load_sim_marker_layout(self.get_logger())
+        marker_id_top_left = _resolve_marker_id(
+            self.get_parameter('marker_id_top_left').value, sim_layout,
+            'top_left', FALLBACK_MARKER_ID_TOP_LEFT)
+        marker_id_top_right = _resolve_marker_id(
+            self.get_parameter('marker_id_top_right').value, sim_layout,
+            'top_right', FALLBACK_MARKER_ID_TOP_RIGHT)
+        marker_id_bottom_left = _resolve_marker_id(
+            self.get_parameter('marker_id_bottom_left').value, sim_layout,
+            'bottom_left', FALLBACK_MARKER_ID_BOTTOM_LEFT)
+        self._marker_local_positions = {
+            marker_id_top_left: TOP_LEFT_LOCAL_POSITION,
+            marker_id_top_right: TOP_RIGHT_LOCAL_POSITION,
+            marker_id_bottom_left: BOTTOM_LEFT_LOCAL_POSITION,
+        }
+        if len(self._marker_local_positions) != 3:
+            raise ValueError(
+                'marker_id_top_left/top_right/bottom_left must resolve to 3 DISTINCT IDs, got '
+                f'{marker_id_top_left}, {marker_id_top_right}, {marker_id_bottom_left}'
+            )
+
         self._pose_pub = self.create_publisher(PoseStamped, pose_topic, 10)
         self._visible_pub = self.create_publisher(Bool, visible_topic, 10)
         self._tf_broadcaster = TransformBroadcaster(self)
         self.create_subscription(ArucoDetection, detections_topic, self._on_detection, 10)
 
         self.get_logger().info(
-            f'Watching for panel markers {sorted(KNOWN_MARKER_LOCAL_POSITIONS)} '
+            f'Watching for panel markers {sorted(self._marker_local_positions)} '
             f'on "{detections_topic}" — "{visible_topic}" fires on any single marker, '
             f'"{pose_topic}" needs {self._min_markers_to_publish}+.'
         )
@@ -123,7 +219,7 @@ class PanelPoseFuser(Node):
             for m in msg.markers
         ]
 
-        fused = fuse_panel_pose(detections)
+        fused = fuse_panel_pose(detections, self._marker_local_positions)
         if fused is None:
             return
 
