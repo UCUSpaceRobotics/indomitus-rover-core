@@ -81,6 +81,19 @@
           <update_rate>100.0</update_rate>
           <topic>/zed2i/imu/data</topic>
           <gz_frame_id>zed2i_left_camera_frame</gz_frame_id>
+          <imu>
+            <!-- Without this, gz-sim reports orientation relative to the
+                 sensor's own pose at spawn - since it spawns already tilted
+                 by zed2i_ry, that mount angle gets silently baked out as
+                 "zero" instead of measured. robot_localization then applies
+                 its own mount-angle compensation on top, assuming a genuine
+                 world-referenced reading, which double-counts the tilt.
+                 ENU makes the sim IMU report true gravity-referenced
+                 orientation, matching the real ZED2i's AHRS output. -->
+            <orientation_reference_frame>
+              <localization>ENU</localization>
+            </orientation_reference_frame>
+          </imu>
         </sensor>
       </gazebo>
     </xacro:if>
