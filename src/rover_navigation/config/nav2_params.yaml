@@ -288,7 +288,7 @@ local_costmap:
         plugin: "rover_costmap_plugins::SlopeLayer"
         enabled: true
         cloud_topic: "/zed2i/points"
-        base_frame: "base_footprint"
+        base_frame: "base_link_ground_ref"
         grid_resolution: 0.25
         grid_range: 4.0
         min_height: -0.30
@@ -349,7 +349,7 @@ global_costmap:
         plugin: "rover_costmap_plugins::SlopeLayer"
         enabled: true
         cloud_topic: "/zed2i/points"
-        base_frame: "base_footprint"
+        base_frame: "base_link_ground_ref"
         grid_resolution: 0.25
         grid_range: 4.0
         min_height: -0.30
