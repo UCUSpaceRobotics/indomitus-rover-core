@@ -118,8 +118,11 @@ PANEL_COLLISION_LOCAL_OFFSET = ((0.0, 0.013, 0.225), (0.0, 0.0, 0.0, 1.0))
 # geometry). Always the same fixed point relative to the panel, however
 # it was detected — this is what makes align_to_panel()'s target
 # deterministic/repeatable rather than depending on exactly which
-# markers happened to be visible.
-PANEL_CENTER_LOCAL_OFFSET = ((0.0, -0.015, 0.225), (0.0, 0.0, 0.0, 1.0))
+# markers happened to be visible. z here is the default only — see the
+# 'panel_center_z_offset' parameter below, which lets this be raised
+# toward a specific feature (e.g. a row of switches) instead of the
+# panel's exact vertical center.
+DEFAULT_PANEL_CENTER_Z_OFFSET = 0.225  # PANEL_HEIGHT / 2 -- vertical center
 
 # Joint position limits (arm_description/urdf/arm_macro.xacro's <limit> tags
 # on each revolute joint) — duplicated rather than parsed from
@@ -153,16 +156,23 @@ class PanelAlignNode(Node):
         self.declare_parameter('standoff_margin_multiplier', 1.3)
         self.declare_parameter('standoff_min_floor', 0.15)
         self.declare_parameter('standoff_max_reach', 0.75)
-        # Was defaulted True (small fixed distance) while the sim test
-        # panel was placed somewhere that made the real FOV-fit standoff
-        # (compute_standoff_distance, ~0.6m for this panel/camera)
-        # unreachable. Fixed for good now: arm_gazebo.launch.py's panel
-        # placement was found via a real /compute_ik reachability search
-        # (see its own comment) specifically so the real standoff works —
-        # set use_fixed_test_standoff:=true to fall back to a fixed
-        # distance if testing at some other, unverified panel placement.
-        self.declare_parameter('use_fixed_test_standoff', False)
-        self.declare_parameter('fixed_test_standoff', 0.2)
+        # True by default on explicit request: the FOV-fit standoff
+        # (compute_standoff_distance) exists to keep the WHOLE panel
+        # framed in the camera's view from the final resting position —
+        # not needed once alignment itself is done, and real testing
+        # confirmed the FOV-fit distance held the arm too far out (also
+        # contributing to the joint-limit-margin rejections seen live).
+        # 0.25m confirmed by hand as a good close distance for this panel/
+        # camera/gripper. Set to false to go back to FOV-fit framing.
+        self.declare_parameter('use_fixed_test_standoff', True)
+        self.declare_parameter('fixed_test_standoff', 0.25)
+        # Raises/lowers the aim point along the panel's own vertical axis,
+        # relative to panel_base_link's origin (see
+        # DEFAULT_PANEL_CENTER_Z_OFFSET's comment) — e.g. to aim at a row
+        # of switches instead of the panel's exact geometric center. 0.35
+        # confirmed by hand against the real panel's switch row (default
+        # 0.225 is the exact geometric center).
+        self.declare_parameter('panel_center_z_offset', 0.35)
         self.declare_parameter('joint_limit_margin_fraction', 0.08)
         self.declare_parameter('num_planning_attempts', 10)
         self.declare_parameter('allowed_planning_time', 5.0)
@@ -346,12 +356,16 @@ class PanelAlignNode(Node):
          panel_pose_mount_msg.pose.orientation.z, panel_pose_mount_msg.pose.orientation.w
          ) = panel_pose_in_mount[1]
 
-        # Aim at the panel's own fixed center point (see
-        # PANEL_CENTER_LOCAL_OFFSET), not panel_base_link's origin
+        # Aim at a fixed point on the panel's own front face (see
+        # DEFAULT_PANEL_CENTER_Z_OFFSET), not panel_base_link's origin
         # directly — this is what makes the target always the same point
         # on the panel regardless of exactly how the pose was detected.
+        panel_center_local_offset = (
+            (0.0, -0.015, self.get_parameter('panel_center_z_offset').value),
+            (0.0, 0.0, 0.0, 1.0),
+        )
         panel_center_in_mount = compose_transforms(
-            panel_pose_in_mount, PANEL_CENTER_LOCAL_OFFSET)
+            panel_pose_in_mount, panel_center_local_offset)
         target_position, target_orientation = compute_target_tip_pose(
             panel_pose_in_camera=panel_center_in_mount,
             camera_to_tip=self._camera_to_tip,

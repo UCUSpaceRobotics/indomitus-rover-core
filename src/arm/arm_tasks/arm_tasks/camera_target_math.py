@@ -97,6 +97,11 @@ def compute_target_tip_pose(
     Args:
         panel_pose_in_camera: T_C_P — the fused panel detection, i.e. the
             panel's pose as seen right now from the current camera frame.
+            Its orientation is used as-is (roll included) — see
+            ``panel_geometry.py``'s ``_fit_orientation_from_marker_layout``
+            for where that roll actually comes from (the panel's own
+            measured edges, when all 3 markers are visible) rather than
+            being corrected here.
         camera_to_tip: T_C_T — tip_link's pose in the camera's frame. This
             is a *constant* (both links are fixed-joint children of
             arm_end_effector_link), so the caller should look it up via
