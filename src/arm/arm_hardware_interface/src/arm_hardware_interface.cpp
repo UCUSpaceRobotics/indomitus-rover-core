@@ -162,14 +162,8 @@ const std::array<LinkMass, NUM_JOINTS> kLinkMass = {{
     /*2 arm_forearm_link                                 */ { 0.630, {-0.00865,0.15, 0.0    } },
     /*3 arm_wrist_1_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
     /*4 arm_wrist_2_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
-    // Index 5 is a DEFAULT only — compute_gravity_feedforward() always uses
-    // ee_tool_mass_kg_/ee_tool_com_{x,y,z}_ (runtime, from URDF hardware
-    // params) instead of this entry, never this array slot directly. This
-    // value is the jaw-gripper default those members start at: tuned on the
-    // arm, not weighed, absorbing the end effector, jaw gripper, camera,
-    // fasteners, cabling, and the midpoint-COM approximation error from the
-    // links above. Kept here only as documentation of that default — edit
-    // ee_tool_mass_kg_'s initializer in the header, not this line, to change it.
+    // Index 5 is documentation only — compute_gravity_feedforward() always uses
+    // ee_tool_mass_kg_/ee_tool_com_{x,y,z}_ instead. Edit the header initializer, not this line.
     /*5 arm_end_effector_link + everything mounted on it (DEFAULT, see above) */ { 0.400, {0.0, 0.0, 0.06} },
 }};
 

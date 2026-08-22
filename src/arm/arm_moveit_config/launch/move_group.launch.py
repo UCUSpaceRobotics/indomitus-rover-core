@@ -5,10 +5,7 @@ from moveit_configs_utils.launches import generate_move_group_launch
 
 
 def _arg_from_argv(name: str, default: str) -> str:
-    # See rsp.launch.py's _arg_from_argv / demo.launch.py's for why this is
-    # needed here too: generate_demo_launch() pulls this file in via
-    # IncludeLaunchDescription, bypassing demo.launch.py's own
-    # end_effector/use_fake_hardware-aware moveit_config entirely.
+    # See rsp.launch.py's _arg_from_argv.
     prefix = f"{name}:="
     for arg in sys.argv:
         if arg.startswith(prefix):

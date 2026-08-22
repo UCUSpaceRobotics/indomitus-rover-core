@@ -99,15 +99,7 @@ DEFAULT_PUBLISH_RATE  = 100.0
 HOLD_ANGULAR_GAIN = 6.0
 HOLD_ANGULAR_MAX = 0.8
 HOLD_CMD_EPS = 1e-4
-# Drill mode's _drill_level_hold target — the FIXED direction (in
-# linear_frame) arm_tcp_link's local Z (the tool's roll/reach axis — see
-# arm_tcp_joint in arm_macro.xacro, drill_sampling shares jaw's TCP
-# point/axis on purpose) must always point. Only 2 DOF (a direction), not
-# a full orientation: roll (spin about that axis) is deliberately
-# unconstrained, so there is no "heading" to fix, unlike a full target
-# quaternion would imply. -Z assumes linear_frame's own Z is world-up —
-# the same assumption arm_hardware_interface's gravity compensation
-# already makes.
+# _drill_level_hold target: tool's Z axis must point here (world-down, roll unconstrained).
 DRILL_DOWN_AXIS = (0.0, 0.0, -1.0)
 # Cartesian teleop publishes the twist in arm_mount_link (Servo command frame).
 # Stick XYZ are already in that frame. Stick roll/pitch/yaw are interpreted in
@@ -354,12 +346,8 @@ class ServoController(Node):
         else:
             self._safe_pose = pose_from_param
             pose_source = 'safe_pose parameter'
-        # Drill mode's own A/R target — press A while drill mode is armed
-        # (BUTTON_DRILL_MODE) and this is used instead of self._safe_pose.
-        # No hardcoded fallback number here on purpose: until poses.json
-        # has a real "drill_home" entry, falling back to the jaw pose is
-        # the safe choice (a known-good pose) rather than guessing values
-        # for a tool this code has never actually driven.
+        # Drill mode's own A/R target; falls back to the jaw home pose until
+        # poses.json has a real "drill_home" entry.
         self._drill_home_pose_name = 'drill_home'
         drill_pose_from_json = _load_home_pose_from_json(self._drill_home_pose_name)
         if drill_pose_from_json is not None:
@@ -390,16 +378,9 @@ class ServoController(Node):
         self.view_vy = 0.0
         self.view_vz = 0.0
         self._hold_quat = None
-        # Scales HOLD_ANGULAR_GAIN/HOLD_ANGULAR_MAX in _orientation_hold —
-        # set via set_velocity's hold_boost so a boosted push (stronger
-        # disturbance torque on the wrist) gets a proportionally stronger
-        # orientation-hold correction, not the same fixed correction fighting
-        # a 3x-stronger push.
+        # Scales HOLD_ANGULAR_GAIN/MAX in _orientation_hold for boosted push (set_velocity's hold_boost).
         self._hold_boost = 1.0
-        # Set via set_drill_mode() (GamepadInputLoop's BUTTON_DRILL_MODE
-        # toggle). Selects _drill_level_hold over _orientation_hold in
-        # _publish() — see _drill_level_hold's docstring for why these are
-        # separate mechanisms rather than one covering both cases.
+        # Selects _drill_level_hold over _orientation_hold in _publish(); set via set_drill_mode().
         self._drill_mode = False
         self._joint_positions = {}
 
@@ -616,13 +597,7 @@ class ServoController(Node):
         self._hold_quat = None
 
     def set_drill_mode(self, active: bool):
-        """Arm/disarm drill mode — see _drill_level_hold for what this changes.
-
-        Drops _hold_quat so _orientation_hold starts clean if drill mode
-        is later turned back off mid-translation. Drill mode's own target
-        (DRILL_DOWN_AXIS) is a fixed constant, not a captured reference,
-        so there is nothing to reset for it here.
-        """
+        """Arm/disarm drill mode; drops _hold_quat so _orientation_hold restarts clean."""
         self._drill_mode = active
         self._hold_quat = None
 
@@ -1089,40 +1064,13 @@ class ServoController(Node):
         return wx, wy, wz
 
     def _drill_level_hold(self, wx, wy, wz):
-        """Keep the tool pointed straight down (pitch+yaw locked) while
-        drill mode is on — the target is the FIXED DRILL_DOWN_AXIS, not
-        wherever the arm happened to be when drill mode was armed.
+        """Keep the tool pointed at fixed DRILL_DOWN_AXIS; wz (roll) passes through untouched.
 
-        Deliberately a separate mechanism from _orientation_hold, not a
-        variant of it, for two reasons:
-
-        1. _orientation_hold only engages during PURE translation (any
-           commanded rotation drops it) because for jaw teleop, rotating IS
-           the operator overriding the hold on purpose. Drill mode inverts
-           that: roll (wz) is a normal, expected, CONTINUOUS input — the
-           hold must stay engaged WHILE wz is nonzero, correcting only
-           pitch/yaw drift and leaving wz completely untouched. Reusing
-           _orientation_hold's "any wx/wy/wz drops the hold" gate would
-           mean the level hold dies the instant you touch roll.
-        2. Its target is one fixed constant, not a per-arm-cycle reference
-           captured from live TF — the "always straight down" requirement
-           means the target must never depend on pose history, unlike
-           _orientation_hold's per-translation-burst captured reference.
-
-        The correction is computed geometrically (current pointing axis ->
-        DRILL_DOWN_AXIS via the shortest rotation, axis = current x
-        target), NOT by taking a full orientation-error quaternion and
-        discarding its roll component like _orientation_hold does. That
-        quaternion-component-drop trick is only a valid "pitch/yaw-only"
-        correction for SMALL errors (a linear approximation) — it's fine
-        for _orientation_hold, which only ever corrects tiny per-cycle
-        drift, but drill mode's very first correction after arming from
-        an arbitrary pose can be up to 180 deg, where that approximation
-        breaks down and was observed spinning the tool erratically
-        instead of converging. The cross-product method below is exact at
-        any angle and, since DRILL_DOWN_AXIS is aligned with linear_frame
-        Z, mathematically has zero component along the roll axis by
-        construction — nothing to discard, roll is untouched for free.
+        Separate from _orientation_hold: that one drops on any rotation input and
+        targets a captured reference, but drill roll is continuous and the target
+        is a fixed constant. Correction uses exact cross-product rotation (not
+        _orientation_hold's small-angle quaternion-drop trick, which spun wildly
+        on the large initial errors here).
         """
         try:
             transform = self._tf_buffer.lookup_transform(
@@ -1645,17 +1593,8 @@ class GamepadInputLoop:
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to home + start servo
     BUTTON_EXIT = 2        # 'X' — exit
-    # Held to scale up commanded velocity ("push boost"). Servo re-anchors
-    # its position setpoint to the measured pose every cycle (see
-    # servo.yaml), so the per-cycle step (commanded velocity *
-    # publish_period) is the only position error the MIT loop ever sees —
-    # against real resistance (e.g. pressing a switch) that step, not
-    # kp/kd or the gravity-ff clamp, is what caps the arm's static push
-    # force. Scaling the commanded velocity up here raises that step
-    # directly. Also gates _joy_settling below (must be released, like
-    # the sticks, before settling completes). Index is controller-
-    # dependent like gamepad_shift_button — verify against _log_raw_joy
-    # if it does nothing on your pad.
+    # Held to scale up commanded velocity — raises the per-cycle position step
+    # Servo re-anchors from, which is what caps static push force (not kp/kd).
     BUTTON_PUSH_BOOST = 9
     # Bounded by max_cmd_speed_rad_s (arm_macro.xacro): the hardware
     # interface rate-limits actual motion to that many rad/s regardless
@@ -1665,13 +1604,8 @@ class GamepadInputLoop:
     # Shift button has no class constant: its real index is controller-
     # dependent (see DEFAULT_GAMEPAD_SHIFT_BUTTON), read via self._shift_button.
 
-    # Toggled (rising edge, not held) to switch the right stick into drill
-    # mode: up/down + roll only, no pitch/yaw stick input at all — the
-    # tool's attitude is instead held level by ServoController's
-    # _drill_level_hold (see there for why this is a separate mechanism
-    # from _orientation_hold, not a variant of it). Index is controller-
-    # dependent like gamepad_shift_button/BUTTON_PUSH_BOOST — verify
-    # against _log_raw_joy if it does nothing on your pad.
+    # Rising-edge toggle for drill mode (attitude held level by _drill_level_hold).
+    # Index is controller-dependent — verify against _log_raw_joy if unresponsive.
     BUTTON_DRILL_MODE = 4
 
     _DEADZONE = 0.2

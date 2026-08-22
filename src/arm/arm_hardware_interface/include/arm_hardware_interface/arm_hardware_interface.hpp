@@ -113,12 +113,8 @@ private:
     inline double gravity_ff_max_nm(std::size_t i) const
     { return i < NUM_STEADYWIN ? gravity_ff_max_nm_sw_ : gravity_ff_max_nm_dm_; }
 
-    // End-effector payload (mass + volumetric centroid, assembly frame,
-    // meters) for gravity compensation — overrides kLinkMass[NUM_JOINTS-1]
-    // at runtime. Defaults are the live-tuned jaw-gripper value (see
-    // kLinkMass's comment in arm_hardware_interface.cpp); arm_macro.xacro
-    // overrides these via ee_tool_mass_kg/ee_tool_com_{x,y,z} for other
-    // end-effector tools (drill, sample, drill_sampling).
+    // End-effector payload override for gravity comp (kLinkMass[NUM_JOINTS-1]
+    // default); set per-tool via arm_macro.xacro's ee_tool_mass_kg/com_{x,y,z}.
     double ee_tool_mass_kg_{0.4};
     double ee_tool_com_x_{0.0};
     double ee_tool_com_y_{0.0};

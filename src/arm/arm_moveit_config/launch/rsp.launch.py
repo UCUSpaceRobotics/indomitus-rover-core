@@ -5,14 +5,8 @@ from moveit_configs_utils.launches import generate_rsp_launch
 
 
 def _arg_from_argv(name: str, default: str) -> str:
-    # generate_demo_launch() pulls this file in via IncludeLaunchDescription
-    # rather than calling generate_rsp_launch(moveit_config) with demo.launch.py's
-    # own end_effector/use_fake_hardware-aware moveit_config — so this file must
-    # resolve them itself or it silently falls back to xacro's defaults (jaw,
-    # fake hardware) no matter what was passed on the command line. See
-    # demo.launch.py's _arg_from_argv for the full story (xacro mappings must
-    # be plain str, not LaunchConfiguration, for MoveItConfigsBuilder to
-    # actually apply them here).
+    # This file builds its own moveit_config, bypassing demo.launch.py's — must
+    # re-resolve args itself. See demo.launch.py's _arg_from_argv.
     prefix = f"{name}:="
     for arg in sys.argv:
         if arg.startswith(prefix):

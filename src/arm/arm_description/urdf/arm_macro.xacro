@@ -154,20 +154,10 @@
       <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
-    <!-- Drill/sample tool masses and volumetric centroids below are computed
-         directly from drill.stl / sampling.stl via the STL divergence-
-         theorem method (signed tetrahedron volumes from the mesh origin) —
-         not vertex-averaging, which is biased by triangulation density
-         (sampling.stl at 77k triangles vs drill.stl at 3.6k would otherwise
-         skew badly). Cross-checked: drill_sampling.stl's own volume
-         (732.47 cm^3) exactly equals drill.stl's (136.67) + sampling.stl's
-         (595.80), confirming both share one assembly frame with
-         arm_end_effector_link (same convention as arm_jaw_gripper_v3.stl) —
-         so both mount here with a plain identity origin, same as jaw.
-         Density is NOT uniform between the two (drill ~14.6 g/cm^3, sample
-         ~1.0 g/cm^3), so drill_sampling's combined COM is the MASS-weighted
-         average of the two tools' own COMs below, not drill_sampling.stl's
-         own (volume-weighted) centroid — those are different points. -->
+    <!-- Drill/sample masses+centroids: STL divergence-theorem volumes (not
+         vertex-avg, biased by triangle density), mass-weighted COM (density
+         differs: drill ~14.6 g/cm^3, sample ~1.0), not drill_sampling.stl's
+         own volumetric centroid — those are different points. -->
     <link name="arm_end_effector_link">
       <xacro:if value="${'$(arg end_effector)' == 'jaw'}">
         <visual>
@@ -182,17 +172,9 @@
       <xacro:if value="${'$(arg end_effector)' == 'other_tool'}">
       </xacro:if>
 
-      <!-- Drill + sample mounted together: one combined mesh (avoids
-           double-rendering drill.stl + sampling.stl on top of each other —
-           drill_sampling.stl already IS their union, see note above).
-           rpy="0 pi pi/2" (unlike jaw's plain identity origin): the raw
-           STL's assembly frame had the tool misoriented relative to
-           arm_end_effector_link's actual orientation — confirmed visually
-           in rviz. ee_tool_com_{x,y,z} below in the <ros2_control> block is
-           rotated the SAME way — URDF rpy convention R = Rz(yaw)*Ry(pitch)*
-           Rx(roll), so here R = Rz(pi/2)*Ry(pi), giving x'=-y, y'=-x, z'=-z
-           — if this origin ever changes again, that COM must be re-rotated
-           to match, or gravity compensation will hold the wrong point. -->
+      <!-- rpy="0 pi pi/2" corrects the STL's misoriented assembly frame.
+           ee_tool_com_{x,y,z} in <ros2_control> below is rotated to match
+           (R=Rz(pi/2)*Ry(pi): x'=-y, y'=-x, z'=-z) — re-rotate both together. -->
       <xacro:if value="${'$(arg end_effector)' == 'drill_sampling'}">
         <visual>
           <origin xyz="0 0 0" rpy="0 ${pi} ${pi/2}"/>
@@ -319,10 +301,8 @@
              calculation error; the formula itself is unchanged from v2
              and matches the SRDF's own tip_link convention for
              arm_tcp_link (indomitus_arm.srdf).
-             drill_sampling deliberately shares this SAME point (not its
-             own offset) — keyboard_servo_node's drill mode rolls about
-             arm_tcp_link's local Z, and that must be the same physical
-             point/axis jaw already uses, not a second, different pivot. -->
+             drill_sampling deliberately shares this same point/axis (drill
+             mode rolls about arm_tcp_link's local Z). -->
         <origin xyz="0 0 0.1615" rpy="0 0 0"/>
       </xacro:if>
 
@@ -434,17 +414,9 @@
                  defaults (0.4 kg, {0,0,0.06}) are the live-tuned jaw value
                  from arm_hardware_interface.cpp — do not duplicate it here. -->
             <xacro:if value="${'$(arg end_effector)' == 'drill_sampling'}">
-              <!-- Mass-weighted average of the drill's own COM (2.0 kg,
-                   (0.45169,-0.00000,-0.02825)) and the sample's own COM
-                   (0.6 kg, (0.00184,0.00317,-0.08465)) in the RAW STL frame
-                   — NOT drill_sampling.stl's own volumetric centroid, which
-                   would be volume-weighted and wrong here since the two
-                   parts have very different density (drill ~14.6 g/cm^3,
-                   sample ~1.0 g/cm^3). Rotated to match the visual/collision
-                   <origin rpy="0 pi pi/2"> above (raw-frame weighted value
-                   was (0.34788, 0.00073, -0.04127); R = Rz(pi/2)*Ry(pi) ->
-                   x'=-y, y'=-x, z'=-z). Keep this in sync if that <origin>
-                   ever changes — see its comment above. -->
+              <!-- Mass-weighted COM of drill (2.0kg) + sample (0.6kg), raw-frame
+                   value (0.34788, 0.00073, -0.04127) rotated to match the
+                   <origin rpy="0 pi pi/2"> above — keep in sync if that changes. -->
               <param name="ee_tool_mass_kg">2.6</param>
               <param name="ee_tool_com_x">-0.00073</param>
               <param name="ee_tool_com_y">-0.34788</param>
