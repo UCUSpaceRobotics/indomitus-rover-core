@@ -11,7 +11,6 @@ def generate_launch_description():
 
     ekf_real_config = os.path.join(rover_localization_share, 'config', 'ekf.yaml')
     ekf_sim_config = os.path.join(rover_localization_share, 'config', 'ekf_sim.yaml')
-    ekf_tilt_config = os.path.join(rover_localization_share, 'config', 'ekf_tilt.yaml')
 
     use_sim_time_val = LaunchConfiguration('use_sim_time')
     use_sim_time_arg = DeclareLaunchArgument(
@@ -50,14 +49,20 @@ def generate_launch_description():
         ),
 
         Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_tilt_node',
+            package='rover_localization',
+            executable='tilt_broadcaster_node',
+            name='tilt_broadcaster_node',
             output='screen',
             parameters=[
-                ekf_tilt_config,
+                {'imu_topic': '/zed2i/imu/data'},
+                {'parent_frame': 'base_footprint'},
+                {'child_frame': 'base_link'},
+
+                # Height of base_link above base_footprint/ground -- must match
+                # base_link_ground_height in rover_description/urdf/properties.xacro.
+                {'ground_height': 0.4597},
+
                 {'use_sim_time': use_sim_time_val},
             ],
-            remappings=[('odometry/filtered', '/tilt_ekf/odom')],
         ),
     ])

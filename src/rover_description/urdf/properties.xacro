@@ -66,7 +66,8 @@
        derived from the suspension/wheel stack-up at the nominal rest pose (rocker
        angle = 0, steering angle = 0): rocker pivot -> wheel-mount hub (-rocker_hub_z),
        wheel-mount hub -> axle (wheel_mount_drop), axle -> ground (wheel_radius).
-       If this value changes, change initial_state z seed in the rover_localization/config/ekf_tilt.yaml's-->
+       If this value changes, update the `ground_height` parameter passed to
+       tilt_broadcaster_node in rover_localization/launch/ekf.launch.py to match. -->
   <xacro:property name="base_link_ground_height" value="${wheel_radius - rocker_hub_z + wheel_mount_drop}"/>
 
   <!-- ===================== JOINT LIMITS ===================== -->
