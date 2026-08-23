@@ -16,13 +16,20 @@ This document outlines the configuration, launch instructions, and data capabili
 
 The camera is initialized using a custom launch file that wraps the official `zed_camera.launch.py` and applies specific topic remappings to fit the rover's architecture.
 
-To launch the camera with the default configuration:
+The launch file takes a `mode` argument that picks which config to load:
+
+* `mode:=rgb` *(default)* — only the rectified color feed is enabled, for the operator view. Loads `rover_sensors/config/zed2i_rgb.yaml`.
+* `mode:=nav` — additionally enables the point cloud and positional tracking (VIO) used by the navigation stack. Loads `rover_sensors/config/zed2i_nav.yaml`.
 
 ```bash
-ros2 launch rover_sensors zed2i.launch.py
+# RGB feed only (operator view)
+ros2 launch rover_sensors zed2i.launch.py mode:=rgb
+
+# Point cloud + VIO for navigation
+ros2 launch rover_sensors zed2i.launch.py mode:=nav
 ```
 
-This automatically loads the parameters defined in `rover_sensors/config/zed2i.yaml`.
+On the real rover, this launch file is normally started via `rover_bringup/launch/rover.launch.py`'s `zed2i_mode` argument rather than invoked directly — see [`nodes_overview.md`](../../../docs/software/nodes_overview.md). `config_path` can still be set explicitly to override the default file chosen by `mode`.
 
 
 ---
@@ -44,21 +51,21 @@ The rover's `robot_state_publisher`, `ekf_node`, and `slam_toolbox` are strictly
 
 ## 3. Published Data
 
-The camera captures data at an internal resolution of `HD720` at 60 FPS. The active data streams are remapped in the launch file to match the rover's namespace.
+The camera captures data at an internal resolution of `HD720` at 30 FPS. The active data streams are remapped in the launch file to match the rover's namespace.
 
-Note: Visual odometry operates in `two_d_mode: true`, forcing navigation logic onto a flat plane (Z is fixed to 0.0, roll and pitch are zeroed). Depth is calculated using the `NEURAL_LIGHT` mode.
+Depth, point cloud, and positional tracking (VIO) are only enabled in `mode:=nav` (`zed2i_nav.yaml`); `mode:=rgb` (`zed2i_rgb.yaml`) disables depth extraction entirely (`depth.depth_mode: 'NONE'`) to save compute, since those consumers don't need it. Where depth is enabled, it uses the `NEURAL_LIGHT` mode, and visual odometry operates in `two_d_mode: true`, forcing navigation logic onto a flat plane (Z is fixed to 0.0, roll and pitch are zeroed).
 
-| Data Type | Published Topic | Enabling YAML Parameter |
-| --- | --- | --- |
-| **RGB Image (Rectified)** | `/zed2i/rgb/image_rect_color`<br> | `video.publish_rgb: true`<br> |
-| **RGB Camera Info** | `/zed2i/rgb/camera_info`<br> | `video.publish_rgb: true`<br> |
-| **Depth Map** | `/zed2i/depth/depth_registered`<br> | `depth.publish_depth_map: true`<br> |
-| **Depth Camera Info** | `/zed2i/depth/camera_info`<br> | `depth.publish_depth_map: true`<br> |
-| **3D Point Cloud** | `/zed2i/points`<br> | `depth.publish_point_cloud: true`<br> |
-| **IMU Data** | `/zed2i/imu/data`<br> | `sensors.publish_imu: true`<br> |
-| **Visual Odometry** | `/zed2i/odom`<br> | `pos_tracking.publish_odom_pose: true`<br> |
-| **Camera Pose** | `/zed2i/pose`<br> | `pos_tracking.publish_odom_pose: true`<br> |
-| **Node Status** | *(Internal status topics)* | `general.publish_status: true`<br> |
+| Data Type | Published Topic | Enabling YAML Parameter | Available in |
+| --- | --- | --- | --- |
+| **RGB Image (Rectified)** | `/zed2i/rgb/image_rect_color`<br> | `video.publish_rgb: true`<br> | `rgb`, `nav` |
+| **RGB Camera Info** | `/zed2i/rgb/camera_info`<br> | `video.publish_rgb: true`<br> | `rgb`, `nav` |
+| **IMU Data** | `/zed2i/imu/data`<br> | `sensors.publish_imu: true`<br> | `rgb`, `nav` |
+| **Node Status** | *(Internal status topics)* | `general.publish_status: true`<br> | `rgb`, `nav` |
+| **Depth Map** | `/zed2i/depth/depth_registered`<br> | `depth.publish_depth_map: true`<br> | `nav` only |
+| **Depth Camera Info** | `/zed2i/depth/camera_info`<br> | `depth.publish_depth_map: true`<br> | `nav` only |
+| **3D Point Cloud** | `/zed2i/points`<br> | `depth.publish_point_cloud: true`<br> | `nav` only |
+| **Visual Odometry** | `/zed2i/odom`<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav` only |
+| **Camera Pose** | `/zed2i/pose`<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav` only |
 
 
 ---
@@ -66,7 +73,7 @@ Note: Visual odometry operates in `two_d_mode: true`, forcing navigation logic o
 
 ## 4. Available But Disabled Data
 
-The ZED SDK and ROS 2 wrapper support extracting significantly more data, which is currently turned off in `zed2i.yaml` to save bandwidth and compute resources. These can be enabled if required for future features.
+The ZED SDK and ROS 2 wrapper support extracting significantly more data, which is currently turned off in both `zed2i_rgb.yaml` and `zed2i_nav.yaml` to save bandwidth and compute resources. These can be enabled if required for future features.
 
 **Video & Imaging:**
 

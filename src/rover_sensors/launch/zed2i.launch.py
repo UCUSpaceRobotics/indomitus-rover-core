@@ -2,11 +2,14 @@ from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, GroupAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.substitutions import FindPackageShare
-from launch.substitutions import LaunchConfiguration, IfElseSubstitution, NotEqualsSubstitution
-from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
+from launch.substitutions import (
+    EqualsSubstitution, IfElseSubstitution, LaunchConfiguration,
+    NotEqualsSubstitution, PathJoinSubstitution,
+)
 from launch_ros.actions import SetRemap
 
-DEFAULT_ZED2I_CONFIG_NAME = "zed2i.yaml"
+RGB_CONFIG_NAME = "zed2i_rgb.yaml"
+NAV_CONFIG_NAME = "zed2i_nav.yaml"
 CAMERA_MODEL = "zed2i"
 
 
@@ -14,15 +17,33 @@ def generate_launch_description():
     child_launch_file_path = PathJoinSubstitution([
         FindPackageShare("zed_wrapper"), "launch", "zed_camera.launch.py"
     ])
-    default_config_path = PathJoinSubstitution([
-        FindPackageShare("rover_sensors"), "config", DEFAULT_ZED2I_CONFIG_NAME
-    ])
+
+    mode_val = LaunchConfiguration("mode")
+    mode_arg = DeclareLaunchArgument(
+        name="mode",
+        default_value="rgb",
+        description=(
+            "Camera operation mode: 'rgb' publishes only the rectified color feed for the "
+            "operator, 'nav' additionally enables the point cloud and VIO used by navigation stack. "
+            "Selects the default config file, unless `config_path` is set explicitly."
+        ),
+        choices=["rgb", "nav"],
+    )
+
+    default_config_path = IfElseSubstitution(
+        EqualsSubstitution(mode_val, "nav"),
+        if_value=PathJoinSubstitution([FindPackageShare("rover_sensors"), "config", NAV_CONFIG_NAME]),
+        else_value=PathJoinSubstitution([FindPackageShare("rover_sensors"), "config", RGB_CONFIG_NAME]),
+    )
 
     config_path_val = LaunchConfiguration("config_path")
     config_path_arg = DeclareLaunchArgument(
         name="config_path",
-        default_value=default_config_path,
-        description="Path to the config for the ZED 2i stereo camera",
+        default_value="",
+        description=(
+            "Full path to the config for the ZED 2i stereo camera. Overrides the default "
+            "config chosen by `mode` when set."
+        ),
     )
 
     publish_tf_val = LaunchConfiguration("publish_tf")
@@ -89,6 +110,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        mode_arg,
         config_path_arg,
         publish_tf_arg,
         publish_map_tf_arg,
