@@ -14,7 +14,7 @@ To speed up development and standardize common workflows, our development contai
 | **`tl`** | `ros2 topic list` | Lists all active ROS 2 topics. |
 | **`nl`** | `ros2 node list` | Lists all active ROS 2 nodes. |
 | **`te`** | `ros2 topic echo` | Echoes data published to a specific ROS 2 topic. |
-| **`launch_rover`** | `ros2 launch rover_bringup rover.launch.py` | Launches the main rover bringup file. Add `zed2i_mode:=rgb` for the operator camera feed or `zed2i_mode:=nav` before running `launch_nav`; leave unset to skip the ZED2i entirely (e.g. if it's not connected). |
+| **`launch_rover`** | `ros2 launch rover_bringup rover.launch.py` | Launches the main rover bringup file. You can add parameters after it (e.g. `interface:=can0`, `zed2i_mode:=rgb`). |
 | **`launch_joy`** | `ros2 launch rover_teleop joy.launch.py` | Launches the joystick teleop nodes. |
 | **`launch_navigation`**, **`launch_nav`** | `ros2 launch rover_bringup navigation.launch.py` | Launches the navigation stack (LiDAR, SLAM, Nav2). Both aliases perform the exact same action. Requires the ZED2i to already be running in `nav` mode via `launch_rover zed2i_mode:=nav` — this file does not start the camera itself. |
 | **`kill_node`** | *(Custom Bash Function)* | Safely shuts down a target node by attempting a graceful `SIGINT`, then falling back to a forced `SIGKILL` after 2 seconds if it hangs. Usage: `kill_node <node_name>`. |
