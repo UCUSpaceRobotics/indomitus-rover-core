@@ -36,7 +36,16 @@ The rover's `robot_state_publisher`, `ekf_node`, and `slam_toolbox` are strictly
 * `publish_tf`: Disabled in both launch arguments and YAML (`pos_tracking.publish_tf`).
 * `publish_map_tf`: Disabled in both launch arguments and YAML (`pos_tracking.publish_map_tf`).
 * `publish_urdf_tf`: Disabled in launch arguments.
-* `publish_imu_tf`: Disabled in YAML (`sensors.publish_imu_tf`).
+
+**Exception: `publish_imu_tf` is enabled.** `rover_description`'s URDF never defines
+a `zed2i_imu_link` (the vendored `zed_description` package doesn't include an IMU
+frame at all), so `robot_state_publisher` has no way to provide
+`zed2i_left_camera_frame -> zed2i_imu_link`. The ZED node is the only source for
+this transform (it uses the camera's factory-calibrated extrinsic), and since it
+doesn't overlap any frame `robot_state_publisher` owns, enabling it here doesn't
+violate the "ZED node owns no TF" rule above. It's forwarded as the `publish_imu_tf`
+launch argument (default `true`) — the upstream `zed_camera.launch.py` otherwise
+defaults it to `false` and silently overrides the YAML value.
 
 
 ---

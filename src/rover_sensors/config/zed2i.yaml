@@ -34,7 +34,7 @@
       publish_stereo: false # Advertise the stereo image topic that is published only if a node subscribes to it
 
     sensors:
-      publish_imu_tf: false # [overwritten by launch file options] enable/disable the IMU TF broadcasting
+      publish_imu_tf: true # [overwritten by launch file options] enable/disable the IMU TF broadcasting (if false, IMU frame is not linked to any other rover frame)
       sensors_image_sync: false # Synchronize Sensors messages with latest published video/depth message
       sensors_pub_rate: 100. # frequency of publishing of sensors data. MAX: 400. - MIN: grab rate
       publish_imu: true # Advertise the IMU topic that is published only if a node subscribes to it

@@ -49,6 +49,18 @@ def generate_launch_description():
         choices=["true", "false"],
     )
 
+    publish_imu_tf_val = LaunchConfiguration("publish_imu_tf")
+    publish_imu_tf_arg = DeclareLaunchArgument(
+        "publish_imu_tf",
+        default_value="true",
+        description="Enable publication of the static `zed2i_left_camera_frame -> "
+                     "zed2i_imu_link` TF. Unlike the other TF args this does not "
+                     "conflict with robot_state_publisher: rover_description's URDF "
+                     "never defines the IMU link, so the ZED node's factory-calibrated "
+                     "extrinsic is the only source for it.",
+        choices=["true", "false"],
+    )
+
     custom_config_file_present = NotEqualsSubstitution(config_path_val, "")
     config_file = IfElseSubstitution(
         custom_config_file_present,
@@ -83,6 +95,7 @@ def generate_launch_description():
                     "publish_tf": publish_tf_val,
                     "publish_map_tf": publish_map_tf_val,
                     "publish_urdf": publish_urdf_tf_val,
+                    "publish_imu_tf": publish_imu_tf_val,
                 }.items()
             ),
         ]
@@ -93,5 +106,6 @@ def generate_launch_description():
         publish_tf_arg,
         publish_map_tf_arg,
         publish_urdf_arg,
+        publish_imu_tf_arg,
         launch_file_with_remappings,
     ])
