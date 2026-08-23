@@ -9,7 +9,6 @@ map
  └── odom
       └── base_footprint  (flat: z=0, roll=pitch=0)
            └── base_link  (real, tilted 6-DOF pose)
-                ├── base_link_ground_ref  (offset from base_link; rotates with base_link)
                 ├── suspension_base_axii_link
                 │    └── main_body_link
                 │         ├── zed2i_camera_link
@@ -20,7 +19,6 @@ map
                 ├── br_wheel_mount_link -> br_wheel_link
                 ├── l_rocker_link
                 └── r_rocker_link
-
 ```
 
 `base_footprint -> base_link` is **not** a URDF joint (a `fixed` joint can't
@@ -52,4 +50,4 @@ ownership table below and the rationale in `rover.urdf.xacro`.
 
 1. Before adding any new node that fuses odometry, publishes pose, or integrates sensor data into a frame already listed above, check this table — do not enable a second `publish_tf`-style flag for an already-owned transform.
 2. If ownership of any transform changes, update this table in the same PR.
-3. `base_footprint` must stay flat (REP 105/120: z=0, roll=pitch=0) — it's what nav2 (`robot_base_frame`) and `slam_toolbox` (`base_frame`) are built assuming. Any consumer that needs the rover's *real* tilted pose should read `base_link` (body-height origin) or `base_link_ground_ref` (same tilt, but referenced to true ground height). Do not fuse IMU orientation into `ekf_filter_node` as a shortcut to get tilt onto `base_footprint` — that breaks the flat-frame guarantee for every other consumer of it.
+3. `base_footprint` must stay flat (REP 105/120: z=0, roll=pitch=0) — it's what nav2 (`robot_base_frame`) and `slam_toolbox` (`base_frame`) are built assuming. Any consumer that needs the rover's *real* tilted pose should read `base_link`. Do not fuse IMU orientation into `ekf_filter_node` as a shortcut to get tilt onto `base_footprint` — that breaks the flat-frame guarantee for every other consumer of it.
