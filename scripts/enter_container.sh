@@ -111,7 +111,7 @@ run_rover() {
   # Defaults
   local JETSON_USER="indomitus-rover"
   local JETSON_HOTSPOT_IP="10.42.0.1"
-  local JETSON_ETHERNET_IP="indomitus-rover-computer.local"
+  local JETSON_ETHERNET_IP="indomitus-rover.local"
   local JETSON_IP="${JETSON_HOTSPOT_IP}"
   local REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
   local CONTAINER_NAME="rover_prod"
