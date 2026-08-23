@@ -128,6 +128,7 @@ To power down the rover, perform **one** of the following actions:
 | Property | Value |
 | --- | --- |
 | **Jetson Username** | `indomitus-rover` |
+| **Jetson Computer Name** | `indomitus-rover` |
 | **Jetson Password** | `1` |
 | **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
 | **Wi-Fi Password** | `12345678` |
@@ -147,7 +148,7 @@ You can SSH into the Jetson to access its bash shell for debugging or configurat
 
 2. **Initiate the connection:** Open your terminal and run the following command:
    ```bash
-   ssh indomitus-rover@indomitus-rover-computer.local
+   ssh indomitus-rover@indomitus-rover.local
    ```
 
 #### SSH via Ethernet
@@ -160,7 +161,7 @@ You can SSH into the Jetson to access its bash shell for debugging or configurat
 
 4. **Initiate the connection:** Open your terminal and run the following command:
    ```bash
-   ssh indomitus-rover@indomitus-rover-computer.local
+   ssh indomitus-rover@indomitus-rover.local
    ```
 
 > **Note:** For further details on the network configuration, refer to [ssh.md](docs/networking/ssh.md).
