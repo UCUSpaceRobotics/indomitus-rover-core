@@ -57,7 +57,8 @@ Ensure the system detects the adapter physically.
 lsusb
 ```
 
-*Look for: `Realtek Semiconductor Corp. RTL8812AU*`
+*Look for: `Realtek Semiconductor Corp. RTL8812AU`*
+
 2. **Install build dependencies:**
 ```bash
 sudo apt update && sudo apt install -y dkms git build-essential
