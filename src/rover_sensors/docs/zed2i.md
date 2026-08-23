@@ -117,14 +117,19 @@ NOT VALID SERIAL NUMBER FOR SENSORS MODULE MCU
 
 **This rule must be installed on the host, not just present in the container image — and that's true for any container backend, distrobox included.** `/dev` is bind-mounted from the host into the container in both distrobox and `docker compose` (see `docker/docker-compose.dev.example.yaml`, `docker/docker-compose.prod.yaml`), so device node permissions are applied by the **host's** udevd. It never reads a rules file that only exists inside the container's own `/etc/udev/rules.d` — the container backend doesn't change that, only whether `/dev` is host-shared (it is, in both of our setups).
 
-Until this is wired into `system/setup.sh` (which already automates the CAN and joystick-LED udev rules the same way), install it manually on the host:
+Install it manually on the host:
+
+Pull the rule out of the running container and install it on the host
+```bash
+distrobox enter <container> -- cat /etc/udev/rules.d/99-slabs.rules | sudo tee /etc/udev/rules.d/99-slabs.rules >/dev/null
+```
+
+or, for a plain docker-compose container:
+```bash
+docker exec <container> cat /etc/udev/rules.d/99-slabs.rules | sudo tee /etc/udev/rules.d/99-slabs.rules >/dev/null
+```
 
 ```bash
-# Pull the rule out of the running container and install it on the host
-distrobox enter <container> -- cat /etc/udev/rules.d/99-slabs.rules | sudo tee /etc/udev/rules.d/99-slabs.rules >/dev/null
-# or, for a plain docker-compose container:
-docker exec <container> cat /etc/udev/rules.d/99-slabs.rules | sudo tee /etc/udev/rules.d/99-slabs.rules >/dev/null
-
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
