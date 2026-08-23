@@ -97,3 +97,47 @@ The ZED SDK and ROS 2 wrapper support extracting significantly more data, which 
 * `publish_3d_landmarks`: 3D visual features used by the positional tracking algorithm.
 * `publish_pose_cov`: Pose data including covariance matrices.
 * `publish_cam_path`: Historical trajectory path of the camera.
+
+
+---
+
+
+## 5. Troubleshooting
+
+### udev Rule (sensor MCU permission denied)
+
+The ZED SDK installer bakes a udev rule (`/etc/udev/rules.d/99-slabs.rules`) into the Docker image at build time, granting non-root access to the camera's USB/HID device nodes. If the camera opens but the sensor module doesn't, you'll see:
+
+```text
+[ZED][MCU] Permissions denied : can't open device. Make sure you have installed udev rules or use sudo
+[ZED] A ZED camera was detected, but the sensors returned an invalid serial number.
+...
+NOT VALID SERIAL NUMBER FOR SENSORS MODULE MCU
+```
+
+**This rule must be installed on the host, not just present in the container image — and that's true for any container backend, distrobox included.** `/dev` is bind-mounted from the host into the container in both distrobox and `docker compose` (see `docker/docker-compose.dev.example.yaml`, `docker/docker-compose.prod.yaml`), so device node permissions are applied by the **host's** udevd. It never reads a rules file that only exists inside the container's own `/etc/udev/rules.d` — the container backend doesn't change that, only whether `/dev` is host-shared (it is, in both of our setups).
+
+Until this is wired into `system/setup.sh` (which already automates the CAN and joystick-LED udev rules the same way), install it manually on the host:
+
+```bash
+# Pull the rule out of the running container and install it on the host
+distrobox enter <container> -- cat /etc/udev/rules.d/99-slabs.rules | sudo tee /etc/udev/rules.d/99-slabs.rules >/dev/null
+# or, for a plain docker-compose container:
+docker exec <container> cat /etc/udev/rules.d/99-slabs.rules | sudo tee /etc/udev/rules.d/99-slabs.rules >/dev/null
+
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+Then unplug/replug the camera (or just relaunch) — no container restart needed, since this only touches the host's udev state.
+
+### GPU Passthrough (`libcuda.so.1` missing)
+
+The ZED component container also needs the host's CUDA driver library, which is provided by mounting the NVIDIA driver in — not by anything baked into the image:
+
+```
+Failed to load library: Could not load library dlopen error: libcuda.so.1: cannot open shared object file: No such file or directory
+```
+
+* **`docker compose`**: needs the `deploy.resources.reservations.devices` (`driver: nvidia`) block present in the compose file, and the NVIDIA Container Toolkit installed on the host.
+* **distrobox**: the box must be created with `--nvidia`. This can't be toggled on an existing box — it must be recreated (`distrobox rm` + `distrobox create --nvidia`). Note `/opt/ws` and `/opt/hw_ws` aren't bind-mounted, so recreating a box wipes the ROS build inside it — `colcon build` again afterward.
