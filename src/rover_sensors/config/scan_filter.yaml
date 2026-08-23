@@ -2,6 +2,7 @@
 
 /**/laser_filter_node:
   ros__parameters:
+
     filter1:
       name: range_filter
       type: laser_filters/LaserScanRangeFilter
@@ -12,21 +13,29 @@
         lower_replacement_value: .nan
         upper_replacement_value: .nan
 
+    # This is temporary filter untill new mounting for the Stereo Camera is not developed
     filter2:
+      name: self_filter_stereo_camera
+      type: laser_filters/LaserScanAngularBoundsFilterInPlace
+      params:
+        lower_angle: -0.262  # ~-15 deg
+        upper_angle: 0.262  # ~15 deg
+
+    filter3:
       name: self_filter_towerlight_left
       type: laser_filters/LaserScanAngularBoundsFilterInPlace
       params:
-        lower_angle: 2.199   # ~126 deg
-        upper_angle: 2.583   # ~148 deg
+        lower_angle: 2.199  # ~126 deg
+        upper_angle: 2.583  # ~148 deg
 
-    filter3:
+    filter4:
       name: self_filter_towerlight_right
       type: laser_filters/LaserScanAngularBoundsFilterInPlace
       params:
         lower_angle: -2.583  # ~-148 deg
         upper_angle: -2.199  # ~-126 deg
 
-    filter4:
+    filter5:
       name: self_filter_mast
       type: laser_filters/LaserScanAngularBoundsFilterInPlace
       params:
@@ -34,11 +43,11 @@
         upper_angle: -2.932  # ~-168 deg
         wrap_angle: true
 
-    filter5:
+    filter6:
       name: speckle_filter
       type: laser_filters/LaserScanSpeckleFilter
       params:
-        filter_type: 1  # 0 = Distance, 1 = RadiusOutlier
+        filter_type: 1   # 0 = Distance, 1 = RadiusOutlier
         max_range: 18.0
         max_range_difference: 0.1
         filter_window: 2
