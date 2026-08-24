@@ -15,7 +15,7 @@ import sys
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler, SetLaunchConfiguration
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events.process import ProcessExited
@@ -136,8 +136,11 @@ def generate_launch_description() -> LaunchDescription:
     demo_launch = generate_demo_launch(moveit_config)
 
     ld = LaunchDescription()
-    # Override moveit_configs_utils' default (true) — headless by default.
-    ld.add_action(SetLaunchConfiguration("use_rviz", "false"))
+    # DeclareLaunchArgument (unlike SetLaunchConfiguration) only applies its
+    # default when the arg isn't already set — so use_rviz:=true on the CLI
+    # still wins over this, and generate_demo_launch()'s own default (true)
+    # never gets a chance to apply since this one runs first.
+    ld.add_action(DeclareLaunchArgument("use_rviz", default_value="false"))
     ld.add_action(declare_use_fake_hardware_cmd)
     ld.add_action(declare_end_effector_cmd)
     for action in demo_launch.entities:

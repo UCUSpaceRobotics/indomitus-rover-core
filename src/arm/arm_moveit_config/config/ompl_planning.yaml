@@ -1,23 +1,24 @@
 # OMPL planning pipeline for indomitus_arm (MoveIt 2 Humble).
 #
 # AddTimeOptimalParameterization (TOTG) times the geometric path using
-# velocity/acceleration limits. AddRuckigTrajectorySmoothing then reshapes
-# it under jerk limits from joint_limits.yaml — order matters: TOTG first.
-ompl:
-  planning_plugin: ompl_interface/OMPLPlanner
-  request_adapters: >-
-    default_planner_request_adapters/ResolveConstraintFrames
-    default_planner_request_adapters/FixWorkspaceBounds
-    default_planner_request_adapters/FixStartStateBounds
-    default_planner_request_adapters/FixStartStateCollision
-    default_planner_request_adapters/AddTimeOptimalParameterization
-    default_planner_request_adapters/AddRuckigTrajectorySmoothing
-  start_state_max_bounds_error: 0.1
+# velocity/acceleration limits from joint_limits.yaml — sufficient on its
+# own for safe timing. AddRuckigTrajectorySmoothing (extra jerk-limiting on
+# top) is deliberately NOT enabled: on the real arm it failed
+# (Ruckig error -100) and silently truncated the trajectory to a single
+# point — move_group reported "executed" but the arm never moved.
+planning_plugin: ompl_interface/OMPLPlanner
+request_adapters: >-
+  default_planner_request_adapters/ResolveConstraintFrames
+  default_planner_request_adapters/FixWorkspaceBounds
+  default_planner_request_adapters/FixStartStateBounds
+  default_planner_request_adapters/FixStartStateCollision
+  default_planner_request_adapters/AddTimeOptimalParameterization
+start_state_max_bounds_error: 0.1
 
+planner_configs:
+  RRTConnectkConfigDefault:
+    type: geometric::RRTConnect
+
+indomitus_arm:
   planner_configs:
-    RRTConnectkConfigDefault:
-      type: geometric::RRTConnect
-
-  indomitus_arm:
-    planner_configs:
-      - RRTConnectkConfigDefault
+    - RRTConnectkConfigDefault

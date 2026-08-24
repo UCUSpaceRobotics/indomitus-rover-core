@@ -151,7 +151,7 @@
       <child link="arm_end_effector_link"/>
       <origin xyz="0.0323 0 -0.035" rpy="${-pi/2} ${pi/3} ${-pi/2}"/>
       <axis xyz="0 0 1"/>
-      <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
+      <limit lower="${-2*pi}" upper="${2*pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <!-- Drill/sample masses+centroids: STL divergence-theorem volumes (not

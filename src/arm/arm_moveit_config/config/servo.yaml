@@ -57,18 +57,17 @@ moveit_servo:
     halt_all_joints_in_joint_mode: true
     halt_all_joints_in_cartesian_mode: true
 
-    # Re-enabled and confirmed live: the old "zeros +X (W) after ~80ms from
-    # home while -X (S) still moves" false-positive (see git history for
-    # why this was originally turned off) did not reproduce on the current
-    # model/mesh set — teleop halts appropriately near real collisions
-    # without falsely tripping at home. check_collisions is a start-time-
-    # only param — `ros2 param set` will NOT toggle a running servo_node,
-    # a rebuild + fresh demo.launch.py restart is required to apply any
-    # future change here.
+    # check_collisions is a start-time-only param — `ros2 param set` will NOT
+    # toggle a running servo_node, a rebuild + fresh demo.launch.py restart
+    # is required to apply any change here.
     check_collisions: true
     collision_check_rate: 10.0
-    self_collision_proximity_threshold: 0.01
-    scene_collision_proximity_threshold: 0.02
+    # Deceleration ramps up as distance drops below these thresholds (not a
+    # hard stop at the threshold) — kept tight so the ramp is only felt very
+    # close to an actual collision, not from normal working distance. Watch
+    # /servo_node/collision_velocity_scale live to retune (1.0 = full speed).
+    self_collision_proximity_threshold: 0.003
+    scene_collision_proximity_threshold: 0.005
 
     # Home wrist is near 0; default 17/30 scaled +X to a halt. Same idea as
     # NHWA SpaceMouse teleop: do not decelerate for Jacobian condition number.
