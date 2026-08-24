@@ -8,6 +8,8 @@
  * guaranteeing a perfectly flat navigation footprint without kinematic yaw drift.
  */
 
+#include <mutex>
+
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -44,6 +46,14 @@ public:
     sub_ = create_subscription<sensor_msgs::msg::Imu>(
       get_parameter("imu_topic").as_string(), rclcpp::SensorDataQoS(),
       std::bind(&TiltBroadcasterNode::callback, this, std::placeholders::_1));
+
+    // Publish on a steady timer stamped at now(), not once per IMU message, so
+    // the transform stays fresh even if the IMU stream stutters. A stale edge
+    // caused "extrapolation into the past" and aborts during rotation.
+    const double rate_hz = 50.0;
+    timer_ = rclcpp::create_timer(
+      this, get_clock(), rclcpp::Duration::from_seconds(1.0 / rate_hz),
+      std::bind(&TiltBroadcasterNode::publishTilt, this));
   }
 
 private:
@@ -83,8 +93,24 @@ private:
     tf2::Quaternion q_tilt;
     q_tilt.setRPY(roll, pitch, 0.0);
 
+    std::lock_guard<std::mutex> lock(tilt_mutex_);
+    q_tilt_ = q_tilt;
+    have_tilt_ = true;
+  }
+
+  void publishTilt()
+  {
+    tf2::Quaternion q_tilt;
+    {
+      std::lock_guard<std::mutex> lock(tilt_mutex_);
+      if (!have_tilt_) {return;}  // nothing to publish until the first IMU msg
+      q_tilt = q_tilt_;
+    }
+
     geometry_msgs::msg::TransformStamped tf_msg;
-    tf_msg.header.stamp = msg->header.stamp;
+    // Stamp at now(): tilt changes slowly, so re-publishing the latest attitude
+    // at the present time is correct and avoids stale-stamp extrapolation.
+    tf_msg.header.stamp = get_clock()->now();
     tf_msg.header.frame_id = parent_frame_;
     tf_msg.child_frame_id = child_frame_;
     tf_msg.transform.translation.x = 0.0;
@@ -105,6 +131,10 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> broadcaster_;
+  rclcpp::TimerBase::SharedPtr timer_;
+  std::mutex tilt_mutex_;
+  tf2::Quaternion q_tilt_{0.0, 0.0, 0.0, 1.0};
+  bool have_tilt_ = false;
 };
 
 int main(int argc, char ** argv)
