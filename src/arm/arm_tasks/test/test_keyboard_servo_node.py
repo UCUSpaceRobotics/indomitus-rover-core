@@ -264,74 +264,39 @@ def test_is_panel_visible_false_once_stale(controller):
 
 def test_has_remembered_panel_position_reflects_state(controller):
     assert controller.has_remembered_panel_position is False
-    controller._panel_target_positions = [0.0] * len(HOME_POSE_JOINTS)
+    controller._panel_align_succeeded_once = True
     assert controller.has_remembered_panel_position is True
 
 
-# ── align_to_panel(): the three cases ────────────────────────────────────
+# ── align_to_panel(): now just one path — always calls panel_align_node,
+# which itself owns the remembered-target/live-align decision (see
+# test_panel_align_node.py for that side) ──────────────────────────────
 
-def test_align_fails_without_calling_service_when_nothing_known(controller, monkeypatch):
-    service_checked = []
-    monkeypatch.setattr(
-        controller._panel_align_client, 'wait_for_service',
-        lambda timeout_sec=0: service_checked.append(True) or True,
-    )
+def test_align_fails_when_service_unavailable(controller, monkeypatch):
+    monkeypatch.setattr(controller._panel_align_client, 'wait_for_service', lambda timeout_sec=0: False)
     assert controller.align_to_panel() is False
-    assert service_checked == []  # no memory, not visible: never even asked
+    assert controller.has_remembered_panel_position is False
 
 
-def test_align_replays_remembered_position_without_calling_service(controller, monkeypatch):
-    controller._panel_target_positions = [0.1] * len(HOME_POSE_JOINTS)
-    service_checked = []
-    monkeypatch.setattr(
-        controller._panel_align_client, 'wait_for_service',
-        lambda timeout_sec=0: service_checked.append(True) or True,
-    )
-    monkeypatch.setattr(controller, 'stop_servo', lambda: True)
-    monkeypatch.setattr(controller, 'use_trajectory_controller', lambda: True)
-    moved = []
-    monkeypatch.setattr(
-        controller, '_move_to_joint_positions',
-        lambda positions, label: moved.append((positions, label)) or True,
-    )
-
-    assert controller.align_to_panel() is True
-    assert service_checked == []
-    assert moved == [([0.1] * len(HOME_POSE_JOINTS), 'remembered panel position')]
-
-
-def test_align_replays_remembered_position_even_when_panel_not_visible(controller, monkeypatch):
-    controller._panel_target_positions = [0.2] * len(HOME_POSE_JOINTS)
-    monkeypatch.setattr(controller, 'stop_servo', lambda: True)
-    monkeypatch.setattr(controller, 'use_trajectory_controller', lambda: True)
-    monkeypatch.setattr(controller, '_move_to_joint_positions', lambda p, l: True)
-
-    assert controller.is_panel_visible() is False
-    assert controller.align_to_panel() is True
-
-
-def test_align_calls_service_and_learns_position_on_first_success(controller, monkeypatch):
-    controller._on_panel_pose(PoseStamped())
-    controller._on_joint_state(make_arm_joint_state([0.3] * len(HOME_POSE_JOINTS)))
-
+def test_align_calls_service_and_sets_flag_on_success(controller, monkeypatch):
     monkeypatch.setattr(controller._panel_align_client, 'wait_for_service', lambda timeout_sec=0: True)
 
     class _Result:
         success = True
         message = 'aligned'
 
+    called = []
     monkeypatch.setattr(
-        controller._panel_align_client, 'call_async', lambda req: _FakeFuture(_Result())
+        controller._panel_align_client, 'call_async',
+        lambda req: called.append(req) or _FakeFuture(_Result()),
     )
 
     assert controller.align_to_panel() is True
-    assert controller._panel_target_positions == [0.3] * len(HOME_POSE_JOINTS)
+    assert len(called) == 1
+    assert controller.has_remembered_panel_position is True
 
 
-def test_align_does_not_learn_position_on_service_failure(controller, monkeypatch):
-    controller._on_panel_pose(PoseStamped())
-    controller._on_joint_state(make_arm_joint_state([0.3] * len(HOME_POSE_JOINTS)))
-
+def test_align_failure_does_not_set_flag(controller, monkeypatch):
     monkeypatch.setattr(controller._panel_align_client, 'wait_for_service', lambda timeout_sec=0: True)
 
     class _Result:
@@ -343,7 +308,23 @@ def test_align_does_not_learn_position_on_service_failure(controller, monkeypatc
     )
 
     assert controller.align_to_panel() is False
-    assert controller._panel_target_positions is None
+    assert controller.has_remembered_panel_position is False
+
+
+def test_align_timeout_returns_false_without_hanging(controller, monkeypatch):
+    """A future that never resolves must not block past panel_align_timeout."""
+    monkeypatch.setattr(controller, '_panel_align_timeout', 0.05)
+    monkeypatch.setattr(controller._panel_align_client, 'wait_for_service', lambda timeout_sec=0: True)
+
+    class _NeverResolvingFuture:
+        def add_done_callback(self, cb):
+            pass  # never calls cb — simulates a hung/lost response
+
+    monkeypatch.setattr(
+        controller._panel_align_client, 'call_async', lambda req: _NeverResolvingFuture()
+    )
+
+    assert controller.align_to_panel() is False
 
 
 # ── keyboard: panel prompt / align handlers ──────────────────────────────
@@ -401,7 +382,7 @@ def test_gamepad_panel_align_button_replays_remembered_position(controller, monk
     monkeypatch.setattr(controller, 'start_servo', lambda: True)
     loop._handle_safe_pose()  # unlocks teleop
 
-    controller._panel_target_positions = [0.0] * len(HOME_POSE_JOINTS)
+    controller._panel_align_succeeded_once = True
     aligned = []
     monkeypatch.setattr(loop, '_handle_panel_align', lambda: aligned.append(True))
 

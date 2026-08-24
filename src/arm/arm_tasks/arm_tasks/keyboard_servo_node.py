@@ -94,6 +94,8 @@ from tf2_ros import TransformException
 import evdev
 from evdev import ecodes
 
+from arm_tasks.arm_motion_lock import ArmMotionBusy, arm_motion_lock
+
 
 DEFAULT_LINEAR_SPEED  = 0.2
 DEFAULT_ANGULAR_SPEED = 0.6
@@ -408,20 +410,23 @@ class ServoController(Node):
         self._last_gripper_tick_time = None
 
         # Session-scoped only (reset by restarting this node) — see
-        # align_to_panel(). None until the first live CV+MoveIt align
-        # succeeds; every 'p' press after that replays this exact position
-        # instead of re-planning.
-        self._panel_target_positions = None
+        # align_to_panel(). False until the first successful
+        # panel_align/align call. panel_align_node itself now owns the
+        # remembered joint target (and replans a fresh, collision-checked
+        # path to that exact target every call) — this node only needs
+        # to know THAT one exists, for prompt/gating purposes, not the
+        # actual joint values.
+        self._panel_align_succeeded_once = False
         self._last_panel_visible_time = None
-        # Guards _move_to_joint_positions() — the one choke point both
-        # move_to_safe_pose() and align_to_panel()'s replay branch send
-        # goals through via self._traj_client. Without this, pressing 'r'
-        # (home) and 'p' (replay) close together spawns two threads that
-        # both submit a FollowJointTrajectory goal to the same JTC action
-        # server; confirmed live: the second goal preempts the first
-        # outright (goal status 5/CANCELED), not a queued or rejected
-        # goal, so the operator sees one of the two moves silently "fail"
-        # mid-flight with no obvious cause.
+        # Guards _move_to_joint_positions() against a second 'r' (home)
+        # press racing a first one still in flight — both would submit a
+        # FollowJointTrajectory goal to the same JTC action server via
+        # self._traj_client; confirmed live: the second goal preempts the
+        # first outright (goal status 5/CANCELED), not a queued or
+        # rejected goal, so the operator sees one of the two moves
+        # silently "fail" mid-flight with no obvious cause. 'r' vs 'p'
+        # (panel align) racing is now guarded separately, cross-process,
+        # by arm_motion_lock() — see that module and this same method.
         self._motion_lock = threading.Lock()
 
         self._tf_buffer = Buffer()
@@ -510,8 +515,14 @@ class ServoController(Node):
 
     @property
     def has_remembered_panel_position(self) -> bool:
-        """True if a panel-align target has been learned or saved this session."""
-        return self._panel_target_positions is not None
+        """True once panel_align/align has succeeded at least once this session.
+
+        panel_align_node owns the actual remembered joint target (and
+        replans a fresh, collision-checked path to it every call) — this
+        is just the local echo of "does one exist", for prompt/gating
+        purposes only.
+        """
+        return self._panel_align_succeeded_once
 
     def set_velocity(self, vx=0.0, vy=0.0, vz=0.0,
                      wx=0.0, wy=0.0, wz=0.0,
@@ -793,20 +804,25 @@ class ServoController(Node):
     def _move_to_joint_positions(self, target_positions, label: str) -> bool:
         """Blend from the current joint state to ``target_positions`` and wait.
 
-        Shared by ``move_to_safe_pose()`` and the remembered-panel-position
-        replay path in ``align_to_panel()`` — both are "go to a known,
-        fixed joint vector" moves and should behave identically (quintic
-        blend from wherever the arm currently is via ``_home_trajectory``,
-        same result-waiting/error-reporting contract). Callers are
+        Used by ``move_to_safe_pose()`` for the home move — a raw,
+        UNPLANNED point-to-point blend (quintic via ``_home_trajectory``),
+        not collision-checked. NOT used for panel-align replay anymore:
+        that goes through panel_align_node's own MoveIt planning now (a
+        fresh, collision-checked plan to the remembered joint target every
+        call — see panel_align_node.py's ``_align_to_remembered_locked``),
+        precisely because a raw move like this one can't tell whether the
+        straight-line path to the target is actually clear. Callers are
         responsible for ``stop()``/``stop_servo()``/switching to the
-        trajectory controller first — ``align_to_panel()``'s two paths to
-        this method need different amounts of that setup, so it isn't
-        duplicated here.
+        trajectory controller first.
 
-        Non-blocking-locked (``_motion_lock``) rather than queued: 'r' and
-        'p' racing (see the lock's declaration in ``__init__``) should
+        Non-blocking-locked (``_motion_lock``) rather than queued: two 'r'
+        presses racing (see the lock's declaration in ``__init__``) should
         fail one of them cleanly, not silently submit a second goal that
-        preempts the first mid-motion.
+        preempts the first mid-motion. ``_motion_lock`` alone only
+        protects against racing WITHIN this process though — also takes
+        ``arm_motion_lock()`` (see that module) so a home move here can't
+        race a live align running in the separate panel_align_node
+        process either, for the same reason.
 
         Blocks the calling thread up to ``safe_pose_timeout`` wall-clock
         seconds (<= 0 waits forever).
@@ -814,9 +830,10 @@ class ServoController(Node):
         Returns:
             bool: True if the controller reported the goal SUCCEEDED with
             error code SUCCESSFUL; False if another motion was already in
-            progress, the action server was unavailable, the goal was
-            rejected, the trajectory was aborted/canceled or finished with
-            a controller error, or no result arrived within the timeout.
+            progress (this process or panel_align_node's), the action
+            server was unavailable, the goal was rejected, the trajectory
+            was aborted/canceled or finished with a controller error, or
+            no result arrived within the timeout.
         """
         if not self._motion_lock.acquire(blocking=False):
             self.get_logger().error(
@@ -824,7 +841,14 @@ class ServoController(Node):
             )
             return False
         try:
-            return self._move_to_joint_positions_locked(target_positions, label)
+            try:
+                with arm_motion_lock():
+                    return self._move_to_joint_positions_locked(target_positions, label)
+            except ArmMotionBusy:
+                self.get_logger().error(
+                    f'panel_align_node is currently commanding the arm — aborting {label}.'
+                )
+                return False
         finally:
             self._motion_lock.release()
 
@@ -944,58 +968,22 @@ class ServoController(Node):
         return age <= self._panel_visible_max_age_sec
 
     def align_to_panel(self) -> bool:
-        """Align to the detected panel, replaying a learned pose once one exists.
+        """Ask panel_align_node to align to the panel.
 
-        Three cases:
-          1. A panel position has already been learned this session
-             (``_panel_target_positions`` is not None) — replay it
-             directly via ``_move_to_joint_positions``, without touching
-             panel_align_node/MoveIt/OMPL at all. Works whether or not the
-             panel is currently visible, and is exactly repeatable every
-             time — this is what stops repeated 'p' presses from landing
-             in a slightly different MoveIt-planned pose each time (OMPL
-             is a sampling-based planner; many joint solutions can satisfy
-             the same Cartesian align target within its tolerance).
-          2. Nothing learned yet, but the panel is currently visible —
-             defer to panel_align_node's live CV+MoveIt align (its
-             ``panel_align/align`` service); on success, snapshot the
-             resulting joint state as the new memory so every later 'p'
-             this session takes the fast, deterministic path instead of
-             re-planning.
-          3. Nothing learned yet and the panel isn't visible — fail
-             immediately without calling any service; there's nothing to
-             align to and no way to plan one.
-
-        ``_panel_target_positions`` is session-scoped only, reset by
-        restarting this node.
+        This node no longer owns the remembered target itself —
+        panel_align_node does (see its own align_to_panel(): live
+        CV+MoveIt align on the first successful call, then a fresh
+        collision-checked MoveIt plan to that exact remembered joint
+        target on every call after, rather than a raw point-to-point
+        move — see PR review for why the earlier point-to-point replay
+        wasn't safe). This method is now just the service call:
+        panel_align_node itself decides whether it can act (remembered
+        target, or live panel visibility) and reports why not otherwise.
 
         Returns:
-            bool: True if the arm reached a panel-aligned pose (replayed
-            or freshly planned); False on any failure — see the logged
-            message for which.
+            bool: True if the arm reached a panel-aligned pose; False on
+            any failure — see the logged message for which.
         """
-        if self._panel_target_positions is not None:
-            self.stop()
-            if not self.stop_servo():
-                self.get_logger().error(
-                    'Could not confirm Servo stopped — aborting panel move.'
-                )
-                return False
-            if not self.use_trajectory_controller():
-                self.get_logger().error(
-                    'Could not activate trajectory controller — aborting panel move.'
-                )
-                return False
-            return self._move_to_joint_positions(
-                self._panel_target_positions, 'remembered panel position'
-            )
-
-        if not self.is_panel_visible():
-            self.get_logger().error(
-                'No panel position known yet — point the camera at the panel first.'
-            )
-            return False
-
         self.stop()
 
         if not self._panel_align_client.wait_for_service(timeout_sec=2.0):
@@ -1027,11 +1015,7 @@ class ServoController(Node):
             self.get_logger().error(f'Panel align failed: {outcome["message"]}')
             return False
         self.get_logger().info(f'Panel align succeeded: {outcome["message"]}')
-
-        learned = self._current_arm_positions()
-        if learned is not None:
-            self._panel_target_positions = learned
-            self.get_logger().info('Panel position remembered for this session.')
+        self._panel_align_succeeded_once = True
         return True
 
     def start_servo(self) -> bool:

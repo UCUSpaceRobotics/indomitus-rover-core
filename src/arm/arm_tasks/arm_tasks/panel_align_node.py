@@ -43,7 +43,7 @@ from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose, PoseStamped
 from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import (
-    BoundingVolume, CollisionObject, Constraints, MoveItErrorCodes,
+    BoundingVolume, CollisionObject, Constraints, JointConstraint, MoveItErrorCodes,
     OrientationConstraint, PlanningOptions, PlanningScene, PlanningSceneWorld,
     PositionConstraint,
 )
@@ -57,6 +57,7 @@ from sensor_msgs.msg import CameraInfo
 from shape_msgs.msg import SolidPrimitive
 from std_srvs.srv import Trigger
 
+from arm_tasks.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 from arm_tasks.camera_target_math import (
     StandoffResult, compose_transforms, compute_standoff_distance, compute_target_tip_pose,
 )
@@ -189,6 +190,13 @@ class PanelAlignNode(Node):
         # enough for "camera aimed at the panel".
         self.declare_parameter('position_tolerance', 0.02)
         self.declare_parameter('orientation_tolerance', 0.2)
+        # This 60s, summed with every other wait_for_service/server +
+        # done.wait() in align_to_panel()'s sequence, must stay under
+        # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
+        # comment for the full worst-case budget. A parameter (not a
+        # literal) so tests can shrink it instead of actually waiting 60s
+        # to exercise the cancel-on-timeout path.
+        self.declare_parameter('execution_timeout_sec', 60.0)
 
         self._panel_pose_topic = self.get_parameter('panel_pose_topic').value
         self._camera_info_topic = self.get_parameter('camera_info_topic').value
@@ -197,6 +205,17 @@ class PanelAlignNode(Node):
         self._latest_camera_info: CameraInfo | None = None
         self._camera_to_tip = None  # cached at startup, see _try_cache_camera_to_tip
         self._last_status_message = ''
+        # Session-scoped only (reset by restarting this node). None until
+        # the first live CV+MoveIt align succeeds; every align call after
+        # that replays this exact joint vector via a fresh MoveIt plan
+        # (_align_to_remembered_locked) instead of re-running live CV
+        # detection — see _align_to_panel_locked. {joint_name: position}.
+        self._remembered_target_joints: dict | None = None
+        # The panel pose (in PLANNING_FRAME) used to build the collision
+        # box when _remembered_target_joints was learned — replay's
+        # fallback collision reference when the panel isn't currently in
+        # view (see _align_to_remembered_locked).
+        self._remembered_panel_collision_pose: PoseStamped | None = None
         # Guards align_to_panel() against running twice at once — the
         # 'align' service is registered on a ReentrantCallbackGroup (see
         # module docstring) so its own sub-calls can interleave, but that
@@ -277,19 +296,123 @@ class PanelAlignNode(Node):
     def align_to_panel(self) -> bool:
         """Run the align sequence, refusing to overlap a concurrent call.
 
-        See _align_running's declaration in __init__ for why this guard
-        exists. A rejected concurrent call still gets a clean Trigger
-        failure response instead of interleaving with the in-flight one.
+        See _align_running's declaration in __init__ for why that guard
+        exists — it only protects against a second concurrent request to
+        THIS service, within this process. Also takes arm_motion_lock()
+        (see that module) around the whole sequence, so a live align
+        here can't race a home move or remembered-position replay
+        submitted from the separate keyboard_servo_node process onto the
+        same indomitus_arm_controller action server. A rejected
+        concurrent call still gets a clean Trigger failure response
+        instead of interleaving with the in-flight one.
         """
         if not self._align_running.acquire(blocking=False):
             self.get_logger().warn('Align already in progress — ignoring concurrent request.')
             return self._fail('Another panel align is already in progress.')
         try:
-            return self._align_to_panel_locked()
+            try:
+                with arm_motion_lock():
+                    return self._align_to_panel_locked()
+            except ArmMotionBusy:
+                return self._fail(
+                    'keyboard_servo_node is currently commanding the arm (home/replay) '
+                    '— aborting panel align.'
+                )
         finally:
             self._align_running.release()
 
     def _align_to_panel_locked(self) -> bool:
+        """Replay the remembered target if one exists, else live-align.
+
+        See _remembered_target_joints's declaration in __init__: once
+        set (by a successful _align_live_locked() call), every
+        subsequent align always replays it — deterministic final pose,
+        matching this feature's original design intent — but through a
+        fresh, collision-checked MoveIt plan every time (see
+        _align_to_remembered_locked), not a raw point-to-point move.
+        """
+        if self._remembered_target_joints is not None:
+            return self._align_to_remembered_locked()
+        return self._align_live_locked()
+
+    def _align_to_remembered_locked(self) -> bool:
+        self._last_status_message = ''
+
+        if not self._call_stop_servo():
+            return self._fail('Could not confirm Servo stopped — aborting panel align.')
+
+        if not self._use_trajectory_controller():
+            return self._fail(
+                'Could not activate the trajectory controller — aborting panel align.'
+            )
+
+        # Prefer a CURRENT panel detection for the collision box if one's
+        # available (more accurate — the panel may have been nudged, or
+        # this may be a portable test rig), else fall back to the pose
+        # cached when this target was first learned. Either way, collision-
+        # check against SOMETHING rather than skipping the panel entirely —
+        # this is the actual fix for the replay-bypasses-collision-
+        # checking issue this method exists to close.
+        collision_pose = self._current_live_panel_collision_pose()
+        if collision_pose is None:
+            collision_pose = self._remembered_panel_collision_pose
+        if collision_pose is not None and not self._apply_panel_collision_object(collision_pose):
+            return self._fail('Could not insert panel CollisionObject into the planning scene.')
+
+        goal_constraints = self._build_joint_goal_constraints(self._remembered_target_joints)
+        plan_result = self._request_plan(goal_constraints)
+        if plan_result is None:
+            return self._fail('MoveGroup planning request timed out or was rejected.')
+        if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
+            return self._fail(
+                f'Planning to remembered position failed (MoveItErrorCodes.val={plan_result.error_code.val}).'
+            )
+
+        margin_ok, margin_reason = self._check_joint_margins(plan_result.planned_trajectory)
+        if not margin_ok:
+            return self._fail(f'Planned pose too close to a joint limit: {margin_reason}')
+
+        exec_ok, exec_reason = self._execute(plan_result.planned_trajectory)
+        if not exec_ok:
+            return self._fail(f'Trajectory execution failed: {exec_reason}')
+
+        self._last_status_message = 'Aligned to remembered panel position.'
+        self.get_logger().info(self._last_status_message)
+        return True
+
+    def _current_live_panel_collision_pose(self) -> PoseStamped | None:
+        """Same panel_pose -> PLANNING_FRAME resolution _align_live_locked
+        does, for the collision box only — returns None on ANY failure
+        (stale/missing pose, TF lookup failure) rather than raising, since
+        callers treat this as a nice-to-have over the cached fallback.
+        """
+        panel_pose = self._latest_panel_pose
+        if panel_pose is None:
+            return None
+        age = (self.get_clock().now() - rclpy.time.Time.from_msg(panel_pose.header.stamp)).nanoseconds / 1e9
+        if age > self.get_parameter('max_panel_pose_age_sec').value:
+            return None
+        try:
+            tf_mount_camera = self._tf_buffer.lookup_transform(
+                PLANNING_FRAME, panel_pose.header.frame_id,
+                rclpy.time.Time.from_msg(panel_pose.header.stamp))
+        except tf2_ros.TransformException:
+            return None
+        t = tf_mount_camera.transform.translation
+        r = tf_mount_camera.transform.rotation
+        p = panel_pose.pose.position
+        o = panel_pose.pose.orientation
+        panel_pose_in_mount = compose_transforms(
+            ((t.x, t.y, t.z), (r.x, r.y, r.z, r.w)), ((p.x, p.y, p.z), (o.x, o.y, o.z, o.w)))
+        msg = PoseStamped()
+        msg.header.frame_id = PLANNING_FRAME
+        msg.header.stamp = panel_pose.header.stamp
+        (msg.pose.position.x, msg.pose.position.y, msg.pose.position.z) = panel_pose_in_mount[0]
+        (msg.pose.orientation.x, msg.pose.orientation.y,
+         msg.pose.orientation.z, msg.pose.orientation.w) = panel_pose_in_mount[1]
+        return msg
+
+    def _align_live_locked(self) -> bool:
         self._last_status_message = ''
 
         if not self._call_stop_servo():
@@ -335,7 +458,8 @@ class PanelAlignNode(Node):
 
         try:
             tf_mount_camera = self._tf_buffer.lookup_transform(
-                PLANNING_FRAME, panel_pose.header.frame_id, rclpy.time.Time())
+                PLANNING_FRAME, panel_pose.header.frame_id,
+                rclpy.time.Time.from_msg(panel_pose.header.stamp))
         except tf2_ros.TransformException as exc:
             return self._fail(
                 f'Could not resolve {panel_pose.header.frame_id} -> {PLANNING_FRAME} TF: {exc}')
@@ -381,7 +505,8 @@ class PanelAlignNode(Node):
         if not self._apply_panel_collision_object(panel_pose_mount_msg):
             return self._fail('Could not insert panel CollisionObject into the planning scene.')
 
-        plan_result = self._request_plan(target_pose_msg)
+        goal_constraints = self._build_pose_goal_constraints(target_pose_msg)
+        plan_result = self._request_plan(goal_constraints)
         if plan_result is None:
             return self._fail('MoveGroup planning request timed out or was rejected.')
         if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
@@ -394,6 +519,17 @@ class PanelAlignNode(Node):
         exec_ok, exec_reason = self._execute(plan_result.planned_trajectory)
         if not exec_ok:
             return self._fail(f'Trajectory execution failed: {exec_reason}')
+
+        # Remember the exact joint vector just reached — every later
+        # align (this session) replays THIS, via a fresh collision-
+        # checked plan each time (_align_to_remembered_locked), instead
+        # of re-planning a Cartesian goal through OMPL again (which could
+        # land on a different valid joint solution each call). Cache the
+        # collision pose alongside it as a fallback for when the panel
+        # isn't currently in view at replay time.
+        traj = plan_result.planned_trajectory.joint_trajectory
+        self._remembered_target_joints = dict(zip(traj.joint_names, traj.points[-1].positions))
+        self._remembered_panel_collision_pose = panel_pose_mount_msg
 
         self._last_status_message = f'Aligned to panel (standoff={standoff.distance:.3f}m).'
         self.get_logger().info(self._last_status_message)
@@ -498,31 +634,7 @@ class PanelAlignNode(Node):
             return False
         return bool(result.get('r') and result['r'].success)
 
-    def _request_plan(self, target_pose: PoseStamped):
-        if not self._move_action_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error('/move_action server not available')
-            return None
-
-        goal = MoveGroup.Goal()
-        req = goal.request
-        req.group_name = GROUP_NAME
-        # Explicit on purpose: this request is a Cartesian (position +
-        # orientation constraint) goal, which CHOMP cannot plan for at all
-        # ("Only joint-space goals are supported" — move_group rejects the
-        # whole request with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS
-        # before planning even starts). Leaving pipeline_id empty does NOT
-        # reliably fall back to the configured default_planning_pipeline
-        # (ompl) — confirmed live: once arm_moveit_config also loads chomp
-        # and pilz_industrial_motion_planner alongside ompl, an empty
-        # pipeline_id on this MoveGroup action request resolved to chomp
-        # instead.
-        req.pipeline_id = 'ompl'
-        req.num_planning_attempts = self.get_parameter('num_planning_attempts').value
-        req.allowed_planning_time = self.get_parameter('allowed_planning_time').value
-        req.max_velocity_scaling_factor = self.get_parameter('max_velocity_scaling_factor').value
-        req.max_acceleration_scaling_factor = self.get_parameter('max_acceleration_scaling_factor').value
-        req.start_state.is_diff = True
-
+    def _build_pose_goal_constraints(self, target_pose: PoseStamped) -> Constraints:
         pos_tol = self.get_parameter('position_tolerance').value
         orient_tol = self.get_parameter('orientation_tolerance').value
 
@@ -544,7 +656,55 @@ class PanelAlignNode(Node):
         oc.absolute_z_axis_tolerance = orient_tol
         oc.weight = 1.0
 
-        req.goal_constraints = [Constraints(position_constraints=[pc], orientation_constraints=[oc])]
+        return Constraints(position_constraints=[pc], orientation_constraints=[oc])
+
+    def _build_joint_goal_constraints(self, joint_positions: dict) -> Constraints:
+        """Exact joint-space goal — used for remembered-position replay.
+
+        Unlike the Cartesian pose constraint above (a tolerance REGION,
+        which is what lets OMPL land on a different joint solution every
+        call — the reason replay needed to exist as its own thing in the
+        first place), a joint constraint with a tight tolerance pins down
+        the exact final joint vector: whatever path gets planned there
+        (fresh and collision-checked against the CURRENT scene every
+        call), the arm always ends up at exactly the same pose.
+        """
+        jcs = []
+        for name, position in joint_positions.items():
+            jc = JointConstraint()
+            jc.joint_name = name
+            jc.position = position
+            jc.tolerance_above = 1e-4
+            jc.tolerance_below = 1e-4
+            jc.weight = 1.0
+            jcs.append(jc)
+        return Constraints(joint_constraints=jcs)
+
+    def _request_plan(self, goal_constraints: Constraints):
+        if not self._move_action_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('/move_action server not available')
+            return None
+
+        goal = MoveGroup.Goal()
+        req = goal.request
+        req.group_name = GROUP_NAME
+        # Explicit on purpose: an empty pipeline_id does NOT reliably
+        # fall back to the configured default_planning_pipeline (ompl) —
+        # confirmed live: once arm_moveit_config also loads chomp and
+        # pilz_industrial_motion_planner alongside ompl, an empty
+        # pipeline_id on this MoveGroup action request resolved to chomp
+        # instead, which can't plan the Cartesian (position + orientation
+        # constraint) goals _build_pose_goal_constraints produces at all
+        # ("Only joint-space goals are supported" — move_group rejects
+        # the whole request with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS
+        # before planning even starts).
+        req.pipeline_id = 'ompl'
+        req.num_planning_attempts = self.get_parameter('num_planning_attempts').value
+        req.allowed_planning_time = self.get_parameter('allowed_planning_time').value
+        req.max_velocity_scaling_factor = self.get_parameter('max_velocity_scaling_factor').value
+        req.max_acceleration_scaling_factor = self.get_parameter('max_acceleration_scaling_factor').value
+        req.start_state.is_diff = True
+        req.goal_constraints = [goal_constraints]
         goal.planning_options = PlanningOptions(plan_only=True)
 
         done = threading.Event()
@@ -595,6 +755,7 @@ class PanelAlignNode(Node):
         goal = ExecuteTrajectory.Goal(trajectory=trajectory)
         done = threading.Event()
         result = {}
+        goal_handle = {}
 
         def _result_cb(fut):
             result['r'] = fut.result()
@@ -605,15 +766,34 @@ class PanelAlignNode(Node):
             if gh is None or not gh.accepted:
                 done.set()
                 return
+            goal_handle['gh'] = gh
             gh.get_result_async().add_done_callback(_result_cb)
 
         self._execute_client.send_goal_async(goal).add_done_callback(_goal_cb)
-        # This 60s, summed with every other wait_for_service/server +
-        # done.wait() in align_to_panel()'s sequence, must stay under
-        # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
-        # comment for the full worst-case budget.
-        if not done.wait(timeout=60.0):
-            return False, 'execution timed out'
+        if not done.wait(timeout=self.get_parameter('execution_timeout_sec').value):
+            # Critical: NOT cancelling here would leave the JTC goal
+            # running server-side after this function returns "failed" —
+            # keyboard_servo_node.py's align handler unconditionally
+            # restarts Servo (switching to the streaming controller)
+            # right after any align outcome, success or failure. Without
+            # this cancel-and-wait, that reactivation would race an
+            # execution possibly still in flight, i.e. two control paths
+            # (JTC finishing the old trajectory, Servo streaming the new
+            # one) briefly commanding the same joints. Cancelling and
+            # waiting for the terminal state means align_to_panel() never
+            # returns until the arm is actually no longer moving under
+            # this goal, so it's safe for the caller to switch
+            # controllers immediately after.
+            gh = goal_handle.get('gh')
+            if gh is not None:
+                cancel_done = threading.Event()
+                gh.cancel_goal_async().add_done_callback(lambda _f: cancel_done.set())
+                cancel_done.wait(timeout=5.0)
+                # Give the result callback a chance to arrive after the
+                # cancel is acknowledged, so we don't return while the
+                # goal is still mid-cancellation on the server side.
+                done.wait(timeout=5.0)
+            return False, 'execution timed out (goal cancelled)'
 
         wrapped = result.get('r')
         if wrapped is None or wrapped.status != GoalStatus.STATUS_SUCCEEDED:
