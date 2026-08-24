@@ -23,6 +23,9 @@
 <exec_depend>tf2_ros</exec_depend>
 <exec_depend>controller_manager_msgs</exec_depend>
 <exec_depend>moveit_servo</exec_depend>
+<exec_depend>moveit_msgs</exec_depend>
+<exec_depend>shape_msgs</exec_depend>
+<exec_depend>tf2_ros</exec_depend>
 <exec_depend>arm_moveit_config</exec_depend>
 
 <exec_depend>arm_description</exec_depend>
@@ -30,6 +33,8 @@
 <exec_depend>launch</exec_depend>
 <exec_depend>launch_ros</exec_depend>
 <exec_depend>joy</exec_depend>
+<exec_depend>python3-numpy</exec_depend>
+<exec_depend>python3-scipy</exec_depend>
 <exec_depend>python3-evdev</exec_depend>
 
 <test_depend>ament_copyright</test_depend>

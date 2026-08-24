@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'arm_tasks'
+package_name = 'panel_perception'
 
 setup(
     name=package_name,
@@ -9,21 +9,18 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml', 'poses.json']),
+        ('share/' + package_name, ['package.xml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='UCUSpaceRobotics',
     maintainer_email='indomitus@ucu.edu.ua',
-    description='Core control tasks and MoveIt scripts for the Indomitus arm',
+    description="Fuses aruco_opencv per-marker detections of the switch panel's 3 ArUco tags into a single panel pose",
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'teach_poses = arm_tasks.teach_poses:main',
-            'keyboard_servo_node = arm_tasks.keyboard_servo_node:main',
-            'gamepad_servo_node = arm_tasks.keyboard_servo_node:main_gamepad',
-            'panel_align_node = arm_tasks.panel_align_node:main',
+            'panel_pose_fuser_node = panel_perception.panel_pose_fuser_node:main',
         ],
     },
 )

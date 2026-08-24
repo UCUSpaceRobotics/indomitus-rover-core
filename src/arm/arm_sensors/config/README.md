@@ -1,11 +1,13 @@
 # Camera calibration
 
-No calibration file exists yet — `camera.launch.py`'s `camera_info_url`
-defaults to empty (uncalibrated: `sensor_msgs/CameraInfo` with all-zero
-distortion/intrinsics).
+`ov5693_usb.yaml` is this camera unit's real checkerboard calibration
+(`backend:=usb`), done with it mounted in its final position on the arm
+— `camera.launch.py`'s `camera_info_url` defaults to it. Pass
+`camera_info_url:=""` to go back to uncalibrated (all-zero distortion/
+intrinsics) for quick bringup/eyeballing the image.
 
-Once the OV5693 is mounted in its final position on the arm, run a real
-checkerboard calibration:
+If this camera unit or its mounting ever changes, that calibration is
+no longer valid — redo it:
 
 ```
 ros2 run camera_calibration cameracalibrator --size 8x6 --square 0.025 \
