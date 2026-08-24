@@ -1,3 +1,4 @@
+import contextlib
 import os
 import random
 
@@ -14,7 +15,7 @@ from launch.actions import (
     Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node, SetParameter
@@ -109,8 +110,18 @@ def generate_launch_description() -> LaunchDescription:
     # the same one. random.sample already returns non-repeating picks;
     # the assignment to the 3 named roles below is itself the "any
     # position" half of the randomization.
+    #
+    # An env var (not a DeclareLaunchArgument: this runs as plain Python
+    # during launch-description construction, before any launch argument
+    # would be resolved) makes a specific layout reproducible on demand —
+    # PANEL_MARKER_LAYOUT_SEED=1234 ros2 launch ... replays the exact same
+    # choice. The chosen layout is always logged (see
+    # panel_pose_fuser_node.py's own startup log) so a failure can be
+    # traced back to what was actually in play, seed or not.
     ALLOWED_MARKER_IDS = [11, 13, 14, 15]
-    marker_id_top_left, marker_id_top_right, marker_id_bottom_left = random.sample(
+    _seed_env = os.environ.get('PANEL_MARKER_LAYOUT_SEED')
+    _rng = random.Random(int(_seed_env)) if _seed_env else random.Random()
+    marker_id_top_left, marker_id_top_right, marker_id_bottom_left = _rng.sample(
         ALLOWED_MARKER_IDS, 3)
 
     panel_description_content = ParameterValue(
@@ -131,18 +142,33 @@ def generate_launch_description() -> LaunchDescription:
     # random choice made above. Rather than rely on the operator copying
     # parameters by hand from console output, write it to a well-known
     # file that panel_pose_fuser_node itself checks at startup (see that
-    # file's own matching PANEL_MARKER_LAYOUT_SIM_FILE constant) — so
-    # `ros2 run panel_perception panel_pose_fuser_node` with NO extra
-    # args just works in sim. /tmp is fine here: both processes run in
-    # the same container, and this is sim-only convenience state, not
-    # anything that needs to survive a container restart.
-    PANEL_MARKER_LAYOUT_SIM_FILE = "/tmp/panel_marker_layout.yaml"
+    # file's own matching logic — PANEL_MARKER_LAYOUT_SIM_FILE_TEMPLATE
+    # must stay in sync between the two) — so `ros2 run panel_perception
+    # panel_pose_fuser_node` with NO extra args just works in sim.
+    #
+    # Scoped by ROS_DOMAIN_ID (not one bare global path) so two sim
+    # instances on the same host with different domain IDs don't clobber
+    # each other's layout file. Best-effort cleanup on a clean exit (see
+    # delete_marker_layout_file below); the read side additionally
+    # ignores this file if it's stale (see panel_pose_fuser_node.py) as a
+    # backstop against a crashed run's leftover file being picked up by
+    # a later, unrelated one.
+    domain_id = os.environ.get("ROS_DOMAIN_ID", "0")
+    PANEL_MARKER_LAYOUT_SIM_FILE = f"/tmp/panel_marker_layout_domain{domain_id}.yaml"
     with open(PANEL_MARKER_LAYOUT_SIM_FILE, "w") as f:
         yaml.safe_dump({
             "top_left": marker_id_top_left,
             "top_right": marker_id_top_right,
             "bottom_left": marker_id_bottom_left,
         }, f)
+
+    def _delete_marker_layout_file(event, context):
+        with contextlib.suppress(OSError):
+            os.remove(PANEL_MARKER_LAYOUT_SIM_FILE)
+
+    delete_marker_layout_file = RegisterEventHandler(
+        OnShutdown(on_shutdown=_delete_marker_layout_file)
+    )
 
     panel_state_publisher = Node(
         package="robot_state_publisher",
@@ -340,6 +366,7 @@ def generate_launch_description() -> LaunchDescription:
             SetParameter(name="use_sim_time", value=True),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
+            delete_marker_layout_file,
             gz_sim,
             robot_state_publisher,
             spawn_entity,
