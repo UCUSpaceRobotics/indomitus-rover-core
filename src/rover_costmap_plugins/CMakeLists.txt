@@ -78,6 +78,16 @@ if(BUILD_TESTING)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_slope_math test/test_slope_math.cpp)
+  target_include_directories(test_slope_math PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  target_include_directories(test_slope_math SYSTEM PRIVATE
+    ${EIGEN3_INCLUDE_DIRS}
+  )
+  ament_target_dependencies(test_slope_math nav2_costmap_2d Eigen3)
 endif()
 
 ament_package()

@@ -4,9 +4,8 @@
 #include <cmath>
 #include <limits>
 
-#include <Eigen/Eigenvalues>
-
 #include "pluginlib/class_list_macros.hpp"
+#include "rover_costmap_plugins/slope_math.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "tf2_sensor_msgs/tf2_sensor_msgs.hpp"
 
@@ -16,23 +15,6 @@ using nav2_costmap_2d::NO_INFORMATION;
 
 namespace rover_costmap_plugins
 {
-
-namespace
-{
-// Rotate vector (x,y,z) by unit quaternion (qw,qx,qy,qz): v' = q*v*q^-1.
-void rotateByQuat(
-  double qw, double qx, double qy, double qz,
-  double x, double y, double z,
-  double & ox, double & oy, double & oz)
-{
-  double tx = 2.0 * (qy * z - qz * y);
-  double ty = 2.0 * (qz * x - qx * z);
-  double tz = 2.0 * (qx * y - qy * x);
-  ox = x + qw * tx + (qy * tz - qz * ty);
-  oy = y + qw * ty + (qz * tx - qx * tz);
-  oz = z + qw * tz + (qx * ty - qy * tx);
-}
-}  // namespace
 
 SlopeLayer::SlopeLayer() {}
 
@@ -55,10 +37,14 @@ void SlopeLayer::onInitialize()
   declareParameter("self_filter_margin", rclcpp::ParameterValue(0.10));
   declareParameter("roughness_saturation_mult", rclcpp::ParameterValue(4.0));
   declareParameter("roughness_lethal", rclcpp::ParameterValue(false));
-  declareParameter("lethal_min_support", rclcpp::ParameterValue(2));
+  declareParameter("lethal_min_support", rclcpp::ParameterValue(1));
   declareParameter("robot_clear_radius", rclcpp::ParameterValue(0.7));
+  declareParameter("min_plane_spread", rclcpp::ParameterValue(1.0e-4));
+  declareParameter("mark_unobserved_unknown", rclcpp::ParameterValue(false));
+  declareParameter("cloud_timeout", rclcpp::ParameterValue(2.0));
   declareParameter("persist", rclcpp::ParameterValue(false));
   declareParameter("persist_half_extent", rclcpp::ParameterValue(50.0));
+  declareParameter("persist_update_range", rclcpp::ParameterValue(6.0));
   declareParameter("tf_tolerance", rclcpp::ParameterValue(0.1));
 
   node->get_parameter(name_ + ".enabled", enabled_);
@@ -78,12 +64,17 @@ void SlopeLayer::onInitialize()
   node->get_parameter(name_ + ".roughness_lethal", roughness_lethal_);
   node->get_parameter(name_ + ".lethal_min_support", lethal_min_support_);
   node->get_parameter(name_ + ".robot_clear_radius", robot_clear_radius_);
+  node->get_parameter(name_ + ".min_plane_spread", min_plane_spread_);
+  node->get_parameter(name_ + ".mark_unobserved_unknown", mark_unobserved_unknown_);
+  node->get_parameter(name_ + ".cloud_timeout", cloud_timeout_);
   node->get_parameter(name_ + ".persist", persist_);
   node->get_parameter(name_ + ".persist_half_extent", persist_half_extent_);
+  node->get_parameter(name_ + ".persist_update_range", persist_update_range_);
   node->get_parameter(name_ + ".tf_tolerance", tf_tolerance_);
 
   clock_ = node->get_clock();
   logger_ = node->get_logger();
+  last_cloud_time_ = clock_->now();
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(clock_);
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -94,8 +85,7 @@ void SlopeLayer::onInitialize()
   debug_pub_ = node->create_publisher<sensor_msgs::msg::PointCloud2>(
     name_ + "/debug_cloud", rclcpp::SensorDataQoS());
 
-  // Footprint is usually not set yet at init, so this may no-op;
-  // onFootprintChanged() recomputes the self-filter box once it lands.
+  // Footprint is usually empty at init; onFootprintChanged() redoes this later.
   updateSelfFilter();
 
   grid_w_ = static_cast<int>(std::ceil((2.0 * grid_range_) / grid_resolution_));
@@ -107,18 +97,30 @@ void SlopeLayer::onInitialize()
   if (persist_) {
     world_w_ = static_cast<int>(std::ceil((2.0 * persist_half_extent_) / grid_resolution_));
     world_h_ = world_w_;
-    world_origin_x_ = -persist_half_extent_;
-    world_origin_y_ = -persist_half_extent_;
-    world_cost_.assign(world_w_ * world_h_, NO_INFORMATION);
+    world_cost_.assign(
+      static_cast<size_t>(world_w_) * static_cast<size_t>(world_h_), NO_INFORMATION);
+    // Origin is placed on the first observed rover pose in accumulateWorld().
+    world_origin_set_ = false;
   }
 
-  current_ = true;
+  // Without unknown tracking the costmap starts cells free, so the marks below
+  // would be overwritten and unseen ground would read as traversable.
+  if (mark_unobserved_unknown_ && !layered_costmap_->isTrackingUnknown()) {
+    RCLCPP_WARN(
+      logger_,
+      "SlopeLayer '%s': mark_unobserved_unknown is set but this costmap does not "
+      "track unknown space; unobserved terrain will still read as free.",
+      name_.c_str());
+  }
+
+  // Nothing observed yet, so the layer is not current until the first cloud.
+  current_ = false;
 
   RCLCPP_INFO(
-    node->get_logger(),
-    "SlopeLayer '%s' up: topic=%s base_frame=%s traversable<=%.1f lethal>=%.1f deg",
+    logger_,
+    "SlopeLayer '%s' up: topic=%s base_frame=%s traversable<=%.1f lethal>=%.1f deg persist=%s",
     name_.c_str(), cloud_topic_.c_str(), base_frame_.c_str(),
-    traversable_slope_deg_, lethal_slope_deg_);
+    traversable_slope_deg_, lethal_slope_deg_, persist_ ? "true" : "false");
 }
 
 void SlopeLayer::updateSelfFilter()
@@ -161,6 +163,13 @@ void SlopeLayer::onFootprintChanged()
   updateSelfFilter();
 }
 
+bool SlopeLayer::cloudIsStale() const
+{
+  if (!have_cloud_) {return true;}
+  return slope_math::sensorIsStale(
+    (clock_->now() - last_cloud_time_).seconds(), cloud_timeout_);
+}
+
 void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
   sensor_msgs::msg::PointCloud2 cloud_in_base;
@@ -172,8 +181,8 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
       rclcpp::Duration::from_seconds(tf_tolerance_));
     tf2::doTransform(*msg, cloud_in_base, tf);
 
-    // Pose at the cloud's timestamp, reused in updateCosts so the grid is
-    // reprojected with the pose it was built from.
+    // Pose at the cloud's own time, so the grid is reprojected with the pose
+    // it was built from.
     geometry_msgs::msg::TransformStamped base_tf = tf_buffer_->lookupTransform(
       base_frame_, layered_costmap_->getGlobalFrameID(), msg->header.stamp,
       rclcpp::Duration::from_seconds(tf_tolerance_));
@@ -182,8 +191,7 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
     const auto & q = base_tf.transform.rotation;
     base_yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 
-    // base_tf's rotation is global_frame -> base_frame_; its conjugate
-    // (base_frame_ -> global_frame) is what recomputeGrid needs.
+    // Conjugate flips it to base -> costmap frame, which is what slope needs.
     grav_qw = q.w; grav_qx = -q.x; grav_qy = -q.y; grav_qz = -q.z;
   } catch (const std::exception & ex) {
     RCLCPP_WARN_THROTTLE(
@@ -211,8 +219,9 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
     if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {continue;}
     if (z < min_height_ || z > max_height_) {continue;}
     if (std::abs(x) > grid_range_ || std::abs(y) > grid_range_) {continue;}
-    // Rocker/wheel self-returns: skip points inside the robot's own footprint.
-    if (x > self_filter_min_x_ && x < self_filter_max_x_ &&
+    // Points inside the footprint are the rover's own wheels and body.
+    if (self_filter_valid_ &&
+        x > self_filter_min_x_ && x < self_filter_max_x_ &&
         y > self_filter_min_y_ && y < self_filter_max_y_) {continue;}
 
     int gx = static_cast<int>((x - grid_origin_x_) / grid_resolution_);
@@ -229,16 +238,9 @@ void SlopeLayer::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr ms
   recomputeGrid();
   accumulateWorld();
   has_data_ = true;
+  have_cloud_ = true;
+  last_cloud_time_ = clock_->now();
   publishDebugCloud();
-}
-
-unsigned char SlopeLayer::slopeToCost(double slope_deg) const
-{
-  if (slope_deg >= lethal_slope_deg_) {return LETHAL_OBSTACLE;}
-  if (slope_deg <= traversable_slope_deg_) {return FREE_SPACE;}
-  double t = (slope_deg - traversable_slope_deg_) /
-    (lethal_slope_deg_ - traversable_slope_deg_);
-  return static_cast<unsigned char>(t * (LETHAL_OBSTACLE - 1));
 }
 
 void SlopeLayer::accumulateWorld()
@@ -248,20 +250,51 @@ void SlopeLayer::accumulateWorld()
   // grid_ is in base_frame_; captured_{tx,ty,yaw} is global_frame -> base_frame_
   // (p_base = R(yaw) p_world + t), so world = R(-yaw) (p_base - t).
   const double cos_yaw = std::cos(captured_yaw_), sin_yaw = std::sin(captured_yaw_);
+
+  if (!world_origin_set_) {
+    // Center on the rover, so the memory covers the arena wherever it starts.
+    const double robot_wx = cos_yaw * (-captured_tx_) + sin_yaw * (-captured_ty_);
+    const double robot_wy = -sin_yaw * (-captured_tx_) + cos_yaw * (-captured_ty_);
+    world_origin_x_ = robot_wx - persist_half_extent_;
+    world_origin_y_ = robot_wy - persist_half_extent_;
+    world_origin_set_ = true;
+    RCLCPP_INFO(
+      logger_,
+      "SlopeLayer '%s': terrain memory centered on (%.2f, %.2f), half-extent %.1f m",
+      name_.c_str(), robot_wx, robot_wy, persist_half_extent_);
+  }
+
+  size_t dropped = 0;
   for (int gy = 0; gy < grid_h_; ++gy) {
     for (int gx = 0; gx < grid_w_; ++gx) {
       const SlopeCell & c = grid_[gy * grid_w_ + gx];
-      if (!c.valid) {continue;}  // only cells observed this cloud
+      if (!c.valid) {continue;}     // no plane, nothing to store
+      if (c.near_field) {continue;} // too noisy to keep
       const double bx = grid_origin_x_ + (gx + 0.5) * grid_resolution_;
       const double by = grid_origin_y_ + (gy + 0.5) * grid_resolution_;
-      const double dx = bx - captured_tx_, dy = by - captured_ty_;
-      const double wx = cos_yaw * dx + sin_yaw * dy;
-      const double wy = -sin_yaw * dx + cos_yaw * dy;
-      int wgx = static_cast<int>((wx - world_origin_x_) / grid_resolution_);
-      int wgy = static_cast<int>((wy - world_origin_y_) / grid_resolution_);
-      if (wgx < 0 || wgx >= world_w_ || wgy < 0 || wgy >= world_h_) {continue;}
-      world_cost_[wgy * world_w_ + wgx] = slopeToCost(c.slope_deg);
+      double wx, wy;
+      slope_math::baseToWorld(bx, by, captured_tx_, captured_ty_, cos_yaw, sin_yaw, wx, wy);
+      int wgx = 0, wgy = 0;
+      if (!slope_math::worldCell(
+          wx, wy, world_origin_x_, world_origin_y_, grid_resolution_,
+          world_w_, world_h_, wgx, wgy))
+      {
+        dropped++;
+        continue;
+      }
+      // Overwrite, so seeing a spot again corrects it while unseen spots keep
+      // their value.
+      world_cost_[static_cast<size_t>(wgy) * world_w_ + wgx] =
+        slope_math::slopeToCost(c.slope_deg, traversable_slope_deg_, lethal_slope_deg_);
     }
+  }
+
+  if (dropped > 0) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 10000,
+      "SlopeLayer '%s': %zu terrain cells fell outside the %.1f m memory and were "
+      "dropped; raise persist_half_extent to cover the arena.",
+      name_.c_str(), dropped, persist_half_extent_);
   }
 }
 
@@ -270,91 +303,52 @@ void SlopeLayer::recomputeGrid()
   for (int gy = 0; gy < grid_h_; ++gy) {
     for (int gx = 0; gx < grid_w_; ++gx) {
       SlopeCell & c = grid_[gy * grid_w_ + gx];
-      if (c.point_count < min_points_per_cell_) {
+
+      slope_math::CellMoments moments;
+      moments.count = c.point_count;
+      moments.sum_x = c.sum_x; moments.sum_y = c.sum_y; moments.sum_z = c.sum_z;
+      moments.sxx = c.sxx; moments.syy = c.syy; moments.szz = c.szz;
+      moments.sxy = c.sxy; moments.sxz = c.sxz; moments.syz = c.syz;
+
+      // Drops cells whose points give no usable plane.
+      const slope_math::PlaneFit fit =
+        slope_math::fitPlane(moments, min_points_per_cell_, min_plane_spread_);
+      if (!fit.valid) {
         c.valid = false;
         continue;
       }
-      const double n = c.point_count;
-      const double mx = c.sum_x / n, my = c.sum_y / n, mz = c.sum_z / n;
 
-      double cxx = c.sxx / n - mx * mx;
-      double cyy = c.syy / n - my * my;
-      double czz = c.szz / n - mz * mz;
-      double cxy = c.sxy / n - mx * my;
-      double cxz = c.sxz / n - mx * mz;
-      double cyz = c.syz / n - my * mz;
+      // Measured against gravity, so rover tilt is not read as slope.
+      c.slope_deg = slope_math::slopeDegFromNormal(
+        fit.nx, fit.ny, fit.nz,
+        captured_gqw_, captured_gqx_, captured_gqy_, captured_gqz_);
 
-      Eigen::Matrix3d cov;
-      cov << cxx, cxy, cxz,
-             cxy, cyy, cyz,
-             cxz, cyz, czz;
+      const double cell_x = grid_origin_x_ + (gx + 0.5) * grid_resolution_;
+      const double cell_y = grid_origin_y_ + (gy + 0.5) * grid_resolution_;
+      const double range_m = std::sqrt(cell_x * cell_x + cell_y * cell_y);
 
-      // Smallest eigenvalue's eigenvector is the plane normal; the eigenvalue
-      // itself is the planar residual variance (roughness).
-      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver;
-      solver.computeDirect(cov);
-      const Eigen::Vector3d normal = solver.eigenvectors().col(0);
-      double vx = normal.x(), vy = normal.y(), vz = normal.z();
-      double planar_residual = std::sqrt(std::max(0.0, solver.eigenvalues()(0)));
+      const double effective_thresh = slope_math::effectiveRoughnessThreshold(
+        roughness_std_thresh_, roughness_range_coeff_, range_m,
+        c.point_count, min_points_per_cell_);
 
-      // Rotate the fitted normal from base_frame_ into the global costmap
-      // frame so slope is measured against gravity, not vehicle attitude.
-      double gvx, gvy, gvz;
-      rotateByQuat(
-        captured_gqw_, captured_gqx_, captured_gqy_, captured_gqz_,
-        vx, vy, vz, gvx, gvy, gvz);
-      if (gvz < 0) {gvx = -gvx; gvy = -gvy; gvz = -gvz;}
-
-      double slope_rad = std::acos(std::clamp(gvz, -1.0, 1.0));
-      c.slope_deg = slope_rad * 180.0 / M_PI;
-
-      // Widen the residual threshold with range (stereo noise grows with
-      // distance/angle) and with point sparsity (few points -> unreliable fit).
-      double cell_x = grid_origin_x_ + (gx + 0.5) * grid_resolution_;
-      double cell_y = grid_origin_y_ + (gy + 0.5) * grid_resolution_;
-      double range_m = std::sqrt(cell_x * cell_x + cell_y * cell_y);
-      double effective_thresh = roughness_std_thresh_ + roughness_range_coeff_ * range_m;
-
-      const int sparsity_span = min_points_per_cell_ * 2;
-      if (sparsity_span > 0 && c.point_count < min_points_per_cell_ + sparsity_span) {
-        double sparsity_factor = static_cast<double>(
-          min_points_per_cell_ + sparsity_span - c.point_count) / sparsity_span;
-        effective_thresh *= (1.0 + sparsity_factor);
-      }
-
-      c.mean_z = mz;
-      c.residual = planar_residual;
+      c.mean_z = fit.mean_z;
+      c.residual = fit.residual;
       c.valid = true;
-      if (planar_residual > effective_thresh) {
-        // Map roughness into the graded cost band; saturates to lethal only
-        // well past the threshold.
-        const double slope_span = lethal_slope_deg_ - traversable_slope_deg_;
-        double excess_ratio = (planar_residual - effective_thresh) / effective_thresh;
-        double roughness_slope = traversable_slope_deg_ +
-          std::min(excess_ratio, roughness_saturation_mult_) *
-          slope_span / roughness_saturation_mult_;
-        // Roughness is a noisy single-cell measure. Unless roughness_lethal is
-        // set, cap it just below lethal so it strongly avoids but never hard-
-        // blocks; real steep terrain still goes lethal via the geometric slope.
-        if (!roughness_lethal_) {
-          roughness_slope = std::min(
-            roughness_slope, traversable_slope_deg_ + 0.98 * slope_span);
-        }
-        c.slope_deg = std::max(c.slope_deg, roughness_slope);
-      }
+      // Stereo close to the body is the noisiest, so flag it as untrusted.
+      c.near_field = (robot_clear_radius_ > 0.0 && range_m < robot_clear_radius_);
 
-      // Trust the ground right around the rover: near-field stereo is the
-      // noisiest (grazing angle) and a false mark here boxes the rover in.
-      // Force these cells free; the 2D lidar still catches real close obstacles.
-      if (robot_clear_radius_ > 0.0 && range_m < robot_clear_radius_) {
-        c.slope_deg = std::min(c.slope_deg, traversable_slope_deg_);
+      if (fit.residual > effective_thresh) {
+        c.slope_deg = std::max(
+          c.slope_deg,
+          slope_math::roughnessToSlopeDeg(
+            fit.residual, effective_thresh, traversable_slope_deg_, lethal_slope_deg_,
+            roughness_saturation_mult_, roughness_lethal_));
       }
     }
   }
 
-  // Support gate: a lethal cell must have enough non-traversable neighbors to
-  // be trusted. A real steep patch spans several cells; isolated noise gets
-  // demoted to just-below-lethal (strong avoid, not a hard block).
+  // A lethal cell needs steep neighbours to be believed. Real hazards cover
+  // several cells, single noisy cells do not.
   if (lethal_min_support_ > 0) {
     std::vector<char> steep(grid_.size(), 0);
     for (size_t idx = 0; idx < grid_.size(); ++idx) {
@@ -429,14 +423,33 @@ void SlopeLayer::updateBounds(
   double robot_x, double robot_y, double /*robot_yaw*/,
   double * min_x, double * min_y, double * max_x, double * max_y)
 {
-  // Remember the live robot pose (costmap frame) for the under-rover clear in
-  // updateCosts. Store it before the has_data_ gate so it is always current.
+  // Stored before the gates below so updateCosts always has a fresh pose.
   robot_x_ = robot_x;
   robot_y_ = robot_y;
   have_robot_pose_ = true;
 
+  // Tells nav2 the terrain data is no longer live, instead of passing off an
+  // old grid as fresh.
+  const bool stale = cloudIsStale();
+  current_ = !stale;
+  if (stale != cloud_stale_) {
+    cloud_stale_ = stale;
+    if (stale) {
+      RCLCPP_WARN(
+        logger_,
+        "SlopeLayer '%s': no point cloud on %s for over %.1f s -- terrain data is stale.",
+        name_.c_str(), cloud_topic_.c_str(), cloud_timeout_);
+    } else {
+      RCLCPP_INFO(
+        logger_, "SlopeLayer '%s': point cloud restored.", name_.c_str());
+    }
+  }
+
   if (!enabled_ || !has_data_) {return;}
-  const double r = full_repaint_ ? persist_half_extent_ : grid_range_;
+
+  // Covers the sensed area, and in persist mode also the obstacle layer's
+  // clearing reach, so nothing it clears is left unpainted.
+  const double r = persist_ ? std::max(grid_range_, persist_update_range_) : grid_range_;
   *min_x = std::min(*min_x, robot_x - r);
   *min_y = std::min(*min_y, robot_y - r);
   *max_x = std::max(*max_x, robot_x + r);
@@ -450,79 +463,94 @@ void SlopeLayer::updateCosts(
   if (!enabled_ || !has_data_) {return;}
   std::lock_guard<std::mutex> lock(data_mutex_);
 
-  // Never let this layer raise cost right under the rover. A cell it drove onto
-  // (from live slope or persisted memory) can't be re-observed by the forward
-  // camera, so it would sit lethal forever and trap the rover on its own mark.
+  // Terrain right under the rover is not painted: the camera cannot see it
+  // again to correct it. The memory keeps it, since it may be real.
   const double clear_sq = robot_clear_radius_ * robot_clear_radius_;
+  const bool skip_near_robot = have_robot_pose_ && robot_clear_radius_ > 0.0;
 
-  // Persist path: world memory is in the costmap's global frame, so master
-  // cells map straight into it. Unobserved cells (NO_INFORMATION) are skipped.
+  // The memory is already in the costmap frame, so cells map straight into it.
   if (persist_) {
+    if (!world_origin_set_) {return;}
     for (int j = min_j; j < max_j; ++j) {
       for (int i = min_i; i < max_i; ++i) {
         double wx, wy;
         master_grid.mapToWorld(i, j, wx, wy);
-        int wgx = static_cast<int>((wx - world_origin_x_) / grid_resolution_);
-        int wgy = static_cast<int>((wy - world_origin_y_) / grid_resolution_);
-        if (wgx < 0 || wgx >= world_w_ || wgy < 0 || wgy >= world_h_) {continue;}
-        // Under the rover: it drove here, so the cell is traversable. Correct the
-        // memory to free (permanent, so it doesn't reappear in the rover's wake)
-        // and leave the master cell to the other layers.
-        if (have_robot_pose_ && robot_clear_radius_ > 0.0) {
+        if (skip_near_robot) {
           const double dx = wx - robot_x_, dy = wy - robot_y_;
           if (dx * dx + dy * dy < clear_sq) {
-            world_cost_[wgy * world_w_ + wgx] = FREE_SPACE;
+            // The rover stands here, so the ground is passable. Only unknown
+            // cells are filled; a real obstacle from another layer stays.
+            if (master_grid.getCost(i, j) == NO_INFORMATION) {
+              master_grid.setCost(i, j, FREE_SPACE);
+            }
             continue;
           }
         }
-        unsigned char cost = world_cost_[wgy * world_w_ + wgx];
-        if (cost == NO_INFORMATION) {continue;}
-        unsigned char old_cost = master_grid.getCost(i, j);
+        int wgx = 0, wgy = 0;
+        if (!slope_math::worldCell(
+            wx, wy, world_origin_x_, world_origin_y_, grid_resolution_,
+            world_w_, world_h_, wgx, wgy))
+        {
+          continue;
+        }
+        const unsigned char cost = world_cost_[static_cast<size_t>(wgy) * world_w_ + wgx];
+        if (cost == NO_INFORMATION) {continue;}  // never seen, so claim nothing
+        const unsigned char old_cost = master_grid.getCost(i, j);
         if (old_cost == NO_INFORMATION || cost > old_cost) {
           master_grid.setCost(i, j, cost);
         }
       }
     }
-    full_repaint_ = false;  // full memory is back on the master; resume cheap bounds
     return;
   }
 
   const double tx = captured_tx_, ty = captured_ty_, yaw = captured_yaw_;
   const double cos_yaw = std::cos(yaw), sin_yaw = std::sin(yaw);
+  const bool mark_unknown = mark_unobserved_unknown_;
 
   for (int j = min_j; j < max_j; ++j) {
     for (int i = min_i; i < max_i; ++i) {
       double wx, wy;
       master_grid.mapToWorld(i, j, wx, wy);
-      if (have_robot_pose_ && robot_clear_radius_ > 0.0) {
+      if (skip_near_robot) {
         const double dx = wx - robot_x_, dy = wy - robot_y_;
-        if (dx * dx + dy * dy < clear_sq) {continue;}
+        if (dx * dx + dy * dy < clear_sq) {
+          // The rover stands here, so the ground is passable. Only unknown
+          // cells are filled; a real obstacle from another layer stays.
+          if (master_grid.getCost(i, j) == NO_INFORMATION) {
+            master_grid.setCost(i, j, FREE_SPACE);
+          }
+          continue;
+        }
       }
 
-      // world (global_frame) -> base_frame_
-      double bx = cos_yaw * wx - sin_yaw * wy + tx;
-      double by = sin_yaw * wx + cos_yaw * wy + ty;
+      double bx, by;
+      slope_math::worldToBase(wx, wy, tx, ty, cos_yaw, sin_yaw, bx, by);
 
-      int gx = static_cast<int>((bx - grid_origin_x_) / grid_resolution_);
-      int gy = static_cast<int>((by - grid_origin_y_) / grid_resolution_);
-      if (gx < 0 || gx >= grid_w_ || gy < 0 || gy >= grid_h_) {continue;}
+      int gx = 0, gy = 0;
+      if (!slope_math::worldCell(
+          bx, by, grid_origin_x_, grid_origin_y_, grid_resolution_,
+          grid_w_, grid_h_, gx, gy))
+      {
+        continue;
+      }
 
       const SlopeCell & c = grid_[gy * grid_w_ + gx];
-      if (!c.valid) {continue;}  // no info here -> don't overwrite other layers
-
-      unsigned char cost;
-      if (c.slope_deg >= lethal_slope_deg_) {
-        cost = LETHAL_OBSTACLE;
-      } else if (c.slope_deg <= traversable_slope_deg_) {
-        cost = FREE_SPACE;
-      } else {
-        double t = (c.slope_deg - traversable_slope_deg_) /
-          (lethal_slope_deg_ - traversable_slope_deg_);
-        cost = static_cast<unsigned char>(t * (LETHAL_OBSTACLE - 1));
+      if (!c.valid) {
+        // Marked unknown so a stereo hole, an occlusion or a drop-off is not
+        // taken for flat ground.
+        if (mark_unknown && master_grid.getCost(i, j) == FREE_SPACE) {
+          master_grid.setCost(i, j, NO_INFORMATION);
+        }
+        continue;
       }
+      if (c.near_field) {continue;}  // measured but too noisy to paint
 
-      // Only raise cost over what earlier layers already wrote here.
-      unsigned char old_cost = master_grid.getCost(i, j);
+      const unsigned char cost =
+        slope_math::slopeToCost(c.slope_deg, traversable_slope_deg_, lethal_slope_deg_);
+
+      // Only raises cost, never lowers what other layers wrote.
+      const unsigned char old_cost = master_grid.getCost(i, j);
       if (old_cost == NO_INFORMATION || cost > old_cost) {
         master_grid.setCost(i, j, cost);
       }
@@ -534,14 +562,10 @@ void SlopeLayer::reset()
 {
   std::lock_guard<std::mutex> lock(data_mutex_);
   std::fill(grid_.begin(), grid_.end(), SlopeCell());
-  // Persist mode keeps its world memory across a clear (wiping it blanks the
-  // global map and the rover gets lost; re-observation corrects stale cells).
-  // The clear blanked the master, so repaint the full memory next update.
-  if (persist_) {
-    full_repaint_ = true;
-  } else {
-    has_data_ = false;
-  }
+  // The memory goes too, so recovery can really drop a false obstacle.
+  std::fill(world_cost_.begin(), world_cost_.end(), NO_INFORMATION);
+  has_data_ = false;
+  current_ = false;
 }
 
 }  // namespace rover_costmap_plugins

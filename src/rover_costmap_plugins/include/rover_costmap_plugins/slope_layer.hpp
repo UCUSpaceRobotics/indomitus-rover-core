@@ -21,7 +21,10 @@ struct SlopeCell
   double slope_deg = -1.0;
   double mean_z = 0.0;
   double residual = 0.0;
+  // False when the cell has no usable plane: unobserved or degenerate.
   bool valid = false;
+  // Cell sits within robot_clear_radius, where stereo is too noisy to trust.
+  bool near_field = false;
 };
 class SlopeLayer : public nav2_costmap_2d::CostmapLayer
 {
@@ -41,18 +44,16 @@ private:
   void cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void recomputeGrid();
   void publishDebugCloud();
-  // Maps a cell slope angle to a costmap cost using the traversable/lethal band.
-  unsigned char slopeToCost(double slope_deg) const;
-  // Stamps the latest per-cloud grid into the persistent world-frame memory
-  // (persist_ mode only), so obstacles survive the camera looking away.
+  // Writes the current grid into the world memory (persist_ only).
   void accumulateWorld();
   // (Re)computes the self-return exclusion box from the current footprint.
   void updateSelfFilter();
+  // True when no cloud arrived within cloud_timeout_.
+  bool cloudIsStale() const;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr debug_pub_;
   rclcpp::Clock::SharedPtr clock_;
-  // Cached at init so the cloud callback never has to lock the parent node's
-  // weak_ptr (which can be null during shutdown/reset -> segfault).
+  // Cached: locking the node weak_ptr in the callback can hit a null on shutdown.
   rclcpp::Logger logger_{rclcpp::get_logger("SlopeLayer")};
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -69,40 +70,46 @@ private:
   double self_filter_margin_;        // margin added around the footprint for self-return exclusion
   double roughness_saturation_mult_; // residual multiple past threshold at which roughness saturates
   bool roughness_lethal_ = false;    // if false, roughness cost is capped just below lethal
-  int lethal_min_support_ = 2;       // min non-traversable 8-neighbors for a cell to stay lethal
-  double robot_clear_radius_ = 0.7;  // within this range of base origin, slope is never lethal
-  // Persistence: when true, marks are accumulated in a fixed world-frame grid
-  // that is not wiped each cloud, so an obstacle stays on the costmap after the
-  // camera rotates away from it
+  int lethal_min_support_ = 1;       // min non-traversable 8-neighbors for a cell to stay lethal
+  double robot_clear_radius_ = 0.7;  // radius around the rover that is not trusted or painted
+  double min_plane_spread_ = 1.0e-4; // min in-plane variance (m^2) to accept a plane fit
+  // Writes unobserved cells as NO_INFORMATION, keeping "no data" apart from
+  // "flat". Needs track_unknown_space, else the costmap starts them free.
+  bool mark_unobserved_unknown_ = false;
+  // Cloud age (s) after which the layer stops calling itself current.
+  double cloud_timeout_ = 2.0;
+  rclcpp::Time last_cloud_time_;
+  bool have_cloud_ = false;
+  bool cloud_stale_ = false;
+  // Keeps terrain in a world grid that is not wiped each cloud, so it survives
+  // the camera turning away. reset() clears it.
   bool persist_ = false;
-  double persist_half_extent_ = 50.0;  // world grid half-size (m) around the global-frame origin
+  double persist_half_extent_ = 50.0;  // world grid half-size (m) around its origin
+  // Bounds radius in persist mode. Must cover the obstacle layer's clearing
+  // reach, or that layer clears terrain this one never repaints.
+  double persist_update_range_ = 6.0;
   std::vector<unsigned char> world_cost_;  // persistent per-cell cost, NO_INFORMATION = unobserved
   int world_w_ = 0, world_h_ = 0;
+  // Centered on the rover's first observed pose, so the arena is covered
+  // wherever it starts.
   double world_origin_x_ = 0.0, world_origin_y_ = 0.0;
-  // Set on reset() so the next update repaints the whole world memory once
-  // (a costmap clear blanks the master; this puts remembered obstacles back).
-  bool full_repaint_ = false;
-  // Live robot position in the costmap frame, captured in updateBounds and used
-  // in updateCosts to clear the cells under the rover (a persisted mark the
-  // rover has driven onto can never be re-observed, so it would trap it).
+  bool world_origin_set_ = false;
+  // Live rover position, used to skip painting under it. A mark it stands on
+  // is never seen again by the camera, so it would trap the rover.
   double robot_x_ = 0.0, robot_y_ = 0.0;
   bool have_robot_pose_ = false;
-  // Grid is accumulated in base_frame_ coordinates from the latest cloud,
-  // then re-sampled into the master costmap's own frame (odom/map) in
-  // updateCosts.
+  // Built in base_frame_ from the latest cloud, then resampled into the
+  // costmap frame in updateCosts.
   std::mutex data_mutex_;
   std::vector<SlopeCell> grid_;
   int grid_w_ = 0, grid_h_ = 0;
   double grid_origin_x_ = 0.0, grid_origin_y_ = 0.0;
   bool has_data_ = false;
-  // Pose captured alongside grid_ in cloudCallback, reused in updateCosts
-  // so grid_ is always reprojected with the pose it was built from.
+  // Pose the grid was built at, so it is reprojected with that same pose.
   double captured_tx_ = 0.0, captured_ty_ = 0.0, captured_yaw_ = 0.0;
-  // Rotation from base_frame_ to the global costmap frame, captured
-  // alongside grid_ and used in recomputeGrid.
+  // Rotation from base_frame_ to the costmap frame, used to measure slope.
   double captured_gqw_ = 1.0, captured_gqx_ = 0.0, captured_gqy_ = 0.0, captured_gqz_ = 0.0;
-  // Footprint bounding box + margin, in base_frame_. Points inside are
-  // treated as rover self-returns and excluded.
+  // Footprint box plus margin. Points inside it are the rover seeing itself.
   double self_filter_min_x_ = 0.0, self_filter_max_x_ = 0.0;
   double self_filter_min_y_ = 0.0, self_filter_max_y_ = 0.0;
   bool self_filter_valid_ = false;
