@@ -26,6 +26,7 @@ asymmetric layout (3 of a rectangle's 4 corners, 0.27m horizontal vs
 
 import math
 import os
+import time
 
 import rclpy
 import yaml
@@ -85,7 +86,7 @@ FALLBACK_MARKER_ID_TOP_LEFT = 11
 FALLBACK_MARKER_ID_TOP_RIGHT = 13
 FALLBACK_MARKER_ID_BOTTOM_LEFT = 14
 # Written fresh by arm_sim/launch/arm_gazebo.launch.py on every sim
-# launch (see its own matching constant) with that run's randomized
+# launch (see its own matching logic) with that run's randomized
 # marker_id_top_left/top_right/bottom_left — lets `ros2 run
 # panel_perception panel_pose_fuser_node` just work in sim with no
 # --ros-args needed, despite the two nodes being launched separately
@@ -93,7 +94,16 @@ FALLBACK_MARKER_ID_BOTTOM_LEFT = 14
 # choice. Irrelevant on real hardware (nothing ever writes this file
 # there) — an explicit --ros-args override always wins over it either
 # way, see _resolve_marker_id.
-PANEL_MARKER_LAYOUT_SIM_FILE = '/tmp/panel_marker_layout.yaml'
+#
+# Scoped by ROS_DOMAIN_ID, not one bare global path — two sim instances
+# on the same host with different domain IDs would otherwise clobber
+# each other's layout file. _load_sim_marker_layout also ignores this
+# file if it's older than SIM_MARKER_LAYOUT_MAX_AGE_SEC, as a backstop
+# against a crashed sim run's leftover file (arm_gazebo.launch.py
+# deletes it on a clean exit, but can't on a crash) being picked up by a
+# later, unrelated run.
+PANEL_MARKER_LAYOUT_SIM_FILE = f'/tmp/panel_marker_layout_domain{os.environ.get("ROS_DOMAIN_ID", "0")}.yaml'
+SIM_MARKER_LAYOUT_MAX_AGE_SEC = 600.0
 # Sentinel: declare_parameter's default can't be "unset", so this
 # stands in for "no explicit --ros-args override was given" — see
 # _resolve_marker_id.
@@ -111,6 +121,14 @@ def _resolve_marker_id(explicit_value: int, sim_layout: dict, role: str, fallbac
 
 def _load_sim_marker_layout(logger) -> dict:
     if not os.path.isfile(PANEL_MARKER_LAYOUT_SIM_FILE):
+        return {}
+    age_sec = time.time() - os.path.getmtime(PANEL_MARKER_LAYOUT_SIM_FILE)
+    if age_sec > SIM_MARKER_LAYOUT_MAX_AGE_SEC:
+        logger.warn(
+            f'{PANEL_MARKER_LAYOUT_SIM_FILE} is {age_sec:.0f}s old (max '
+            f'{SIM_MARKER_LAYOUT_MAX_AGE_SEC:.0f}s) — likely a leftover from a crashed '
+            'sim run, ignoring it. Restart arm_gazebo.launch.py to write a fresh one.'
+        )
         return {}
     try:
         with open(PANEL_MARKER_LAYOUT_SIM_FILE) as f:
@@ -201,7 +219,12 @@ class PanelPoseFuser(Node):
         self.create_subscription(ArucoDetection, detections_topic, self._on_detection, 10)
 
         self.get_logger().info(
-            f'Watching for panel markers {sorted(self._marker_local_positions)} '
+            # Full role mapping, not just the ID set — this is the only
+            # record of which layout was actually in play for a given
+            # run (sim's choice is randomized per-launch), findable
+            # later in ~/.ros/log/ if something needs tracing back.
+            f'Watching for panel markers: top_left={marker_id_top_left} '
+            f'top_right={marker_id_top_right} bottom_left={marker_id_bottom_left} '
             f'on "{detections_topic}" — "{visible_topic}" fires on any single marker, '
             f'"{pose_topic}" needs {self._min_markers_to_publish}+.'
         )
