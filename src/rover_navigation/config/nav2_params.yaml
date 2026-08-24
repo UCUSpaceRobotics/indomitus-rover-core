@@ -53,7 +53,7 @@ controller_server:
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 1.0
+    failure_tolerance: 2.0
     transform_tolerance: 2.0
     current_goal_checker: "general_goal_checker"
     progress_checker_plugin: "progress_checker"
@@ -79,16 +79,15 @@ controller_server:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 30
       model_dt: 0.1
-      batch_size: 1000
-      iteration_count: 2
+      batch_size: 800
+      iteration_count: 1
       vx_std: 0.2
-      vy_std: 0.05
-      wz_std: 0.2
-      # Velocity limits.
+      vy_std: 0.02
+      wz_std: 0.25
       vx_max:  0.5
       vx_min: -0.2
-      vy_max:  0.1
-      vy_min: -0.1
+      vy_max:  0.05
+      vy_min: -0.05
       wz_max:  0.7
       # Acceleration limits.
       ax_max:  0.6
@@ -132,7 +131,7 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 2.0
+        cost_weight: 5.0
         threshold_to_consider: 0.5
 
       CostCritic:
@@ -140,14 +139,14 @@ controller_server:
         cost_power: 1
         cost_weight: 15.0
         critical_cost: 200.0
-        consider_footprint: true
+        consider_footprint: false
         collision_cost: 1000000.0
         near_goal_distance: 1.0
 
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
+        cost_weight: 8.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 1
         threshold_to_consider: 0.5
@@ -164,10 +163,10 @@ controller_server:
       PathAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 10.0
+        cost_weight: 16.0
         offset_from_furthest: 6
         threshold_to_consider: 0.5
-        max_angle_to_furthest: 1.0
+        max_angle_to_furthest: 0.5
         forward_preference: true
 
 # ============================================================
@@ -182,16 +181,10 @@ planner_server:
     planner_plugins:
       - GridBased
     GridBased:
-      plugin: "nav2_smac_planner/SmacPlanner2D"
+      plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
-      downsample_costmap: true
-      downsampling_factor: 2
+      use_astar: false
       allow_unknown: true
-      max_iterations: 200000
-      max_on_approach_iterations: 1000
-      max_planning_time: 3.0
-      cost_travel_multiplier: 26.0
-      use_final_approach_orientation: false
 
 # ============================================================
 # WAYPOINT FOLLOWER
@@ -280,9 +273,9 @@ local_costmap:
           clearing: true
           marking: true
           data_type: "LaserScan"
-          raytrace_max_range: 2.0
+          raytrace_max_range: 5.0
           raytrace_min_range: 0.45
-          obstacle_max_range: 1.5
+          obstacle_max_range: 4.0
           obstacle_min_range: 0.45
       slope_layer:
         plugin: "rover_costmap_plugins::SlopeLayer"
@@ -294,12 +287,16 @@ local_costmap:
         min_height: -0.30
         max_height: 2.40
         min_points_per_cell: 7
-        traversable_slope_deg: 16.0
-        lethal_slope_deg: 28.0
+        traversable_slope_deg: 18.0
+        lethal_slope_deg: 30.0
         roughness_std_thresh: 0.045
         roughness_range_coeff: 0.015
         self_filter_margin: 0.10
         roughness_saturation_mult: 4.0
+        roughness_lethal: false
+        lethal_min_support: 3
+        robot_clear_radius: 1.0
+        tf_tolerance: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0
@@ -315,18 +312,17 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_footprint
       transform_tolerance: 2.0
+      rolling_window: true
+      width: 40
+      height: 40
+      resolution: 0.1
       footprint: "[[0.50, 0.45], [0.50, -0.45], [-0.50, -0.45], [-0.50, 0.45]]"
       footprint_padding: 0.15
-      resolution: 0.05
       track_unknown_space: true
       plugins:
-        - static_layer
         - obstacle_layer
         - slope_layer
         - inflation_layer
-      static_layer:
-        plugin: "nav2_costmap_2d::StaticLayer"
-        map_subscribe_transient_local: true
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -340,14 +336,15 @@ global_costmap:
           clearing: true
           marking: true
           data_type: "LaserScan"
-          raytrace_max_range: 2.0
+          raytrace_max_range: 5.0
           raytrace_min_range: 0.1
-          obstacle_max_range: 1.5
+          obstacle_max_range: 4.0
           obstacle_min_range: 0.1
           observation_persistence: 0.5
       slope_layer:
         plugin: "rover_costmap_plugins::SlopeLayer"
         enabled: true
+        persist: true
         cloud_topic: "/zed2i/points"
         base_frame: "base_footprint"
         grid_resolution: 0.25
@@ -355,13 +352,16 @@ global_costmap:
         min_height: -0.30
         max_height: 2.40
         min_points_per_cell: 7
-        traversable_slope_deg: 16.0
-        lethal_slope_deg: 28.0
+        traversable_slope_deg: 18.0
+        lethal_slope_deg: 30.0
         roughness_std_thresh: 0.045
         roughness_range_coeff: 0.015
         self_filter_margin: 0.10
         roughness_saturation_mult: 4.0
-        tf_tolerance: 2.0
+        roughness_lethal: false
+        lethal_min_support: 3
+        robot_clear_radius: 1.0
+        tf_tolerance: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 35.0
