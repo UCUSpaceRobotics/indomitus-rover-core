@@ -41,9 +41,9 @@ arm_gazebo.launch.py + config/gz_bridge.yaml) -- aruco_tracker,
 panel_pose_fuser_node, and everything else downstream in the CV pipeline
 need no changes to run against this real driver instead of the sim one.
 
-camera_info_url defaults to this repo's own checked-in calibration
-(scripts/arm/calibration/wrist_camera.yaml, done with the wrist camera
-mounted on the arm) -- if a DIFFERENT physical camera unit or mounting
+camera_info_url defaults to this package's own checked-in calibration
+(config/ov5693_usb.yaml, done with the wrist camera mounted on the arm)
+-- if a DIFFERENT physical camera unit or mounting
 ever replaces this one, that calibration is no longer valid and needs
 redoing: run a real checkerboard calibration (ros2 run camera_calibration
 cameracalibrator) with the camera mounted on the arm AT THE RESOLUTION
@@ -81,8 +81,9 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -243,7 +244,14 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("frame_id", default_value="arm_camera_optical_frame"),
         DeclareLaunchArgument(
             "camera_info_url",
-            default_value="file:///work/scripts/arm/calibration/wrist_camera.yaml",
+            # Resolved via the ROS package index at launch time (this
+            # package's own installed config/, not a path into the repo
+            # checkout) -- works regardless of where/how the workspace is
+            # mounted, unlike a literal filesystem path baked in here.
+            default_value=[
+                "file://",
+                PathJoinSubstitution([FindPackageShare("arm_sensors"), "config", "ov5693_usb.yaml"]),
+            ],
             description="Set to \"\" for uncalibrated (all-zero intrinsics) bringup"),
         DeclareLaunchArgument(
             "disable_autofocus", default_value="false",
