@@ -150,7 +150,12 @@ ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 # bindings likely need 2.x) -- upgrading scipy via pip to a version built
 # against numpy 2.x is the targeted fix, and lands in the same
 # /usr/local/lib path so it correctly takes priority over apt's scipy.
-RUN pip3 install --no-cache-dir --upgrade 'scipy>=1.11'
+# Pinned exact (not >=1.11) for reproducible builds -- an unpinned floor
+# lets a later image rebuild silently pick up a newer scipy at any time,
+# with no signal in this diff that anything changed. Bump deliberately
+# (and re-verify panel_perception/camera_target_math still import clean)
+# rather than letting it drift.
+RUN pip3 install --no-cache-dir --upgrade 'scipy==1.15.3'
 
 RUN rosdep init || true && rosdep update
 
