@@ -114,6 +114,19 @@ DOWN_AXIS = (0.0, 0.0, -1.0)
 # — flip the sign here.
 SAMPLING_POINT_AXIS = (0.0, 0.0, 1.0)
 DRILL_POINT_AXIS = (0.0, -1.0, 0.0)
+# level_tool()'s target: a full, fixed joint vector (same order as
+# HOME_POSE_JOINTS), driven there by hand (teleop) and verified live via
+# /compute_fk against the drill's real bore axis (DRILL_POINT_AXIS,
+# derivation in its own comment above): dot-product with straight-down =
+# 1.00000 (0.05 degrees off).
+LEVEL_TOOL_TARGET_POSE = [
+    -0.06367867092618458,  # arm_mount_base_joint
+    0.8861027135101929,    # arm_base_shoulder_joint
+    -0.36962295375967424,  # arm_shoulder_forearm_joint
+    0.26862548294026134,   # arm_forearm_wrist_1_joint
+    2.125629420127624,     # arm_wrist_1_wrist_2_joint
+    -1.0466698958262262,   # arm_wrist_2_end_effector_joint
+]
 # Cartesian teleop publishes the twist in arm_mount_link (Servo command frame).
 # Stick XYZ are already in that frame. Stick roll/pitch/yaw are interpreted in
 # arm_tcp_link and rotated into mount before publish so orientation stays
@@ -386,6 +399,12 @@ class ServoController(Node):
         # set_sampling_mode()/set_drill_mode(). Mutually exclusive (see those).
         self._sampling_mode = False
         self._drill_mode = False
+        # Set True by a successful level_tool() — set_velocity() then zeroes
+        # any wx/wy (pitch/yaw) it's given, keeping vx/vy/vz and wz (roll)
+        # working normally, so translating/rolling afterward can't tilt the
+        # tool back off vertical. Cleared by a successful move_to_safe_pose()
+        # ('r'), same re-arm point teleop already uses.
+        self._pitch_yaw_locked = False
         self._joint_positions = {}
 
         self.gripper_vel = 0.0
@@ -549,8 +568,11 @@ class ServoController(Node):
         self.vx = vx
         self.vy = vy
         self.vz = vz
-        self.wx = wx
-        self.wy = wy
+        # pitch/yaw stay locked out after level_tool() until move_to_safe_pose()
+        # clears it (see _pitch_yaw_locked's own comment) — roll (wz) and
+        # translation are unaffected.
+        self.wx = 0.0 if self._pitch_yaw_locked else wx
+        self.wy = 0.0 if self._pitch_yaw_locked else wy
         self.wz = wz
         self.view_vx = view_vx
         self.view_vy = view_vy
@@ -870,8 +892,133 @@ class ServoController(Node):
         if not outcome['success']:
             self.get_logger().error(f'Home move failed: {outcome["error"]}')
             return False
+        self._pitch_yaw_locked = False
         self.get_logger().info('Home reached!')
         return True
+
+    def level_tool(self) -> bool:
+        """Move to ``LEVEL_TOOL_TARGET_POSE``, collision-checked.
+
+        A fixed joint-space target rather than a computed one — see
+        ``LEVEL_TOOL_TARGET_POSE``'s own comment for how it was picked and
+        verified. No live geometry computation, which is why it's
+        predictable.
+
+        On success this also sets ``_pitch_yaw_locked`` (see its own
+        comment) so teleop can't tilt the tool back off vertical
+        afterward — translation and roll keep working normally.
+        ``move_to_safe_pose()`` clears it.
+
+        Returns:
+            bool: True if move_group reported the goal SUCCEEDED; False
+            on any failure — see ``move_to_safe_pose``'s own return-value
+            contract, same failure modes apply here (Servo not stopped,
+            trajectory controller unavailable, action server unavailable,
+            goal rejected, no collision-free plan found, or no result
+            within the timeout).
+        """
+        self.stop()
+
+        if not self.stop_servo():
+            self.get_logger().error(
+                'Could not confirm Servo stopped — aborting level move.'
+            )
+            return False
+
+        if not self.use_trajectory_controller():
+            self.get_logger().error(
+                'Could not activate trajectory controller — aborting level move.'
+            )
+            return False
+
+        if not self._move_group_client.wait_for_server(timeout_sec=3.0):
+            self.get_logger().error('move_group action server not available')
+            return False
+
+        joint_constraints = [
+            JointConstraint(
+                joint_name=name, position=pos,
+                tolerance_above=0.005, tolerance_below=0.005, weight=1.0,
+            )
+            for name, pos in zip(HOME_POSE_JOINTS, LEVEL_TOOL_TARGET_POSE)
+        ]
+
+        self.get_logger().info('Leveling tool (fixed target pose, collision-checked plan)...')
+        success, error = self._execute_move_group_constraints(
+            Constraints(joint_constraints=joint_constraints)
+        )
+        if not success:
+            self.get_logger().error(f'Level move failed: {error}')
+            return False
+        self._pitch_yaw_locked = True
+        self.get_logger().info('Tool leveled! Pitch/yaw locked — "r" unlocks.')
+        return True
+
+    def _execute_move_group_constraints(self, constraints: Constraints) -> tuple[bool, str]:
+        """Plan and execute a single move_action goal for ``constraints``.
+
+        Shared by ``level_tool()``'s two stages. Returns ``(success,
+        error)`` — ``error`` is empty on success, otherwise a short
+        description (goal rejected, no result within the timeout, or the
+        MoveIt status/error code on failure).
+        """
+        goal = MoveGroup.Goal()
+        goal.request.group_name = MOVEIT_GROUP_NAME
+        goal.request.pipeline_id = 'ompl'
+        goal.request.goal_constraints = [constraints]
+        goal.request.num_planning_attempts = 5
+        goal.request.allowed_planning_time = 5.0
+        goal.request.max_velocity_scaling_factor = 0.1
+        goal.request.max_acceleration_scaling_factor = 0.1
+        goal.planning_options.plan_only = False
+
+        done_event = threading.Event()
+        outcome = {'success': False, 'error': ''}
+
+        def result_cb(future):
+            """Record the move_group result's status and MoveIt error code."""
+            try:
+                wrapped = future.result()
+                result = wrapped.result
+                if (wrapped.status == GoalStatus.STATUS_SUCCEEDED
+                        and result.error_code.val == MoveItErrorCodes.SUCCESS):
+                    outcome['success'] = True
+                else:
+                    outcome['error'] = (
+                        f'goal status {wrapped.status}, '
+                        f'MoveIt error code {result.error_code.val}'
+                    )
+            except Exception as e:
+                outcome['error'] = f'failed to read result: {e!r}'
+            finally:
+                done_event.set()
+
+        def goal_response_cb(future):
+            """Handle move_action's goal-acceptance response."""
+            try:
+                goal_handle = future.result()
+            except Exception as e:
+                goal_handle = None
+                outcome['error'] = f'goal request failed: {e!r}'
+            if not goal_handle or not goal_handle.accepted:
+                outcome['error'] = outcome['error'] or 'goal rejected'
+                done_event.set()
+                return
+            result_future = goal_handle.get_result_async()
+            result_future.add_done_callback(result_cb)
+
+        future = self._move_group_client.send_goal_async(goal)
+        future.add_done_callback(goal_response_cb)
+
+        timeout = self._safe_pose_timeout if self._safe_pose_timeout > 0.0 else None
+        if not done_event.wait(timeout=timeout):
+            self.get_logger().warn(
+                f'No move_group result within {self._safe_pose_timeout:.1f}s — '
+                'controller may be unresponsive '
+                '(raise the safe_pose_timeout parameter if the sim is just slow).'
+            )
+            return False, 'timed out waiting for a result'
+        return outcome['success'], outcome['error']
 
     def start_servo(self) -> bool:
         """Switch to streaming controller, then start MoveIt Servo.
@@ -1187,6 +1334,8 @@ HELP = """
 ║    b / v  — open / close                         ║
 ║  Other:                                          ║
 ║    r      — move to home + start servo           ║
+║    f      — level tool (collision-checked; locks ║
+║             pitch/yaw after — 'r' unlocks)        ║
 ║    ESC/x  — exit                                 ║
 ╚══════════════════════════════════════════════════╝
 """
@@ -1232,6 +1381,12 @@ class KeyboardInputLoop:
         ecodes.KEY_G:     ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  0.0, -1.0),
     }
 
+    # Keys that only ever produce wx/wy (pitch/yaw) — suppressed from the
+    # per-keypress console line while _pitch_yaw_locked is set, since
+    # set_velocity() has already zeroed them and printing a line that's
+    # all zeros is just noise.
+    _PITCH_YAW_KEYS = {ecodes.KEY_I, ecodes.KEY_K, ecodes.KEY_U, ecodes.KEY_O}
+
     # Gripper — separate from _DIRECTIONS (own velocity channel on
     # ServoController, published directly to the finger controllers rather
     # than summed into the Servo twist).
@@ -1264,6 +1419,7 @@ class KeyboardInputLoop:
         self._read_thread = None
         self._servo_started = False
         self._safe_pose_running = threading.Lock()
+        self._level_running = threading.Lock()
 
     def _open_device(self) -> bool:
         """Open evdev keyboard(s) for teleop.
@@ -1388,6 +1544,28 @@ class KeyboardInputLoop:
         finally:
             self._safe_pose_running.release()
 
+    def _handle_level(self):
+        """Reorient the tool straight down via a collision-checked plan.
+
+        Servo is restarted regardless of outcome, same reasoning as
+        move_to_safe_pose's failure path being the ONE case that does
+        not: a rejected/failed plan here never moved the arm from
+        wherever it already safely was, so there's no "resumed
+        mid-trajectory" risk to guard against.
+        """
+        if not self._level_running.acquire(blocking=False):
+            return
+        try:
+            print('Leveling tool...')
+            if self._controller.level_tool():
+                print('Tool leveled.')
+            else:
+                print('Level move failed.')
+            print('Resuming manual control...')
+            self._controller.start_servo()
+        finally:
+            self._level_running.release()
+
     def _read_loop(self):
         """Continuously read raw key events from all opened keyboards."""
         try:
@@ -1421,6 +1599,12 @@ class KeyboardInputLoop:
                             if code == ecodes.KEY_R and value == self._KEYSTATE_DOWN:
                                 threading.Thread(
                                     target=self._handle_safe_pose, daemon=True
+                                ).start()
+                                continue
+
+                            if code == ecodes.KEY_F and value == self._KEYSTATE_DOWN:
+                                threading.Thread(
+                                    target=self._handle_level, daemon=True
                                 ).start()
                                 continue
 
@@ -1464,20 +1648,22 @@ class KeyboardInputLoop:
                                     self._pressed.add(code)
                                 if not already_pressed:
                                     self._recompute_velocity()
-                                    key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
-                                    # view_* included or the arrow keys would
-                                    # report all-zero and look like a no-op.
-                                    print(
-                                        f'{key_name} vx={self._controller.vx:.2f} '
-                                        f'vy={self._controller.vy:.2f} '
-                                        f'vz={self._controller.vz:.2f} '
-                                        f'wx={self._controller.wx:.2f} '
-                                        f'wy={self._controller.wy:.2f} '
-                                        f'wz={self._controller.wz:.2f} '
-                                        f'| fwd={self._controller.view_vx:.2f} '
-                                        f'left={self._controller.view_vy:.2f} '
-                                        f'up={self._controller.view_vz:.2f}'
-                                    )
+                                    if not (self._controller._pitch_yaw_locked
+                                            and code in self._PITCH_YAW_KEYS):
+                                        key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
+                                        # view_* included or the arrow keys would
+                                        # report all-zero and look like a no-op.
+                                        print(
+                                            f'{key_name} vx={self._controller.vx:.2f} '
+                                            f'vy={self._controller.vy:.2f} '
+                                            f'vz={self._controller.vz:.2f} '
+                                            f'wx={self._controller.wx:.2f} '
+                                            f'wy={self._controller.wy:.2f} '
+                                            f'wz={self._controller.wz:.2f} '
+                                            f'| fwd={self._controller.view_vx:.2f} '
+                                            f'left={self._controller.view_vy:.2f} '
+                                            f'up={self._controller.view_vz:.2f}'
+                                        )
                             elif value == self._KEYSTATE_UP:
                                 with self._lock:
                                     self._pressed.discard(code)
@@ -1559,6 +1745,8 @@ GAMEPAD_HELP = """
 ║   in sampling/drill mode: right sticks       ║
 ║   ↑↓ up/down, ←→ roll (pitch/yaw locked)     ║
 ║   A/R -> mode-specific home pose             ║
+║  6 (button)       — point tool straight down ║
+║   (collision-checked; sampling/drill modes)  ║
 ║  A                — home + start servo       ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
@@ -1615,6 +1803,11 @@ class GamepadInputLoop:
     # Indices are controller-dependent — verify against _log_raw_joy if unresponsive.
     BUTTON_SAMPLING_MODE = 13
     BUTTON_DRILL_MODE = 11
+    # On-demand collision-checked "point straight down now" (mirrors
+    # KeyboardInputLoop's 'f') — see ServoController.level_tool() for why
+    # this needs to be its own move_group plan, not just a harder nudge
+    # from _level_hold. Index unverified — see the comment above.
+    BUTTON_LEVEL = 6
 
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
@@ -1648,6 +1841,8 @@ class GamepadInputLoop:
         self._prev_buttons = None
         self._safe_pose_running = threading.Lock()
         self._safe_pose_active = False
+        self._level_running = threading.Lock()
+        self._level_active = False
         self._prev_cmd = (0.0,) * 6
 
         # Teleop (axes -> velocity) is locked out until the first
@@ -1838,6 +2033,7 @@ class GamepadInputLoop:
         exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
         sampling_mode_pressed = self._button_rising_edge(buttons, self.BUTTON_SAMPLING_MODE)
         drill_mode_pressed = self._button_rising_edge(buttons, self.BUTTON_DRILL_MODE)
+        level_pressed = self._button_rising_edge(buttons, self.BUTTON_LEVEL)
 
         # Log the raw state on any button change, not just the mapped ones,
         # so an unmapped shift button still shows up.
@@ -1891,7 +2087,10 @@ class GamepadInputLoop:
         if safe_pose_pressed:
             threading.Thread(target=self._handle_safe_pose, daemon=True).start()
 
-        if self._teleop_locked or self._safe_pose_active:
+        if level_pressed:
+            threading.Thread(target=self._handle_level, daemon=True).start()
+
+        if self._teleop_locked or self._safe_pose_active or self._level_active:
             self._controller.stop()
             return
 
@@ -2017,6 +2216,31 @@ class GamepadInputLoop:
         finally:
             self._safe_pose_active = False
             self._safe_pose_running.release()
+
+    def _handle_level(self):
+        """Reorient the tool straight down via a collision-checked plan
+        (mirrors KeyboardInputLoop's 'f' — see level_tool's own docstring
+        for why this needs to be its own move_group plan).
+
+        ``_level_active`` mirrors ``_safe_pose_active``'s own role: held
+        for the duration so ``_on_joy`` ignores stick input mid-move,
+        same reasoning as that flag's own declaration.
+        """
+        if not self._level_running.acquire(blocking=False):
+            return
+        self._level_active = True
+        try:
+            self._controller.stop()
+            print('Leveling tool...')
+            if self._controller.level_tool():
+                print('Tool leveled.')
+            else:
+                print('Level move failed.')
+            print('Resuming manual control...')
+            self._controller.start_servo()
+        finally:
+            self._level_active = False
+            self._level_running.release()
 
     def run(self):
         """Print the help banner and block until the exit button is pressed."""
