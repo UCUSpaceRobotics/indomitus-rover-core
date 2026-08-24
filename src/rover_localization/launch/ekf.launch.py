@@ -62,6 +62,10 @@ def generate_launch_description():
                 # base_link_ground_height in rover_description/urdf/properties.xacro.
                 {'ground_height': 0.4597},
 
+                # Age at which the IMU stops being trusted and the tilt
+                # transform is no longer sent.
+                {'imu_timeout': 0.5},
+
                 {'use_sim_time': use_sim_time_val},
             ],
         ),

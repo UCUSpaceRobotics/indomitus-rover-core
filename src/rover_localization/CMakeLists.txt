@@ -11,9 +11,19 @@ find_package(tf2_ros REQUIRED)
 if(BUILD_TESTING)
     find_package(ament_lint_auto REQUIRED)
     ament_lint_auto_find_test_dependencies()
+
+    find_package(ament_cmake_gtest REQUIRED)
+    ament_add_gtest(test_tilt_math test/test_tilt_math.cpp)
+    target_include_directories(test_tilt_math PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    ament_target_dependencies(test_tilt_math tf2)
 endif()
 
 add_executable(tilt_broadcaster_node src/tilt_broadcaster_node.cpp)
+target_include_directories(tilt_broadcaster_node PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 ament_target_dependencies(tilt_broadcaster_node rclcpp sensor_msgs geometry_msgs tf2 tf2_ros)
 
 install(TARGETS tilt_broadcaster_node
