@@ -55,10 +55,8 @@ Usage (stack in one terminal, input in another):
         ros2 run arm_tasks keyboard_servo_node --ros-args \\
             --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
 
-    Gamepad only (start the joystick driver first):
-        ros2 run joy joy_node
-        ros2 run arm_tasks gamepad_servo_node
-        # optional: pin the shift button — ros2 run ... --ros-args -p gamepad_shift_button:=5
+    Gamepad only:
+        ros2 launch arm_tasks gamepad.launch.py
 """
 
 import sys
@@ -114,6 +112,8 @@ DOWN_AXIS = (0.0, 0.0, -1.0)
 # — flip the sign here.
 SAMPLING_POINT_AXIS = (0.0, 0.0, 1.0)
 DRILL_POINT_AXIS = (0.0, -1.0, 0.0)
+# Untested on real hardware yet — buttons 11/13 log and do nothing while False.
+SAMPLING_DRILL_MODES_ENABLED = True
 # Cartesian teleop publishes the twist in arm_mount_link (Servo command frame).
 # Stick XYZ are already in that frame. Stick roll/pitch/yaw are interpreted in
 # arm_tcp_link and rotated into mount before publish so orientation stays
@@ -134,10 +134,9 @@ DEFAULT_HOME_POSE     = [-1.552, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
 # built-in AT Translated Set 2 device — the usual failure mode in Docker.
 DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
 # Index of the gamepad button held to shift the right stick from
-# up-down + yaw to pitch + roll. Not portable across controller models or
-# connections (some pads have R1 at 5 instead of 10) — if it does nothing
-# on your pad, read the real index from the /joy raw log (_log_raw_joy)
-# and override with --ros-args -p gamepad_shift_button:=<n>.
+# up-down + yaw to pitch + roll. 10 = RIGHTSHOULDER under game_controller_node's
+# canonical mapping (see GamepadInputLoop) — stable across controllers/machines
+# as long as SDL recognizes the pad. Override via --ros-args if it doesn't.
 DEFAULT_GAMEPAD_SHIFT_BUTTON = 10
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
 DEFAULT_GRIPPER_SPEED = 0.006   # m/s
@@ -1569,22 +1568,22 @@ class GamepadInputLoop:
     """Reads sensor_msgs/Joy messages and drives a ``ServoController``.
 
     Replaces the raw-keyboard evdev input of ``KeyboardInputLoop`` with a
-    subscription to the ``joy`` package's ``/joy`` topic (published by
-    ``ros2 run joy joy_node``) — as this module's docstring already
-    promises, ``ServoController`` itself needs no changes.
+    subscription to the ``joy`` package's ``/joy`` topic — as this module's
+    docstring already promises, ``ServoController`` itself needs no changes.
 
-    Axis/button indices and rest values below were established by
-    watching `ros2 topic echo /joy` live with this controller over
-    Bluetooth:
+    Launch via ``arm_tasks/launch/gamepad.launch.py``, which starts
+    ``game_controller_node`` (not plain ``joy_node``): it maps raw HID
+    reports through SDL's GameController DB into a fixed canonical index
+    order (A=0, X=2, LEFTSHOULDER=9, RIGHTSHOULDER=10, DPAD_UP=11,
+    DPAD_LEFT=13, ... — same on every machine/controller SDL recognizes),
+    instead of joy_node's raw per-device layout, which was observed to
+    shift index depending on kernel/Bluetooth stack even for the identical
+    physical pad. The indices below match that canonical table directly.
 
-    * Axes 0/1 (left stick) and 2/3 (right stick) rest at 0.0, X left =
-      +1.0, X right = -1.0, Y forward = +1.0, Y back = -1.0.
-    * Axes 4 and 5 (L2 / R2) are often Stadia-style (rest **+1.0**, full
-      press **-1.0**), but Bluetooth can leave one trigger resting at
-      **0.0** instead. ``_trigger_amount`` uses a per-axis rest sample
-      taken while sticks are centered so a 0-rest axis is not treated as
-      a half-press (which was publishing a constant phantom yaw).
-    * Buttons 0/2 are A/X; 5 is R1/RB, held as a shift for the right stick.
+    Trigger axes (4/5) still get a per-axis rest sample while sticks are
+    centered (``_trigger_amount``) as a safety net — GameController's
+    TRIGGERLEFT/TRIGGERRIGHT are specified to rest at 0.0, but this costs
+    nothing if that already holds.
     """
 
     # Gamepad translation is view-relative (camera frame), not mount-frame —
@@ -1599,20 +1598,21 @@ class GamepadInputLoop:
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to home + start servo
     BUTTON_EXIT = 2        # 'X' — exit
-    # Held to scale up commanded velocity — raises the per-cycle position step
-    # Servo re-anchors from, which is what caps static push force (not kp/kd).
+    # LEFTSHOULDER/L1. Held to scale up commanded velocity — raises the
+    # per-cycle position step Servo re-anchors from, which is what caps
+    # static push force (not kp/kd).
     BUTTON_PUSH_BOOST = 9
     # Bounded by max_cmd_speed_rad_s (arm_macro.xacro): the hardware
     # interface rate-limits actual motion to that many rad/s regardless
     # of what Servo asks for, so beyond a certain multiplier this stops
     # helping and max_cmd_speed_rad_s becomes the real ceiling instead.
     PUSH_BOOST_MULTIPLIER = 3.0
-    # Shift button has no class constant: its real index is controller-
-    # dependent (see DEFAULT_GAMEPAD_SHIFT_BUTTON), read via self._shift_button.
+    # Shift button has no class constant — parameterized (DEFAULT_GAMEPAD_SHIFT_BUTTON),
+    # read via self._shift_button, in case a pad's SDL mapping is ever wrong.
 
     # Rising-edge toggles for sampling/drill mode (attitude held level by
     # _level_hold); mutually exclusive, see set_sampling_mode/set_drill_mode.
-    # Indices are controller-dependent — verify against _log_raw_joy if unresponsive.
+    # DPAD_LEFT / DPAD_UP under game_controller_node's canonical mapping.
     BUTTON_SAMPLING_MODE = 13
     BUTTON_DRILL_MODE = 11
 
@@ -1860,7 +1860,11 @@ class GamepadInputLoop:
         if exit_pressed:
             self._exit_event.set()
 
-        if sampling_mode_pressed:
+        if sampling_mode_pressed and not SAMPLING_DRILL_MODES_ENABLED:
+            self._controller.get_logger().warn(
+                'Sampling mode is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
+            )
+        elif sampling_mode_pressed:
             self._sampling_mode = not self._sampling_mode
             if self._sampling_mode:
                 self._drill_mode = False
@@ -1876,7 +1880,11 @@ class GamepadInputLoop:
             if self._sampling_mode:
                 threading.Thread(target=self._handle_safe_pose, daemon=True).start()
 
-        if drill_mode_pressed:
+        if drill_mode_pressed and not SAMPLING_DRILL_MODES_ENABLED:
+            self._controller.get_logger().warn(
+                'Drill mode is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
+            )
+        elif drill_mode_pressed:
             self._drill_mode = not self._drill_mode
             if self._drill_mode:
                 self._sampling_mode = False
@@ -2067,7 +2075,7 @@ def main():
 def main_gamepad():
     """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
 
-    Requires a running ``joy`` publisher (``ros2 run joy joy_node``).
+    Requires a running ``joy`` publisher — see ``arm_tasks/launch/gamepad.launch.py``.
     See ``_run_teleop`` for the shared spin/cleanup lifecycle.
     """
     rclpy.init()

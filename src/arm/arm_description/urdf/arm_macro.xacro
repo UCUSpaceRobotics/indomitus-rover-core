@@ -113,7 +113,7 @@
       <child link="arm_wrist_1_link"/>
       <origin xyz="-0.0173 0.3 0" rpy="0 ${pi/2} 0"/>
       <axis xyz="0 0 1"/>
-      <limit lower="${-pi/2}" upper="${pi/2}" effort="100.0" velocity="1.0"/>
+      <limit lower="${-pi}" upper="${pi}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_wrist_1_link">

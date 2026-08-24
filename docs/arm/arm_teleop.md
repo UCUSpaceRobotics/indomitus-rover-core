@@ -13,7 +13,7 @@
 |---|---|---|
 | GUI-only RViz | `arm_bringup/arm_standalone.launch.py gui_only:=true` | Inspect URDF / joint sliders — **no** motors, **no** ros2_control |
 | MoveIt stack | `arm_moveit_config/demo.launch.py` | Plan&Execute + `servo_node` |
-| Cartesian teleop | `ros2 run arm_tasks keyboard_servo_node` | After demo is up; gamepad: `joy_node` + `gamepad_servo_node` |
+| Cartesian teleop | `ros2 run arm_tasks keyboard_servo_node` | After demo is up; gamepad: `arm_tasks/gamepad.launch.py` |
 
 On the host (for RViz):
 
@@ -55,9 +55,11 @@ ros2 run arm_tasks keyboard_servo_node
 Gamepad instead of keyboard:
 
 ```bash
-ros2 run joy joy_node
-ros2 run arm_tasks gamepad_servo_node
+ros2 launch arm_tasks gamepad.launch.py
 ```
+Starts `game_controller_node` (not `joy_node`) — canonical SDL button/axis
+mapping, stable across machines/controllers, instead of joy_node's raw
+per-device layout (see `GamepadInputLoop`'s docstring).
 
 Do not run keyboard and gamepad together — both publish `/servo_node/delta_twist_cmds`.
 
