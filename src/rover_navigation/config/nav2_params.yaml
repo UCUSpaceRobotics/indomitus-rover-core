@@ -294,8 +294,22 @@ local_costmap:
         self_filter_margin: 0.10
         roughness_saturation_mult: 4.0
         roughness_lethal: false
-        lethal_min_support: 3
+        # Steep neighbours a lethal cell needs to be trusted. 2 keeps a rock
+        # covering 2x2 cells and drops isolated noise. 0 disables it.
+        lethal_min_support: 2
+        # Radius around the rover that is never painted, since stereo is
+        # noisiest there and it cannot re-check ground it stands on.
         robot_clear_radius: 1.0
+        # Min spread (m^2) for a plane fit. Points on a line give a normal
+        # pointing anywhere, which reads as false slope.
+        min_plane_spread: 1.0e-4
+        # Off here: MPPI scores unknown cells at critical cost, so the rover
+        # would refuse to drive into ground it has not seen yet.
+        mark_unobserved_unknown: false
+        # Gap after which the camera counts as dead. Keep it above the slowest
+        # normal frame gap, or the layer flaps in and out of use.
+        cloud_timeout: 5.0
+        # Covers cloud latency (~2 s in sim). Real hardware needs 0.3-0.5.
         tf_tolerance: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -326,6 +340,8 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
+        # Overwrite lets lidar clear stale obstacles. The slope layer runs
+        # after and repaints, so its bounds must cover the range below.
         combination_method: 0
         observation_sources: scan
         scan:
@@ -344,7 +360,15 @@ global_costmap:
       slope_layer:
         plugin: "rover_costmap_plugins::SlopeLayer"
         enabled: true
+        # Terrain is remembered, so a rock stays on the map when the camera
+        # turns away. A costmap clear wipes it.
         persist: true
+        # Memory half-size (m) around the rover's first pose. Terrain outside
+        # it is dropped with a warning.
+        persist_half_extent: 50.0
+        # Area repainted each cycle. Keep >= the obstacle layer's
+        # raytrace_max_range, or its clearing wins over remembered terrain.
+        persist_update_range: 6.0
         cloud_topic: "/zed2i/points"
         base_frame: "base_footprint"
         grid_resolution: 0.25
@@ -359,8 +383,21 @@ global_costmap:
         self_filter_margin: 0.10
         roughness_saturation_mult: 4.0
         roughness_lethal: false
-        lethal_min_support: 3
+        # Steep neighbours a lethal cell needs to be trusted. 2 keeps a rock
+        # covering 2x2 cells and drops isolated noise. 0 disables it.
+        lethal_min_support: 2
+        # Radius around the rover that is never painted, since stereo is
+        # noisiest there and it cannot re-check ground it stands on.
         robot_clear_radius: 1.0
+        # Min spread (m^2) for a plane fit. Points on a line give a normal
+        # pointing anywhere, which reads as false slope.
+        min_plane_spread: 1.0e-4
+        # Unseen cells are written as unknown. Needs track_unknown_space.
+        mark_unobserved_unknown: true
+        # Gap after which the camera counts as dead. Keep it above the slowest
+        # normal frame gap, or the layer flaps in and out of use.
+        cloud_timeout: 5.0
+        # Covers cloud latency (~2 s in sim). Real hardware needs 0.3-0.5.
         tf_tolerance: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
