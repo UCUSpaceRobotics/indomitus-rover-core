@@ -16,10 +16,10 @@ This document outlines the configuration, launch instructions, and data capabili
 
 The camera is initialized using a custom launch file that wraps the official `zed_camera.launch.py` and applies specific topic remappings to fit the rover's architecture.
 
-The launch file takes a `mode` argument that picks which config to load:
+The launch file takes a `mode` argument that picks which config to load. Every mode always loads `rover_sensors/config/zed2i_common.yaml` first (the `general`/`video`/`sensors` settings shared by both modes), then merges the mode-specific file on top at launch time, so the shared settings aren't duplicated between mode files:
 
-* `mode:=rgb` *(default)* — only the rectified color feed is enabled, for the operator view. Loads `rover_sensors/config/zed2i_rgb.yaml`.
-* `mode:=nav` — additionally enables the point cloud and positional tracking (VIO) used by the navigation stack. Loads `rover_sensors/config/zed2i_nav.yaml`.
+* `mode:=rgb` *(default)* — only the rectified color feed is enabled, for the operator view. Merges in `rover_sensors/config/zed2i_rgb.yaml`.
+* `mode:=nav` — additionally enables the point cloud and positional tracking (VIO) used by the navigation stack. Merges in `rover_sensors/config/zed2i_nav.yaml`.
 
 ```bash
 # RGB feed only (operator view)
@@ -29,7 +29,7 @@ ros2 launch rover_sensors zed2i.launch.py mode:=rgb
 ros2 launch rover_sensors zed2i.launch.py mode:=nav
 ```
 
-On the real rover, this launch file is normally started via `rover_bringup/launch/rover.launch.py`'s `zed2i_mode` argument rather than invoked directly — see [`nodes_overview.md`](../../../docs/software/nodes_overview.md). `config_path` can still be set explicitly to override the default file chosen by `mode`.
+On the real rover, this launch file is normally started via `rover_bringup/launch/rover.launch.py`'s `zed2i_mode` argument rather than invoked directly — see [`nodes_overview.md`](../../../docs/software/nodes_overview.md). `config_path` can still be set explicitly to override the default file chosen by `mode` - in that case the file is used as-is and `zed2i_common.yaml` is not merged in.
 
 
 ---
@@ -73,7 +73,7 @@ Depth, point cloud, and positional tracking (VIO) are only enabled in `mode:=nav
 
 ## 4. Available But Disabled Data
 
-The ZED SDK and ROS 2 wrapper support extracting significantly more data, which is currently turned off in both `zed2i_rgb.yaml` and `zed2i_nav.yaml` to save bandwidth and compute resources. These can be enabled if required for future features.
+The ZED SDK and ROS 2 wrapper support extracting significantly more data, which is currently turned off in `zed2i_common.yaml`, `zed2i_rgb.yaml`, and `zed2i_nav.yaml` to save bandwidth and compute resources. These can be enabled if required for future features.
 
 **Video & Imaging:**
 
