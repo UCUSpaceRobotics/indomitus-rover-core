@@ -25,6 +25,7 @@ Controls (vim-style) — also shown in the footer:
     s   Stop drive (speed target -> 0, ramps down)
     f   Print latest decoded feedback + per-motor diagnostics
     r   Measure actual command send rate
+    1   Toggle the raw candump panel (right of the log)
     q   Quit
 
 Motor health panel (middle) — green if the motor is sending diagnostics,
@@ -32,6 +33,7 @@ red if it is not (damiao: MIT feedback frame, steadywin: 0xAE response).
 """
 import argparse
 import math
+import queue
 import re
 import struct
 import subprocess
@@ -63,13 +65,15 @@ DRIVE_IDS = [10, 12, 14, 16]      # Damiao,    [FL, FR, RL, RR]
 
 MAX_ACCEL = 1.0          # rad/s^2, applied when |target| > |current| (speeding up)
 MAX_DECEL = 2.0          # rad/s^2, applied when |target| < |current| (slowing down)
-CMD_RATE_HZ = 10.0       # command loop frequency — see MotionController
+CMD_RATE_HZ = 100.0       # command loop frequency — see MotionController
 
 SPEED_STEP = 0.1          # rad/s added/removed per 'k'/'j' keypress
 ANGLE_STEP_DEG = 5.0      # degrees added/removed per 'l'/'h' keypress
 
 STALE_THRESHOLD_S = 1.0   # motor ID shown red if no feedback received within this long
 DIAG_POLL_HZ = 2.0        # 0xAE status query rate per steadywin motor — see DiagnosticsPoller
+
+CANDUMP_CMD = ["candump", "-tz"]   # channel is appended at runtime; -tz = relative timestamps
 
 # ── Frame builders ────────────────────────────────────────────────────────
 
@@ -427,6 +431,82 @@ class CanLinkMonitor:
         self._stop.set()
         self._thread.join(timeout=1.0)
 
+# ── candump reader ──────────────────────────────────────────────────────────
+
+class CandumpMonitor:
+    """Runs `candump <channel>` and buffers its output for the TUI to drain.
+
+    Started only while the dump panel is visible: candump on a loaded bus emits
+    a few hundred lines a second, and there is no reason to pay for that while
+    nobody is looking. Lines land in a bounded queue — if the UI falls behind,
+    the oldest are dropped and counted rather than growing without limit."""
+
+    def __init__(self, channel: str, max_buffered: int = 2000):
+        self.channel = channel
+        self.lines: queue.Queue = queue.Queue(maxsize=max_buffered)
+        self.dropped = 0
+        self.error: str | None = None
+        self._proc: subprocess.Popen | None = None
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> bool:
+        """Spawn candump. Returns False and sets .error if it could not start."""
+        cmd = CANDUMP_CMD + [self.channel]
+        try:
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+        except FileNotFoundError:
+            self.error = f"{cmd[0]} not found — install can-utils"
+            return False
+        except OSError as e:
+            self.error = str(e)
+            return False
+        self.error = None
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._read, daemon=True)
+        self._thread.start()
+        return True
+
+    def _read(self):
+        stdout = self._proc.stdout if self._proc else None
+        if stdout is None:
+            return
+        # Iteration ends when stop() terminates the process and closes the pipe.
+        for line in stdout:
+            if self._stop.is_set():
+                break
+            try:
+                self.lines.put_nowait(line.rstrip("\n"))
+            except queue.Full:
+                self.dropped += 1
+
+    def drain(self, limit: int = 300) -> list[str]:
+        """Pop up to `limit` buffered lines. Capped so one slow frame of the UI
+        cannot block on a bus that is producing faster than we can render."""
+        out = []
+        for _ in range(limit):
+            try:
+                out.append(self.lines.get_nowait())
+            except queue.Empty:
+                break
+        return out
+
+    def stop(self):
+        self._stop.set()
+        if self._proc:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+            self._proc = None
+        if self._thread:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+
 # ── Motion controller ──────────────────────────────────────────────────────
 
 class MotionController:
@@ -613,7 +693,11 @@ class ChassisTUI(App):
         padding: 0 1;
         content-align: left middle;
     }
+    #body_row {
+        height: 1fr;
+    }
     #log {
+        width: 1fr;
         background: #1c1c1e;
         border: round #4a4a4a;
         scrollbar-size-vertical: 1;
@@ -623,6 +707,15 @@ class ChassisTUI(App):
         scrollbar-color: #4a4a4a;
         scrollbar-color-hover: #888888;
         scrollbar-color-active: #aaaaaa;
+    }
+    #candump {
+        width: 1fr;
+        display: none;
+        background: #1c1c1e;
+        border: round magenta;
+        scrollbar-size-vertical: 1;
+        scrollbar-background: #1c1c1e;
+        scrollbar-color: #4a4a4a;
     }
     """
 
@@ -636,6 +729,7 @@ class ChassisTUI(App):
         Binding("s", "stop", "Stop"),
         Binding("f", "feedback", "Feedback"),
         Binding("r", "measure_rate", "Rate"),
+        Binding("1", "toggle_candump", "candump"),
         Binding("q", "quit_app", "Quit"),
     ]
 
@@ -647,6 +741,7 @@ class ChassisTUI(App):
         self.motion: MotionController | None = None
         self.link_monitor: CanLinkMonitor | None = None
         self.diag_poller: DiagnosticsPoller | None = None
+        self.candump: CandumpMonitor | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -654,7 +749,12 @@ class ChassisTUI(App):
             yield Static(id="can_status")
             yield Static(id="motors_status")
             yield Static(id="motion_status")
-        yield RichLog(id="log", wrap=True, highlight=True, markup=True)
+        with Horizontal(id="body_row"):
+            yield RichLog(id="log", wrap=True, highlight=True, markup=True)
+            # Raw candump text: no markup (frames contain "[8]", which Textual
+            # would try to parse as a tag) and no wrap, so frames stay aligned.
+            yield RichLog(id="candump", wrap=False, highlight=False,
+                          markup=False, max_lines=2000)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -681,6 +781,7 @@ class ChassisTUI(App):
             log.write(f"[bold red]Failed to open CAN bus: {e}[/bold red]")
 
         self.set_interval(1 / 10, self.update_status)
+        self.set_interval(1 / 10, self.drain_candump)
 
     def update_status(self) -> None:
         # ── left panel: CAN link state ──
@@ -861,6 +962,41 @@ class ChassisTUI(App):
             self.log_write("   [yellow]undecodable frames:[/yellow] " +
                            ", ".join(f"{c}x{n}" for c, n in sorted(noise.items())))
 
+    def action_toggle_candump(self) -> None:
+        panel = self.query_one("#candump", RichLog)
+        if panel.display:
+            if self.candump:
+                self.candump.stop()
+                self.candump = None
+            panel.display = False
+            self.log_write("[magenta]1[/magenta] candump panel off")
+            return
+
+        panel.display = True
+        panel.clear()
+        panel.border_title = f"candump {CAN_CHANNEL}"
+        monitor = CandumpMonitor(CAN_CHANNEL)
+        if not monitor.start():
+            panel.write(f"cannot start candump: {monitor.error}")
+            self.log_write(f"[red]1: candump failed — {monitor.error}[/red]")
+            return
+        self.candump = monitor
+        panel.write("$ " + " ".join(CANDUMP_CMD + [CAN_CHANNEL]))
+        self.log_write("[magenta]1[/magenta] candump panel on")
+
+    def drain_candump(self) -> None:
+        if not self.candump:
+            return
+        lines = self.candump.drain()
+        if not lines:
+            return
+        panel = self.query_one("#candump", RichLog)
+        for line in lines:
+            panel.write(line)
+        if self.candump.dropped:
+            panel.border_title = (f"candump {CAN_CHANNEL} — "
+                                  f"{self.candump.dropped} dropped")
+
     def action_measure_rate(self) -> None:
         if not self.motion:
             return
@@ -879,6 +1015,9 @@ class ChassisTUI(App):
         self.exit()
 
     def _cleanup_hardware(self) -> None:
+        if self.candump:
+            self.candump.stop()
+            self.candump = None
         if self.diag_poller:
             self.diag_poller.shutdown()
         if self.motion:
