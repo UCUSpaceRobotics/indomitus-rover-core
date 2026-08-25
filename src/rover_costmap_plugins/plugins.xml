@@ -1,0 +1,9 @@
+<library path="rover_costmap_plugins">
+  <class type="rover_costmap_plugins::SlopeLayer" base_class_type="nav2_costmap_2d::Layer">
+    <description>
+      Estimates local ground slope from the ZED2i depth-camera point cloud
+      and marks steep terrain as lethal while keeping gentle slopes
+      traversable, instead of treating all raised terrain as an obstacle.
+    </description>
+  </class>
+</library>

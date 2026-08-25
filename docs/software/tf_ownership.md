@@ -7,11 +7,13 @@ This document lists every transform published in the system and which single nod
 ```text
 map
  └── odom
-      └── base_footprint
-           └── base_link
+      └── base_footprint  (flat: z=0, roll=pitch=0)
+           └── base_link  (real, tilted 6-DOF pose)
                 ├── suspension_base_axii_link
                 │    └── main_body_link
                 │         ├── zed2i_camera_link
+                │         │    └── ... -> zed2i_left_camera_frame
+                │         │         └── zed2i_imu_link
                 │         └── laser_link
                 ├── fl_wheel_mount_link -> fl_wheel_link
                 ├── fr_wheel_mount_link -> fr_wheel_link
@@ -19,26 +21,37 @@ map
                 ├── br_wheel_mount_link -> br_wheel_link
                 ├── l_rocker_link
                 └── r_rocker_link
-
 ```
 
-## Ownership table
+`base_footprint -> base_link` is **not** a URDF joint (a `fixed` joint can't
+vary at runtime, and `base_footprint` is deliberately not declared as a URDF
+link at all -- a URDF can only have one root link, and it can't parse with
+`base_footprint` sitting disconnected next to `base_link`). It's a live TF
+edge published by `tilt_broadcaster_node`, carrying real roll/pitch from the
+IMU while `base_footprint` itself stays flat for nav2/`slam_toolbox`. See the
+ownership table below and the rationale in `rover.urdf.xacro`.
 
-Here is the combined table keeping everything from `HEAD` and only the `world -> panel/panel_base_link` row from `develop`:
+## Ownership table
 
 | Transform | Owning Node | Package | Config / Source |
 | --- | --- | --- | --- |
 | `map -> odom` | `async_slam_toolbox_node` | `slam_toolbox` | Launched via `rover_localization/launch/slam.launch.py` using `slam_toolbox_params.yaml`. |
-| `odom -> base_footprint` | `ekf_filter_node` (`robot_localization`) | `rover_localization` | **Real Hardware:** `config/ekf.yaml` (fuses `/wheels/odom` + `/zed2i/odom`). **Simulation:** `config/ekf_sim.yaml` (fuses only `/wheels/odom`). Both configurations set `publish_tf: true`, `odom_frame: odom`, `base_link_frame: base_footprint`. |
-| `base_footprint -> *` *(all static & dynamic links)* | `robot_state_publisher` | `rover_description` | Driven by `/joint_states` + `rover.urdf.xacro`. Launched via `robot_state_publisher.launch.py`. |
-| `world -> panel/panel_base_link -> *` (panel base + switch/breaker links) | `robot_state_publisher` | `panel_description` | driven by `/joint_states` + `panel_standalone.urdf.xacro`; verified via `panel_bringup/panel_standalone.launch.py` (there, unprefixed: `world -> panel_base_link`, since standalone has no namespace to collide with). When spawned inside `rover_sim/sim_gz_full.launch.py` it runs under a `panel` namespace with `frame_prefix:='panel/'` set (so frame IDs are actually `panel/panel_base_link` etc., not just the topics) and `tf`/`tf_static` remapped back onto the global `/tf`/`/tf_static` topics, so the prefixed frames land on the one shared TF tree. The `world -> panel/panel_base_link` pose is generated from the same `panel_x`/`panel_y`/`panel_z`/`panel_yaw` launch args passed to the Gazebo spawn, so the two stay in sync -- **not yet verified end-to-end in Gazebo** (blocked on the Gazebo version issue in [`panel_sim.md`](https://www.google.com/search?q=../panel/panel_sim.md)), but the frame-naming and pose-sync code path is in place. |
+| `odom -> base_footprint` | `ekf_filter_node` (`robot_localization`) | `rover_localization` | **Real Hardware:** `config/ekf.yaml` (fuses `/wheels/odom` + `/zed2i/odom`; `two_d_mode: true`). **Simulation:** `config/ekf_sim.yaml` (fuses only `/wheels/odom`; `two_d_mode: true`). Both configurations set `publish_tf: true`, `odom_frame: odom`, `base_link_frame: base_footprint`. Deliberately no IMU/tilt input — this filter only ever tracks `(x, y, yaw)`, keeping `base_footprint` flat per REP 105/120. |
+| `base_footprint -> base_link` | `tilt_broadcaster_node` | `rover_localization` | Subscribes `/zed2i/imu/data`. Launched via `launch/ekf.launch.py`. For each IMU message, looks up the *live* static transform `child_frame (base_link) -> msg.header.frame_id` (the IMU's actual mount frame), and removes that mounting rotation from the raw reading before extracting roll/pitch, so it stays correct regardless of where the IMU is actually mounted in the URDF. Yaw is then discarded and hard-coded to `0.0` when rebuilding the quaternion, and the transform is broadcast via `tf2_ros::TransformBroadcaster` — `x`/`y` fixed at `0`, `z` fixed at the `ground_height` parameter (`0.4597`, must be kept in sync by hand with `base_link_ground_height` in `rover_description/urdf/properties.xacro`)|
+| `base_link -> *` *(all static & dynamic links, except the one row below)* | `robot_state_publisher` | `rover_description` | Driven by `/joint_states` + `rover.urdf.xacro`. Launched via `robot_state_publisher.launch.py`. `base_link` is the sole URDF root — `base_footprint` is intentionally not declared as a URDF link (see tree note above). |
+| `zed2i_left_camera_frame -> zed2i_imu_link` | `zed_node` | `zed_wrapper` (`rover_sensors/launch/zed2i.launch.py`) | **Exception** to "`zed_node` owns no TF" below: `zed_description` never defines an IMU link. Enabled via `sensors.publish_imu_tf`. Published once as a static transform on startup. `tilt_broadcaster_node` depends on this edge. |
+| `world -> panel/panel_base_link -> *` (panel base + switch/breaker links) | `robot_state_publisher` | `panel_description` | Driven by `/joint_states` + `panel_standalone.urdf.xacro`; verified via `panel_bringup/panel_standalone.launch.py` (there, unprefixed: `world -> panel_base_link`, since standalone has no namespace to collide with). When spawned inside `rover_sim/sim_gz_full.launch.py` it runs under a `panel` namespace with `frame_prefix:='panel/'` set (so frame IDs are actually `panel/panel_base_link` etc., not just the topics) and `tf`/`tf_static` remapped back onto the global `/tf`/`/tf_static` topics, so the prefixed frames land on the one shared TF tree. The `world -> panel/panel_base_link` pose is generated from the same `panel_x`/`panel_y`/`panel_z`/`panel_yaw` launch args passed to the Gazebo spawn, so the two stay in sync -- **not yet verified end-to-end in Gazebo** (blocked on the Gazebo version issue in [`panel_sim.md`](https://www.google.com/search?q=../panel/panel_sim.md)), but the frame-naming and pose-sync code path is in place. |
 
 ## Non-owners (explicitly verified)
 
 * **`odometry_controller`** (`rover_controller`) — Publishes `nav_msgs/Odometry` on `/wheels/odom` only. It does **not** broadcast any TF transform — confirmed by inspecting `publish_odom()`: no `tf2_ros::TransformBroadcaster` exists in this controller. Its topic is consumed as the `odom0` input to `ekf_node` (used in both real and simulation configurations). This separation is intentional — do not add a TF broadcast here, since that would duplicate `ekf_node`'s ownership.
-* **`/zed2i/zed_node`** (`zed_wrapper`) — Visual odometry TF broadcasting is intentionally disabled. Verified in `config/zed2i_nav.yaml` and `zed2i_rgb.yaml` that `pos_tracking.publish_tf: false`, `pos_tracking.publish_map_tf: false`, and `sensors.publish_imu_tf: false` — also enforced independently of the YAML by `zed2i.launch.py`'s `publish_tf`/`publish_map_tf`/`publish_urdf_tf` launch arguments, which default to `false` regardless of `mode`. It provides the `/zed2i/odom` topic consumed as `odom1` by the EKF **in the real hardware configuration only**, and only once the camera is launched in `mode:=nav` (see `rover.launch.py`'s `zed2i_mode` argument) — `mode:=rgb` disables positional tracking entirely, so `/zed2i/odom` simply isn't published and the EKF fuses wheel odometry alone.
+* **`zed_node`** (`zed_wrapper`) — Visual odometry TF broadcasting is intentionally disabled: `pos_tracking.publish_tf: false` and `pos_tracking.publish_map_tf: false` in `config/zed2i_nav.yaml` — the only mode where positional tracking runs at all (`mode:=rgb`'s `zed2i_rgb.yaml` disables `pos_tracking_enabled` entirely) — also enforced independently of the YAML by `zed2i.launch.py`'s `publish_tf`/`publish_map_tf` launch arguments, which default to `false` regardless of `mode`. It provides the `/zed2i/odom` topic consumed as `odom1` by the EKF **in the real hardware configuration only**, and only once the camera is launched in `mode:=nav` (see `rover.launch.py`'s `zed2i_mode` argument). Its `/zed2i/imu/data` topic (published in both modes) is consumed directly by `tilt_broadcaster_node` instead — not a conflict, different TF edge. **Exception:** `sensors.publish_imu_tf: true` in `config/zed2i_common.yaml` (shared by both modes) — see the `zed2i_left_camera_frame -> zed2i_imu_link` row above.
+* **`robot_state_publisher`** — no longer publishes `base_footprint -> base_link`. That edge used to be a static `fixed` joint (`base_footprint_joint`) in `rover.urdf.xacro`; it was removed because a fixed joint can never vary at runtime, and the whole point of this change was to let that edge carry real, time-varying tilt. `base_footprint` is not declared as a URDF link at all anymore — see the tree note above.
+* **`ekf_filter_node`** — does not fuse IMU orientation and does not touch `base_link`. It only ever publishes `odom -> base_footprint`, and only ever tracks `(x, y, yaw)` (`two_d_mode: true` in both real and sim configs). Tilt is intentionally out of scope for this node — see `tilt_broadcaster_node`'s row above.
+
 
 ## Rules for future changes
 
 1. Before adding any new node that fuses odometry, publishes pose, or integrates sensor data into a frame already listed above, check this table — do not enable a second `publish_tf`-style flag for an already-owned transform.
 2. If ownership of any transform changes, update this table in the same PR.
+3. `base_footprint` must stay flat (REP 105/120: z=0, roll=pitch=0) — it's what nav2 (`robot_base_frame`) and `slam_toolbox` (`base_frame`) are built assuming. Any consumer that needs the rover's *real* tilted pose should read `base_link`. Do not fuse IMU orientation into `ekf_filter_node` as a shortcut to get tilt onto `base_footprint` — that breaks the flat-frame guarantee for every other consumer of it.

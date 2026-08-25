@@ -61,6 +61,17 @@
   <!-- Mesh alignment: centers wheel.stl on the wheel link's own origin -->
   <xacro:property name="wheel_hub_offset" value="0.151"/>
 
+  <!-- ===================== BASE GROUND CLEARANCE ===================== -->
+  <!-- Height of base_link above ground level (base_footprint), derived from the
+       suspension/wheel stack-up at the nominal rest pose (rocker angle = 0,
+       steering angle = 0): rocker pivot -> wheel-mount hub (-rocker_hub_z),
+       wheel-mount hub -> axle (wheel_mount_drop), axle -> ground (wheel_radius).
+       Not consumed anywhere in this xacro tree; it's the source of truth for
+       the `ground_height` parameter passed to tilt_broadcaster_node in
+       rover_localization/launch/ekf.launch.py; update that parameter to match
+       if this value changes. -->
+  <xacro:property name="base_link_ground_height" value="${wheel_radius - rocker_hub_z + wheel_mount_drop}"/>
+
   <!-- ===================== JOINT LIMITS ===================== -->
   <xacro:property name="steering_limit" value="${3.0 * pi / 2.0}"/>  <!-- +/-270 deg -->
   <xacro:property name="steering_effort" value="500"/>

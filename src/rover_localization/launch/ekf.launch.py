@@ -47,4 +47,26 @@ def generate_launch_description():
             ],
             remappings=[('odometry/filtered', output_odom_topic_val)],
         ),
+
+        Node(
+            package='rover_localization',
+            executable='tilt_broadcaster_node',
+            name='tilt_broadcaster_node',
+            output='screen',
+            parameters=[
+                {'imu_topic': '/zed2i/imu/data'},
+                {'parent_frame': 'base_footprint'},
+                {'child_frame': 'base_link'},
+
+                # Height of base_link above base_footprint/ground -- must match
+                # base_link_ground_height in rover_description/urdf/properties.xacro.
+                {'ground_height': 0.4597},
+
+                # Age at which the IMU stops being trusted and the tilt
+                # transform is no longer sent.
+                {'imu_timeout': 0.5},
+
+                {'use_sim_time': use_sim_time_val},
+            ],
+        ),
     ])
