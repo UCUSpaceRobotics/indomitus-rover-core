@@ -1,0 +1,825 @@
+"""MoveIt-planned, collision-checked alignment to a detected panel.
+
+Separate node from ``keyboard_servo_node.py`` on purpose: MoveIt planning
+is a new, heavier dependency this codebase hasn't used before, and
+shouldn't be mixed into the input-handling module. Exposes one
+``std_srvs/srv/Trigger`` service (``align``), the same idiom already used
+for ``servo_node/start_servo``/``stop_servo``.
+
+``align_to_panel()`` mirrors ``ServoController.move_to_safe_pose()``'s
+contract: returns ``bool``, never raises, logs a distinguishing message
+per failure mode, and never re-enables Servo itself — the caller (the
+'p'-key/gamepad-button handler in ``keyboard_servo_node.py``) decides
+what to do next.
+
+The panel is a completely separate Gazebo model, not part of the arm's
+own robot_description — nothing else in this repo inserts it (or
+anything) into MoveIt's planning scene. Without step 5 below explicitly
+adding a CollisionObject for it before planning, "collision-checked"
+would silently mean "collision-checked against everything except the one
+object we're deliberately moving toward."
+
+Every blocking sub-call in align_to_panel() (stop_servo, apply_planning_
+scene, /move_action, /execute_trajectory) waits on a threading.Event set
+from an rclpy done-callback — the same pattern keyboard_servo_node.py
+uses successfully, but THERE it always runs on a background thread
+separate from the ROS spin thread. Here, align_to_panel() runs FROM
+_on_align_request, itself a callback invoked BY the executor — with the
+default SingleThreadedExecutor, that self-deadlocks: the executor can't
+get back around to invoke the done-callback that would set the Event
+while it's still inside the callback that's waiting on it. Fixed by
+running everything on one ReentrantCallbackGroup under a
+MultiThreadedExecutor (see main()), so the service callback and its
+sub-calls' response callbacks can interleave on different threads.
+"""
+
+import math
+import threading
+import xml.etree.ElementTree as ET
+
+import rclpy
+import tf2_ros
+from action_msgs.msg import GoalStatus
+from geometry_msgs.msg import Pose, PoseStamped
+from moveit_msgs.action import ExecuteTrajectory, MoveGroup
+from moveit_msgs.msg import (
+    BoundingVolume, CollisionObject, Constraints, JointConstraint, MoveItErrorCodes,
+    OrientationConstraint, PlanningOptions, PlanningScene, PlanningSceneWorld,
+    PositionConstraint,
+)
+from controller_manager_msgs.srv import SwitchController
+from moveit_msgs.srv import ApplyPlanningScene
+from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.node import Node
+from sensor_msgs.msg import CameraInfo
+from shape_msgs.msg import SolidPrimitive
+from std_srvs.srv import Trigger
+
+from arm_tasks.arm_motion_lock import ArmMotionBusy, arm_motion_lock
+from arm_tasks.camera_target_math import (
+    StandoffResult, compose_transforms, compute_standoff_distance, compute_target_tip_pose,
+)
+
+GROUP_NAME = 'indomitus_arm'
+TIP_LINK = 'arm_tcp_link'  # confirmed in arm_moveit_config/config/indomitus_arm.srdf
+CAMERA_OPTICAL_FRAME = 'arm_camera_optical_frame'
+CONTROLLER_NAME = 'indomitus_arm_controller'  # matches move_to_safe_pose()'s controller
+# The streaming controller Servo actually claims the joints with while
+# running — ExecuteTrajectory needs CONTROLLER_NAME (JTC) active instead,
+# see _use_trajectory_controller().
+FORWARD_CONTROLLER_NAME = 'indomitus_arm_forward_position_controller'
+# SRDF group's base_link, and the frame every hand-verified reachability
+# check this feature was built against actually used. Goal constraints and
+# the panel CollisionObject used to be submitted with
+# header.frame_id=CAMERA_OPTICAL_FRAME on the theory that MoveGroup
+# resolves a robot-link frame_id against the live robot state — live
+# testing showed the opposite: OMPL's goal-tree sampling failed 100% of
+# the time (all threads, full allowed_planning_time) for a target
+# independently confirmed reachable via a direct /compute_ik call seeded
+# at the current joint state. Resolving to this fixed frame ourselves via
+# one TF lookup (below), instead of relying on that resolution inside
+# MoveGroup, matches the exact approach that direct check used
+# successfully and removes the dependency on that assumption entirely.
+PLANNING_FRAME = 'arm_mount_link'
+
+DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
+DEFAULT_CAMERA_INFO_TOPIC = '/camera/camera_info'
+# Matches keyboard_servo_node.py's own panel_visible_max_age_sec default —
+# see its comment for why 1s was too tight (confirmed live: detection
+# drops out for over a second even with the panel fully in frame).
+DEFAULT_MAX_PANEL_POSE_AGE_SEC = 3.0
+
+# Panel collision box (panel_description/urdf/panel_macro.xacro's
+# panel_base_link collision geometry). Duplicated here — see
+# panel_geometry.py's KNOWN_MARKER_LOCAL_POSITIONS for the same tradeoff.
+PANEL_WIDTH = 0.33
+PANEL_DEPTH = 0.072
+PANEL_HEIGHT = 0.45
+# panel_base_link's own <collision><origin> in panel_macro.xacro — the
+# fused panel_pose we receive is panel_base_link's own origin (bottom
+# edge, per how panel_geometry.py's KNOWN_MARKER_LOCAL_POSITIONS were
+# derived), NOT the collision box's center, so this local offset has to
+# be applied before inserting the CollisionObject. Missing this made the
+# box straddle the wrong volume (half sunk below the real panel, and not
+# reaching its actual top) — confirmed live: OMPL's goal-tree sampling
+# failed 100% of the time until this was added, because target poses
+# computed relative to the (correctly-positioned) marker detections kept
+# landing inside this mispositioned collision volume.
+PANEL_COLLISION_LOCAL_OFFSET = ((0.0, 0.013, 0.225), (0.0, 0.0, 0.0, 1.0))
+# The point we actually aim the camera at: the middle of the panel's own
+# FRONT FACE, in panel_base_link's local frame — not panel_base_link's
+# origin itself (near the bottom edge — see PANEL_COLLISION_LOCAL_OFFSET
+# above) and not the collision box's volumetric center (that one's Y
+# accounts for the solid mesh's depth, not the face plane). x=0 (panel is
+# symmetric left/right: top_left x=-0.135, top_right x=+0.135 in
+# panel_geometry.py), z=0.225 (half of PANEL_HEIGHT), y=-0.015 (front
+# face plane, per panel_macro.xacro's own comment on panel.stl's
+# geometry). Always the same fixed point relative to the panel, however
+# it was detected — this is what makes align_to_panel()'s target
+# deterministic/repeatable rather than depending on exactly which
+# markers happened to be visible. z here is the default only — see the
+# 'panel_center_z_offset' parameter below, which lets this be raised
+# toward a specific feature (e.g. a row of switches) instead of the
+# panel's exact vertical center.
+DEFAULT_PANEL_CENTER_Z_OFFSET = 0.225  # PANEL_HEIGHT / 2 -- vertical center
+
+# Joint position limits (arm_description/urdf/arm_macro.xacro's <limit> tags
+# on each revolute joint) — duplicated rather than parsed from
+# robot_description at runtime, same tradeoff as PANEL_WIDTH/HEIGHT above.
+# Used only for the post-plan joint-limit-margin check (step 7); NOT used
+# for IK/collision — MoveGroup's own planner already enforces the real
+# ones from the URDF/SRDF.
+JOINT_LIMITS = {
+    'arm_mount_base_joint': (-math.pi, math.pi),
+    'arm_base_shoulder_joint': (-math.pi, math.pi),
+    'arm_shoulder_forearm_joint': (-math.pi / 2, math.pi / 2),
+    'arm_forearm_wrist_1_joint': (-math.pi / 2, math.pi / 2),
+    'arm_wrist_1_wrist_2_joint': (-math.pi, math.pi),
+    'arm_wrist_2_end_effector_joint': (-math.pi, math.pi),
+}
+
+
+class PanelAlignNode(Node):
+    def __init__(self):
+        super().__init__('panel_align_node')
+
+        self.declare_parameter('panel_pose_topic', DEFAULT_PANEL_POSE_TOPIC)
+        self.declare_parameter('camera_info_topic', DEFAULT_CAMERA_INFO_TOPIC)
+        self.declare_parameter('max_panel_pose_age_sec', DEFAULT_MAX_PANEL_POSE_AGE_SEC)
+        # 1.15 fit the panel in frame with barely any margin; 1.4 fit it
+        # comfortably but pushed arm_mount_base_joint to only 3.4% clear of
+        # its limit (need 8%, see _check_joint_margins) — confirmed live at
+        # the current panel placement (arm_gazebo.launch.py's PANEL_X/Y/Z/YAW).
+        # 1.3 is the compromise: more framing margin than 1.15, still clear
+        # of the joint-limit rejection 1.4 hit.
+        self.declare_parameter('standoff_margin_multiplier', 1.3)
+        self.declare_parameter('standoff_min_floor', 0.15)
+        self.declare_parameter('standoff_max_reach', 0.75)
+        # True by default on explicit request: the FOV-fit standoff
+        # (compute_standoff_distance) exists to keep the WHOLE panel
+        # framed in the camera's view from the final resting position —
+        # not needed once alignment itself is done, and real testing
+        # confirmed the FOV-fit distance held the arm too far out (also
+        # contributing to the joint-limit-margin rejections seen live).
+        # 0.25m confirmed by hand as a good close distance for this panel/
+        # camera/gripper. Set to false to go back to FOV-fit framing.
+        self.declare_parameter('use_fixed_test_standoff', True)
+        self.declare_parameter('fixed_test_standoff', 0.25)
+        # Raises/lowers the aim point along the panel's own vertical axis,
+        # relative to panel_base_link's origin (see
+        # DEFAULT_PANEL_CENTER_Z_OFFSET's comment) — e.g. to aim at a row
+        # of switches instead of the panel's exact geometric center. 0.35
+        # confirmed by hand against the real panel's switch row (default
+        # 0.225 is the exact geometric center).
+        self.declare_parameter('panel_center_z_offset', 0.35)
+        self.declare_parameter('joint_limit_margin_fraction', 0.08)
+        self.declare_parameter('num_planning_attempts', 10)
+        self.declare_parameter('allowed_planning_time', 5.0)
+        self.declare_parameter('max_velocity_scaling_factor', 0.3)
+        self.declare_parameter('max_acceleration_scaling_factor', 0.3)
+        # Loosened from an initial 0.005/0.05 (5mm / ~3deg) — confirmed
+        # live those were too tight for OMPL's goal-tree sampler to find
+        # any valid state at all ("Unable to sample any valid states for
+        # goal tree", 100% failure), most likely because
+        # arm_moveit_config/config/kinematics.yaml's KDL solver only gets
+        # a 5ms timeout per IK attempt (a pre-existing, separately-flagged
+        # tuning risk) — a wider target region needs far fewer solver
+        # iterations to land inside it. 2cm / ~11deg is still precise
+        # enough for "camera aimed at the panel".
+        self.declare_parameter('position_tolerance', 0.02)
+        self.declare_parameter('orientation_tolerance', 0.2)
+        # This 60s, summed with every other wait_for_service/server +
+        # done.wait() in align_to_panel()'s sequence, must stay under
+        # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
+        # comment for the full worst-case budget. A parameter (not a
+        # literal) so tests can shrink it instead of actually waiting 60s
+        # to exercise the cancel-on-timeout path.
+        self.declare_parameter('execution_timeout_sec', 60.0)
+
+        self._panel_pose_topic = self.get_parameter('panel_pose_topic').value
+        self._camera_info_topic = self.get_parameter('camera_info_topic').value
+
+        self._latest_panel_pose: PoseStamped | None = None
+        self._latest_camera_info: CameraInfo | None = None
+        self._camera_to_tip = None  # cached at startup, see _try_cache_camera_to_tip
+        self._last_status_message = ''
+        # Session-scoped only (reset by restarting this node). None until
+        # the first live CV+MoveIt align succeeds; every align call after
+        # that replays this exact joint vector via a fresh MoveIt plan
+        # (_align_to_remembered_locked) instead of re-running live CV
+        # detection — see _align_to_panel_locked. {joint_name: position}.
+        self._remembered_target_joints: dict | None = None
+        # The panel pose (in PLANNING_FRAME) used to build the collision
+        # box when _remembered_target_joints was learned — replay's
+        # fallback collision reference when the panel isn't currently in
+        # view (see _align_to_remembered_locked).
+        self._remembered_panel_collision_pose: PoseStamped | None = None
+        # Guards align_to_panel() against running twice at once — the
+        # 'align' service is registered on a ReentrantCallbackGroup (see
+        # module docstring) so its own sub-calls can interleave, but that
+        # also means a second concurrent /panel_align/align request would
+        # otherwise run this whole sequence in parallel with the first,
+        # against the same physical arm.
+        self._align_running = threading.Lock()
+
+        # See module docstring: everything here shares one reentrant group
+        # so the align service callback and its own sub-calls' response
+        # callbacks can interleave (requires MultiThreadedExecutor, see
+        # main() — a plain rclpy.spin() would deadlock).
+        cb_group = ReentrantCallbackGroup()
+
+        self.create_subscription(
+            PoseStamped, self._panel_pose_topic, self._on_panel_pose, 10,
+            callback_group=cb_group)
+        self.create_subscription(
+            CameraInfo, self._camera_info_topic, self._on_camera_info, 10,
+            callback_group=cb_group)
+
+        self._tf_buffer = tf2_ros.Buffer()
+        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
+        self._tf_retry_timer = self.create_timer(
+            1.0, self._try_cache_camera_to_tip, callback_group=cb_group)
+
+        self._move_action_client = ActionClient(
+            self, MoveGroup, '/move_action', callback_group=cb_group)
+        self._execute_client = ActionClient(
+            self, ExecuteTrajectory, '/execute_trajectory', callback_group=cb_group)
+        self._apply_scene_client = self.create_client(
+            ApplyPlanningScene, '/apply_planning_scene', callback_group=cb_group)
+        self._stop_servo_client = self.create_client(
+            Trigger, 'servo_node/stop_servo', callback_group=cb_group)
+        self._switch_controller_client = self.create_client(
+            SwitchController, 'controller_manager/switch_controller', callback_group=cb_group)
+
+        self.create_service(
+            Trigger, 'panel_align/align', self._on_align_request, callback_group=cb_group)
+
+        self.get_logger().info('panel_align_node ready — waiting for camera<->tip TF...')
+
+    # ---- subscriptions -------------------------------------------------
+
+    def _on_panel_pose(self, msg: PoseStamped) -> None:
+        self._latest_panel_pose = msg
+
+    def _on_camera_info(self, msg: CameraInfo) -> None:
+        self._latest_camera_info = msg
+
+    def _try_cache_camera_to_tip(self) -> None:
+        if self._camera_to_tip is not None:
+            self._tf_retry_timer.cancel()
+            return
+        try:
+            tf = self._tf_buffer.lookup_transform(
+                CAMERA_OPTICAL_FRAME, TIP_LINK, rclpy.time.Time())
+        except tf2_ros.TransformException as exc:
+            self.get_logger().debug(f'camera->tip TF not yet available: {exc}')
+            return
+        t = tf.transform.translation
+        r = tf.transform.rotation
+        self._camera_to_tip = ((t.x, t.y, t.z), (r.x, r.y, r.z, r.w))
+        self._tf_retry_timer.cancel()
+        self.get_logger().info(
+            f'Cached static {CAMERA_OPTICAL_FRAME} -> {TIP_LINK} transform.'
+        )
+
+    # ---- service entry point -------------------------------------------
+
+    def _on_align_request(self, request, response):
+        response.success = self.align_to_panel()
+        response.message = self._last_status_message
+        return response
+
+    # ---- the actual sequence --------------------------------------------
+
+    def align_to_panel(self) -> bool:
+        """Run the align sequence, refusing to overlap a concurrent call.
+
+        See _align_running's declaration in __init__ for why that guard
+        exists — it only protects against a second concurrent request to
+        THIS service, within this process. Also takes arm_motion_lock()
+        (see that module) around the whole sequence, so a live align
+        here can't race a home move or remembered-position replay
+        submitted from the separate keyboard_servo_node process onto the
+        same indomitus_arm_controller action server. A rejected
+        concurrent call still gets a clean Trigger failure response
+        instead of interleaving with the in-flight one.
+        """
+        if not self._align_running.acquire(blocking=False):
+            self.get_logger().warn('Align already in progress — ignoring concurrent request.')
+            return self._fail('Another panel align is already in progress.')
+        try:
+            try:
+                with arm_motion_lock():
+                    return self._align_to_panel_locked()
+            except ArmMotionBusy:
+                return self._fail(
+                    'keyboard_servo_node is currently commanding the arm (home/replay) '
+                    '— aborting panel align.'
+                )
+        finally:
+            self._align_running.release()
+
+    def _align_to_panel_locked(self) -> bool:
+        """Replay the remembered target if one exists, else live-align.
+
+        See _remembered_target_joints's declaration in __init__: once
+        set (by a successful _align_live_locked() call), every
+        subsequent align always replays it — deterministic final pose,
+        matching this feature's original design intent — but through a
+        fresh, collision-checked MoveIt plan every time (see
+        _align_to_remembered_locked), not a raw point-to-point move.
+        """
+        if self._remembered_target_joints is not None:
+            return self._align_to_remembered_locked()
+        return self._align_live_locked()
+
+    def _align_to_remembered_locked(self) -> bool:
+        self._last_status_message = ''
+
+        if not self._call_stop_servo():
+            return self._fail('Could not confirm Servo stopped — aborting panel align.')
+
+        if not self._use_trajectory_controller():
+            return self._fail(
+                'Could not activate the trajectory controller — aborting panel align.'
+            )
+
+        # Prefer a CURRENT panel detection for the collision box if one's
+        # available (more accurate — the panel may have been nudged, or
+        # this may be a portable test rig), else fall back to the pose
+        # cached when this target was first learned. Either way, collision-
+        # check against SOMETHING rather than skipping the panel entirely —
+        # this is the actual fix for the replay-bypasses-collision-
+        # checking issue this method exists to close.
+        collision_pose = self._current_live_panel_collision_pose()
+        if collision_pose is None:
+            collision_pose = self._remembered_panel_collision_pose
+        if collision_pose is not None and not self._apply_panel_collision_object(collision_pose):
+            return self._fail('Could not insert panel CollisionObject into the planning scene.')
+
+        goal_constraints = self._build_joint_goal_constraints(self._remembered_target_joints)
+        plan_result = self._request_plan(goal_constraints)
+        if plan_result is None:
+            return self._fail('MoveGroup planning request timed out or was rejected.')
+        if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
+            return self._fail(
+                f'Planning to remembered position failed (MoveItErrorCodes.val={plan_result.error_code.val}).'
+            )
+
+        margin_ok, margin_reason = self._check_joint_margins(plan_result.planned_trajectory)
+        if not margin_ok:
+            return self._fail(f'Planned pose too close to a joint limit: {margin_reason}')
+
+        exec_ok, exec_reason = self._execute(plan_result.planned_trajectory)
+        if not exec_ok:
+            return self._fail(f'Trajectory execution failed: {exec_reason}')
+
+        self._last_status_message = 'Aligned to remembered panel position.'
+        self.get_logger().info(self._last_status_message)
+        return True
+
+    def _current_live_panel_collision_pose(self) -> PoseStamped | None:
+        """Same panel_pose -> PLANNING_FRAME resolution _align_live_locked
+        does, for the collision box only — returns None on ANY failure
+        (stale/missing pose, TF lookup failure) rather than raising, since
+        callers treat this as a nice-to-have over the cached fallback.
+        """
+        panel_pose = self._latest_panel_pose
+        if panel_pose is None:
+            return None
+        age = (self.get_clock().now() - rclpy.time.Time.from_msg(panel_pose.header.stamp)).nanoseconds / 1e9
+        if age > self.get_parameter('max_panel_pose_age_sec').value:
+            return None
+        try:
+            tf_mount_camera = self._tf_buffer.lookup_transform(
+                PLANNING_FRAME, panel_pose.header.frame_id,
+                rclpy.time.Time.from_msg(panel_pose.header.stamp))
+        except tf2_ros.TransformException:
+            return None
+        t = tf_mount_camera.transform.translation
+        r = tf_mount_camera.transform.rotation
+        p = panel_pose.pose.position
+        o = panel_pose.pose.orientation
+        panel_pose_in_mount = compose_transforms(
+            ((t.x, t.y, t.z), (r.x, r.y, r.z, r.w)), ((p.x, p.y, p.z), (o.x, o.y, o.z, o.w)))
+        msg = PoseStamped()
+        msg.header.frame_id = PLANNING_FRAME
+        msg.header.stamp = panel_pose.header.stamp
+        (msg.pose.position.x, msg.pose.position.y, msg.pose.position.z) = panel_pose_in_mount[0]
+        (msg.pose.orientation.x, msg.pose.orientation.y,
+         msg.pose.orientation.z, msg.pose.orientation.w) = panel_pose_in_mount[1]
+        return msg
+
+    def _align_live_locked(self) -> bool:
+        self._last_status_message = ''
+
+        if not self._call_stop_servo():
+            return self._fail('Could not confirm Servo stopped — aborting panel align.')
+
+        if not self._use_trajectory_controller():
+            return self._fail(
+                'Could not activate the trajectory controller — aborting panel align.'
+            )
+
+        panel_pose = self._latest_panel_pose
+        if panel_pose is None:
+            return self._fail('No panel pose has been received yet.')
+        age = (self.get_clock().now() - rclpy.time.Time.from_msg(panel_pose.header.stamp)).nanoseconds / 1e9
+        max_age = self.get_parameter('max_panel_pose_age_sec').value
+        if age > max_age:
+            return self._fail(f'Panel pose is stale ({age:.2f}s old, max {max_age:.2f}s) — panel out of view?')
+
+        if self._camera_to_tip is None:
+            return self._fail(
+                f'{CAMERA_OPTICAL_FRAME} -> {TIP_LINK} TF unavailable — '
+                'startup TF lookup never succeeded, refusing to guess. Restart the node.'
+            )
+
+        info = self._latest_camera_info
+        if info is None or info.k[0] == 0.0 or info.k[4] == 0.0:
+            return self._fail('No valid CameraInfo received yet (fx/fy unknown).')
+
+        if self.get_parameter('use_fixed_test_standoff').value:
+            standoff = StandoffResult(
+                distance=self.get_parameter('fixed_test_standoff').value,
+                within_bounds=True, reason='')
+        else:
+            standoff = compute_standoff_distance(
+                fx=info.k[0], fy=info.k[4], image_width=info.width, image_height=info.height,
+                panel_width=PANEL_WIDTH, panel_height=PANEL_HEIGHT,
+                margin_multiplier=self.get_parameter('standoff_margin_multiplier').value,
+                min_floor=self.get_parameter('standoff_min_floor').value,
+                max_reach=self.get_parameter('standoff_max_reach').value,
+            )
+        if not standoff.within_bounds:
+            return self._fail(f'Standoff distance out of range: {standoff.reason}')
+
+        try:
+            tf_mount_camera = self._tf_buffer.lookup_transform(
+                PLANNING_FRAME, panel_pose.header.frame_id,
+                rclpy.time.Time.from_msg(panel_pose.header.stamp))
+        except tf2_ros.TransformException as exc:
+            return self._fail(
+                f'Could not resolve {panel_pose.header.frame_id} -> {PLANNING_FRAME} TF: {exc}')
+        t = tf_mount_camera.transform.translation
+        r = tf_mount_camera.transform.rotation
+        mount_to_camera = ((t.x, t.y, t.z), (r.x, r.y, r.z, r.w))
+
+        p = panel_pose.pose.position
+        o = panel_pose.pose.orientation
+        panel_pose_in_mount = compose_transforms(
+            mount_to_camera, ((p.x, p.y, p.z), (o.x, o.y, o.z, o.w)))
+        panel_pose_mount_msg = PoseStamped()
+        panel_pose_mount_msg.header.frame_id = PLANNING_FRAME
+        panel_pose_mount_msg.header.stamp = panel_pose.header.stamp
+        (panel_pose_mount_msg.pose.position.x, panel_pose_mount_msg.pose.position.y,
+         panel_pose_mount_msg.pose.position.z) = panel_pose_in_mount[0]
+        (panel_pose_mount_msg.pose.orientation.x, panel_pose_mount_msg.pose.orientation.y,
+         panel_pose_mount_msg.pose.orientation.z, panel_pose_mount_msg.pose.orientation.w
+         ) = panel_pose_in_mount[1]
+
+        # Aim at a fixed point on the panel's own front face (see
+        # DEFAULT_PANEL_CENTER_Z_OFFSET), not panel_base_link's origin
+        # directly — this is what makes the target always the same point
+        # on the panel regardless of exactly how the pose was detected.
+        panel_center_local_offset = (
+            (0.0, -0.015, self.get_parameter('panel_center_z_offset').value),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+        panel_center_in_mount = compose_transforms(
+            panel_pose_in_mount, panel_center_local_offset)
+        target_position, target_orientation = compute_target_tip_pose(
+            panel_pose_in_camera=panel_center_in_mount,
+            camera_to_tip=self._camera_to_tip,
+            standoff=standoff.distance,
+        )
+        target_pose_msg = PoseStamped()
+        target_pose_msg.header.frame_id = PLANNING_FRAME
+        (target_pose_msg.pose.position.x, target_pose_msg.pose.position.y,
+         target_pose_msg.pose.position.z) = target_position
+        (target_pose_msg.pose.orientation.x, target_pose_msg.pose.orientation.y,
+         target_pose_msg.pose.orientation.z, target_pose_msg.pose.orientation.w) = target_orientation
+
+        if not self._apply_panel_collision_object(panel_pose_mount_msg):
+            return self._fail('Could not insert panel CollisionObject into the planning scene.')
+
+        goal_constraints = self._build_pose_goal_constraints(target_pose_msg)
+        plan_result = self._request_plan(goal_constraints)
+        if plan_result is None:
+            return self._fail('MoveGroup planning request timed out or was rejected.')
+        if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
+            return self._fail(f'Planning failed (MoveItErrorCodes.val={plan_result.error_code.val}).')
+
+        margin_ok, margin_reason = self._check_joint_margins(plan_result.planned_trajectory)
+        if not margin_ok:
+            return self._fail(f'Planned pose too close to a joint limit: {margin_reason}')
+
+        exec_ok, exec_reason = self._execute(plan_result.planned_trajectory)
+        if not exec_ok:
+            return self._fail(f'Trajectory execution failed: {exec_reason}')
+
+        # Remember the exact joint vector just reached — every later
+        # align (this session) replays THIS, via a fresh collision-
+        # checked plan each time (_align_to_remembered_locked), instead
+        # of re-planning a Cartesian goal through OMPL again (which could
+        # land on a different valid joint solution each call). Cache the
+        # collision pose alongside it as a fallback for when the panel
+        # isn't currently in view at replay time.
+        traj = plan_result.planned_trajectory.joint_trajectory
+        self._remembered_target_joints = dict(zip(traj.joint_names, traj.points[-1].positions))
+        self._remembered_panel_collision_pose = panel_pose_mount_msg
+
+        self._last_status_message = f'Aligned to panel (standoff={standoff.distance:.3f}m).'
+        self.get_logger().info(self._last_status_message)
+        return True
+
+    def _fail(self, message: str) -> bool:
+        self._last_status_message = message
+        self.get_logger().error(message)
+        return False
+
+    # ---- steps -----------------------------------------------------------
+
+    def _call_stop_servo(self) -> bool:
+        if not self._stop_servo_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn('servo_node/stop_servo not available')
+            return False
+        done = threading.Event()
+        result = {}
+
+        def _cb(fut):
+            result['r'] = fut.result()
+            done.set()
+
+        self._stop_servo_client.call_async(Trigger.Request()).add_done_callback(_cb)
+        if not done.wait(timeout=3.0):
+            return False
+        return bool(result.get('r') and result['r'].success)
+
+    def _use_trajectory_controller(self) -> bool:
+        """Switch ros2_control from the streaming controller to the JTC.
+
+        _call_stop_servo() only stops moveit_servo's own internal loop —
+        it does not touch which ros2_control controller currently owns
+        the joints. While Servo is running, FORWARD_CONTROLLER_NAME is
+        the active one and CONTROLLER_NAME (the JTC that
+        /execute_trajectory actually sends goals to, via
+        moveit_simple_controller_manager) is inactive; confirmed live,
+        skipping this step made every align attempt plan successfully and
+        then abort on execution (GoalStatus.STATUS_ABORTED). BEST_EFFORT
+        strictness (not STRICT) because a repeat align call after a
+        previous one already left the JTC active would otherwise error on
+        a no-op request.
+        """
+        if not self._switch_controller_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn('controller_manager/switch_controller not available')
+            return False
+        req = SwitchController.Request()
+        req.activate_controllers = [CONTROLLER_NAME]
+        req.deactivate_controllers = [FORWARD_CONTROLLER_NAME]
+        req.strictness = SwitchController.Request.BEST_EFFORT
+        req.activate_asap = True
+        done = threading.Event()
+        result = {}
+
+        def _cb(fut):
+            result['r'] = fut.result()
+            done.set()
+
+        self._switch_controller_client.call_async(req).add_done_callback(_cb)
+        if not done.wait(timeout=5.0):
+            return False
+        return bool(result.get('r') and result['r'].ok)
+
+    def _apply_panel_collision_object(self, panel_pose: PoseStamped) -> bool:
+        if not self._apply_scene_client.wait_for_service(timeout_sec=3.0):
+            self.get_logger().error('/apply_planning_scene service not available')
+            return False
+
+        p = panel_pose.pose.position
+        o = panel_pose.pose.orientation
+        collision_center_pos, collision_center_quat = compose_transforms(
+            ((p.x, p.y, p.z), (o.x, o.y, o.z, o.w)),
+            PANEL_COLLISION_LOCAL_OFFSET,
+        )
+        collision_pose = Pose()
+        (collision_pose.position.x, collision_pose.position.y,
+         collision_pose.position.z) = collision_center_pos
+        (collision_pose.orientation.x, collision_pose.orientation.y,
+         collision_pose.orientation.z, collision_pose.orientation.w) = collision_center_quat
+
+        co = CollisionObject()
+        co.header = panel_pose.header
+        co.id = 'panel'
+        co.primitives = [SolidPrimitive(
+            type=SolidPrimitive.BOX, dimensions=[PANEL_WIDTH, PANEL_DEPTH, PANEL_HEIGHT])]
+        co.primitive_poses = [collision_pose]
+        co.operation = CollisionObject.ADD
+
+        scene = PlanningScene(is_diff=True)
+        scene.world = PlanningSceneWorld(collision_objects=[co])
+
+        req = ApplyPlanningScene.Request(scene=scene)
+        done = threading.Event()
+        result = {}
+
+        def _cb(fut):
+            result['r'] = fut.result()
+            done.set()
+
+        self._apply_scene_client.call_async(req).add_done_callback(_cb)
+        if not done.wait(timeout=3.0):
+            return False
+        return bool(result.get('r') and result['r'].success)
+
+    def _build_pose_goal_constraints(self, target_pose: PoseStamped) -> Constraints:
+        pos_tol = self.get_parameter('position_tolerance').value
+        orient_tol = self.get_parameter('orientation_tolerance').value
+
+        pc = PositionConstraint()
+        pc.header = target_pose.header
+        pc.link_name = TIP_LINK
+        pc.constraint_region = BoundingVolume(
+            primitives=[SolidPrimitive(type=SolidPrimitive.SPHERE, dimensions=[pos_tol])],
+            primitive_poses=[target_pose.pose],
+        )
+        pc.weight = 1.0
+
+        oc = OrientationConstraint()
+        oc.header = target_pose.header
+        oc.link_name = TIP_LINK
+        oc.orientation = target_pose.pose.orientation
+        oc.absolute_x_axis_tolerance = orient_tol
+        oc.absolute_y_axis_tolerance = orient_tol
+        oc.absolute_z_axis_tolerance = orient_tol
+        oc.weight = 1.0
+
+        return Constraints(position_constraints=[pc], orientation_constraints=[oc])
+
+    def _build_joint_goal_constraints(self, joint_positions: dict) -> Constraints:
+        """Exact joint-space goal — used for remembered-position replay.
+
+        Unlike the Cartesian pose constraint above (a tolerance REGION,
+        which is what lets OMPL land on a different joint solution every
+        call — the reason replay needed to exist as its own thing in the
+        first place), a joint constraint with a tight tolerance pins down
+        the exact final joint vector: whatever path gets planned there
+        (fresh and collision-checked against the CURRENT scene every
+        call), the arm always ends up at exactly the same pose.
+        """
+        jcs = []
+        for name, position in joint_positions.items():
+            jc = JointConstraint()
+            jc.joint_name = name
+            jc.position = position
+            jc.tolerance_above = 1e-4
+            jc.tolerance_below = 1e-4
+            jc.weight = 1.0
+            jcs.append(jc)
+        return Constraints(joint_constraints=jcs)
+
+    def _request_plan(self, goal_constraints: Constraints):
+        if not self._move_action_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('/move_action server not available')
+            return None
+
+        goal = MoveGroup.Goal()
+        req = goal.request
+        req.group_name = GROUP_NAME
+        # Explicit on purpose: an empty pipeline_id does NOT reliably
+        # fall back to the configured default_planning_pipeline (ompl) —
+        # confirmed live: once arm_moveit_config also loads chomp and
+        # pilz_industrial_motion_planner alongside ompl, an empty
+        # pipeline_id on this MoveGroup action request resolved to chomp
+        # instead, which can't plan the Cartesian (position + orientation
+        # constraint) goals _build_pose_goal_constraints produces at all
+        # ("Only joint-space goals are supported" — move_group rejects
+        # the whole request with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS
+        # before planning even starts).
+        req.pipeline_id = 'ompl'
+        req.num_planning_attempts = self.get_parameter('num_planning_attempts').value
+        req.allowed_planning_time = self.get_parameter('allowed_planning_time').value
+        req.max_velocity_scaling_factor = self.get_parameter('max_velocity_scaling_factor').value
+        req.max_acceleration_scaling_factor = self.get_parameter('max_acceleration_scaling_factor').value
+        req.start_state.is_diff = True
+        req.goal_constraints = [goal_constraints]
+        goal.planning_options = PlanningOptions(plan_only=True)
+
+        done = threading.Event()
+        result = {}
+
+        def _result_cb(fut):
+            result['r'] = fut.result().result
+            done.set()
+
+        def _goal_cb(fut):
+            gh = fut.result()
+            if gh is None or not gh.accepted:
+                done.set()
+                return
+            gh.get_result_async().add_done_callback(_result_cb)
+
+        self._move_action_client.send_goal_async(goal).add_done_callback(_goal_cb)
+        if not done.wait(timeout=self.get_parameter('allowed_planning_time').value + 5.0):
+            return None
+        return result.get('r')
+
+    def _check_joint_margins(self, planned_trajectory) -> tuple[bool, str]:
+        points = planned_trajectory.joint_trajectory.points
+        names = planned_trajectory.joint_trajectory.joint_names
+        if not points:
+            return False, 'planned trajectory has no points'
+        last = points[-1]
+        margin_fraction = self.get_parameter('joint_limit_margin_fraction').value
+
+        worst_joint, worst_margin = None, float('inf')
+        for name, position in zip(names, last.positions):
+            if name not in JOINT_LIMITS:
+                continue
+            lower, upper = JOINT_LIMITS[name]
+            span = upper - lower
+            margin = min(position - lower, upper - position) / span
+            if margin < worst_margin:
+                worst_joint, worst_margin = name, margin
+
+        if worst_joint is not None and worst_margin < margin_fraction:
+            return False, f'{worst_joint} only {worst_margin:.1%} clear of its limit (need {margin_fraction:.1%})'
+        return True, ''
+
+    def _execute(self, trajectory) -> tuple[bool, str]:
+        if not self._execute_client.wait_for_server(timeout_sec=5.0):
+            return False, '/execute_trajectory server not available'
+
+        goal = ExecuteTrajectory.Goal(trajectory=trajectory)
+        done = threading.Event()
+        result = {}
+        goal_handle = {}
+
+        def _result_cb(fut):
+            result['r'] = fut.result()
+            done.set()
+
+        def _goal_cb(fut):
+            gh = fut.result()
+            if gh is None or not gh.accepted:
+                done.set()
+                return
+            goal_handle['gh'] = gh
+            gh.get_result_async().add_done_callback(_result_cb)
+
+        self._execute_client.send_goal_async(goal).add_done_callback(_goal_cb)
+        if not done.wait(timeout=self.get_parameter('execution_timeout_sec').value):
+            # Critical: NOT cancelling here would leave the JTC goal
+            # running server-side after this function returns "failed" —
+            # keyboard_servo_node.py's align handler unconditionally
+            # restarts Servo (switching to the streaming controller)
+            # right after any align outcome, success or failure. Without
+            # this cancel-and-wait, that reactivation would race an
+            # execution possibly still in flight, i.e. two control paths
+            # (JTC finishing the old trajectory, Servo streaming the new
+            # one) briefly commanding the same joints. Cancelling and
+            # waiting for the terminal state means align_to_panel() never
+            # returns until the arm is actually no longer moving under
+            # this goal, so it's safe for the caller to switch
+            # controllers immediately after.
+            gh = goal_handle.get('gh')
+            if gh is not None:
+                cancel_done = threading.Event()
+                gh.cancel_goal_async().add_done_callback(lambda _f: cancel_done.set())
+                cancel_done.wait(timeout=5.0)
+                # Give the result callback a chance to arrive after the
+                # cancel is acknowledged, so we don't return while the
+                # goal is still mid-cancellation on the server side.
+                done.wait(timeout=5.0)
+            return False, 'execution timed out (goal cancelled)'
+
+        wrapped = result.get('r')
+        if wrapped is None or wrapped.status != GoalStatus.STATUS_SUCCEEDED:
+            return False, f'execution goal status={wrapped.status if wrapped else "none"}'
+        if wrapped.result.error_code.val != MoveItErrorCodes.SUCCESS:
+            return False, f'MoveItErrorCodes.val={wrapped.result.error_code.val}'
+        return True, ''
+
+
+def main():
+    rclpy.init()
+    node = PanelAlignNode()
+    # MultiThreadedExecutor, not the default rclpy.spin() — required so
+    # the align service callback and its own sub-calls' response
+    # callbacks (same ReentrantCallbackGroup, see __init__) can actually
+    # interleave across threads instead of self-deadlocking.
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

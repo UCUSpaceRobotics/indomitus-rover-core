@@ -20,7 +20,7 @@ Currently supported sensors:
 Additional nodes:
 | Node               | Launch file             | Description |
 | ------------------ | ----------------------- | ----------- |
-| `laser_filter_node` | `scan_filter.launch.py` | Node for filtering out rover parts seen by the LiDAR |
+| `laser_filter_node` | `scan_filter.launch.py` | Node for filtering out noise and rover parts seen by the LiDAR  |
 
 ---
 

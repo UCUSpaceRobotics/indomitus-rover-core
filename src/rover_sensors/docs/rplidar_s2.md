@@ -30,7 +30,7 @@ Setting up udev rules ensures the LiDAR is consistently recognized at the same d
 **1. Create the rule file:**
 
 ```bash
-sudo nano /etc/udev/rules.d/99-rplidar-s2.rules
+sudoedit /etc/udev/rules.d/99-rplidar-s2.rules
 ```
 
 **2. Add the following line, then save and exit:**

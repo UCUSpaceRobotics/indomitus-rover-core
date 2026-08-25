@@ -139,6 +139,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
+# BASE_IMAGE (stereolabs/zed) ships a pip-installed numpy 2.x under
+# /usr/local/lib, which shadows the apt python3-numpy (1.x) that
+# rosdep-installed packages like scipy/python3-scipy expect to run
+# against — confirmed live: any package importing scipy (e.g.
+# panel_perception, arm_tasks' camera_target_math) crashed at import time
+# with "ValueError: numpy.dtype size changed, may indicate binary
+# incompatibility", since apt's scipy is a compiled C-extension built
+# against the older numpy ABI. Not touching numpy itself (the ZED SDK
+# bindings likely need 2.x) -- upgrading scipy via pip to a version built
+# against numpy 2.x is the targeted fix, and lands in the same
+# /usr/local/lib path so it correctly takes priority over apt's scipy.
+# Pinned exact (not >=1.11) for reproducible builds -- an unpinned floor
+# lets a later image rebuild silently pick up a newer scipy at any time,
+# with no signal in this diff that anything changed. Bump deliberately
+# (and re-verify panel_perception/camera_target_math still import clean)
+# rather than letting it drift.
+RUN pip3 install --no-cache-dir --upgrade 'scipy==1.15.3'
+
 RUN rosdep init || true && rosdep update
 
 COPY --from=hw-builder ${HW_WS}/install/ ${HW_WS}/install/
