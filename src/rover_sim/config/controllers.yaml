@@ -87,17 +87,17 @@ swerve_controller_test:
     idle_home_delay: 0.5         # negative disables return-to-zero
 
     # The swerve_controller block above omits these and silently takes the
-    # code defaults (1.20 / 0.80 / 0.15); set them here to match odometry.
-    wheelbase:    0.842
-    track_width:  0.689
-    wheel_radius: 0.15
+    # code defaults (0.797 / 0.644 / 0.156); set them here to match odometry.
+    wheelbase:    0.797
+    track_width:  0.644
+    wheel_radius: 0.156
 
 odometry_controller:
   ros__parameters:
     odom_topic: "/wheels/odom"
-    wheelbase: 0.842
-    track_width: 0.689
-    wheel_radius: 0.15
+    wheelbase: 0.797
+    track_width: 0.644
+    wheel_radius: 0.156
     steer_joint_names:
       - fl_wheel_mount_joint
       - fr_wheel_mount_joint

@@ -68,9 +68,9 @@ private:
 
     // Geometry parameters
 
-    double wheelbase_{0.842};
-    double track_width_{0.682};
-    double wheel_radius_{0.16};
+    double wheelbase_{0.797};
+    double track_width_{0.644};
+    double wheel_radius_{0.156};
 
     // Kinematics
 
