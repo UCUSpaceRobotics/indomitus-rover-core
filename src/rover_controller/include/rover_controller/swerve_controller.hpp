@@ -418,9 +418,9 @@ private:
     rclcpp::Time last_cmd_vel_time_{0, 0, RCL_ROS_TIME};
 
 
-    double wheelbase_{1.20};
-    double track_width_{0.80};
-    double wheel_radius_{0.15};
+    double wheelbase_{0.797};
+    double track_width_{0.644};
+    double wheel_radius_{0.156};
     double max_steer_{M_PI / 2.0};        // rad
     double max_steer_rate_{M_PI / 4.0};   // rad/s
     double max_linear_{0.5};              // m/s
