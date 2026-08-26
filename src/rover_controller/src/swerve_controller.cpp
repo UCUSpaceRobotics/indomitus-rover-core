@@ -313,9 +313,9 @@ void RoverSwerveController::declare_parameters()
         }
     };
 
-    declare_param("wheelbase",             1.20);
-    declare_param("track_width",           0.80);
-    declare_param("wheel_radius",          0.15);
+    declare_param("wheelbase",             0.797);
+    declare_param("track_width",           0.644);
+    declare_param("wheel_radius",          0.156);
     declare_param("max_steer_deg",         90.0);
     declare_param("max_steer_rate_deg",    45.0);
     declare_param("max_linear_speed",      0.50);
