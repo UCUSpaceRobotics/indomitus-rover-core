@@ -17,7 +17,9 @@ Service: lights/traffic_light     (indomitus_interfaces/srv/SetTrafficLight)
   response: bool success, string message
 
 Topic:   lights/state             (indomitus_interfaces/msg/LightsState)
-  Latched, published on change and rate limited - see _publish_state_if_dirty.
+  Latched. Republished on a 2 Hz heartbeat so a console can tell live state
+  from a dead publisher, and pushed out at once on a real change so an
+  operator's switch does not appear to lag - see _heartbeat and _publish_change.
 
 CAN TX (PC -> ESP32)  ID cmd_id:
   Spotlight:     byte 0 = cmd_spotlight_on | cmd_spotlight_off
@@ -74,6 +76,12 @@ class LightsCanNode(Node):
         # a toggle could read a state another call was midway through changing.
         self._can_lock = threading.Lock()
         self._state_dirty = True
+        self._state_period = 1.0 / max(0.1, self._state_pub_rate)
+        # Floor between out-of-turn publishes. A real change goes out at once
+        # rather than waiting for the heartbeat; this only stops a burst of
+        # changes from turning into a burst of packets.
+        self._state_min_period = 0.05
+        self._last_state_publish = 0.0
 
         # LightsState field -> (log label, CAN 'on' command, CAN 'off' command).
         # Both the SetBool and the /toggle handler for a light go through the
@@ -91,10 +99,9 @@ class LightsCanNode(Node):
         )
 
         # --- State topic ---
-        # TRANSIENT_LOCAL matters here precisely because there is no periodic
-        # heartbeat: a late subscriber (the ground station UI after a
-        # reconnect) gets the last value immediately instead of waiting for
-        # somebody to touch a light.
+        # TRANSIENT_LOCAL on top of the heartbeat: a late subscriber (the
+        # ground station UI after a reconnect) gets the last value on the spot
+        # rather than up to a heartbeat period later.
         self._state_pub = self.create_publisher(
             LightsStateMsg,
             "lights/state",
@@ -106,8 +113,8 @@ class LightsCanNode(Node):
             ),
         )
         self._state_timer = self.create_timer(
-            1.0 / max(0.1, self._state_pub_rate),
-            self._publish_state_if_dirty,
+            self._state_period,
+            self._publish_state,
             callback_group=self._state_cbg,
         )
 
@@ -139,7 +146,7 @@ class LightsCanNode(Node):
         self._resp_pending_cmd: int | None = None
         self._resp_status: int | None = None
 
-        self._publish_state_if_dirty()
+        self._publish_state()
 
         self.get_logger().info(
             f"LightsCanNode ready\n"
@@ -150,7 +157,7 @@ class LightsCanNode(Node):
             f"  /lights/beautiful         (Service) - SetBool, absolute\n"
             f"  /lights/beautiful/toggle  (Service) - Trigger, invert\n"
             f"  /lights/traffic_light     (Service) - per-colour KEEP/OFF/ON\n"
-            f"  /lights/state             (Topic)   - latched, {self._state_pub_rate} Hz max\n"
+            f"  /lights/state             (Topic)   - latched, {self._state_pub_rate} Hz + on change\n"
         )
 
     # =======================================================================
@@ -190,18 +197,18 @@ class LightsCanNode(Node):
     # State topic
     # =======================================================================
 
-    def _publish_state_if_dirty(self):
-        """Flush the state at the timer rate, and only when it changed.
+    def _publish_state(self):
+        """Publish the current state. Also the heartbeat, on a timer.
 
-        Publish-on-change alone would let a burst of switch flips saturate the
-        link; a plain periodic publisher would spend bandwidth saying nothing
-        happened. This does neither, and TRANSIENT_LOCAL covers late joiners.
+        Republishing unchanged state is not redundancy: it is the only thing
+        that tells a console the value on screen is still live. Without it a
+        dead lights_can_node leaves the last latched state up forever. It also
+        makes the topic usable from a VOLATILE subscriber - the ground station
+        UI reaches it through rosbridge, which need not match TRANSIENT_LOCAL.
         """
-        if not self._state_dirty:
-            return
-
         state = self._state
         self._state_dirty = False
+        self._last_state_publish = self._now_seconds()
 
         msg = LightsStateMsg()
         msg.spotlight      = state.spotlight
@@ -212,12 +219,26 @@ class LightsCanNode(Node):
         msg.traffic_blue   = state.traffic_blue
         self._state_pub.publish(msg)
 
+    def _now_seconds(self) -> float:
+        return float(self.get_clock().now().nanoseconds) * 1e-9
+
+    def _publish_change(self):
+        """Push a real change out now instead of waiting for the heartbeat.
+
+        Waiting costs up to a full period, which an operator sees as the
+        console lagging the switch they just flipped.
+        """
+        if self._now_seconds() - self._last_state_publish < self._state_min_period:
+            return
+        self._publish_state()
+
     def _commit(self, state: LightsState):
-        """Adopt a state the ESP32 has confirmed, and queue it for publishing."""
+        """Adopt a state the ESP32 has confirmed, and announce it."""
         if state == self._state:
             return
         self._state = state
         self._state_dirty = True
+        self._publish_change()
 
     # =======================================================================
     # Services

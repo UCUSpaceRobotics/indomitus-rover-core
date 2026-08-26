@@ -26,7 +26,9 @@ service on controller_manager is not worth the tidier return value.
 
 Topic:
   drive/state           indomitus_interfaces/DriveState
-    Latched, published on change and rate limited — see _publish_state_if_dirty.
+    Latched. Republished on a 2 Hz heartbeat so a console can tell live state
+    from a dead publisher, and pushed out immediately on a real change so the
+    light bar does not lag the button — see _heartbeat and _publish_change.
 """
 
 import rclpy
@@ -84,6 +86,13 @@ class DrivePowerNode(Node):
         # ground station, and nothing downstream needs it faster than the
         # joystick repaints its light bar.
         self._state_pub_rate = float(declare_and_get('state_pub_rate', 2.0))
+        self._state_period = 1.0 / max(0.1, self._state_pub_rate)
+        # Floor between out-of-turn publishes. A real change goes out at once
+        # rather than waiting for the heartbeat — that wait is what an operator
+        # reads as the light bar lagging the button. This only stops a burst of
+        # changes from turning into a burst of packets.
+        self._state_min_period = float(declare_and_get('state_min_period', 0.05))
+        self._last_state_publish = 0.0
 
         self._state = DrivePower()
         self._joystick_active = False
@@ -102,8 +111,7 @@ class DrivePowerNode(Node):
         self._switch_guard = GenerationGuard()
 
         self._state_pub = self.create_publisher(DriveStateMsg, 'drive/state', STATE_QOS)
-        self._state_timer = self.create_timer(
-            1.0 / max(0.1, self._state_pub_rate), self._publish_state_if_dirty)
+        self._state_timer = self.create_timer(self._state_period, self._publish_state)
 
         # joystick_interpreter outranks the ground station in twist_mux, so the
         # ground station operator needs to see when it is holding cmd_vel_joy.
@@ -142,7 +150,7 @@ class DrivePowerNode(Node):
         # poll for it rather than giving up on the first miss.
         self._seed_timer = self.create_timer(1.0, self._seed_from_controller_manager)
 
-        self._publish_state_if_dirty()
+        self._publish_state()
 
         self.get_logger().info(
             f'DrivePower started — controller={self._controller_name}, '
@@ -152,25 +160,29 @@ class DrivePowerNode(Node):
             f'  drive/compact         (Service) - SetBool, absolute\n'
             f'  drive/compact/toggle  (Service) - Trigger, invert\n'
             f'  drive/clear_errors    (Service) - Trigger\n'
-            f'  drive/state           (Topic)   - latched, {self._state_pub_rate} Hz max'
+            f'  drive/state           (Topic)   - latched, {self._state_pub_rate} Hz + on change'
         )
 
     # =======================================================================
     # State topic
     # =======================================================================
 
-    def _publish_state_if_dirty(self):
-        """Flush the state at the timer rate, and only when it changed.
+    def _now_seconds(self) -> float:
+        return float(self.get_clock().now().nanoseconds) * 1e-9
 
-        Publish-on-change alone would let a burst of switch flips saturate the
-        link; a plain periodic publisher would spend bandwidth saying nothing
-        happened. This does neither, and TRANSIENT_LOCAL covers late joiners.
+    def _publish_state(self):
+        """Publish the current state. Also the heartbeat, on a timer.
+
+        Republishing unchanged state is not redundancy: it is the only thing
+        that tells a console the value on screen is still live. Without it a
+        dead drive_power_node leaves the last latched state up forever,
+        indistinguishable from a rover deliberately sitting still. It also
+        makes the topic usable from a VOLATILE subscriber — the ground station
+        UI reaches it through rosbridge, which need not match TRANSIENT_LOCAL.
         """
-        if not self._state_dirty:
-            return
-
         state = self._state
         self._state_dirty = False
+        self._last_state_publish = self._now_seconds()
 
         msg = DriveStateMsg()
         msg.motors_enabled = state.motors_enabled
@@ -182,17 +194,31 @@ class DrivePowerNode(Node):
         msg.controller_name = self._controller_name
         self._state_pub.publish(msg)
 
+    def _publish_change(self):
+        """Push a real change out now instead of waiting for the heartbeat.
+
+        Waiting costs up to a full period, and that delay is visible: the
+        operator presses the motor button and the light bar follows half a
+        second later. Skipped only when the last publish was very recent, so a
+        run of changes still cannot flood the link — the heartbeat carries it.
+        """
+        if self._now_seconds() - self._last_state_publish < self._state_min_period:
+            return
+        self._publish_state()
+
     def _commit(self, state: DrivePower):
         if state == self._state:
             return
         self._state = state
         self._state_dirty = True
+        self._publish_change()
 
     def _on_joystick_active(self, msg: Bool):
         if msg.data == self._joystick_active:
             return
         self._joystick_active = msg.data
         self._state_dirty = True
+        self._publish_change()
 
     # =======================================================================
     # Startup: adopt whatever is already true
