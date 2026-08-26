@@ -400,6 +400,11 @@ def generate_launch_description() -> LaunchDescription:
             "use_sim_time": "true",
         }),
 
+        include_launch("rover_teleop", "drive_power.launch.py", {
+            "use_sim_time": "true",
+            "controller_name": LaunchConfiguration("swerve_controller"),
+        }),
+
         # Trigger folder cleanup safely upon launch termination
         cleanup_handler,
     ])

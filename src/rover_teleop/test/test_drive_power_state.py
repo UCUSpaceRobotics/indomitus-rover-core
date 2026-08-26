@@ -15,6 +15,7 @@ from rover_teleop.drive_power_state import (
     after_controller_result,
     after_errors_cleared,
     after_power_result,
+    seeded,
 )
 
 
@@ -53,6 +54,90 @@ def test_compact_mode_has_no_say_over_whether_the_rover_can_drive():
     # into can_drive would black out the ready indicator for a legal pose.
     assert powered().can_drive is True
     assert after_compact_result(powered(), ok=True, desired=True).can_drive is True
+
+
+# ── startup: adopting what is already true ───────────────────────────────────
+
+def test_seeding_a_simulation_finds_the_rover_already_drivable():
+    # Simulation brings the hardware component and the controller up active.
+    # Assuming otherwise would paint the light bar red on a rover that drives,
+    # and make the operator's first button press ask for the state it is in.
+    state = seeded(DrivePower(), motors_enabled=True, controller_active=True)
+
+    assert state.can_drive is True
+
+
+def test_seeding_hardware_finds_the_drive_off():
+    # Bringup spawns the swerve controller inactive on hardware, so the seed
+    # agrees with the old assumption rather than changing behaviour there.
+    state = seeded(DrivePower(), motors_enabled=False, controller_active=False)
+
+    assert state == DrivePower()
+
+
+def test_seeding_handles_the_half_way_case():
+    # Hardware active but no controller claimed it: /cmd_vel reaches nothing.
+    state = seeded(DrivePower(), motors_enabled=True, controller_active=False)
+
+    assert state.motors_enabled is True
+    assert state.can_drive is False
+
+
+def test_seeding_leaves_compact_mode_alone():
+    # The swerve controller offers no way to read compact mode back, so the
+    # seed must not invent an answer for it.
+    before = DrivePower(compact_mode=True)
+
+    assert seeded(before, motors_enabled=True, controller_active=True).compact_mode is True
+
+
+def test_seeding_a_restarted_node_under_a_powered_rover_does_not_invent_an_inhibit():
+    # Restarting this node mid-run must not claim faults were cleared.
+    state = seeded(DrivePower(), motors_enabled=True, controller_active=True)
+
+    assert state.motors_inhibited is False
+
+
+# ── startup: adopting what is already true ───────────────────────────────────
+
+def test_seeding_a_simulation_finds_the_rover_already_drivable():
+    # Simulation brings the hardware component and the controller up active.
+    # Assuming otherwise would paint the light bar red on a rover that drives,
+    # and make the operator's first button press ask for the state it is in.
+    state = seeded(DrivePower(), motors_enabled=True, controller_active=True)
+
+    assert state.can_drive is True
+
+
+def test_seeding_hardware_finds_the_drive_off():
+    # Bringup spawns the swerve controller inactive on hardware, so the seed
+    # agrees with the old assumption rather than changing behaviour there.
+    state = seeded(DrivePower(), motors_enabled=False, controller_active=False)
+
+    assert state == DrivePower()
+
+
+def test_seeding_handles_the_half_way_case():
+    # Hardware active but no controller claimed it: /cmd_vel reaches nothing.
+    state = seeded(DrivePower(), motors_enabled=True, controller_active=False)
+
+    assert state.motors_enabled is True
+    assert state.can_drive is False
+
+
+def test_seeding_leaves_compact_mode_alone():
+    # The swerve controller offers no way to read compact mode back, so the
+    # seed must not invent an answer for it.
+    before = DrivePower(compact_mode=True)
+
+    assert seeded(before, motors_enabled=True, controller_active=True).compact_mode is True
+
+
+def test_seeding_a_restarted_node_under_a_powered_rover_does_not_invent_an_inhibit():
+    # Restarting this node mid-run must not claim faults were cleared.
+    state = seeded(DrivePower(), motors_enabled=True, controller_active=True)
+
+    assert state.motors_inhibited is False
 
 
 # ── power replies ────────────────────────────────────────────────────────────

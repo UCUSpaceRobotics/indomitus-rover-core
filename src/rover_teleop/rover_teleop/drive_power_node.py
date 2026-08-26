@@ -36,7 +36,12 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 
 from std_msgs.msg import Bool
 from std_srvs.srv import SetBool, Trigger
-from controller_manager_msgs.srv import SetHardwareComponentState, SwitchController
+from controller_manager_msgs.srv import (
+    ListControllers,
+    ListHardwareComponents,
+    SetHardwareComponentState,
+    SwitchController,
+)
 from lifecycle_msgs.msg import State
 
 from indomitus_interfaces.msg import DriveState as DriveStateMsg
@@ -47,6 +52,7 @@ from rover_teleop.drive_power_state import (
     after_controller_result,
     after_errors_cleared,
     after_power_result,
+    seeded,
 )
 from rover_teleop.service_call import GuardedCall
 from rover_teleop.teleop_state import GenerationGuard
@@ -83,6 +89,12 @@ class DrivePowerNode(Node):
         self._joystick_active = False
         self._state_dirty = True
 
+        # Startup state is read from controller_manager rather than assumed —
+        # see _seed_from_controller_manager. _operator_touched makes sure a
+        # slow seed can never overwrite a command somebody has already given.
+        self._seeded = False
+        self._operator_touched = False
+
         # Newest switch_controller request wins. Replies can land out of order,
         # and an old one must not be allowed to write back a stale
         # controller_active — that is how an operator ends up being told the
@@ -111,6 +123,10 @@ class DrivePowerNode(Node):
             Trigger,
             str(declare_and_get('clear_errors_service',
                                 '/rover_hardware_node/clear_motor_errors')))
+        self._list_hardware_client = self.create_client(
+            ListHardwareComponents, '/controller_manager/list_hardware_components')
+        self._list_controllers_client = self.create_client(
+            ListControllers, '/controller_manager/list_controllers')
 
         self._power_guard = GuardedCall(self._power_client)
         self._compact_guard = GuardedCall(self._compact_client)
@@ -121,6 +137,10 @@ class DrivePowerNode(Node):
         self.create_service(SetBool, 'drive/compact', self._on_compact)
         self.create_service(Trigger, 'drive/compact/toggle', self._on_compact_toggle)
         self.create_service(Trigger, 'drive/clear_errors', self._on_clear_errors)
+
+        # controller_manager is usually not up yet when this node starts, so
+        # poll for it rather than giving up on the first miss.
+        self._seed_timer = self.create_timer(1.0, self._seed_from_controller_manager)
 
         self._publish_state_if_dirty()
 
@@ -175,6 +195,76 @@ class DrivePowerNode(Node):
         self._state_dirty = True
 
     # =======================================================================
+    # Startup: adopt whatever is already true
+    # =======================================================================
+
+    def _seed_from_controller_manager(self):
+        """Read the drive state back instead of assuming it is off.
+
+        On hardware bringup spawns the swerve controller inactive, so the
+        assumption happens to hold. In simulation both the hardware component
+        and the controller come up active, and assuming otherwise would paint
+        the light bar red on a rover that drives perfectly well and make the
+        operator's first button press ask for a state that already applies.
+        """
+        if self._seeded or self._operator_touched:
+            self._seed_timer.cancel()
+            return
+        if not (self._list_hardware_client.service_is_ready()
+                and self._list_controllers_client.service_is_ready()):
+            return
+
+        self._seeded = True
+        self._seed_timer.cancel()
+        self._list_hardware_client.call_async(
+            ListHardwareComponents.Request()).add_done_callback(self._on_hardware_listed)
+
+    def _on_hardware_listed(self, future):
+        try:
+            components = future.result().component
+        except Exception as exc:
+            self.get_logger().warn(
+                f'could not read hardware state at startup: {exc!r} — '
+                f'assuming the drive is off')
+            return
+
+        motors_enabled = any(
+            component.name == self._hardware_name
+            and component.state.id == State.PRIMARY_STATE_ACTIVE
+            for component in components)
+
+        # Chained rather than run in parallel: two replies to merge is two more
+        # orderings to get wrong, and this runs once at startup.
+        self._list_controllers_client.call_async(
+            ListControllers.Request()).add_done_callback(
+                lambda f: self._on_controllers_listed(f, motors_enabled))
+
+    def _on_controllers_listed(self, future, motors_enabled: bool):
+        try:
+            controllers = future.result().controller
+        except Exception as exc:
+            self.get_logger().warn(
+                f'could not read controller state at startup: {exc!r} — '
+                f'assuming the drive is off')
+            return
+
+        controller_active = any(
+            controller.name == self._controller_name and controller.state == 'active'
+            for controller in controllers)
+
+        if self._operator_touched:
+            # Somebody gave a command while these replies were in flight.
+            # Their intent is newer than this snapshot.
+            self.get_logger().debug('startup state discarded — a command arrived first')
+            return
+
+        self._commit(seeded(self._state, motors_enabled, controller_active))
+        self.get_logger().info(
+            f'Startup state read from controller_manager: '
+            f'{self._hardware_name} {"active" if motors_enabled else "inactive"}, '
+            f'{self._controller_name} {"active" if controller_active else "inactive"}')
+
+    # =======================================================================
     # Power (motors + controller, as one operation)
     # =======================================================================
 
@@ -185,6 +275,7 @@ class DrivePowerNode(Node):
         return self._request_power(not self._state.motors_enabled, response)
 
     def _request_power(self, desired: bool, response):
+        self._operator_touched = True
         target = 'ON' if desired else 'OFF'
 
         req = SetHardwareComponentState.Request()
@@ -283,6 +374,7 @@ class DrivePowerNode(Node):
         return self._request_compact(not self._state.compact_mode, response)
 
     def _request_compact(self, desired: bool, response):
+        self._operator_touched = True
         req = SetBool.Request()
         req.data = desired
 
@@ -316,6 +408,7 @@ class DrivePowerNode(Node):
     # =======================================================================
 
     def _on_clear_errors(self, request, response):
+        self._operator_touched = True
         started = self._clear_errors_guard.call(
             Trigger.Request(), self._on_clear_errors_result)
 

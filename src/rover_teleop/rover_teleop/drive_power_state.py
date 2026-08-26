@@ -46,6 +46,25 @@ class DrivePower:
         )
 
 
+def seeded(state: DrivePower, motors_enabled: bool, controller_active: bool) -> DrivePower:
+    """Adopt the state controller_manager reports at startup.
+
+    Without this the node would assume everything is off, which is right on
+    hardware — bringup spawns the controller inactive — and wrong in
+    simulation, where both come up active. The consequence of guessing is not
+    cosmetic: the light bar would read red on a rover that drives, and the
+    operator's first press of the motor button would ask for the state the
+    hardware is already in.
+
+    It also covers this node being restarted underneath a powered rover.
+
+    compact_mode is deliberately not seeded: the swerve controller offers no
+    way to read it back, so it stays at its own default of off.
+    """
+    return replace(
+        state, motors_enabled=motors_enabled, controller_active=controller_active)
+
+
 def after_power_result(state: DrivePower, ok: bool, desired: bool) -> DrivePower:
     """Apply a set_hardware_component_state reply.
 
