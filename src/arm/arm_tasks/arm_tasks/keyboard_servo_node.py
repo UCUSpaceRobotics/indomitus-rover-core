@@ -344,6 +344,13 @@ class ServoController(Node):
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
         self.declare_parameter('gripper_speed', DEFAULT_GRIPPER_SPEED)
         self.declare_parameter('gripper_stroke', DEFAULT_GRIPPER_STROKE)
+        # Which physical tool is mounted right now — 'jaw' (default, matches
+        # arm_macro.xacro's end_effector arg default), 'drill_sampling', or
+        # 'astrobio'. Purely a teleop-side hint for gating which mode-jump
+        # buttons make sense (see GamepadInputLoop._on_joy); NOT wired into
+        # the URDF/xacro end_effector arg — set this to the same value you
+        # launched the arm with.
+        self.declare_parameter('end_effector', 'jaw')
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -379,6 +386,7 @@ class ServoController(Node):
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
         self._gripper_speed        = self.get_parameter('gripper_speed').value
         self._gripper_stroke       = self.get_parameter('gripper_stroke').value
+        self._end_effector         = self.get_parameter('end_effector').value
 
         self.vx = 0.0
         self.vy = 0.0
@@ -463,10 +471,11 @@ class ServoController(Node):
             f'A/R home from {pose_source}: {[round(v, 4) for v in self._safe_pose]}'
         )
         self.get_logger().warn(
-            'Servo runs with check_collisions=false and singularity deceleration '
-            'effectively disabled (see servo.yaml) — teleop has no collision brake '
-            'and will not slow near singularities. Plan&Execute collision checking '
-            'is unaffected.'
+            'Servo runs with check_collisions=true (self/scene proximity '
+            'thresholds 0.003/0.005 m, see servo.yaml) — teleop WILL decelerate '
+            'near a modeled collision, watch for "Close to a collision, '
+            'decelerating" in servo_node\'s own log. Singularity deceleration is '
+            'still effectively disabled (lower_singularity_threshold=10000.0).'
         )
 
     @property
@@ -513,6 +522,11 @@ class ServoController(Node):
     def drill_home_pose_name(self) -> str:
         """Return the poses.json key drill_home_pose came from (for logging)."""
         return self._drill_home_pose_name
+
+    @property
+    def end_effector(self) -> str:
+        """Return the 'end_effector' parameter (which tool is mounted)."""
+        return self._end_effector
 
     def _load_tool_home_pose(self, pose_name: str):
         """Load poses.json[pose_name], falling back to the jaw safe pose with a warning."""
@@ -905,15 +919,31 @@ class ServoController(Node):
         goal.request.pipeline_id = 'ompl'
         goal.request.goal_constraints = [constraints]
         goal.request.num_planning_attempts = 5
-        goal.request.allowed_planning_time = 5.0
+        # 5.0 was timing out outright on genuinely hard goals (e.g. drill_home,
+        # a big single-joint swing with no collision at either end — just a
+        # narrow-passage sampling problem for RRTConnect, confirmed via
+        # /check_state_validity on both ends). 10.0 x replan_attempts=5 below
+        # = 50s worst case, still under DEFAULT_SAFE_POSE_TIMEOUT's 60s client
+        # wait — raise both together if this still isn't enough.
+        goal.request.allowed_planning_time = 10.0
         # Leaving these unset does NOT fall back to joint_limits.yaml's
         # default_velocity/acceleration_scaling_factor (0.1) — measured
         # ~0.44 rad/s on mount_base_joint (raw limit 0.5) when left at 0.0,
-        # i.e. still near full speed. Match that documented "beginner" 0.1
-        # explicitly instead of trusting an unset field.
-        goal.request.max_velocity_scaling_factor = 0.1
-        goal.request.max_acceleration_scaling_factor = 0.1
+        # i.e. still near full speed. Raised a bit from the documented
+        # "beginner" 0.1 on explicit request — still explicit, not trusting
+        # an unset field.
+        goal.request.max_velocity_scaling_factor = 0.15
+        goal.request.max_acceleration_scaling_factor = 0.15
         goal.planning_options.plan_only = False  # plan then execute in one goal
+        # num_planning_attempts above only governs OMPL's OWN internal sampling
+        # tries within ONE outer attempt — "Planning attempt 1 of at most 1" in
+        # the logs either way. RRTConnect's post-hoc path validation sometimes
+        # flags a few waypoints invalid (a narrow self-collision graze, not a
+        # fundamentally blocked path) even when the outer attempt "succeeds" at
+        # the coarse resolution — replan retries the WHOLE outer attempt with a
+        # fresh random seed, which is what actually re-samples around it.
+        goal.planning_options.replan = True
+        goal.planning_options.replan_attempts = 5
 
         done_event = threading.Event()
         outcome = {'success': False, 'error': ''}
@@ -1688,12 +1718,17 @@ GAMEPAD_HELP = """
 ║  9 (button)       — push boost (hold)        ║
 ║  13 (button)      — sampling mode (toggle)   ║
 ║  11 (button)      — drill mode (toggle)      ║
-║   in sampling/drill mode: right sticks       ║
-║   ↑↓ up/down, ←→ roll (pitch/yaw locked)     ║
+║   drill: right ←→ fwd/back, right ↑↓         ║
+║   left/right, left ↑↓ up/down, no roll       ║
+║   sampling: right ↑↓/←→ inverted, left ←→    ║
+║   roll                                       ║
+║   (pitch/yaw locked in both modes)           ║
 ║   A/R -> mode-specific home pose             ║
 ║  6 (button)       — point tool straight down ║
 ║   (collision-checked; sampling/drill modes)  ║
 ║  A                — home + start servo       ║
+║  B                — go to sampling_home      ║
+║  Y                — go to drill_home         ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
 """
@@ -1732,7 +1767,14 @@ class GamepadInputLoop:
     AXIS_R2 = 5
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to home + start servo
+    # 'B' — force sampling mode on and go straight to sampling_home, without
+    # first needing BUTTON_SAMPLING_MODE + A. Always arms (not a toggle).
+    BUTTON_SAMPLING_HOME = 1
     BUTTON_EXIT = 2        # 'X' — exit
+    # 'Y' — force drill mode on and go straight to drill_home, without first
+    # needing BUTTON_DRILL_MODE + A. Always arms (not a toggle), mirrors
+    # BUTTON_SAMPLING_HOME above.
+    BUTTON_DRILL_HOME = 3
     # LEFTSHOULDER/L1. Held to scale up commanded velocity — raises the
     # per-cycle position step Servo re-anchors from, which is what caps
     # static push force (not kp/kd).
@@ -1977,6 +2019,8 @@ class GamepadInputLoop:
         # button is the only way to clear the lock, so it must keep
         # working while locked or the arm could never be armed at all.
         safe_pose_pressed = self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE)
+        sampling_home_pressed = self._button_rising_edge(buttons, self.BUTTON_SAMPLING_HOME)
+        drill_home_pressed = self._button_rising_edge(buttons, self.BUTTON_DRILL_HOME)
         exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
         sampling_mode_pressed = self._button_rising_edge(buttons, self.BUTTON_SAMPLING_MODE)
         drill_mode_pressed = self._button_rising_edge(buttons, self.BUTTON_DRILL_MODE)
@@ -2039,7 +2083,56 @@ class GamepadInputLoop:
             if self._drill_mode:
                 threading.Thread(target=self._handle_safe_pose, daemon=True).start()
 
-        if safe_pose_pressed:
+        # A goes to the jaw-oriented "home" pose — wrong/unsafe target while
+        # a drill is actually mounted, so it's locked out in that mode. B/Y
+        # are the reverse: they're drill_sampling-specific targets
+        # (sampling_home/drill_home), locked out whenever a drill isn't the
+        # tool actually mounted. Purely based on the end_effector parameter
+        # (see its declaration) — nothing here re-checks against the URDF.
+        end_effector = self._controller.end_effector
+
+        if safe_pose_pressed and end_effector == 'drill_sampling':
+            self._controller.get_logger().warn(
+                "A (home) is locked out with end_effector='drill_sampling' — "
+                'use B (sampling_home) or Y (drill_home) instead.'
+            )
+        elif safe_pose_pressed:
+            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+
+        if sampling_home_pressed and not SAMPLING_DRILL_MODES_ENABLED:
+            self._controller.get_logger().warn(
+                'Sampling home is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
+            )
+        elif sampling_home_pressed and end_effector in ('jaw', 'astrobio'):
+            self._controller.get_logger().warn(
+                f"B (sampling_home) is locked out with end_effector='{end_effector}' "
+                '— no drill/sampling tool mounted.'
+            )
+        elif sampling_home_pressed:
+            self._sampling_mode = True
+            self._drill_mode = False
+            self._controller.set_sampling_mode(True)
+            self._controller.get_logger().info(
+                'B pressed — going straight to sampling_home.'
+            )
+            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+
+        if drill_home_pressed and not SAMPLING_DRILL_MODES_ENABLED:
+            self._controller.get_logger().warn(
+                'Drill home is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
+            )
+        elif drill_home_pressed and end_effector in ('jaw', 'astrobio'):
+            self._controller.get_logger().warn(
+                f"Y (drill_home) is locked out with end_effector='{end_effector}' "
+                '— no drill/sampling tool mounted.'
+            )
+        elif drill_home_pressed:
+            self._drill_mode = True
+            self._sampling_mode = False
+            self._controller.set_drill_mode(True)
+            self._controller.get_logger().info(
+                'Y pressed — going straight to drill_home.'
+            )
             threading.Thread(target=self._handle_safe_pose, daemon=True).start()
 
         if level_pressed and not SAMPLING_DRILL_MODES_ENABLED:
@@ -2082,9 +2175,11 @@ class GamepadInputLoop:
         # Left stick — view-relative translation in the horizontal plane.
         # Stick sign convention (see class docstring): left = +1, forward = +1;
         # camera frame is REP-103 (+X forward, +Y left), so both pass straight
-        # through with no flip.
-        view_vy = self._axis(axes, self.AXIS_LEFT_X) * linear_speed
-        view_vx = self._axis(axes, self.AXIS_LEFT_Y) * linear_speed
+        # through with no flip. view_vy (left/right) is assigned below, per
+        # mode — sampling mode swaps its source axis with right_y.
+        left_x = self._axis(axes, self.AXIS_LEFT_X)
+        left_y = self._axis(axes, self.AXIS_LEFT_Y)
+        view_vx = left_y * linear_speed
 
         # Right stick — normally two modes, mutually exclusive so a held R1
         # can never translate and rotate at once:
@@ -2092,24 +2187,51 @@ class GamepadInputLoop:
         #   R1 held: up/down = pitch,      left/right = roll
         # Rotation stays about the TCP axes, same as the keyboard's I/K/U/O/J/L.
         #
-        # Sampling/drill mode overrides all of that: up/down = view +Z/-Z (same
-        # as plain), left/right = roll — no pitch or yaw stick input exists in
-        # these modes at all (R1/shift is ignored), because ServoController's
-        # _level_hold locks pitch+yaw to level on every cycle; roll is the one
-        # attitude axis the operator still controls directly.
+        # Sampling/drill mode overrides all of that — no pitch or yaw stick
+        # input exists in either mode (R1/shift is ignored), because
+        # ServoController's _level_hold locks pitch+yaw to level on every
+        # cycle. SAMPLING mode still has manual roll (left left/right, see
+        # its branch below for the two swaps composed). DRILL mode has NO
+        # roll input at all anymore — see its branch below for the full
+        # remap (both explicit requests, muscle-memory preference).
         right_x = self._axis(axes, self.AXIS_RIGHT_X)
         right_y = self._axis(axes, self.AXIS_RIGHT_Y)
         shift = self._button_pressed(buttons, self._shift_button)
 
         view_vz = 0.0
         wx = wy = wz = 0.0
-        if self._sampling_mode or self._drill_mode:
-            view_vz = -right_y * linear_speed      # stick up = view +Z
-            wz = -right_x * angular_speed          # roll — pitch/yaw locked level
+        if self._sampling_mode:
+            # Two swaps composed (right_y -> left/right, right_x -> up/down,
+            # left_x -> roll), THEN both right-stick axes inverted on
+            # further explicit request: right_x/right_y each flipped sign
+            # from what they were right after the swap above.
+            view_vy = -right_y * linear_speed      # inverted
+            view_vz = right_x * linear_speed       # inverted
+            wz = -left_x * angular_speed           # roll — pitch/yaw locked level
+        elif self._drill_mode:
+            # Full remap on explicit request, drill mode only (each new
+            # instruction hands an axis its role, freeing up whoever had it
+            # before — not additive):
+            #  - right left/right -> forward/back
+            #  - right up/down -> left/right (NEW: took over left stick
+            #    left/right's old job here)
+            #  - left up/down -> up/down (right stick up/down moved away to
+            #    left/right above, so left stick up/down alone drives this
+            #    now — no more combining both sticks' up/down)
+            #  - left left/right -> unused (freed up by the above; nothing
+            #    reads left_x in this branch anymore)
+            #  - roll removed entirely — no operator roll input in drill
+            #    mode at all; _level_hold's automatic leveling is the only
+            #    thing setting orientation now (wz stays 0.0, see above)
+            view_vx = right_x * linear_speed
+            view_vy = right_y * linear_speed
+            view_vz = -left_y * linear_speed
         elif shift:
+            view_vy = left_x * linear_speed
             wx = right_y * angular_speed          # pitch
             wz = -right_x * angular_speed         # roll
         else:
+            view_vy = left_x * linear_speed
             view_vz = -right_y * linear_speed      # stick up = view +Z
             wy = -right_x * angular_speed         # yaw
 

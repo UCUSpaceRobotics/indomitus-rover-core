@@ -59,6 +59,17 @@ def generate_launch_description() -> LaunchDescription:
         description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro",
     )
 
+    declare_report_collisions_cmd = DeclareLaunchArgument(
+        "report_collisions",
+        default_value="true",
+        description=(
+            "Run collision_link_reporter alongside move_group — logs exactly "
+            "which link pair is in contact (via /check_state_validity) "
+            "whenever the current pose goes invalid. Read-only, cheap "
+            "(2 Hz polling); set false to silence it."
+        ),
+    )
+
     moveit_config = (
         MoveItConfigsBuilder("indomitus_arm", package_name="arm_moveit_config")
         .robot_description(mappings={
@@ -124,6 +135,18 @@ def generate_launch_description() -> LaunchDescription:
         )
         return [servo_node]
 
+    # move_group/moveit_servo are prebuilt binaries (not vendored here), so
+    # their own collision-check code can't be patched to print link names —
+    # this polls the same /check_state_validity service move_group already
+    # exposes and logs the colliding link pair by name. See
+    # arm_tasks/collision_link_reporter.py.
+    collision_link_reporter = Node(
+        package="arm_tasks",
+        executable="collision_link_reporter",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("report_collisions")),
+    )
+
     # Load the streaming teleop controller inactive — JTC owns the joints until
     # arm_tasks switches controllers for Servo.
     forward_spawner = Node(
@@ -143,9 +166,11 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(DeclareLaunchArgument("use_rviz", default_value="false"))
     ld.add_action(declare_use_fake_hardware_cmd)
     ld.add_action(declare_end_effector_cmd)
+    ld.add_action(declare_report_collisions_cmd)
     for action in demo_launch.entities:
         ld.add_action(action)
     ld.add_action(forward_spawner)
+    ld.add_action(collision_link_reporter)
 
     ld.add_action(
         RegisterEventHandler(

@@ -51,19 +51,19 @@
     "arm_mount_base_joint": 0.09763336181640625
   },
   "sampling_home": {
-    "arm_mount_base_joint": -1.5111060663766904,
-    "arm_base_shoulder_joint": 0.3229557247890309,
-    "arm_shoulder_forearm_joint": 0.8746193947593985,
-    "arm_forearm_wrist_1_joint": 1.1463671592949156,
-    "arm_wrist_1_wrist_2_joint": -0.016964600329384627,
-    "arm_wrist_2_end_effector_joint": 0.5767964111990871
+    "arm_mount_base_joint": -1.5632565044262812,
+    "arm_base_shoulder_joint": 0.3392920065876961,
+    "arm_shoulder_forearm_joint": 0.47500880922277666,
+    "arm_forearm_wrist_1_joint": 1.5632565044262812,
+    "arm_wrist_1_wrist_2_joint": -0.06785840131753851,
+    "arm_wrist_2_end_effector_joint": 0.6107256118578555
   },
   "drill_home": {
-    "arm_mount_base_joint": -1.5795927862249481,
-    "arm_base_shoulder_joint": 0.7301061326942677,
-    "arm_shoulder_forearm_joint": 0.07634070148223193,
-    "arm_forearm_wrist_1_joint": -0.05089380098815477,
-    "arm_wrist_1_wrist_2_joint": -0.11875220230569417,
-    "arm_wrist_2_end_effector_joint": -1.0530618574832982
+    "arm_mount_base_joint": -1.5632565044262812,
+    "arm_base_shoulder_joint": 0.3392920065876961,
+    "arm_shoulder_forearm_joint": 0.20357520395261908,
+    "arm_forearm_wrist_1_joint": 3.3275749386823072,
+    "arm_wrist_1_wrist_2_joint": 1.5632565044262812,
+    "arm_wrist_2_end_effector_joint": 2.1061237149665963
   }
 }

@@ -108,8 +108,8 @@ private:
     // Per-joint clamps, split by motor family: the Steadywin joints (0..2)
     // carry the arm and are rated 48 Nm, the Damiao wrists (3..5) only 9 Nm
     // continuous, so one shared limit would be either useless or unsafe.
-    double gravity_ff_max_nm_sw_{20.0};
-    double gravity_ff_max_nm_dm_{6.0};
+    double gravity_ff_max_nm_sw_{48.0};
+    double gravity_ff_max_nm_dm_{9.0};
     inline double gravity_ff_max_nm(std::size_t i) const
     { return i < NUM_STEADYWIN ? gravity_ff_max_nm_sw_ : gravity_ff_max_nm_dm_; }
 

@@ -62,12 +62,16 @@ moveit_servo:
     # is required to apply any change here.
     check_collisions: true
     collision_check_rate: 10.0
-    # Deceleration ramps up as distance drops below these thresholds (not a
-    # hard stop at the threshold) — kept tight so the ramp is only felt very
-    # close to an actual collision, not from normal working distance. Watch
+    # Deceleration ramps from full speed at this distance down to 0 exactly
+    # AT contact (distance=0) — that floor is inherent to how Servo scales
+    # velocity, not something this threshold controls, so literal 0.0 here
+    # wouldn't "catch collisions at 0 instead of 3mm": it would just delete
+    # the ramp itself, going from full speed to a dead stop with no warning
+    # in the ~100ms between collision_check_rate ticks. Set to the smallest
+    # value that keeps a real ramp: 0.001 (1mm). Watch
     # /servo_node/collision_velocity_scale live to retune (1.0 = full speed).
-    self_collision_proximity_threshold: 0.003
-    scene_collision_proximity_threshold: 0.005
+    self_collision_proximity_threshold: 0.001
+    scene_collision_proximity_threshold: 0.001
 
     # Home wrist is near 0; default 17/30 scaled +X to a halt. Same idea as
     # NHWA SpaceMouse teleop: do not decelerate for Jacobian condition number.

@@ -7,6 +7,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
+    end_effector = LaunchConfiguration('end_effector')
 
     game_controller_node = Node(
         package='joy',
@@ -29,6 +30,7 @@ def generate_launch_description():
         package='arm_tasks',
         executable='gamepad_servo_node',
         output='screen',
+        parameters=[{'end_effector': end_effector}],
     )
 
     return LaunchDescription([
@@ -36,6 +38,17 @@ def generate_launch_description():
             'joy_dev',
             default_value='/dev/input/js0',
             description='Joystick device path',
+        ),
+        DeclareLaunchArgument(
+            'end_effector',
+            default_value='jaw',
+            description=(
+                "Which tool is physically mounted right now: 'jaw', "
+                "'drill_sampling', or 'astrobio'. Gates the A/B/Y mode-jump "
+                'buttons in gamepad_servo_node — match this to what you '
+                'actually launched the arm with (demo.launch.py '
+                'end_effector:=...).'
+            ),
         ),
         game_controller_node,
         gamepad_servo_node,
