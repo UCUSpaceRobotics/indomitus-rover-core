@@ -35,7 +35,7 @@
     sensors:
       publish_imu_tf: true # [overwritten by launch file options] enable/disable the IMU TF broadcasting
       sensors_image_sync: false # Synchronize Sensors messages with latest published video/depth message
-      sensors_pub_rate: 100 # frequency of publishing of sensors data. MAX: 400. - MIN: grab rate
+      sensors_pub_rate: 100.0 # frequency of publishing of sensors data. MAX: 400. - MIN: grab rate
       publish_imu: true # Advertise the IMU topic that is published only if a node subscribes to it
       publish_cam_imu_transf: false # Advertise the CAMERA-IMU transformation topic that is published only if a node subscribes to it
       publish_temp: false # Advertise the temperature topics that are published only if a node subscribes to them
