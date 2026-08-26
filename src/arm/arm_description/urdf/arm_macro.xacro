@@ -415,11 +415,17 @@
                  from arm_hardware_interface.cpp — do not duplicate it here. -->
             <xacro:if value="${'$(arg end_effector)' == 'drill_sampling'}">
               <!-- Mass-weighted COM of drill (2.0kg) + sample (0.6kg), raw-frame
-                   value (0.34788, 0.00073, -0.04127) rotated to match the
-                   <origin rpy="0 pi pi/2"> above — keep in sync if that changes. -->
+                   value (0.15, 0.00073, -0.04127) rotated to match the
+                   <origin rpy="0 pi pi/2"> above — keep in sync if that changes.
+                   Y moved in from 0.34788 to 0.15 on explicit request — the
+                   original STL-derived value put the COM much further out
+                   along the tool than the real assembly's, overstating the
+                   gravity-holding torque ArmCanSystem's feedforward computes
+                   at this joint. X/Z left as originally computed (only the
+                   dominant, along-the-tool axis was flagged as wrong). -->
               <param name="ee_tool_mass_kg">2.6</param>
               <param name="ee_tool_com_x">-0.00073</param>
-              <param name="ee_tool_com_y">-0.34788</param>
+              <param name="ee_tool_com_y">-0.15</param>
               <param name="ee_tool_com_z">0.04127</param>
             </xacro:if>
           </xacro:unless>

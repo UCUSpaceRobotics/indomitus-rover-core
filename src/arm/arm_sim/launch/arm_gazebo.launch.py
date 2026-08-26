@@ -1,4 +1,5 @@
 import os
+import sys
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -19,6 +20,18 @@ from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_move_group_launch
+
+
+def _arg_from_argv(name: str, default: str) -> str:
+    """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro
+    path — LaunchConfiguration ones desync across sub-launches. Same
+    helper/reasoning as arm_moveit_config/launch/demo.launch.py's own.
+    """
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return default
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -45,6 +58,8 @@ def generate_launch_description() -> LaunchDescription:
                 " sim:=true",
                 " camera:=",
                 LaunchConfiguration("camera"),
+                " end_effector:=",
+                LaunchConfiguration("end_effector"),
             ]
         ),
         value_type=str,
@@ -167,7 +182,9 @@ def generate_launch_description() -> LaunchDescription:
 
     moveit_config = MoveItConfigsBuilder(
         "indomitus_arm", package_name="arm_moveit_config"
-    ).to_moveit_configs()
+    ).robot_description(mappings={
+        "end_effector": _arg_from_argv("end_effector", "jaw"),
+    }).to_moveit_configs()
     move_group_launch = generate_move_group_launch(moveit_config)
 
     moveit_config_dir = get_package_share_directory("arm_moveit_config")
@@ -208,6 +225,9 @@ def generate_launch_description() -> LaunchDescription:
     ld = LaunchDescription(
         [
             DeclareLaunchArgument("camera", default_value="true"),
+            DeclareLaunchArgument(
+                "end_effector", default_value="jaw",
+                description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"),
             SetParameter(name="use_sim_time", value=True),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
