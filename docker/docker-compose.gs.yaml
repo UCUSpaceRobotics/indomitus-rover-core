@@ -10,13 +10,21 @@
 # ground-station one — `ros2 control`, `ros2 lifecycle`, controller_manager_msgs
 # — pointed at the real rover. It launches nothing.
 #
-# --project-directory is not optional: paths below are relative to the repo
-# root, and without it compose resolves them against docker/ instead, mounting
-# the wrong tree at /work and leaving the DDS profile unfindable.
+# A per-device template, like docker-compose.prod.yaml beside it. On a ground
+# station laptop copy it to the repo root as docker-compose.yaml, which is
+# gitignored, and plain compose commands then do the right thing:
+#
+#   cp docker/docker-compose.gs.yaml docker-compose.yaml
+#   docker compose up -d
+#   docker compose exec rover_gs bash
+#   ros2 control set_hardware_component_state RoverHardware active
+#
+# Paths below are relative to the repo root, which is what makes that copy
+# work. Running the template in place needs --project-directory instead, or
+# compose resolves them against docker/, mounts the wrong tree at /work and
+# leaves the DDS profile unfindable:
 #
 #   docker compose -f docker/docker-compose.gs.yaml --project-directory . up -d
-#   docker compose -f docker/docker-compose.gs.yaml --project-directory . exec rover_gs bash
-#   ros2 control set_hardware_component_state RoverHardware active
 
 # Its own compose project. Without this the project name comes from the
 # directory, which is the same one the root docker-compose.yaml uses, and then
