@@ -16,7 +16,7 @@
 #
 #   cp docker/docker-compose.gs.yaml docker-compose.yaml
 #   docker compose up -d
-#   docker compose exec rover_gs bash
+#   docker compose exec rover_dev bash
 #   ros2 control set_hardware_component_state RoverHardware active
 #
 # Paths below are relative to the repo root, which is what makes that copy
@@ -26,14 +26,8 @@
 #
 #   docker compose -f docker/docker-compose.gs.yaml --project-directory . up -d
 
-# Its own compose project. Without this the project name comes from the
-# directory, which is the same one the root docker-compose.yaml uses, and then
-# `docker compose up` on either file treats the other's container as an orphan
-# and removes it.
-name: indomitus-rover-gs
-
 services:
-  rover_gs:
+  rover_dev:
     platform: linux/amd64
     build:
       context: .
@@ -47,9 +41,10 @@ services:
         INSTALL_SIM_TOOLS: "false"
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
-    # Deliberately not rover_dev: on the GS laptop this coexists with a dev
-    # container, and two of them fighting over one name is a confusing failure.
-    container_name: rover_gs
+    # Same name and service as the other templates on purpose: they are
+    # alternatives, one per device, and `docker compose up` on whichever one is
+    # copied to the root simply replaces the container.
+    container_name: rover_dev
     # A missing profile does not stop Fast DDS - it falls back to multicast,
     # which cannot reach a rover behind the mast Pi, and every symptom then
     # points at the network. Check it here instead, while the cause is obvious.
