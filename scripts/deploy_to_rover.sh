@@ -337,7 +337,6 @@ run_pull_mode() {
     resolve_pull_target
 
     step "Pulling ${IMAGE_NAME}:${PULL_IMAGE_TAG} (linux/arm64) from GHCR..."
-    docker rmi -f "${IMAGE_NAME}:${PULL_IMAGE_TAG}" >/dev/null 2>&1 || true
 
     local PYTHON_SCRIPT="
 import sys, json
@@ -359,8 +358,17 @@ Make sure a CI run completed successfully for this tag."
     ARM64_DIGEST=$(echo "$MANIFEST_JSON" | python3 -c "$PYTHON_SCRIPT" 2>/dev/null)
     [ -z "$ARM64_DIGEST" ] && error "Image '${IMAGE_NAME}:${PULL_IMAGE_TAG}' exists in GHCR but has no linux/arm64 manifest."
 
+    local OLD_IMAGE_ID
+    OLD_IMAGE_ID=$(docker images -q "${IMAGE_NAME}:${PULL_IMAGE_TAG}" 2>/dev/null)
+
     docker pull "${IMAGE_NAME}@${ARM64_DIGEST}" || error "Docker pull failed."
     docker tag "${IMAGE_NAME}@${ARM64_DIGEST}" "${IMAGE_NAME}:${PULL_IMAGE_TAG}"
+
+    local NEW_IMAGE_ID
+    NEW_IMAGE_ID=$(docker images -q "${IMAGE_NAME}:${PULL_IMAGE_TAG}" 2>/dev/null)
+    if [ -n "$OLD_IMAGE_ID" ] && [ "$OLD_IMAGE_ID" != "$NEW_IMAGE_ID" ]; then
+        docker rmi -f "$OLD_IMAGE_ID" >/dev/null 2>&1 || true
+    fi
 
     if [ -z "$PULL_GIT_REF" ]; then
         step "Extracting Git Commit SHA from Docker image metadata..."
