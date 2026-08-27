@@ -1,7 +1,7 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -20,6 +20,14 @@ def _launch_setup(context: LaunchContext, *args, **kwargs):
     camera_path_val = LaunchConfiguration("camera_path").perform(context)
     camera_info_url_val = LaunchConfiguration("camera_info_url").perform(context)
     camera_frame_id_val = LaunchConfiguration("camera_frame_id").perform(context)
+
+    actions = []
+    if not os.path.exists(camera_path_val):
+        actions.append(LogInfo(
+            msg=f"[arducam:{camera_name_val}] {camera_path_val} not found. Check that this "
+                "camera is plugged into its designated hub port (1=mast, 2=rear, "
+                "3=container), then relaunch."
+        ))
 
     throttle_rate_val = LaunchConfiguration("throttle_rate").perform(context)
     throttle_rate_override = (
@@ -80,7 +88,8 @@ def _launch_setup(context: LaunchContext, *args, **kwargs):
         ]
     )
 
-    return [v4l2_camera_node, throttle_raw_node, throttle_compressed_node]
+    actions += [v4l2_camera_node, throttle_raw_node, throttle_compressed_node]
+    return actions
 
 
 def generate_launch_description():
