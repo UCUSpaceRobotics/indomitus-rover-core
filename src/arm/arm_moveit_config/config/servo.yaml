@@ -57,21 +57,14 @@ moveit_servo:
     halt_all_joints_in_joint_mode: true
     halt_all_joints_in_cartesian_mode: true
 
-    # check_collisions is a start-time-only param — `ros2 param set` will NOT
-    # toggle a running servo_node, a rebuild + fresh demo.launch.py restart
-    # is required to apply any change here.
+    # Start-time-only param — ros2 param set won't toggle a running servo_node.
     check_collisions: true
     collision_check_rate: 10.0
-    # Deceleration ramps from full speed at this distance down to 0 exactly
-    # AT contact (distance=0) — that floor is inherent to how Servo scales
-    # velocity, not something this threshold controls, so literal 0.0 here
-    # wouldn't "catch collisions at 0 instead of 3mm": it would just delete
-    # the ramp itself, going from full speed to a dead stop with no warning
-    # in the ~100ms between collision_check_rate ticks. Set to the smallest
-    # value that keeps a real ramp: 0.001 (1mm). Watch
-    # /servo_node/collision_velocity_scale live to retune (1.0 = full speed).
-    self_collision_proximity_threshold: 0.001
-    scene_collision_proximity_threshold: 0.001
+    # Jaw's own arm_end_effector_link rests ~0.138mm from base/forearm/mount/
+    # shoulder/wrist_1 (measured live via /servo_node/collision_velocity_scale)
+    # — 0.01 pinned velocity near 0 even at rest. 0.00005 stays a real ramp.
+    self_collision_proximity_threshold: 0.00005
+    scene_collision_proximity_threshold: 0.02
 
     # Home wrist is near 0; default 17/30 scaled +X to a halt. Same idea as
     # NHWA SpaceMouse teleop: do not decelerate for Jacobian condition number.
