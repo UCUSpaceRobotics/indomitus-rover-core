@@ -54,7 +54,7 @@ If either sensor wait is killed or fails, SLAM/Nav2 are never started.
 | --- | --- |
 | RPLIDAR driver | `rover_sensors/config/rplidar_s2.yaml` |
 | Scan filter | `rover_sensors/config/scan_filter.yaml` |
-| ZED2i camera (`nav` mode) | `rover_sensors/config/zed2i_common.yaml` + `zed2i_nav.yaml` (merged at launch) |
+| ZED2i camera (`nav` mode) | `rover_sensors/config/zed2i/zed2i_common.yaml` + `zed2i_nav.yaml` (merged at launch) |
 | SLAM | `rover_localization/config/slam_toolbox_params.yaml` |
 | Nav2 | `rover_navigation/config/nav2_params.yaml` |
 | EKF (`/odom`) | `rover_localization/config/ekf.yaml` |

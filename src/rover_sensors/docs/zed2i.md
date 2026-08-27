@@ -16,10 +16,10 @@ This document outlines the configuration, launch instructions, and data capabili
 
 The camera is initialized using a custom launch file that wraps the official `zed_camera.launch.py` and applies specific topic remappings to fit the rover's architecture.
 
-The launch file takes a `mode` argument that picks which config to load. Every mode always loads `rover_sensors/config/zed2i_common.yaml` first (the `general`/`video`/`sensors` settings shared by both modes), then merges the mode-specific file on top at launch time, so the shared settings aren't duplicated between mode files:
+The launch file takes a `mode` argument that picks which config to load. Every mode always loads `rover_sensors/config/zed2i/zed2i_common.yaml` first (the `general`/`video`/`sensors` settings shared by both modes), then merges the mode-specific file on top at launch time, so the shared settings aren't duplicated between mode files:
 
-* `mode:=rgb` *(default)* — only the rectified color feed is enabled, for the operator view. Merges in `rover_sensors/config/zed2i_rgb.yaml`.
-* `mode:=nav` — additionally enables the point cloud and positional tracking (VIO) used by the navigation stack. Merges in `rover_sensors/config/zed2i_nav.yaml`.
+* `mode:=rgb` *(default)* — only the rectified color feed is enabled, for the operator view. Merges in `rover_sensors/config/zed2i/zed2i_rgb.yaml`.
+* `mode:=nav` — additionally enables the point cloud and positional tracking (VIO) used by the navigation stack. Merges in `rover_sensors/config/zed2i/zed2i_nav.yaml`.
 
 ```bash
 # RGB feed only (operator view)

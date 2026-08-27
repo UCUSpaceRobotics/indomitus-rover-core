@@ -40,7 +40,7 @@ def _resolve_config_file(mode: str, config_path: str) -> str:
     if config_path:
         return config_path
 
-    config_dir = os.path.join(get_package_share_directory("rover_sensors"), "config")
+    config_dir = os.path.join(get_package_share_directory("rover_sensors"), "config", "zed2i")
     mode_config_name = NAV_CONFIG_NAME if mode == "nav" else RGB_CONFIG_NAME
 
     with open(os.path.join(config_dir, COMMON_CONFIG_NAME)) as f:
