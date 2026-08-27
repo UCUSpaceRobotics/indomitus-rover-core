@@ -35,7 +35,7 @@ Other `world_name` option: `nav2_test_world`. Also accepts `map_year`, `map_reso
 
 ## 4. What gets launched
 
-**`rover.launch.py`** — CAN bus, `robot_state_publisher` (TF tree), drivetrain control, `twist_mux`, LoRa fallback, fault logger, lighting, power monitor, EKF (`/wheels/odom` + `/zed2i/odom` → `/odom`), and — because of `zed2i_mode:=nav` — the ZED2i camera in nav mode.
+**`rover.launch.py`** — CAN bus, `robot_state_publisher` (TF tree), drivetrain control, `twist_mux`, `drive_power`, LoRa fallback, fault logger, lighting, power monitor, EKF (`/wheels/odom` + `/zed2i/odom` → `/odom`), and — because of `zed2i_mode:=nav` — the ZED2i camera in nav mode.
 
 **`navigation.launch.py`**, in order:
 
@@ -44,7 +44,7 @@ Other `world_name` option: `nav2_test_world`. Also accepts `map_year`, `map_reso
 3. Waits until `/zed2i/points` and `/zed2i/odom` are actually publishing.
 4. Once both are confirmed live, starts:
    * **SLAM** (`slam_toolbox`, async) — publishes `map -> odom` TF.
-   * **Nav2** (`planner_server`, `controller_server`, `bt_navigator`, `behavior_server`, `waypoint_follower`, `lifecycle_manager`) — publishes velocity commands to `cmd_vel_nav`, routed into `/cmd_vel` by `twist_mux` (priority 50 — joystick teleop at priority 100 can always override it).
+   * **Nav2** (`planner_server`, `controller_server`, `bt_navigator`, `behavior_server`, `waypoint_follower`, `lifecycle_manager`) — publishes velocity commands to `cmd_vel_nav`, routed into `/cmd_vel` by `twist_mux` (priority 50). The onboard joystick at priority 100 can always override it; the **ground station at priority 10 cannot** — during an autonomy run the gamepad is the only manual override. See the header of `rover_bringup/config/twist_mux.yaml` for why, and what has to change on the ground station side first.
 
 If either sensor wait is killed or fails, SLAM/Nav2 are never started.
 

@@ -1,4 +1,3 @@
-# rover_bringup/config/twist_mux.yaml
 twist_mux:
   ros__parameters:
     use_stamped: false
@@ -7,27 +6,22 @@ twist_mux:
         topic:   "cmd_vel_joy"
         timeout: 0.5
         priority: 100
+      
+      ground_station:
+        topic:   "cmd_vel_gs"
+        timeout: 0.5
+        priority: 50
 
       nav2:
         topic:   "cmd_vel_nav"
         timeout: 1.0
-        priority: 50
+        priority: 20
 
       external:
         topic:   "cmd_vel_ext"
         timeout: 0.5
         priority: 10
 
-      # 433 MHz fallback, published by rover_comms/lora_rover_node when the
-      # ground station's Wi-Fi is down. Priority below external on purpose:
-      # twist_mux selects the highest-priority input that is currently active,
-      # so while Wi-Fi is alive cmd_vel_ext outranks this, and when it goes
-      # stale after its 0.5 s timeout the radio takes over - no failover logic
-      # anywhere on the rover. It can never outrank the joystick or nav2.
-      #
-      # The node publishes zeros rather than going silent when the radio drops,
-      # so this input stays active and commands a stop. Going quiet would let
-      # twist_mux fall through to no active input at all.
       lora:
         topic:   "cmd_vel_lora"
         timeout: 1.0
