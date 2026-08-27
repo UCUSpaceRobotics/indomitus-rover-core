@@ -3,38 +3,11 @@ from ament_index_python.packages import (
     PackageNotFoundError, get_package_share_directory)
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, Command, NotEqualsSubstitution
+from launch.substitutions import LaunchConfiguration, Command
 from rover_bringup.launch_utils import include_launch
 
 
-def _lora_fallback():
-    """Include the LoRa fallback link, or log why it is missing.
-
-    include_launch() resolves the package share directory while the launch
-    description is being built, so a rover_comms that is not built raises and
-    takes the whole of bringup down with it. A backup command path must never
-    be the reason the rover refuses to start - the same reason the node itself
-    opens its serial port in a worker thread rather than in its constructor.
-    """
-    try:
-        get_package_share_directory('rover_comms')
-    except PackageNotFoundError:
-        return LogInfo(msg='rover_comms is not built - starting without the '
-                           'LoRa fallback. The rover has no backup command '
-                           'path if Wi-Fi drops.')
-    return include_launch('rover_comms', 'lora.launch.py')
-
-
 def _rover_sensors_include(launch_file, launch_arguments, label, condition=None):
-    """Include a rover_sensors launch file, or log why it is missing.
-
-    include_launch() resolves the package share directory while the launch
-    description is being built, so a rover_sensors that is not built raises
-    and takes the whole of bringup down with it. Camera drivers are optional
-    peripherals - a missing rover_sensors build must never be the reason the
-    rover refuses to start.
-    """
     try:
         get_package_share_directory('rover_sensors')
     except PackageNotFoundError:
@@ -51,17 +24,6 @@ def generate_launch_description():
         description='SocketCAN network interface name',
     )
 
-    zed2i_mode_arg = DeclareLaunchArgument(
-        'zed2i_mode', default_value='rgb',
-        description=(
-            "ZED2i stereo camera mode: 'rgb' for the operator color feed (default), 'nav' for "
-            "the point cloud and VIO used by navigation. Set explicitly to '' to not launch the "
-            "camera at all."
-        ),
-        choices=['', 'rgb', 'nav'],
-    )
-    zed2i_mode_val = LaunchConfiguration('zed2i_mode')
-
     robot_description = Command([
         'xacro ',
         os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
@@ -71,14 +33,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         interface_arg,
-        zed2i_mode_arg,
         include_launch('rover_bringup', 'can.launch.py', {
             'interface': LaunchConfiguration('interface'),
         }),
-        _rover_sensors_include('zed2i.launch.py', {
-            'mode': zed2i_mode_val,
-        }, label='the ZED2i camera',
-            condition=IfCondition(NotEqualsSubstitution(zed2i_mode_val, ''))),
         _rover_sensors_include('arducam.launch.py', {
             'camera_name': 'mast',
             'camera_path': '/dev/arducam-mast',
@@ -110,13 +67,5 @@ def generate_launch_description():
             'inactive_controllers': 'swerve_controller_test',
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
-        # Owns motors + controller activation. Not in joy.launch.py on
-        # purpose: the ground station must be able to power the drive with
-        # no gamepad plugged into the rover.
         include_launch('rover_teleop', 'drive_power.launch.py'),
-        _lora_fallback(), # Publishes cmd_vel_lora, which twist_mux carries below cmd_vel_ext.
-        include_launch('rover_diagnostics', 'fault_logger.launch.py'),
-        include_launch('rover_peripherals', 'lighting.launch.py'),
-        include_launch('rover_peripherals', 'power_monitor_node.launch.py'),
-        include_launch('rover_localization', 'ekf.launch.py'),
     ])

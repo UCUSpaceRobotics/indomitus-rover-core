@@ -6,12 +6,6 @@
   <xacro:arg name="can_interface" default="can0"/>
   <xacro:arg name="controllers_yaml_path" default=""/>
 
-  <!-- Sensor Simulation Arguments -->
-  <xacro:arg name="lidar_simulate_scan" default="false"/>
-  <xacro:arg name="stereo_camera_simulate_rgb" default="false"/>
-  <xacro:arg name="stereo_camera_simulate_depth" default="false"/>
-  <xacro:arg name="stereo_camera_simulate_imu" default="true"/>
-
   <!-- mount_arm:=true bolts the indomitus_arm onto main_body_link.-->
   <xacro:arg name="mount_arm" default="false"/>
 

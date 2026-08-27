@@ -16,9 +16,6 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
-  <!-- Joystick driver -->
-  <exec_depend>joy</exec_depend>
-
   <!-- Messages types -->
   <depend>std_srvs</depend>
   <depend>geometry_msgs</depend>
