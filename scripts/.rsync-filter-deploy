@@ -5,6 +5,7 @@
 - rover_sim/
 - arm_viz/
 - arm_sim/
+- panel_sim/
 
 # Python & Linting Caches
 - __pycache__/
