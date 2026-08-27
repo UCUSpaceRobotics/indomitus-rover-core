@@ -2,6 +2,13 @@
 
 This document outlines the configuration, launch instructions, and udev setup for the Arducam USB cameras used on the rover (mast, rear, container).
 
+**Each camera and its USB hub port are numbered with a physical sticker:**
+* `1` = mast
+* `2` = rear
+* `3` = container
+
+These numbers are what the udev rule setup below is keyed off of — always plug camera `N` into hub port `N`.
+
 **Official Documentation Resources:**
 
 * [v4l2_camera ROS 2 package docs](https://docs.ros.org/en/rolling/p/v4l2_camera/)
@@ -51,71 +58,69 @@ ros2 launch rover_sensors arducam.launch.py camera_name:=container camera_path:=
 
 ## 2. Configure Arducam Udev Rules
 
-Setting up udev rules ensures each camera is consistently recognized at the same device path regardless of which USB port it enumerates on or the order the cameras power up in, and is automatically granted read/write permissions on connection.
+Setting up udev rules ensures each camera is consistently recognized at the same device path (`/dev/arducam-mast`, `/dev/arducam-rear`, `/dev/arducam-container`) regardless of which raw `/dev/videoN` index it enumerates on or the order the cameras power up in, and is automatically granted read/write permissions on connection.
 
-All three arducams are the same model (`Arducam B0495`), so `idVendor`/`idProduct` alone match all of them identically — the rule also needs the unit's USB serial number to tell them apart.
+**Why matching is done by USB port, not serial number:** all three units are the same model (`Arducam B0495`), so `idVendor`/`idProduct` alone match all of them identically. Normally the per-unit USB serial number (`iSerial`) would disambiguate them, but on this hardware **all three units report the same serial** (a firmware quirk of the Cypress USB3 controller they use) — so serial-based rules don't work here. Instead, the rule matches on the physical USB hub port the camera is plugged into (`KERNELS`), which is exactly why the sticker numbering at the top of this doc matters: as long as camera `N` stays in hub port `N`, its `KERNELS` path stays stable.
 
-**1. Find the camera's capture node.**
+Because `KERNELS` is a physical-topology match, do this **one camera at a time** — plug in only the camera you're currently configuring.
 
-UVC cameras expose two `/dev/videoN` nodes per camera (capture + metadata). Confirm which one is the capture node:
-
-```bash
-udevadm info -a -n /dev/video2 | grep -A2 "looking at device"
-```
-
-Look for `ATTR{index}=="0"` — that's the capture node (`ATTR{index}=="1"` is the metadata node and must not be used).
-
-**2. Find `idVendor` / `idProduct`:**
+**1. With only that camera plugged in, list its device nodes:**
 
 ```bash
-lsusb | grep -i arducam
+v4l2-ctl --list-devices | grep -A2 Arducam
 ```
+
+This lists two `/dev/videoN` nodes (capture + metadata).
+
+**2. Find which node is the capture node, and its USB port path:**
+
+```bash
+udevadm info -a -n /dev/videoN | grep -E "looking at device|ATTR\{index\}"
+```
+
+Run for both nodes from step 1. The one printing `ATTR{index}=="0"` is the capture node — use it (the other, `ATTR{index}=="1"`, is a metadata-only node and must not be used). Note the devpath segment right before `:1.0` in the `looking at device` line, e.g.:
 
 ```text
-Bus 004 Device 008: ID 04b4:4950 Cypress Semiconductor Corp. Arducam B0495 (USB3 2.3MP)
+.../usb2/2-1/2-1.3/2-1.3.1/2-1.3.1:1.0/video4linux/video2
 ```
 
-Here `idVendor=04b4`, `idProduct=4950`.
+Here the port path is `2-1.3.1` — that's the value for `KERNELS`.
 
-**3. Find the unit's serial number:**
-
-```bash
-lsusb -v -d 04b4:4950 2>/dev/null | grep -i iSerial
-```
-
-```text
-iSerial                 3 Arducam_202500915_0001
-```
-
-Repeat steps 1-3 for each of the three cameras (plug them in one at a time, or use their differing `Bus`/`Device` numbers from `lsusb` to tell which is which) to collect all three serials.
-
-**4. Create the rule file:**
+**3. Write (or append) the rule line**, replacing `<PORT>` and `<NAME>`:
 
 ```bash
 sudoedit /etc/udev/rules.d/99-arducam.rules
 ```
 
-**5. Add one line per camera, then save and exit:**
-
 ```text
-SUBSYSTEM=="video4linux", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="4950", ATTRS{serial}=="<MAST_SERIAL>", ATTR{index}=="0", MODE:="0666", SYMLINK+="arducam-mast"
-SUBSYSTEM=="video4linux", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="4950", ATTRS{serial}=="<REAR_SERIAL>", ATTR{index}=="0", MODE:="0666", SYMLINK+="arducam-rear"
-SUBSYSTEM=="video4linux", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="4950", ATTRS{serial}=="<CONTAINER_SERIAL>", ATTR{index}=="0", MODE:="0666", SYMLINK+="arducam-container"
+SUBSYSTEM=="video4linux", KERNELS=="<PORT>", ATTR{index}=="0", MODE:="0666", SYMLINK+="arducam-<NAME>"
 ```
 
-**6. Apply the changes:**
+**4. Apply the changes:**
 
 ```bash
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-**7. Verify the setup:**
+**5. Verify:**
 
 ```bash
-ls -l /dev/arducam-mast /dev/arducam-rear /dev/arducam-container
+ls -l /dev/arducam-<NAME>
 ```
 
-> **Success:** Each symlink should point to its active `/dev/videoN` capture node (e.g. `lrwxrwxrwx ... /dev/arducam-mast -> video2`).
+> **Success:** The symlink should point to the active capture node (e.g. `lrwxrwxrwx ... /dev/arducam-mast -> video2`).
+
+**6. Repeat steps 1-5** for the other two cameras, appending a new line to the same rule file each time (don't overwrite the previous lines).
+
+This rover's current rule (`/etc/udev/rules.d/99-arducam.rules`), matching the sticker numbering (`1`=mast, `2`=rear, `3`=container) on this specific hub:
+
+```text
+SUBSYSTEM=="video4linux", KERNELS=="2-1.3.1",   ATTR{index}=="0", MODE:="0666", SYMLINK+="arducam-mast"
+SUBSYSTEM=="video4linux", KERNELS=="2-1.3.2",   ATTR{index}=="0", MODE:="0666", SYMLINK+="arducam-rear"
+SUBSYSTEM=="video4linux", KERNELS=="2-1.3.3.1", ATTR{index}=="0", MODE:="0666", SYMLINK+="arducam-container"
+```
+
+**Caveat:** `KERNELS` ties the rule to this exact physical port on this exact hub/host. If a camera or the hub itself is ever rewired to a different port, its `KERNELS` value changes and the corresponding line must be updated to match — re-run steps 1-2 for that camera to get its new port path.
 
 ---
 
