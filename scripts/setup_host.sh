@@ -11,7 +11,7 @@ HOST_CONFIG_DIR="$REPO_ROOT/system"
 source "${SCRIPT_DIR}/utils.sh"
 
 # DEFAULT VARIABLES
-JETSON_USER="indomitus-rover"
+JETSON_USER="jetson"
 JETSON_IP="10.42.0.1"
 WIFI_SSID="IndomitusRover"
 WIFI_PASS="12345678"

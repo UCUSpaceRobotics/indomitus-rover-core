@@ -20,10 +20,10 @@
    ssh <username>@10.42.0.1
    ```
 
-   Change username to appropriate username on Jetson, currently the username is `indomitus-rover` and the actual command is
+   Change username to appropriate username on Jetson, currently the username is `jetson` and the actual command is
 
    ```bash
-   ssh indomitus-rover@10.42.0.1
+   ssh jetson@10.42.0.1
    ```
 
 
@@ -67,5 +67,5 @@
 5. Now your SSH command should always be:
 
    ```bash
-   ssh indomitus-rover@10.42.0.1
+   ssh jetson@10.42.0.1
    ```

@@ -127,13 +127,13 @@ To power down the rover, perform **one** of the following actions:
 
 | Property | Value |
 | --- | --- |
-| **Jetson Username** | `indomitus-rover` |
-| **Jetson Computer Name** | `indomitus-rover` |
+| **Jetson Username** | `jetson` |
+| **Jetson Computer Name** | `nano-4gb-jp451` |
 | **Jetson Password** | `1` |
 | **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
 | **Wi-Fi Password** | `12345678` |
 | **Jetson Static IP for Hotspot** | `10.42.0.1` |
-| **Jetson Container ROS_DOMAIN_ID** | `42` |
+| **Jetson Container ROS_DOMAIN_ID** | `90` |
 
 
 ### SSH Access to the Jetson
@@ -148,7 +148,7 @@ You can SSH into the Jetson to access its bash shell for debugging or configurat
 
 2. **Initiate the connection:** Open your terminal and run the following command:
    ```bash
-   ssh indomitus-rover@indomitus-rover.local
+   ssh jetson@nano-4gb-jp451.local
    ```
 
 #### SSH via Ethernet
@@ -161,7 +161,7 @@ You can SSH into the Jetson to access its bash shell for debugging or configurat
 
 4. **Initiate the connection:** Open your terminal and run the following command:
    ```bash
-   ssh indomitus-rover@indomitus-rover.local
+   ssh jetson@nano-4gb-jp451.local
    ```
 
 > **Note:** For further details on the network configuration, refer to [ssh.md](docs/networking/ssh.md).

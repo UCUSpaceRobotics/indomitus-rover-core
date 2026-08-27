@@ -14,11 +14,11 @@ cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repositor
 
 # DEFAULT VARIABLES
 ROS_DISTRO="humble"
-JETSON_USER="indomitus-rover"
+JETSON_USER="jetson"
 JETSON_HOTSPOT_IP="10.42.0.1"
-JETSON_ETHERNET_IP="indomitus-rover.local"
+JETSON_ETHERNET_IP="nano-4gb-jp451.local"
 JETSON_IP="${JETSON_HOTSPOT_IP}"
-REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
+REMOTE_DIR="/home/jetson/indomitus-rover-core/"
 IMAGE_NAME="ghcr.io/ucuspacerobotics/indomitus-rover-core"
 IMAGE_TAG=""
 IMAGE_COMMIT=""

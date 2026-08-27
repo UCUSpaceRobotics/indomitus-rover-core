@@ -30,12 +30,12 @@ SSH is a very useful tool to remotely access the Jetson on the rover, enter the 
 
    Either use ip addres:
    ```bash
-   ssh indomitus-rover@10.42.0.1
+   ssh jetson@10.42.0.1
    ```
 
    or automatic ip resolution:
    ```bash
-   ssh indomitus-rover@indomitus-rover.local
+   ssh jetson@nano-4gb-jp451.local
    ```
 
 
@@ -59,7 +59,7 @@ SSH is a very useful tool to remotely access the Jetson on the rover, enter the 
 3. Run the SSH command using the Jetson's local hostname:
 
   ```bash
-   ssh indomitus-rover@indomitus-rover.local
+   ssh jetson@nano-4gb-jp451.local
    ```
 
 
@@ -149,7 +149,7 @@ For convenience, you should set up passwordless SSH. Run these commands on your 
 2. Copy the public key to the Jetson (you will be prompted for the Jetson password one last time):
 
    ```bash
-   ssh-copy-id indomitus-rover@indomitus-rover.local
+   ssh-copy-id jetson@nano-4gb-jp451.local
    ```
 
 
@@ -188,8 +188,8 @@ To simplify the connection command and automatically enable key forwarding, conf
 
    ```text
    Host rover
-     HostName indomitus-rover.local
-     User indomitus-rover
+     HostName nano-4gb-jp451.local
+     User jetson
      ForwardAgent yes
    ```
 

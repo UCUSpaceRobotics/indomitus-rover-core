@@ -7,7 +7,7 @@ Requires=docker.service sys-subsystem-net-devices-can0.device
 Type=simple
 Restart=on-failure
 RestartSec=10
-WorkingDirectory=/home/indomitus-rover/indomitus-rover-core
+WorkingDirectory=/home/jetson/indomitus-rover-core
 
 ExecStartPre=-/usr/bin/docker compose down
 ExecStart=/usr/bin/docker compose up rover_prod
