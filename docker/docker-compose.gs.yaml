@@ -1,0 +1,79 @@
+# Runs this repo's container ON THE GROUND STATION laptop, not on the rover.
+#
+# Why it exists: the GS reaches the rover through the mast Pi, which is an L3
+# router, and multicast SPDP does not cross a router. Without the Fast DDS
+# profile below a container here sees nothing — or worse, sees a stale graph
+# from the ros2 daemon while every service call hangs waiting for a peer that
+# was never really discovered.
+#
+# What it is for: the ros2 CLI tools that live in this image and not in the
+# ground-station one — `ros2 control`, `ros2 lifecycle`, controller_manager_msgs
+# — pointed at the real rover. It launches nothing.
+#
+# --project-directory is not optional: paths below are relative to the repo
+# root, and without it compose resolves them against docker/ instead, mounting
+# the wrong tree at /work and leaving the DDS profile unfindable.
+#
+#   docker compose -f docker/docker-compose.gs.yaml --project-directory . up -d
+#   docker compose -f docker/docker-compose.gs.yaml --project-directory . exec rover_gs bash
+#   ros2 control set_hardware_component_state RoverHardware active
+
+services:
+  rover_gs:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: dev
+      args:
+        BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04}
+        BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
+        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
+        INSTALL_SIM_TOOLS: "false"
+
+    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
+    # Deliberately not rover_dev: on the GS laptop this coexists with a dev
+    # container, and two of them fighting over one name is a confusing failure.
+    container_name: rover_gs
+    command: tail -f /dev/null
+    network_mode: host
+    # The profile whitelists a host interface, so the container has to see the
+    # host's real interfaces. Host IPC puts this container and the ground
+    # station's on one /dev/shm, without which they discover each other and
+    # then exchange no data.
+    ipc: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    stdin_open: true
+    tty: true
+
+    environment:
+      # Must match the rover.
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
+      - ROS_LOCALHOST_ONLY=0
+      # The profile is Fast DDS-specific and silently ignored under Cyclone.
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      # Whitelists the mast-link interface and adds unicast discovery peers for
+      # the rover. Machine-specific: it names the GS laptop's link address, so
+      # regenerate it (indomitus-ground-station/docker/gen-dds-profile.sh) if
+      # this repo is used from another machine, or point this at another copy.
+      - FASTRTPS_DEFAULT_PROFILES_FILE=${FASTDDS_PROFILE:-/work/docker/fastdds_rover_link.xml}
+      - SDL_VIDEODRIVER=dummy
+      - SDL_AUDIODRIVER=dummy
+
+    volumes:
+      - ./:/work:rw
+      - ./src:/opt/ws/src:rw
+      - /dev:/dev:rw
+      - /run/udev:/run/udev:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$TARGET_ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
