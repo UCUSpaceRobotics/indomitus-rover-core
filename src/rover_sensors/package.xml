@@ -18,6 +18,8 @@
   <exec_depend>laser_filters</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>sllidar_ros2</exec_depend>
+  <exec_depend>topic_tools</exec_depend>
+  <exec_depend>v4l2_camera</exec_depend>
   <exec_depend>zed_wrapper</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
