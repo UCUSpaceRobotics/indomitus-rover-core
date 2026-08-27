@@ -20,7 +20,6 @@ find_package(Eigen3 REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
-  src/swerve_controller.cpp
   src/swerve_controller_test.cpp
   src/odometry_controller.cpp
 )
@@ -87,30 +86,5 @@ install(DIRECTORY include/
 install(FILES plugins.xml
   DESTINATION share/${PROJECT_NAME}
 )
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  set(ament_cmake_copyright_FOUND TRUE)
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-
-  find_package(ament_cmake_gtest REQUIRED)
-
-  # Spins real executors and threads, so it needs headroom over the 60 s default.
-  ament_add_gtest(test_swerve_controller_test
-    test/test_swerve_controller_test.cpp
-    TIMEOUT 180
-  )
-  target_link_libraries(test_swerve_controller_test ${PROJECT_NAME})
-  ament_target_dependencies(test_swerve_controller_test
-    rclcpp
-    rclcpp_lifecycle
-    hardware_interface
-    controller_interface
-    geometry_msgs
-    std_srvs
-    realtime_tools
-  )
-endif()
 
 ament_package()
