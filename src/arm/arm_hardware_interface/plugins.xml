@@ -1,9 +1,0 @@
-<library path="arm_hardware_interface">
-  <class name="arm_hardware_interface/ArmCanSystem"
-         type="arm_hardware_interface::ArmCanSystem"
-         base_class_type="hardware_interface::SystemInterface">
-    <description>
-      Hardware interface plugin for the 6-DOF arm via SocketCAN.
-    </description>
-  </class>
-</library>
