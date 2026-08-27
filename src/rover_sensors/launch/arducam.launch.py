@@ -64,7 +64,7 @@ def _launch_setup(context: LaunchContext, *args, **kwargs):
             {
                 "throttle_type": "messages",
                 "input_topic": "image_raw",
-                "output_topic": "image_raw_slow",
+                "output_topic": "image_raw_throttled",
                 **throttle_rate_override,
             },
         ]
@@ -82,7 +82,7 @@ def _launch_setup(context: LaunchContext, *args, **kwargs):
             {
                 "throttle_type": "messages",
                 "input_topic": "image_raw/compressed",
-                "output_topic": "image_raw_slow/compressed",
+                "output_topic": "image_raw_throttled/compressed",
                 **throttle_rate_override,
             },
         ]
@@ -139,7 +139,7 @@ def generate_launch_description():
         default_value="",
         description="Maximum messages per second for the throttled image_raw / "
                      "image_raw/compressed output topics, published on "
-                     "image_raw_slow and image_raw_slow/compressed. Overrides the "
+                     "image_raw_throttled and image_raw_throttled/compressed. Overrides the "
                      "msgs_per_sec value set in the selected config file when set.",
     )
 

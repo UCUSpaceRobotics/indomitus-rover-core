@@ -140,7 +140,7 @@ SUBSYSTEM=="video4linux", KERNELS=="2-1.3.3.1", ATTR{index}=="0", MODE:="0666", 
 | `auto_exposure` | `0` | Toggles automatic exposure (values depend on UVC spec, usually 3=auto, 1=manual). |
 | `exposure_time_absolute` | `5` | Manual exposure time (requires `auto_exposure` set to manual mode). |
 | `power_line_frequency` | `0` | Anti-flicker setting for indoor lighting (0=disabled, 1=50Hz, 2=60Hz). |
-| `msgs_per_sec` (`throttle_raw` / `throttle_compressed`) | `30.0` | Rate limit applied to the throttled `image_raw_slow` / `image_raw_slow/compressed` output topics. |
+| `msgs_per_sec` (`throttle_raw` / `throttle_compressed`) | `30.0` | Rate limit applied to the throttled `image_raw_throttled` / `image_raw_throttled/compressed` output topics. |
 
 The three camera config files are currently identical placeholders — tune each one's hardware parameters once the real per-camera differences (mounting, lighting, lens) are known.
 
@@ -157,8 +157,8 @@ You should see, under the chosen `namespace`:
 ```text
 /<namespace>/image_raw
 /<namespace>/camera_info
-/<namespace>/image_raw_slow
-/<namespace>/image_raw_slow/compressed
+/<namespace>/image_raw_throttled
+/<namespace>/image_raw_throttled/compressed
 ```
 
 ```bash
