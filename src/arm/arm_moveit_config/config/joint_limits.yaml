@@ -11,21 +11,9 @@ default_acceleration_scaling_factor: 0.1
 # [has_velocity_limits, has_acceleration_limits, has_jerk_limits].
 # max_jerk is used by Ruckig smoothing (AddRuckigTrajectorySmoothing).
 #
-# min_position/max_position below are a MoveIt-planning-only override — they
-# shrink the space OMPL samples in without touching arm_macro.xacro's URDF
-# <limit> (+-4*pi on every joint, deliberately wide so real-hardware teleop
-# can be wound past +-pi). Left at the URDF's full +-4*pi, RRTConnect's
-# uniform random sampling was failing outright ("Unable to solve the
-# planning problem" / "Catastrophic failure") on ordinary goals like
-# drill_home, because the search volume across all 6 joints together is
-# astronomically larger than the actual reachable/collision-free corridor.
-# +-2*pi here keeps 2x headroom over every joint value any saved pose
-# actually uses today (poses.json's max is +-3.3276 rad, on
-# arm_forearm_wrist_1_joint/arm_wrist_1_wrist_2_joint) while cutting OMPL's
-# search volume 64x (2x per joint, 6 joints) vs the URDF's +-4*pi. If a
-# future taught pose needs a joint value beyond +-2*pi, raise ONLY that
-# joint's bound here — don't blanket-raise all six back toward +-4*pi, that
-# reintroduces this same planning failure.
+# No min/max_position override — planning uses arm_macro.xacro's URDF <limit>
+# directly, same as develop. Widening this past the URDF let OMPL pick
+# wound-up align solutions that panel_align_node then rejected.
 joint_limits:
   arm_base_shoulder_joint:
     has_velocity_limits: true
@@ -34,8 +22,6 @@ joint_limits:
     max_acceleration: 1.0
     has_jerk_limits: true
     max_jerk: 5.0
-    min_position: -6.283185
-    max_position: 6.283185
   arm_forearm_wrist_1_joint:
     has_velocity_limits: true
     max_velocity: 0.8
@@ -43,8 +29,6 @@ joint_limits:
     max_acceleration: 2.5
     has_jerk_limits: true
     max_jerk: 12.5
-    min_position: -6.283185
-    max_position: 6.283185
   arm_mount_base_joint:
     has_velocity_limits: true
     max_velocity: 0.5
@@ -52,8 +36,6 @@ joint_limits:
     max_acceleration: 1.5
     has_jerk_limits: true
     max_jerk: 7.5
-    min_position: -6.283185
-    max_position: 6.283185
   arm_shoulder_forearm_joint:
     has_velocity_limits: true
     max_velocity: 1.0
@@ -61,8 +43,6 @@ joint_limits:
     max_acceleration: 1.0
     has_jerk_limits: true
     max_jerk: 5.0
-    min_position: -6.283185
-    max_position: 6.283185
   arm_wrist_1_wrist_2_joint:
     has_velocity_limits: true
     max_velocity: 0.8
@@ -70,8 +50,6 @@ joint_limits:
     max_acceleration: 2.5
     has_jerk_limits: true
     max_jerk: 12.5
-    min_position: -6.283185
-    max_position: 6.283185
   arm_wrist_2_end_effector_joint:
     has_velocity_limits: true
     max_velocity: 0.8
@@ -79,5 +57,3 @@ joint_limits:
     max_acceleration: 2.5
     has_jerk_limits: true
     max_jerk: 12.5
-    min_position: -6.283185
-    max_position: 6.283185
