@@ -68,6 +68,8 @@ import time
 import json
 import math
 import select
+import socket
+import struct
 from pathlib import Path
 
 import rclpy
@@ -112,7 +114,8 @@ DOWN_AXIS = (0.0, 0.0, -1.0)
 # — flip the sign here.
 SAMPLING_POINT_AXIS = (0.0, 0.0, 1.0)
 DRILL_POINT_AXIS = (0.0, -1.0, 0.0)
-# Untested on real hardware yet — buttons 11/13 log and do nothing while False.
+# Untested on real hardware yet — B/Y (sampling_home/drill_home) and the
+# level button log and do nothing while False.
 SAMPLING_DRILL_MODES_ENABLED = True
 # level_tool()'s target: a full, fixed joint vector (same order as
 # HOME_POSE_JOINTS), driven there by hand (teleop) and verified live via
@@ -160,6 +163,42 @@ DEFAULT_GRIPPER_STROKE = 0.012  # m — matches finger_stroke in arm_macro.xacro
 # gripper_left_controller, bypassing Servo entirely (Servo only drives the
 # six arm joints). Each finger has its own single-joint controller.
 GRIPPER_JOINT_NAME = 'arm_jaw_gripper_finger_right_joint'
+
+# SAFE gripper (ESP32 firmware, jaw tool) raw-CAN control — a separate,
+# real piece of hardware from the gripper_right/left_controller mimic
+# joints above: its own microcontroller with a servo and per-finger HX711
+# load cells, commanded directly over CAN and bypassing ros2_control
+# entirely.
+#
+# CAN ID allocation — one cmd/ack pair per end-effector tool (see
+# docs/hardware/can_bus.md's reserved-range table), only one of which is
+# ever live at a time since only one tool is physically mounted:
+#   jaw            0x1A cmd / 0x1B ack  (only one with real firmware today)
+#   astro-bio      0x1C cmd / 0x1D ack  (reserved, no firmware yet)
+#   drill_sampling 0x1E cmd / 0x1F ack  (reserved, no firmware yet)
+#
+# CAN_ID_ACK carries every reply kind (ACKs to action commands AND
+# READ_* data) with NO tag byte identifying which — the firmware is
+# strictly one-outstanding-request-at-a-time, so the requester already
+# knows what layout to expect from what it just sent. DLC is the only
+# signal available to a client that (like this one) can't rely on that
+# and needs to tell reply kinds apart in the recv buffer — see
+# GripperCanBus.poll_load()'s own comment for why that only works
+# because this client never sends the OTHER commands whose ACK/reply DLC
+# would collide with READ_LOAD_SENSORS's. Only the 3 commands the
+# gamepad needs are defined here — the firmware's SAFE_SET_SPREAD/ANGLE,
+# HOLD, and other READ_* replies exist too if a future caller needs
+# them.
+DEFAULT_GRIPPER_CAN_IFACE = 'can0'
+GRIPPER_CAN_ID_CMD = 0x1A   # jaw cmd frame — commands sent TO the gripper
+GRIPPER_CAN_ID_ACK = 0x1B   # jaw reply frame — every reply kind, no tag byte
+GRIPPER_CMD_SAFE_OPEN = 3
+GRIPPER_CMD_SAFE_CLOSE = 4
+GRIPPER_CMD_READ_LOAD_SENSORS = 7
+# How often to request+log load-sensor telemetry — matches the firmware's
+# default 10 SPS HX711 rate, so we're not polling faster than fresh data
+# can actually arrive.
+GRIPPER_LOAD_POLL_PERIOD_SEC = 0.1
 
 JTC_CONTROLLER_NAME = 'indomitus_arm_controller'
 FORWARD_CONTROLLER_NAME = 'indomitus_arm_forward_position_controller'
@@ -344,6 +383,9 @@ class ServoController(Node):
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
         self.declare_parameter('gripper_speed', DEFAULT_GRIPPER_SPEED)
         self.declare_parameter('gripper_stroke', DEFAULT_GRIPPER_STROKE)
+        # SocketCAN interface the SAFE gripper firmware is on — 'can0' for
+        # real hardware, 'vcan0' for sim/bench testing (see GripperCanBus).
+        self.declare_parameter('gripper_can_iface', DEFAULT_GRIPPER_CAN_IFACE)
         # Which physical tool is mounted right now — 'jaw' (default, matches
         # arm_macro.xacro's end_effector arg default), 'drill_sampling', or
         # 'astrobio'. Purely a teleop-side hint for gating which mode-jump
@@ -386,6 +428,7 @@ class ServoController(Node):
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
         self._gripper_speed        = self.get_parameter('gripper_speed').value
         self._gripper_stroke       = self.get_parameter('gripper_stroke').value
+        self._gripper_can_iface    = self.get_parameter('gripper_can_iface').value
         self._end_effector         = self.get_parameter('end_effector').value
 
         self.vx = 0.0
@@ -494,6 +537,11 @@ class ServoController(Node):
         return self._gripper_speed
 
     @property
+    def gripper_stroke(self) -> float:
+        """Return the configured gripper stroke (fully-open finger position, in meters)."""
+        return self._gripper_stroke
+
+    @property
     def keyboard_device_path(self) -> str:
         """Return the filesystem path of the keyboard input device (evdev)."""
         return self._keyboard_device_path
@@ -527,6 +575,11 @@ class ServoController(Node):
     def end_effector(self) -> str:
         """Return the 'end_effector' parameter (which tool is mounted)."""
         return self._end_effector
+
+    @property
+    def gripper_can_iface(self) -> str:
+        """Return the 'gripper_can_iface' parameter (SocketCAN interface for GripperCanBus)."""
+        return self._gripper_can_iface
 
     def _load_tool_home_pose(self, pose_name: str):
         """Load poses.json[pose_name], falling back to the jaw safe pose with a warning."""
@@ -600,6 +653,19 @@ class ServoController(Node):
         the touching/closed position set by finger_x_closed in the URDF).
         """
         self.gripper_vel = vel
+
+    def set_gripper_target(self, position: float):
+        """Jump the visualized gripper straight to ``position`` (meters).
+
+        For one-shot commands (gamepad SAFE_OPEN/SAFE_CLOSE) instead of
+        the velocity-integrated path set_gripper_velocity() drives.
+        Clamped and picked up by the very next _publish_gripper() tick,
+        same as any other change to _gripper_position — including that
+        method's own "withheld until the first real /joint_states sync"
+        guard, so a press before that arrives doesn't slam a stale
+        default onto gripper_right/left_controller.
+        """
+        self._gripper_position = max(0.0, min(self._gripper_stroke, position))
 
     def _on_joint_state(self, msg: JointState):
         for name, pos in zip(msg.name, msg.position):
@@ -1705,6 +1771,104 @@ class KeyboardInputLoop:
                 termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_term_settings)
 
 
+class GripperCanBus:
+    """Raw SocketCAN client for the SAFE gripper's ESP32 firmware.
+
+    Uses a plain AF_CAN/SOCK_RAW/CAN_RAW socket with manual struct
+    packing, same as scripts/arm/check_calibration.py's ``Bus`` and
+    arm_hardware_interface's C++ driver — this repo has no python-can
+    dependency anywhere, so this avoids adding one just for the gripper.
+
+    Command frame -> CAN_ID_CMD (0x1A, jaw): byte0 = command id, no
+    parameter bytes needed for the 3 commands used here (open/close/
+    read-load). Replies of every kind share one ID, CAN_ID_ACK (0x1B,
+    jaw) — there is NO tag byte identifying which command a reply
+    answers; the firmware is strictly one-outstanding-request-at-a-time,
+    so the requester is expected to already know which layout to expect
+    from what it just sent. READ_LOAD_SENSORS's reply: byte0-1 = right
+    load (int16 grams, LE), byte2-3 = left load (int16 grams, LE), DLC=4
+    — distinguishable here from an ACK reply (DLC=2) by length alone,
+    which works only because this client never sends SAFE_SET_SPREAD/
+    ANGLE/HOLD/READ_ANGLE/READ_SPREAD/READ_GRIPPER_INFO (DLC 2/2/2/8) —
+    add any of those and this length-based disambiguation breaks. See
+    GRIPPER_CAN_ID_CMD's own comment above for the full tool->ID map and
+    the firmware's own header comment for the rest of the CAN API.
+    """
+
+    _FRAME_FMT = '=IB3x8s'  # matches struct can_frame: id, dlc, 3 pad bytes, 8 data bytes
+
+    def __init__(self, iface: str, logger):
+        self._logger = logger
+        self._sock = None
+        try:
+            sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
+            sock.bind((iface,))
+            sock.setblocking(False)
+            self._sock = sock
+        except OSError as exc:
+            self._logger.warn(
+                f"GripperCanBus: could not open '{iface}' ({exc}) — gripper "
+                'open/close and load-sensor telemetry will be dropped. '
+                f'Bring the interface up first, e.g.: sudo ip link set '
+                f'{iface} up type can bitrate 1000000'
+            )
+
+    def _send(self, cmd_id: int) -> None:
+        if self._sock is None:
+            return
+        data = bytes([cmd_id]).ljust(8, b'\x00')
+        frame = struct.pack(self._FRAME_FMT, GRIPPER_CAN_ID_CMD, 1, data)
+        try:
+            self._sock.send(frame)
+        except OSError as exc:
+            self._logger.warn(f'GripperCanBus: send(cmd={cmd_id}) failed: {exc}')
+
+    def safe_open(self) -> None:
+        """Send SAFE_OPEN — one-shot, the firmware drives the gripper open itself."""
+        self._send(GRIPPER_CMD_SAFE_OPEN)
+
+    def safe_close(self) -> None:
+        """Send SAFE_CLOSE — one-shot, the firmware drives the gripper closed itself."""
+        self._send(GRIPPER_CMD_SAFE_CLOSE)
+
+    def request_load(self) -> None:
+        """Send READ_LOAD_SENSORS. The reply is picked up by a later ``poll_load()``
+        call, not this one — round trip takes longer than a same-call read."""
+        self._send(GRIPPER_CMD_READ_LOAD_SENSORS)
+
+    def poll_load(self):
+        """Drain pending CAN replies, returning the latest (right_g, left_g) load
+        reading as a tuple of ints, or None if no load-sensor reply is pending.
+
+        There is no tag byte distinguishing reply kinds on CAN_ID_ACK — DLC
+        is the only signal, and DLC==4 is unambiguous here ONLY because
+        this client's own SAFE_OPEN/SAFE_CLOSE ACKs are DLC==2. A DLC==2
+        frame (an ACK for the last open/close) is simply skipped, not
+        mistaken for load data.
+        """
+        if self._sock is None:
+            return None
+        latest = None
+        while True:
+            try:
+                frame = self._sock.recv(16)
+            except BlockingIOError:
+                break
+            except OSError as exc:
+                self._logger.warn(f'GripperCanBus: recv failed: {exc}')
+                break
+            can_id, dlc, data = struct.unpack(self._FRAME_FMT, frame)
+            if (can_id & socket.CAN_EFF_MASK) != GRIPPER_CAN_ID_ACK or dlc != 4:
+                continue
+            latest = struct.unpack_from('<hh', data)
+        return latest
+
+    def close(self) -> None:
+        if self._sock is not None:
+            self._sock.close()
+            self._sock = None
+
+
 GAMEPAD_HELP = """
 ╔══════════════════════════════════════════════╗
 ║  Gamepad — EEF control (view-relative)       ║
@@ -1716,8 +1880,10 @@ GAMEPAD_HELP = """
 ║  R1 + right   ↑↓  — pitch (TCP)              ║
 ║               ←→  — roll  (TCP)              ║
 ║  9 (button)       — push boost (hold)        ║
-║  13 (button)      — sampling mode (toggle)   ║
-║  11 (button)      — drill mode (toggle)      ║
+║  11 (button)      — gripper OPEN             ║
+║  13 (button)      — gripper CLOSE            ║
+║   (SAFE gripper firmware, over CAN — B/Y     ║
+║   below now own sampling/drill mode entry)   ║
 ║   drill: right ←→ fwd/back, right ↑↓         ║
 ║   left/right, left ↑↓ up/down, no roll       ║
 ║   sampling: right ↑↓/←→ inverted, left ←→    ║
@@ -1767,13 +1933,13 @@ class GamepadInputLoop:
     AXIS_R2 = 5
 
     BUTTON_SAFE_POSE = 0   # 'A' — move to home + start servo
-    # 'B' — force sampling mode on and go straight to sampling_home, without
-    # first needing BUTTON_SAMPLING_MODE + A. Always arms (not a toggle).
+    # 'B' — force sampling mode on and go straight to sampling_home.
+    # One-shot, not a toggle — there is no button that turns it back off
+    # short of restarting with a different end_effector.
     BUTTON_SAMPLING_HOME = 1
     BUTTON_EXIT = 2        # 'X' — exit
-    # 'Y' — force drill mode on and go straight to drill_home, without first
-    # needing BUTTON_DRILL_MODE + A. Always arms (not a toggle), mirrors
-    # BUTTON_SAMPLING_HOME above.
+    # 'Y' — force drill mode on and go straight to drill_home. One-shot,
+    # mirrors BUTTON_SAMPLING_HOME above.
     BUTTON_DRILL_HOME = 3
     # LEFTSHOULDER/L1. Held to scale up commanded velocity — raises the
     # per-cycle position step Servo re-anchors from, which is what caps
@@ -1787,11 +1953,16 @@ class GamepadInputLoop:
     # Shift button has no class constant — parameterized (DEFAULT_GAMEPAD_SHIFT_BUTTON),
     # read via self._shift_button, in case a pad's SDL mapping is ever wrong.
 
-    # Rising-edge toggles for sampling/drill mode (attitude held level by
-    # _level_hold); mutually exclusive, see set_sampling_mode/set_drill_mode.
     # DPAD_LEFT / DPAD_UP under game_controller_node's canonical mapping.
-    BUTTON_SAMPLING_MODE = 13
-    BUTTON_DRILL_MODE = 11
+    # Formerly the sampling/drill mode toggles — that job moved to
+    # BUTTON_SAMPLING_HOME/BUTTON_DRILL_HOME (B/Y) above, which also gate
+    # on end_effector (these two never did). Freed up for the gripper,
+    # which only makes sense to actuate on the jaw tool anyway — the same
+    # case where B/Y are locked out. GripperCanBus.safe_open/safe_close
+    # are one-shot commands, so these fire on rising edge like the mode
+    # buttons above, not held.
+    BUTTON_GRIPPER_OPEN = 11
+    BUTTON_GRIPPER_CLOSE = 13
     # On-demand collision-checked "point straight down now" (mirrors
     # KeyboardInputLoop's 'f') — see ServoController.level_tool() for why
     # this needs to be its own move_group plan, not just a harder nudge
@@ -1861,6 +2032,11 @@ class GamepadInputLoop:
         self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
         self._watchdog_timer = controller.create_timer(
             self._WATCHDOG_PERIOD_SEC, self._check_joy_timeout
+        )
+
+        self._gripper_can = GripperCanBus(controller.gripper_can_iface, controller.get_logger())
+        self._gripper_load_timer = controller.create_timer(
+            GRIPPER_LOAD_POLL_PERIOD_SEC, self._on_gripper_load_timer
         )
 
     @classmethod
@@ -1983,6 +2159,27 @@ class GamepadInputLoop:
                 )
             self._controller.stop()
 
+    def _on_gripper_load_timer(self):
+        """Continuously poll the SAFE gripper's load cells over CAN.
+
+        Runs on its own timer, independent of /joy — this keeps load
+        telemetry flowing (and logged) regardless of whether the operator
+        is actively moving anything. Reads first, then requests: the
+        reply to the request sent on the PREVIOUS tick has had a full
+        ``GRIPPER_LOAD_POLL_PERIOD_SEC`` to come back by now, whereas
+        requesting and reading in the same call would usually race the
+        reply's CAN round-trip. Logging is throttled to 1 Hz so the
+        gripper's own poll rate can stay faster without spamming the log.
+        """
+        reading = self._gripper_can.poll_load()
+        if reading is not None:
+            right_g, left_g = reading
+            self._controller.get_logger().info(
+                f'Gripper load: right={right_g}g left={left_g}g',
+                throttle_duration_sec=1.0,
+            )
+        self._gripper_can.request_load()
+
     def _log_raw_joy(self, axes, buttons, note: str = ''):
         """Log the full Joy message — an out-of-range index fails silently otherwise."""
         axes_str = ', '.join(f'{i}:{v:+.2f}' for i, v in enumerate(axes))
@@ -2022,8 +2219,8 @@ class GamepadInputLoop:
         sampling_home_pressed = self._button_rising_edge(buttons, self.BUTTON_SAMPLING_HOME)
         drill_home_pressed = self._button_rising_edge(buttons, self.BUTTON_DRILL_HOME)
         exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
-        sampling_mode_pressed = self._button_rising_edge(buttons, self.BUTTON_SAMPLING_MODE)
-        drill_mode_pressed = self._button_rising_edge(buttons, self.BUTTON_DRILL_MODE)
+        gripper_open_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_OPEN)
+        gripper_close_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_CLOSE)
         level_pressed = self._button_rising_edge(buttons, self.BUTTON_LEVEL)
 
         # Log the raw state on any button change, not just the mapped ones,
@@ -2047,41 +2244,19 @@ class GamepadInputLoop:
         if exit_pressed:
             self._exit_event.set()
 
-        if sampling_mode_pressed and not SAMPLING_DRILL_MODES_ENABLED:
-            self._controller.get_logger().warn(
-                'Sampling mode is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
-            )
-        elif sampling_mode_pressed:
-            self._sampling_mode = not self._sampling_mode
-            if self._sampling_mode:
-                self._drill_mode = False
-            self._controller.set_sampling_mode(self._sampling_mode)
-            self._controller.get_logger().info(
-                f'Sampling mode {"ON" if self._sampling_mode else "OFF"} — '
-                f'right stick now {"up/down + roll (level hold)" if self._sampling_mode else "up/down + yaw (or R1: pitch + roll)"}.'
-            )
-            # Engaging (not disengaging) drives to sampling_home first via
-            # move_group planning — routes around obstacles instead of
-            # Servo's live level-hold trying to snap there in a straight
-            # line and decelerating into a self-collision zone partway.
-            if self._sampling_mode:
-                threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+        if gripper_open_pressed:
+            self._gripper_can.safe_open()
+            # Real hardware moves over CAN above; this drives the same
+            # gripper_right/left_controller topics the keyboard's b/v use,
+            # so RViz/Gazebo's fingers slide open too instead of sitting
+            # frozen on JawGripperStub's last echoed value.
+            self._controller.set_gripper_target(self._controller.gripper_stroke)
+            self._controller.get_logger().info('Gripper: SAFE_OPEN sent.')
 
-        if drill_mode_pressed and not SAMPLING_DRILL_MODES_ENABLED:
-            self._controller.get_logger().warn(
-                'Drill mode is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
-            )
-        elif drill_mode_pressed:
-            self._drill_mode = not self._drill_mode
-            if self._drill_mode:
-                self._sampling_mode = False
-            self._controller.set_drill_mode(self._drill_mode)
-            self._controller.get_logger().info(
-                f'Drill mode {"ON" if self._drill_mode else "OFF"} — '
-                f'right stick now {"up/down + roll (level hold)" if self._drill_mode else "up/down + yaw (or R1: pitch + roll)"}.'
-            )
-            if self._drill_mode:
-                threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+        if gripper_close_pressed:
+            self._gripper_can.safe_close()
+            self._controller.set_gripper_target(0.0)
+            self._controller.get_logger().info('Gripper: SAFE_CLOSE sent.')
 
         # A goes to the jaw-oriented "home" pose — wrong/unsafe target while
         # a drill is actually mounted, so it's locked out in that mode. B/Y
@@ -2331,6 +2506,7 @@ class GamepadInputLoop:
         finally:
             print('\nExiting...')
             self._controller.stop()
+            self._gripper_can.close()
 
 
 def _run_teleop(controller: 'ServoController', input_loop) -> None:
