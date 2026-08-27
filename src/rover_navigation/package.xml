@@ -29,7 +29,7 @@
   <exec_depend>nav2_costmap_2d</exec_depend>
 
   <!-- Runtime: Planner plugins -->
-  <exec_depend>nav2_smac_planner</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
 
   <!-- Runtime: Controller plugins -->
   <exec_depend>nav2_mppi_controller</exec_depend>
@@ -38,6 +38,9 @@
   <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
+
+  <!-- Runtime: Costmap plugins -->
+  <exec_depend>rover_costmap_plugins</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

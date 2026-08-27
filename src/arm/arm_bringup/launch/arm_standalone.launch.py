@@ -1,12 +1,35 @@
 import os
+import sys
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument,
+    LogInfo,
+    RegisterEventHandler,
+    Shutdown,
+    TimerAction,
+)
 from launch.conditions import IfCondition, UnlessCondition
+from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+from moveit_configs_utils import MoveItConfigsBuilder
+from moveit_configs_utils.launches import generate_move_group_launch
+
+
+def _arg_from_argv(name: str, default: str) -> str:
+    """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro
+    path — LaunchConfiguration ones desync across sub-launches. Same
+    helper/reasoning as demo.launch.py's own.
+    """
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return default
 
 
 def generate_launch_description():
@@ -59,6 +82,62 @@ def generate_launch_description():
     )
     robot_description = {'robot_description': robot_description_content}
 
+    arm_controller_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['indomitus_arm_controller'],
+        condition=UnlessCondition(LaunchConfiguration('gui_only'))
+    )
+
+    gripper_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['gripper_right_controller', 'gripper_left_controller'],
+        output='screen',
+    )
+
+    # planning_pipelines restricted to ompl on purpose — see the matching
+    # comment in arm_sim/launch/arm_gazebo.launch.py: without this,
+    # move_group ambiguously picks CHOMP, which rejects panel_align_node's
+    # Cartesian pose-constraint goals outright (INVALID_GOAL_CONSTRAINTS).
+    moveit_config = (
+        MoveItConfigsBuilder('indomitus_arm', package_name='arm_moveit_config')
+        .robot_description(mappings={
+            'use_fake_hardware': _arg_from_argv('use_fake_hardware', 'true'),
+            'end_effector': _arg_from_argv('end_effector', 'jaw'),
+        })
+        .planning_pipelines(pipelines=['ompl'])
+        .to_moveit_configs()
+    )
+    move_group_launch = generate_move_group_launch(moveit_config)
+
+    with open(os.path.join(arm_moveit_config_dir, 'config', 'servo.yaml')) as f:
+        servo_yaml = yaml.safe_load(f)
+    servo_params = {'moveit_servo': servo_yaml['moveit_servo']['ros__parameters']}
+
+    # Inverse Jacobian only — see demo.launch.py (KDL searchPositionIK
+    # from home makes +X teleop freeze while -X still works).
+    servo_node = Node(
+        package='moveit_servo',
+        executable='servo_node_main',
+        name='servo_node',
+        output='screen',
+        parameters=[
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+            moveit_config.joint_limits,
+            servo_params,
+        ],
+    )
+
+    def _after_arm_controller(event, context):
+        if event.returncode != 0:
+            return [
+                LogInfo(msg=f'Controller activation failed (exit code {event.returncode}).'),
+                Shutdown(reason='controller activation failed'),
+            ]
+        return list(move_group_launch.entities) + [servo_node, gripper_spawner]
+
     return LaunchDescription([
         use_fake_hardware_arg,
         end_effector_arg,
@@ -95,13 +174,24 @@ def generate_launch_description():
                     arguments=['joint_state_broadcaster'],
                     condition=UnlessCondition(LaunchConfiguration('gui_only'))
                 ),
+                arm_controller_spawner,
+                # Streaming teleop controller, spawned inactive — JTC owns
+                # the joints until arm_tasks switches controllers for
+                # Servo. Mirrors arm_gazebo.launch.py/demo.launch.py.
                 Node(
                     package='controller_manager',
                     executable='spawner',
-                    arguments=['indomitus_arm_controller'],
+                    arguments=['indomitus_arm_forward_position_controller', '--inactive'],
                     condition=UnlessCondition(LaunchConfiguration('gui_only'))
                 ),
             ]
+        ),
+
+        # move_group + gripper controllers, chained off the arm
+        # controller's own spawn confirming success — mirrors
+        # arm_gazebo.launch.py's delayed_move_group/delayed_gripper_spawner.
+        RegisterEventHandler(
+            OnProcessExit(target_action=arm_controller_spawner, on_exit=_after_arm_controller)
         ),
 
         Node(

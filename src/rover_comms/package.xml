@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rover_comms</name>
+  <version>0.0.0</version>
+  <description>
+    Rover end of the 433 MHz LoRa fallback link. Terminates the radio protocol
+    driven by lora_bridge.py on the ground-station mast and republishes the
+    operator's commands on cmd_vel_lora, which twist_mux carries at a priority
+    below the Wi-Fi path. Counterpart to indomitus_rover_comms in the
+    indomitus-ground-station repository.
+  </description>
+  <maintainer email="fito.pn@ucu.edu.ua">yuriifito</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>python3-serial</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

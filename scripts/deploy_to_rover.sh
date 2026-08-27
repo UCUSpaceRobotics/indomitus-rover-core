@@ -16,7 +16,7 @@ cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repositor
 ROS_DISTRO="humble"
 JETSON_USER="indomitus-rover"
 JETSON_HOTSPOT_IP="10.42.0.1"
-JETSON_ETHERNET_IP="indomitus-rover-computer.local"
+JETSON_ETHERNET_IP="indomitus-rover.local"
 JETSON_IP="${JETSON_HOTSPOT_IP}"
 REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
 IMAGE_NAME="ghcr.io/ucuspacerobotics/indomitus-rover-core"
@@ -181,7 +181,7 @@ CLEANUP_FILES+=("${ARCHIVE_NAME}")
 connect_to_jetson() {
     step "Verifying Jetson Connection..."
     ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
-    wait_for_ssh "$TARGET" 30
+    wait_for_ssh "$TARGET" 30 "$USE_ETH"
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "mkdir -p -- \"${REMOTE_DIR}\""
 }
 

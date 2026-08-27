@@ -20,6 +20,7 @@ TARGET_MODE=""   # Must be set via positional arg: rover|local
 # Flags to forward to setup.sh
 RUN_CAN=false
 RUN_SERVICE=false
+RUN_JOYSTICK_LED=false
 
 # HELPER FUNCTIONS
 success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }
@@ -39,6 +40,7 @@ Targets:
 Options:
     --can             Deploy/configure CAN rules only
     --service         Deploy/configure Rover systemd service only
+    --joystick-led    Deploy/configure PlayStation light bar rules only
     -i, --ip IP       Jetson IP address (Default: ${JETSON_IP})
     -u, --user USER   Jetson SSH username (Default: ${JETSON_USER})
     -w, --ssid SSID   Wi-Fi SSID (Default: ${WIFI_SSID})
@@ -48,6 +50,7 @@ Options:
 Examples:
     $0 rover --can --service
     $0 local --can
+    $0 local --joystick-led
 EOF
 }
 
@@ -57,8 +60,9 @@ while [[ "$#" -gt 0 ]]; do
         rover|local)
             [[ -n "$TARGET_MODE" ]] && error "Target already set to '$TARGET_MODE'; cannot also set '$1'."
             TARGET_MODE="$1"; shift;;
-        --can)     RUN_CAN=true; shift;;
-        --service) RUN_SERVICE=true; shift;;
+        --can)          RUN_CAN=true; shift;;
+        --service)      RUN_SERVICE=true; shift;;
+        --joystick-led) RUN_JOYSTICK_LED=true; shift;;
         -i|--ip)   [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
         -u|--user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
         -w|--ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
@@ -77,11 +81,13 @@ fi
 SETUP_ARGS=""
 [ "$RUN_CAN" = true ] && SETUP_ARGS="$SETUP_ARGS --can"
 [ "$RUN_SERVICE" = true ] && SETUP_ARGS="$SETUP_ARGS --service"
+[ "$RUN_JOYSTICK_LED" = true ] && SETUP_ARGS="$SETUP_ARGS --joystick-led"
 
 # PRE-FLIGHT CHECKS
 step "Pre-Flight Checks..."
 [[ -f "$HOST_CONFIG_DIR/rules.d/80-can.rules" ]]  || error "Not found: $HOST_CONFIG_DIR/rules.d/80-can.rules"
 [[ -f "$HOST_CONFIG_DIR/systemd/rover.service" ]] || error "Not found: $HOST_CONFIG_DIR/systemd/rover.service"
+[[ -f "$HOST_CONFIG_DIR/rules.d/99-playstation-led.rules" ]] || error "Not found: $HOST_CONFIG_DIR/rules.d/99-playstation-led.rules"
 [[ -f "$HOST_CONFIG_DIR/setup.sh" ]]              || error "Not found: $HOST_CONFIG_DIR/setup.sh"
 success "All configuration assets verified."
 

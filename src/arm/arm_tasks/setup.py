@@ -25,6 +25,7 @@ setup(
             'keyboard_servo_node = arm_tasks.keyboard_servo_node:main',
             'gamepad_servo_node = arm_tasks.keyboard_servo_node:main_gamepad',
             'collision_link_reporter = arm_tasks.collision_link_reporter:main',
+            'panel_align_node = arm_tasks.panel_align_node:main',
         ],
     },
 )

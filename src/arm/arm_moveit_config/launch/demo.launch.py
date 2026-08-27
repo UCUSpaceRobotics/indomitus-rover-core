@@ -70,12 +70,27 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # Runtime (LaunchConfiguration) form, for the IfCondition/UnlessCondition
+    # gripper-spawner split below — separate from the plain-string
+    # _arg_from_argv() value passed into robot_description(mappings=...),
+    # which must stay a plain string (see _arg_from_argv's own docstring).
+    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
+
+    # planning_pipelines restricted to ompl on purpose — same fix as
+    # arm_gazebo.launch.py (see its own comment for the full story): with
+    # chomp/pilz_industrial_motion_planner also loaded, move_group picks
+    # an ambiguous "planning_plugin" between them and silently falls back
+    # to CHOMP even when a request explicitly asks for pipeline_id='ompl'
+    # (as panel_align_node.py's align requests do), and CHOMP rejects any
+    # Cartesian pose-constraint goal outright. This is the real-hardware
+    # launch path, so panel align needs the same fix here as in sim.
     moveit_config = (
         MoveItConfigsBuilder("indomitus_arm", package_name="arm_moveit_config")
         .robot_description(mappings={
             "use_fake_hardware": _arg_from_argv("use_fake_hardware", "true"),
             "end_effector": _arg_from_argv("end_effector", "jaw"),
         })
+        .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
 
@@ -181,7 +196,13 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
-    # Gripper controllers aren't spawned by generate_demo_launch(); only jaw has finger joints.
+    # Gripper controllers aren't spawned by generate_demo_launch(); only jaw
+    # has finger joints, and which finger interfaces exist depends on
+    # use_fake_hardware too: fake hardware (or sim) exposes both fingers,
+    # but real hardware only stubs the right one (JawGripperStub — the real
+    # arm has no gripper motor yet, see arm_macro.xacro) with no left-finger
+    # interface at all, so spawning gripper_left_controller there would just
+    # fail waiting for an interface that will never exist.
     ld.add_action(
         Node(
             package="controller_manager",
@@ -194,7 +215,25 @@ def generate_launch_description() -> LaunchDescription:
                 "--service-call-timeout", "70",
             ],
             output="screen",
-            condition=IfCondition(PythonExpression(["'", end_effector, "' == 'jaw'"])),
+            condition=IfCondition(PythonExpression([
+                "'", end_effector, "' == 'jaw' and '", use_fake_hardware, "' == 'true'"
+            ])),
+        )
+    )
+    ld.add_action(
+        Node(
+            package="controller_manager",
+            executable="spawner",
+            arguments=[
+                "gripper_right_controller",
+                "--controller-manager-timeout", "60",
+                "--switch-timeout", "60",
+                "--service-call-timeout", "70",
+            ],
+            output="screen",
+            condition=IfCondition(PythonExpression([
+                "'", end_effector, "' == 'jaw' and '", use_fake_hardware, "' != 'true'"
+            ])),
         )
     )
 

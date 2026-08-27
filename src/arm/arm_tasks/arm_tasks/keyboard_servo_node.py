@@ -32,6 +32,9 @@ Controls:
         b / v  — open / close
 
     r      — move to home + start servo
+    p      — align to detected panel (see panel_align_node); the first
+             successful align each session is remembered, so later presses
+             replay that exact position instead of re-planning
     ESC/x  — exit
 
 Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller).
@@ -44,6 +47,7 @@ about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
     R1 + right stick up/down    — pitch (TCP)
     R1 + right stick left/right — roll (TCP)
     A                — move to home + start servo
+    Button 12        — align to detected panel (see keyboard 'p' above)
     X                — exit
 
 Usage (stack in one terminal, input in another):
@@ -76,12 +80,14 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.qos import qos_profile_sensor_data
-from geometry_msgs.msg import Quaternion, TwistStamped
+from geometry_msgs.msg import PoseStamped, Quaternion, TwistStamped
 from sensor_msgs.msg import JointState, Joy
 from std_msgs.msg import Int8, Float64MultiArray
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
+from control_msgs.action import FollowJointTrajectory
 from controller_manager_msgs.srv import ListControllers, SwitchController
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes
@@ -89,6 +95,8 @@ from tf2_ros import Buffer, TransformListener
 from tf2_ros import TransformException
 import evdev
 from evdev import ecodes
+
+from arm_tasks.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 
 
 DEFAULT_LINEAR_SPEED  = 0.6
@@ -200,10 +208,35 @@ GRIPPER_CMD_READ_LOAD_SENSORS = 7
 # can actually arrive.
 GRIPPER_LOAD_POLL_PERIOD_SEC = 0.1
 
+DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
+# Deliberately reads panel_pose (gated at 2+ markers in
+# panel_pose_fuser_node), not the cheaper panel_visible (1+) — confirmed
+# live that a single marker's monocular pose estimate is unreliable
+# enough to compute a physically unreachable align target, so prompting
+# "press P" on 1-marker detections just set the operator up for a
+# guaranteed failed align. The prompt/gate below only fires when align
+# would actually stand a chance.
+# How stale a panel_pose message can be before is_panel_visible() reports
+# False. 1.0 was too tight in practice — confirmed live that 2-marker
+# detection can drop out for a second or more even while the panel stays
+# fully in frame (motion blur, a marginal viewing angle), and by the time
+# the operator reacts to the prompt and presses 'p', is_panel_visible()
+# had often already gone stale again. 3s gives real human reaction time
+# plus some detection-dropout slack.
+DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC = 3.0
+# Must stay above panel_align_node's own worst-case total wait, or this
+# node gives up and calls start_servo() (switching ros2_control back to
+# the streaming controller) while panel_align_node's /execute_trajectory
+# goal is still active server-side — two controllers contending for the
+# same joints. panel_align_node's worst case, summing every wait_for_
+# service/server + done.wait() in its sequence (stop_servo, switch to
+# JTC, apply planning scene, plan, execute): 5 + 7 + 6 + 15 + 65 = 98s
+# (with default allowed_planning_time=5.0). 120s leaves real margin.
+DEFAULT_PANEL_ALIGN_TIMEOUT = 120.0
+
 JTC_CONTROLLER_NAME = 'indomitus_arm_controller'
 FORWARD_CONTROLLER_NAME = 'indomitus_arm_forward_position_controller'
 MOVEIT_GROUP_NAME = 'indomitus_arm'
-JOINT_GOAL_TOLERANCE = 0.01  # rad, per-joint band OMPL's goal state must land in
 
 HOME_POSE_JOINTS = [
     'arm_mount_base_joint',
@@ -213,9 +246,6 @@ HOME_POSE_JOINTS = [
     'arm_wrist_1_wrist_2_joint',
     'arm_wrist_2_end_effector_joint',
 ]
-# Back-compat aliases used by older call sites / docs.
-SAFE_POSE_JOINTS = HOME_POSE_JOINTS
-DEFAULT_SAFE_POSE = DEFAULT_HOME_POSE
 
 
 def _load_home_pose_from_json(pose_name='home'):
@@ -393,6 +423,9 @@ class ServoController(Node):
         # the URDF/xacro end_effector arg — set this to the same value you
         # launched the arm with.
         self.declare_parameter('end_effector', 'jaw')
+        self.declare_parameter('panel_pose_topic', DEFAULT_PANEL_POSE_TOPIC)
+        self.declare_parameter('panel_visible_max_age_sec', DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC)
+        self.declare_parameter('panel_align_timeout', DEFAULT_PANEL_ALIGN_TIMEOUT)
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -430,6 +463,9 @@ class ServoController(Node):
         self._gripper_stroke       = self.get_parameter('gripper_stroke').value
         self._gripper_can_iface    = self.get_parameter('gripper_can_iface').value
         self._end_effector         = self.get_parameter('end_effector').value
+        self._panel_pose_topic          = self.get_parameter('panel_pose_topic').value
+        self._panel_visible_max_age_sec = self.get_parameter('panel_visible_max_age_sec').value
+        self._panel_align_timeout       = self.get_parameter('panel_align_timeout').value
 
         self.vx = 0.0
         self.vy = 0.0
@@ -466,6 +502,26 @@ class ServoController(Node):
         self._gripper_state_received = False
         self._last_gripper_tick_time = None
 
+        # Session-scoped only (reset by restarting this node) — see
+        # align_to_panel(). False until the first successful
+        # panel_align/align call. panel_align_node itself now owns the
+        # remembered joint target (and replans a fresh, collision-checked
+        # path to that exact target every call) — this node only needs
+        # to know THAT one exists, for prompt/gating purposes, not the
+        # actual joint values.
+        self._panel_align_succeeded_once = False
+        self._last_panel_visible_time = None
+        # Guards _move_to_joint_positions() against a second 'r' (home)
+        # press racing a first one still in flight — both would submit a
+        # FollowJointTrajectory goal to the same JTC action server via
+        # self._traj_client; confirmed live: the second goal preempts the
+        # first outright (goal status 5/CANCELED), not a queued or
+        # rejected goal, so the operator sees one of the two moves
+        # silently "fail" mid-flight with no obvious cause. 'r' vs 'p'
+        # (panel align) racing is now guarded separately, cross-process,
+        # by arm_motion_lock() — see that module and this same method.
+        self._motion_lock = threading.Lock()
+
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
@@ -481,11 +537,17 @@ class ServoController(Node):
         )
         self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
         self._stop_client  = self.create_client(Trigger, 'servo_node/stop_servo')
+        self._panel_align_client = self.create_client(Trigger, 'panel_align/align')
         self._switch_client = self.create_client(
             SwitchController, 'controller_manager/switch_controller'
         )
         self._list_controllers_client = self.create_client(
             ListControllers, 'controller_manager/list_controllers'
+        )
+        self._traj_client  = ActionClient(
+            self,
+            FollowJointTrajectory,
+            'indomitus_arm_controller/follow_joint_trajectory'
         )
         # move_action (not a raw FollowJointTrajectory goal): plans with OMPL
         # against the live planning scene, so a home/mode-engage move routes
@@ -493,6 +555,9 @@ class ServoController(Node):
         self._move_group_client = ActionClient(self, MoveGroup, 'move_action')
         self._js_sub = self.create_subscription(
             JointState, 'joint_states', self._on_joint_state, 10
+        )
+        self._panel_pose_sub = self.create_subscription(
+            PoseStamped, self._panel_pose_topic, self._on_panel_pose, 10
         )
         self._timer = self.create_timer(1.0 / self._publish_rate, self._publish)
 
@@ -592,6 +657,17 @@ class ServoController(Node):
         )
         return self._safe_pose
 
+    @property
+    def has_remembered_panel_position(self) -> bool:
+        """True once panel_align/align has succeeded at least once this session.
+
+        panel_align_node owns the actual remembered joint target (and
+        replans a fresh, collision-checked path to it every call) — this
+        is just the local echo of "does one exist", for prompt/gating
+        purposes only.
+        """
+        return self._panel_align_succeeded_once
+
     def set_velocity(self, vx=0.0, vy=0.0, vz=0.0,
                      wx=0.0, wy=0.0, wz=0.0,
                      view_vx=0.0, view_vy=0.0, view_vz=0.0,
@@ -677,6 +753,37 @@ class ServoController(Node):
             index = msg.name.index(GRIPPER_JOINT_NAME)
             self._gripper_position = msg.position[index]
             self._gripper_state_received = True
+
+    def _current_arm_positions(self):
+        """Latest measured arm joints, or None if any name is missing."""
+        try:
+            return [self._joint_positions[n] for n in HOME_POSE_JOINTS]
+        except KeyError:
+            return None
+
+    @staticmethod
+    def _home_trajectory(q0, q1, duration: float, n_points: int = 24):
+        """Rest-to-rest quintic in joint space (zero vel/accel at ends)."""
+        n_points = max(2, int(n_points))
+        dq = [b - a for a, b in zip(q0, q1)]
+        points = []
+        for i in range(1, n_points + 1):
+            u = i / n_points
+            s = u * u * u * (10.0 - 15.0 * u + 6.0 * u * u)
+            ds_du = 30.0 * u * u * (1.0 - 2.0 * u + u * u)
+            sdot = ds_du / duration
+            t = u * duration
+            pt = JointTrajectoryPoint()
+            pt.positions = [a + s * d for a, d in zip(q0, dq)]
+            pt.velocities = [sdot * d for d in dq]
+            pt.time_from_start = Duration(
+                sec=int(t),
+                nanosec=int((t % 1.0) * 1e9),
+            )
+            points.append(pt)
+        points[-1].positions = list(q1)
+        points[-1].velocities = [0.0] * len(q1)
+        return points
 
     def stop(self):
         """Zero out all velocity components, halting Cartesian and gripper motion.
@@ -813,7 +920,7 @@ class ServoController(Node):
         """Call the Servo ``stop_servo`` service and wait for confirmation.
 
         Waits up to 2 seconds for the service to become available and up to
-        3 seconds for the asynchronous call to complete. After Servo stops,
+        10 seconds for the asynchronous call to complete. After Servo stops,
         re-activates the trajectory controller so home / Execute can run.
 
         Returns:
@@ -833,7 +940,11 @@ class ServoController(Node):
         future = self._stop_client.call_async(Trigger.Request())
         future.add_done_callback(_cb)
 
-        if not done_event.wait(timeout=3.0):
+        # 10s, not 3s: measured live on real hardware at ~2.5s (vs.
+        # near-instant in sim) — real CAN/controller round-trips are
+        # slower than sim's instant state updates. See start_servo()'s
+        # own comment for the matching (much larger) start-side gap.
+        if not done_event.wait(timeout=10.0):
             self.get_logger().warn('Servo stop timed out')
             return False
 
@@ -843,15 +954,9 @@ class ServoController(Node):
     def move_to_safe_pose(self, positions=None, name=None):
         """Stop motion and drive the arm to the configured home pose.
 
-        Halts current velocity commands, confirms Servo has stopped, then
-        sends a ``move_action`` goal (plan via OMPL against the live
-        planning scene, then execute) to move all joints to the home /
-        ``safe_pose`` parameter values — unlike a raw ``FollowJointTrajectory``
-        goal, this routes around obstacles instead of decelerating into them.
-        Blocks until move_group reports the goal finished, up to
-        ``safe_pose_timeout`` wall-clock seconds (<= 0 waits forever). This
-        method runs on a dedicated thread, so waiting does not stall
-        keyboard handling.
+        Halts current velocity commands, confirms Servo has stopped and
+        the trajectory controller is active, then delegates the actual
+        move to ``_move_to_joint_positions``.
 
         Args:
             positions: Joint targets to use instead of ``self._safe_pose``
@@ -863,11 +968,12 @@ class ServoController(Node):
                 ``self._home_pose_name``); has no effect on motion.
 
         Returns:
-            bool: True if move_group reported the goal SUCCEEDED with
-            MoveItErrorCodes.SUCCESS; False if Servo could not be confirmed
-            stopped, the action server was unavailable, the goal was
-            rejected, planning/execution failed (e.g. no collision-free
-            path found), or no result arrived within the timeout.
+            bool: True if the controller reported the goal SUCCEEDED with
+            error code SUCCESSFUL; False if Servo could not be confirmed
+            stopped, the trajectory controller could not be activated, the
+            action server was unavailable, the goal was rejected, the
+            trajectory was aborted/canceled or finished with a controller
+            error, or no result arrived within the timeout.
         """
         target_positions = list(self._safe_pose) if positions is None else list(positions)
         target_name = self._home_pose_name if name is None else name
@@ -886,32 +992,146 @@ class ServoController(Node):
             )
             return False
 
-        if not self._move_group_client.wait_for_server(timeout_sec=3.0):
-            self.get_logger().error('move_group action server not available')
+        success = self._move_to_joint_positions(target_positions, f'home ({target_name})')
+        if success:
+            self._pitch_yaw_locked = False
+        return success
+
+    def _move_to_joint_positions(self, target_positions, label: str) -> bool:
+        """Blend from the current joint state to ``target_positions`` and wait.
+
+        Used by ``move_to_safe_pose()`` for the home move — a raw,
+        UNPLANNED point-to-point blend (quintic via ``_home_trajectory``),
+        not collision-checked. NOT used for panel-align replay anymore:
+        that goes through panel_align_node's own MoveIt planning now (a
+        fresh, collision-checked plan to the remembered joint target every
+        call — see panel_align_node.py's ``_align_to_remembered_locked``),
+        precisely because a raw move like this one can't tell whether the
+        straight-line path to the target is actually clear. Callers are
+        responsible for ``stop()``/``stop_servo()``/switching to the
+        trajectory controller first.
+
+        Non-blocking-locked (``_motion_lock``) rather than queued: two 'r'
+        presses racing (see the lock's declaration in ``__init__``) should
+        fail one of them cleanly, not silently submit a second goal that
+        preempts the first mid-motion. ``_motion_lock`` alone only
+        protects against racing WITHIN this process though — also takes
+        ``arm_motion_lock()`` (see that module) so a home move here can't
+        race a live align running in the separate panel_align_node
+        process either, for the same reason.
+
+        Blocks the calling thread up to ``safe_pose_timeout`` wall-clock
+        seconds (<= 0 waits forever).
+
+        Returns:
+            bool: True if the controller reported the goal SUCCEEDED with
+            error code SUCCESSFUL; False if another motion was already in
+            progress (this process or panel_align_node's), the action
+            server was unavailable, the goal was rejected, the trajectory
+            was aborted/canceled or finished with a controller error, or
+            no result arrived within the timeout.
+        """
+        if not self._motion_lock.acquire(blocking=False):
+            self.get_logger().error(
+                f'Another arm motion is already in progress — aborting {label}.'
+            )
+            return False
+        try:
+            try:
+                with arm_motion_lock():
+                    return self._move_to_joint_positions_locked(target_positions, label)
+            except ArmMotionBusy:
+                self.get_logger().error(
+                    f'panel_align_node is currently commanding the arm — aborting {label}.'
+                )
+                return False
+        finally:
+            self._motion_lock.release()
+
+    def _move_to_joint_positions_locked(self, target_positions, label: str) -> bool:
+        if not self._traj_client.wait_for_server(timeout_sec=3.0):
+            self.get_logger().error('Trajectory action server not available')
             return False
 
-        joint_constraints = [
-            JointConstraint(
-                joint_name=joint_name, position=pos,
-                tolerance_above=JOINT_GOAL_TOLERANCE,
-                tolerance_below=JOINT_GOAL_TOLERANCE,
-                weight=1.0,
+        traj = JointTrajectory()
+        traj.joint_names = HOME_POSE_JOINTS
+        q0 = self._current_arm_positions()
+        q1 = list(target_positions)
+        if q0 is None:
+            self.get_logger().warn(
+                f'No joint_states yet — {label} is a single waypoint'
             )
-            for joint_name, pos in zip(HOME_POSE_JOINTS, target_positions)
-        ]
+            point = JointTrajectoryPoint()
+            point.positions = q1
+            point.velocities = [0.0] * len(q1)
+            point.time_from_start = Duration(
+                sec=int(self._safe_pose_duration),
+                nanosec=int((self._safe_pose_duration % 1.0) * 1e9),
+            )
+            traj.points = [point]
+        else:
+            traj.points = self._home_trajectory(
+                q0, q1, self._safe_pose_duration
+            )
+
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = traj
 
         self.get_logger().info(
-            f'Moving to home ({target_name}): '
-            f'{[round(v, 4) for v in target_positions]}'
+            f'Moving to {label}: {[round(v, 4) for v in target_positions]}'
         )
-        success, error = self._execute_move_group_constraints(
-            Constraints(joint_constraints=joint_constraints)
-        )
-        if not success:
-            self.get_logger().error(f'Home move failed: {error}')
+
+        done_event = threading.Event()
+        outcome = {'success': False, 'error': ''}
+
+        def result_cb(future):
+            """Record the trajectory result's status and error code."""
+            try:
+                wrapped = future.result()
+                result = wrapped.result
+                if (wrapped.status == GoalStatus.STATUS_SUCCEEDED
+                        and result.error_code == FollowJointTrajectory.Result.SUCCESSFUL):
+                    outcome['success'] = True
+                else:
+                    outcome['error'] = (
+                        f'goal status {wrapped.status}, '
+                        f'controller error code {result.error_code}'
+                        + (f' ({result.error_string})' if result.error_string else '')
+                    )
+            except Exception as e:
+                outcome['error'] = f'failed to read result: {e!r}'
+            finally:
+                done_event.set()
+
+        def goal_response_cb(future):
+            """Handle the trajectory action's goal-acceptance response."""
+            try:
+                goal_handle = future.result()
+            except Exception as e:
+                goal_handle = None
+                outcome['error'] = f'goal request failed: {e!r}'
+            if not goal_handle or not goal_handle.accepted:
+                outcome['error'] = outcome['error'] or 'goal rejected'
+                done_event.set()
+                return
+            result_future = goal_handle.get_result_async()
+            result_future.add_done_callback(result_cb)
+
+        future = self._traj_client.send_goal_async(goal)
+        future.add_done_callback(goal_response_cb)
+
+        timeout = self._safe_pose_timeout if self._safe_pose_timeout > 0.0 else None
+        if not done_event.wait(timeout=timeout):
+            self.get_logger().warn(
+                f'No trajectory result within {self._safe_pose_timeout:.1f}s — '
+                'controller may be unresponsive '
+                '(raise the safe_pose_timeout parameter if the sim is just slow).'
+            )
             return False
-        self._pitch_yaw_locked = False
-        self.get_logger().info('Home reached!')
+        if not outcome['success']:
+            self.get_logger().error(f'{label} move failed: {outcome["error"]}')
+            return False
+        self.get_logger().info(f'{label} reached!')
         return True
 
     def level_tool(self) -> bool:
@@ -1059,11 +1279,86 @@ class ServoController(Node):
             return False, 'timed out waiting for a result'
         return outcome['success'], outcome['error']
 
+    def _on_panel_pose(self, msg: PoseStamped):
+        """Record the arrival time of a panel_pose message (see is_panel_visible).
+
+        panel_pose_fuser_node only publishes this when its own 2+-marker
+        and disagreement checks pass (see panel_perception) — deliberately
+        NOT the cheaper panel_visible (1+ marker) topic, since a
+        single-marker pose estimate was confirmed live to be unreliable
+        enough to compute a physically unreachable align target. Reading
+        the same topic panel_align_node itself acts on means "the operator
+        sees the prompt" and "align would actually accept this pose" agree.
+        """
+        self._last_panel_visible_time = self.get_clock().now()
+
+    def is_panel_visible(self) -> bool:
+        """Return True if a panel_pose message has arrived recently.
+
+        This is the same 2+-marker bar panel_align_node itself requires
+        before it will plan a move — see _on_panel_pose.
+        """
+        if self._last_panel_visible_time is None:
+            return False
+        age = (self.get_clock().now() - self._last_panel_visible_time).nanoseconds / 1e9
+        return age <= self._panel_visible_max_age_sec
+
+    def align_to_panel(self) -> bool:
+        """Ask panel_align_node to align to the panel.
+
+        This node no longer owns the remembered target itself —
+        panel_align_node does (see its own align_to_panel(): live
+        CV+MoveIt align on the first successful call, then a fresh
+        collision-checked MoveIt plan to that exact remembered joint
+        target on every call after, rather than a raw point-to-point
+        move — see PR review for why the earlier point-to-point replay
+        wasn't safe). This method is now just the service call:
+        panel_align_node itself decides whether it can act (remembered
+        target, or live panel visibility) and reports why not otherwise.
+
+        Returns:
+            bool: True if the arm reached a panel-aligned pose; False on
+            any failure — see the logged message for which.
+        """
+        self.stop()
+
+        if not self._panel_align_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('panel_align/align service not available')
+            return False
+
+        done_event = threading.Event()
+        outcome = {'success': False, 'message': ''}
+
+        def _cb(future):
+            try:
+                result = future.result()
+                outcome['success'] = result.success
+                outcome['message'] = result.message
+            except Exception as e:
+                outcome['message'] = f'panel align call failed: {e!r}'
+            finally:
+                done_event.set()
+
+        future = self._panel_align_client.call_async(Trigger.Request())
+        future.add_done_callback(_cb)
+
+        if not done_event.wait(timeout=self._panel_align_timeout):
+            self.get_logger().warn(
+                f'panel_align/align timed out after {self._panel_align_timeout:.1f}s'
+            )
+            return False
+        if not outcome['success']:
+            self.get_logger().error(f'Panel align failed: {outcome["message"]}')
+            return False
+        self.get_logger().info(f'Panel align succeeded: {outcome["message"]}')
+        self._panel_align_succeeded_once = True
+        return True
+
     def start_servo(self) -> bool:
         """Switch to streaming controller, then start MoveIt Servo.
 
         Waits up to 2 seconds for the service to become available and up to
-        3 seconds for the call to complete. Falls back to the trajectory
+        20 seconds for the call to complete. Falls back to the trajectory
         controller on any failure, so the joints are never left claimed by
         the streaming controller with Servo not actually running.
 
@@ -1097,7 +1392,13 @@ class ServoController(Node):
         future = self._start_client.call_async(Trigger.Request())
         future.add_done_callback(_cb)
 
-        if not done_event.wait(timeout=3.0):
+        # 20s, not 3s: measured live on real hardware at a consistent
+        # ~12s per call (both first and repeat calls) — moveit_servo's
+        # start_servo handler is simply much slower against the real CAN
+        # round-trip than it ever was in sim, where 3s had margin to
+        # spare. Not a one-time warm-up cost, so no shortcut available
+        # other than waiting it out.
+        if not done_event.wait(timeout=20.0):
             self.get_logger().error('Servo start timed out')
             self.use_trajectory_controller()
             return False
@@ -1371,6 +1672,8 @@ HELP = """
 ║    j / l  — roll  (wz)                           ║
 ║  Gripper:                                        ║
 ║    b / v  — open / close                         ║
+║  Panel:                                          ║
+║    p      — align to detected panel              ║
 ║  Other:                                          ║
 ║    r      — move to home + start servo           ║
 ║    f      — level tool (collision-checked; locks ║
@@ -1438,6 +1741,14 @@ class KeyboardInputLoop:
     _KEYSTATE_DOWN = 1
     _KEYSTATE_REPEAT = 2
 
+    # How long is_panel_visible() must stay continuously False before the
+    # panel-detected prompt/gate treats it as actually gone (see
+    # _check_panel_visibility) — bigger than ServoController's own ~1s
+    # message-staleness tolerance, to absorb realistic detection dropouts
+    # (a single marker at a marginal angle, motion blur while driving)
+    # without spamming a fresh prompt on every one of them.
+    _PANEL_LOST_CONFIRM_SEC = 2.0
+
     def __init__(self, controller: 'ServoController'):
         """Store a reference to the controller and initialize input state.
 
@@ -1459,6 +1770,21 @@ class KeyboardInputLoop:
         self._servo_started = False
         self._safe_pose_running = threading.Lock()
         self._level_running = threading.Lock()
+        self._panel_align_running = threading.Lock()
+
+        # Rising-edge state for the panel-detected prompt/gate (see
+        # _check_panel_visibility and _read_loop's KEY_P handling).
+        # Confirmed on top of is_panel_visible()'s own staleness tolerance:
+        # a single marker at a marginal angle can still drop detection for
+        # a second or more at a time while the operator is actively
+        # driving, which without this debounce would reset
+        # _panel_was_visible on every such gap and re-fire the prompt on
+        # every flicker. Only a gap longer than _PANEL_LOST_CONFIRM_SEC
+        # now counts as "actually gone".
+        self._panel_was_visible = False
+        self._panel_prompt_pending = False
+        self._panel_lost_since = None
+        self._panel_watch_timer = controller.create_timer(0.2, self._check_panel_visibility)
 
     def _open_device(self) -> bool:
         """Open evdev keyboard(s) for teleop.
@@ -1548,6 +1874,90 @@ class KeyboardInputLoop:
             active = list(self._gripper_pressed)
         vel = sum(self._GRIPPER_KEYS.get(c, 0.0) for c in active) * self._gripper_speed
         self._controller.set_gripper_velocity(vel)
+
+    def _check_panel_visibility(self):
+        """Poll panel visibility and arm the one-shot prompt on a rising edge.
+
+        Runs on a ROS timer (not tied to key events) since the panel can
+        appear in frame without the operator pressing anything. Only
+        fires the prompt/gate on a *confirmed* False -> True transition —
+        'p' stays usable at any time the panel is visible (or a position
+        is already remembered) regardless of this flag (see _read_loop),
+        so re-detecting an already-visible panel does nothing here.
+
+        "Confirmed" (via _panel_lost_since/_PANEL_LOST_CONFIRM_SEC) means
+        is_panel_visible() must have been continuously False for a real
+        stretch of time, not just one poll tick — a single marker at a
+        marginal angle realistically drops detection for a second or more
+        while the operator is actively driving, and reacting to every one
+        of those gaps as "the panel left and came back" would re-fire the
+        prompt on every flicker.
+        """
+        now = self._controller.get_clock().now()
+        raw_visible = self._controller.is_panel_visible()
+        if raw_visible:
+            self._panel_lost_since = None
+            visible = True
+        elif self._panel_was_visible:
+            # Was confirmed visible last tick, raw reading just dropped —
+            # this is the grace period. NOT entered on a raw-False reading
+            # that follows an already-False state: that path would start
+            # counting from lost_sec=0 every poll, which is always <
+            # _PANEL_LOST_CONFIRM_SEC, so it would read as "still visible"
+            # forever — including right at node startup, before the panel
+            # had ever actually been seen once.
+            if self._panel_lost_since is None:
+                self._panel_lost_since = now
+            lost_sec = (now - self._panel_lost_since).nanoseconds / 1e9
+            visible = lost_sec < self._PANEL_LOST_CONFIRM_SEC
+        else:
+            visible = False
+
+        if visible and not self._panel_was_visible:
+            self._panel_prompt_pending = True
+            # Halt whatever's currently moving, not just future key
+            # events — "doesn't react until the operator answers" should
+            # apply to motion already in progress too, and this also
+            # means a stray key-up for a key held before the prompt
+            # appeared (dropped below while pending) leaves nothing
+            # actually still moving.
+            self._controller.stop()
+            print('\n>>> Panel detected! Press P to align to it. <<<')
+        self._panel_was_visible = visible
+
+    def _handle_panel_align(self):
+        """Run panel alignment and hand control back to the operator either way.
+
+        Unlike _handle_safe_pose, Servo is restarted on failure too: most
+        align_to_panel() failures (stale detection, no remembered
+        position, planning rejected) never move the arm at all, and even
+        the execution-failure path only happens after a real
+        collision-checked plan or a deterministic replay — so there's no
+        equivalent of move_to_safe_pose()'s "arm may be stopped
+        mid-trajectory, don't hand back control blindly" risk. Stranding
+        the operator with no teleop just because alignment didn't succeed
+        would defeat the point of it being an assistive, not mandatory,
+        action.
+
+        Guarded by a non-blocking lock (mirrors _handle_safe_pose) so a
+        second 'p' press while an align is already in flight is ignored
+        instead of racing a second FollowJointTrajectory/align call
+        against the first — confirmed live: nothing here previously
+        stopped that, since KEY_P has no already-pressed dedup the way
+        direction/gripper keys do.
+        """
+        if not self._panel_align_running.acquire(blocking=False):
+            return
+        try:
+            print('Aligning to panel...')
+            if self._controller.align_to_panel():
+                print('Panel align succeeded.')
+            else:
+                print('Panel align failed.')
+            print('Resuming manual control...')
+            self._controller.start_servo()
+        finally:
+            self._panel_align_running.release()
 
     def _handle_safe_pose(self):
         """Clear pressed keys, stop motion, and move to the safe pose.
@@ -1650,9 +2060,46 @@ class KeyboardInputLoop:
                                     print('level_tool() is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.')
                                 continue
 
+                            if code == ecodes.KEY_P and value == self._KEYSTATE_DOWN:
+                                if not self._servo_started:
+                                    continue
+                                # 'p' always answers a pending prompt (if
+                                # any) and works whenever the panel is
+                                # visible OR a position is already
+                                # remembered this session — see
+                                # _check_panel_visibility's docstring.
+                                self._panel_prompt_pending = False
+                                if (self._controller.is_panel_visible()
+                                        or self._controller.has_remembered_panel_position):
+                                    threading.Thread(
+                                        target=self._handle_panel_align, daemon=True
+                                    ).start()
+                                else:
+                                    print('No panel currently in view and no panel position remembered yet.')
+                                continue
+
                             if code in self._GRIPPER_KEYS:
                                 if not self._servo_started:
                                     continue
+                                # A pending panel prompt gates movement-ish
+                                # keys until the operator answers it — 'p'
+                                # (handled above) or, per the requirement,
+                                # simply continuing to drive: the first
+                                # gripper/direction key press after the
+                                # prompt appeared both dismisses it AND is
+                                # processed normally below, rather than
+                                # being swallowed as a wasted first press.
+                                # Only gates DOWN specifically
+                                # (dismiss-and-act) — UP must always fall
+                                # through to the normal handling regardless
+                                # of pending state, or a key held before the
+                                # prompt appeared (and released while still
+                                # pending) would get stuck in the pressed
+                                # set forever (stop() only zeroes velocity,
+                                # it doesn't touch the pressed sets).
+                                if self._panel_prompt_pending and value == self._KEYSTATE_DOWN:
+                                    self._panel_prompt_pending = False
+                                    print('Continuing manual control (panel align not triggered).')
                                 if value == self._KEYSTATE_DOWN:
                                     with self._lock:
                                         already_pressed = code in self._gripper_pressed
@@ -1683,6 +2130,10 @@ class KeyboardInputLoop:
 
                             if not self._servo_started:
                                 continue
+
+                            if self._panel_prompt_pending and value == self._KEYSTATE_DOWN:
+                                self._panel_prompt_pending = False
+                                print('Continuing manual control (panel align not triggered).')
 
                             if value == self._KEYSTATE_DOWN:
                                 with self._lock:
@@ -1895,6 +2346,7 @@ GAMEPAD_HELP = """
 ║  A                — home + start servo       ║
 ║  B                — go to sampling_home      ║
 ║  Y                — go to drill_home         ║
+║  Button 12        — align to panel           ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
 """
@@ -1941,6 +2393,7 @@ class GamepadInputLoop:
     # 'Y' — force drill mode on and go straight to drill_home. One-shot,
     # mirrors BUTTON_SAMPLING_HOME above.
     BUTTON_DRILL_HOME = 3
+    BUTTON_LB = 4          # unmapped (settle check only)
     # LEFTSHOULDER/L1. Held to scale up commanded velocity — raises the
     # per-cycle position step Servo re-anchors from, which is what caps
     # static push force (not kp/kd).
@@ -1968,10 +2421,15 @@ class GamepadInputLoop:
     # this needs to be its own move_group plan, not just a harder nudge
     # from _level_hold. Index unverified — see the comment above.
     BUTTON_LEVEL = 6
+    # Confirmed live via `ros2 topic echo /joy` on real hardware (see the
+    # keyboard's 'p' for the equivalent key).
+    BUTTON_PANEL_ALIGN = 12    # 'p' equivalent — align to detected panel
 
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
     _WATCHDOG_PERIOD_SEC = 0.1
+    # See KeyboardInputLoop's identically-named constant.
+    _PANEL_LOST_CONFIRM_SEC = 2.0
 
     def __init__(self, controller: 'ServoController'):
         """Store a reference to the controller and subscribe to ``/joy``.
@@ -2000,6 +2458,7 @@ class GamepadInputLoop:
         # spurious exits).
         self._prev_buttons = None
         self._safe_pose_running = threading.Lock()
+        self._panel_align_running = threading.Lock()
         self._safe_pose_active = False
         self._level_running = threading.Lock()
         self._level_active = False
@@ -2028,6 +2487,17 @@ class GamepadInputLoop:
         # Per-trigger rest samples (axis index -> float). None until the
         # first centered settle so we do not assume both are +1.0.
         self._trigger_rest = {}
+
+        # Rising-edge state for the panel-detected prompt/gate — same
+        # concept as KeyboardInputLoop's, driven from _on_joy instead of a
+        # separate timer since joy_node publishes continuously even at
+        # rest, so this callback already fires regularly on its own.
+        # _panel_lost_since debounces is_panel_visible() dropouts shorter
+        # than _PANEL_LOST_CONFIRM_SEC — see KeyboardInputLoop's version
+        # for why this matters.
+        self._panel_was_visible = False
+        self._panel_prompt_pending = False
+        self._panel_lost_since = None
 
         self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
         self._watchdog_timer = controller.create_timer(
@@ -2222,6 +2692,7 @@ class GamepadInputLoop:
         gripper_open_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_OPEN)
         gripper_close_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_CLOSE)
         level_pressed = self._button_rising_edge(buttons, self.BUTTON_LEVEL)
+        panel_align_pressed = self._button_rising_edge(buttons, self.BUTTON_PANEL_ALIGN)
 
         # Log the raw state on any button change, not just the mapped ones,
         # so an unmapped shift button still shows up.
@@ -2347,6 +2818,52 @@ class GamepadInputLoop:
         linear_speed = self._linear_speed * boost
         angular_speed = self._angular_speed * boost
 
+        now = self._controller.get_clock().now()
+        raw_panel_visible = self._controller.is_panel_visible()
+        if raw_panel_visible:
+            self._panel_lost_since = None
+            panel_visible = True
+        elif self._panel_was_visible:
+            # See KeyboardInputLoop's identical logic for why this must be
+            # gated on _panel_was_visible — otherwise a raw-False reading
+            # right at startup (never actually seen the panel once) reads
+            # as "still visible" for the whole grace period, every time.
+            if self._panel_lost_since is None:
+                self._panel_lost_since = now
+            panel_visible = (now - self._panel_lost_since).nanoseconds / 1e9 < self._PANEL_LOST_CONFIRM_SEC
+        else:
+            panel_visible = False
+
+        if panel_visible and not self._panel_was_visible:
+            self._panel_prompt_pending = True
+            self._controller.stop()
+            print('\n>>> Panel detected! Press button 12 to align to it. <<<')
+        self._panel_was_visible = panel_visible
+
+        if panel_align_pressed:
+            self._panel_prompt_pending = False
+            if panel_visible or self._controller.has_remembered_panel_position:
+                threading.Thread(target=self._handle_panel_align, daemon=True).start()
+            else:
+                print('No panel currently in view and no panel position remembered yet.')
+
+        if self._panel_prompt_pending:
+            # Same "any real stick input dismisses it" rule as
+            # KeyboardInputLoop — checked on just the 4 sticks, since the
+            # gripper/panel buttons aren't "driving".
+            any_axis_active = (
+                self._axis(axes, self.AXIS_LEFT_X) != 0.0
+                or self._axis(axes, self.AXIS_LEFT_Y) != 0.0
+                or self._axis(axes, self.AXIS_RIGHT_X) != 0.0
+                or self._axis(axes, self.AXIS_RIGHT_Y) != 0.0
+            )
+            if any_axis_active:
+                self._panel_prompt_pending = False
+                print('Continuing manual control (panel align not triggered).')
+            else:
+                self._controller.stop()
+                return
+
         # Left stick — view-relative translation in the horizontal plane.
         # Stick sign convention (see class docstring): left = +1, forward = +1;
         # camera frame is REP-103 (+X forward, +Y left), so both pass straight
@@ -2424,6 +2941,26 @@ class GamepadInputLoop:
             print(f'{label} fwd={view_vx:.2f} left={view_vy:.2f} up={view_vz:.2f} '
                   f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
         self._prev_cmd = cmd
+
+    def _handle_panel_align(self):
+        """Run panel alignment and hand control back to the operator either way.
+
+        Mirrors KeyboardInputLoop._handle_panel_align — see its docstring
+        for why Servo is restarted on failure too, unlike _handle_safe_pose,
+        and for why this is guarded by a non-blocking lock.
+        """
+        if not self._panel_align_running.acquire(blocking=False):
+            return
+        try:
+            print('Aligning to panel...')
+            if self._controller.align_to_panel():
+                print('Panel align succeeded.')
+            else:
+                print('Panel align failed.')
+            print('Resuming manual control...')
+            self._controller.start_servo()
+        finally:
+            self._panel_align_running.release()
 
     def _handle_safe_pose(self):
         """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
