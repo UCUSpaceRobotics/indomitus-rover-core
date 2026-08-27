@@ -6,8 +6,7 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
       args:
-        BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04}
-        BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04}
+        BASE_IMAGE: ${BASE_IMAGE:-ros:humble-ros-base}
         UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
         INSTALL_SIM_TOOLS: "false"
@@ -45,8 +44,8 @@ services:
       - /dev:/dev:rw
       - /run/udev:/run/udev:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
-      - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
+      # - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
+      # - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
     deploy:
       resources:
         reservations:
