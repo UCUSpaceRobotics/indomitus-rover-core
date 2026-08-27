@@ -1,6 +1,7 @@
 import contextlib
 import os
 import random
+import sys
 
 import numpy as np
 import yaml
@@ -17,11 +18,23 @@ from launch.actions import (
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_move_group_launch
+
+
+def _arg_from_argv(name: str, default: str) -> str:
+    """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro
+    path — LaunchConfiguration ones desync across sub-launches. Same
+    helper/reasoning as demo.launch.py's own.
+    """
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return default
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -52,6 +65,8 @@ def generate_launch_description() -> LaunchDescription:
                 " sim:=true",
                 " camera:=",
                 LaunchConfiguration("camera"),
+                " end_effector:=",
+                LaunchConfiguration("end_effector"),
             ]
         ),
         value_type=str,
@@ -296,6 +311,11 @@ def generate_launch_description() -> LaunchDescription:
                 LogInfo(msg=f"Controller activation failed (exit code {event.returncode})."),
                 Shutdown(reason="controller activation failed"),
             ]
+        # Jaw finger joints only exist when end_effector:=jaw.
+        if LaunchConfiguration("end_effector").perform(context) != "jaw":
+            return [LogInfo(
+                msg="end_effector != 'jaw' — skipping gripper_right/left_controller spawn."
+            )]
         return [gripper_spawner]
 
     delayed_gripper_spawner = RegisterEventHandler(
@@ -317,9 +337,13 @@ def generate_launch_description() -> LaunchDescription:
     # (CHOMP only accepts joint-space goals and rejects the rest outright
     # with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS); nothing in this repo
     # uses chomp or pilz, so there's no reason to load them at all.
+    # Without this mapping move_group/servo always assume 'jaw', so with a
+    # drill they wait forever for finger joints that never publish.
     moveit_config = MoveItConfigsBuilder(
         "indomitus_arm", package_name="arm_moveit_config"
-    ).planning_pipelines(pipelines=["ompl"]).to_moveit_configs()
+    ).robot_description(mappings={
+        "end_effector": _arg_from_argv("end_effector", "jaw"),
+    }).planning_pipelines(pipelines=["ompl"]).to_moveit_configs()
     move_group_launch = generate_move_group_launch(moveit_config)
 
     moveit_config_dir = get_package_share_directory("arm_moveit_config")
@@ -361,8 +385,16 @@ def generate_launch_description() -> LaunchDescription:
         [
             DeclareLaunchArgument("camera", default_value="true"),
             DeclareLaunchArgument(
-                "spawn_panel", default_value="true",
-                description="Also spawn the switch panel task board, for panel_align_node/CV testing"),
+                "end_effector", default_value="jaw",
+                description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"),
+            DeclareLaunchArgument(
+                "spawn_panel",
+                # Defaults off for the drill build; still overridable.
+                default_value=PythonExpression([
+                    "'false' if '", LaunchConfiguration("end_effector"), "' == 'drill_sampling' else 'true'"
+                ]),
+                description="Also spawn the switch panel task board, for panel_align_node/CV testing "
+                            "(defaults to false when end_effector:=drill_sampling)"),
             SetParameter(name="use_sim_time", value=True),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),

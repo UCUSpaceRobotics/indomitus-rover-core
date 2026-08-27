@@ -162,9 +162,9 @@ Visualization tooling.
 - **`arm_bringup`** — top-level arm launch (`arm_standalone.launch.py`)
 - **`arm_description`** — arm URDF/xacro (`arm_macro.xacro`, `arm_standalone.urdf.xacro`) and meshes (base, forearm, mount, shoulder, wrist_1, wrist_2, jaw_gripper)
 - **`arm_hardware_interface`** — ros2_control hardware plugin for the real arm (`plugins.xml`)
-- **`arm_moveit_config`** — MoveIt2 configuration: SRDF, kinematics, joint limits, controllers, Servo config; launch files for `move_group`, RViz, controller spawning, virtual joint TFs, setup assistant, warehouse DB
+- **`arm_moveit_config`** — MoveIt2 configuration: SRDF, kinematics, joint limits, controllers, Servo config; launch files for `move_group`, controller spawning, virtual joint TFs, setup assistant, warehouse DB. No `rviz2` dependency — headless by default; visualize via `arm_viz`.
 - **`arm_sim`** — simulation support for the arm (structure only; no launch/config files yet)
 - **`arm_tasks`** (Python) — `teach_poses`, `keyboard_servo_node` / `gamepad_servo_node`
-- **`arm_viz`** — RViz config for the arm (`rviz/arm.rviz`)
+- **`arm_viz`** — RViz config + standalone `launch/rviz.launch.py`. Stripped from Jetson production builds (see `docker/Dockerfile`'s `SIMULATION_PKGS`).
 
 ---

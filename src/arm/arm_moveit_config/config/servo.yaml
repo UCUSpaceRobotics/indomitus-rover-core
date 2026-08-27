@@ -39,9 +39,13 @@ moveit_servo:
 
     command_in_type: speed_units
     command_out_type: std_msgs/Float64MultiArray
-    # Step per cycle ≈ joint_vel * publish_period. 33 Hz keeps ~0.02 rad/cycle
-    # at 0.7 rad/s so +X (W) still overcomes MIT stiction.
-    publish_period: 0.03
+    # Step per cycle ≈ joint_vel * publish_period. Lower rate -> bigger step
+    # per cycle -> more MIT position error -> more static torque authority
+    # (see arm_hardware_interface's write(): it always sends one CAN frame
+    # per controller_manager cycle regardless of this rate, so lowering it
+    # does NOT affect the Damiao comm-loss watchdog — that's tied to
+    # update_rate in ros2_controllers.yaml instead, left untouched).
+    publish_period: 0.01
 
     publish_joint_positions: true
     # Float64MultiArray streaming is position-only (JointGroupPositionController).
@@ -53,13 +57,13 @@ moveit_servo:
     halt_all_joints_in_joint_mode: true
     halt_all_joints_in_cartesian_mode: true
 
-    # Must be false at process start. ros2 param set does not stop Servo's
-    # collision thread. From home, that thread zeros +X (W) after ~80 ms
-    # while -X (S) still moves. Plan/Execute in move_group still checks
-    # collisions. Rebuild + restart demo for this to take effect.
-    check_collisions: false
+    # Start-time-only param — ros2 param set won't toggle a running servo_node.
+    check_collisions: true
     collision_check_rate: 10.0
-    self_collision_proximity_threshold: 0.01
+    # Jaw's own arm_end_effector_link rests ~0.138mm from base/forearm/mount/
+    # shoulder/wrist_1 (measured live via /servo_node/collision_velocity_scale)
+    # — 0.01 pinned velocity near 0 even at rest. 0.00005 stays a real ramp.
+    self_collision_proximity_threshold: 0.00005
     scene_collision_proximity_threshold: 0.02
 
     # Home wrist is near 0; default 17/30 scaled +X to a halt. Same idea as

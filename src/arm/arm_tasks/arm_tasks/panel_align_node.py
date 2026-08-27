@@ -135,7 +135,7 @@ JOINT_LIMITS = {
     'arm_mount_base_joint': (-math.pi, math.pi),
     'arm_base_shoulder_joint': (-math.pi, math.pi),
     'arm_shoulder_forearm_joint': (-math.pi / 2, math.pi / 2),
-    'arm_forearm_wrist_1_joint': (-math.pi / 2, math.pi / 2),
+    'arm_forearm_wrist_1_joint': (-math.pi, math.pi),
     'arm_wrist_1_wrist_2_joint': (-math.pi, math.pi),
     'arm_wrist_2_end_effector_joint': (-math.pi, math.pi),
 }
@@ -511,23 +511,24 @@ class PanelAlignNode(Node):
             return self._fail('MoveGroup planning request timed out or was rejected.')
         if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
             return self._fail(f'Planning failed (MoveItErrorCodes.val={plan_result.error_code.val}).')
+        planned_trajectory = plan_result.planned_trajectory
 
-        margin_ok, margin_reason = self._check_joint_margins(plan_result.planned_trajectory)
+        margin_ok, margin_reason = self._check_joint_margins(planned_trajectory)
         if not margin_ok:
             return self._fail(f'Planned pose too close to a joint limit: {margin_reason}')
 
-        exec_ok, exec_reason = self._execute(plan_result.planned_trajectory)
+        exec_ok, exec_reason = self._execute(planned_trajectory)
         if not exec_ok:
             return self._fail(f'Trajectory execution failed: {exec_reason}')
 
         # Remember the exact joint vector just reached — every later
         # align (this session) replays THIS, via a fresh collision-
         # checked plan each time (_align_to_remembered_locked), instead
-        # of re-planning a Cartesian goal through OMPL again (which could
-        # land on a different valid joint solution each call). Cache the
-        # collision pose alongside it as a fallback for when the panel
-        # isn't currently in view at replay time.
-        traj = plan_result.planned_trajectory.joint_trajectory
+        # of re-planning a Cartesian goal (which could land on a
+        # different valid joint solution each call). Cache the collision
+        # pose alongside it as a fallback for when the panel isn't
+        # currently in view at replay time.
+        traj = planned_trajectory.joint_trajectory
         self._remembered_target_joints = dict(zip(traj.joint_names, traj.points[-1].positions))
         self._remembered_panel_collision_pose = panel_pose_mount_msg
 

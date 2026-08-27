@@ -10,16 +10,17 @@ spawned successfully so /joint_states and the hardware stack are up.
 """
 
 import os
+import sys
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events.process import ProcessExited
 from launch.launch_context import LaunchContext
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_demo_launch
@@ -35,13 +36,45 @@ def load_yaml(package_name: str, relative_path: str):
         return yaml.safe_load(f)
 
 
+def _arg_from_argv(name: str, default: str) -> str:
+    """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro path — LaunchConfiguration ones desync across sub-launches."""
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return default
+
+
 def generate_launch_description() -> LaunchDescription:
-    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
     declare_use_fake_hardware_cmd = DeclareLaunchArgument(
         "use_fake_hardware",
         default_value="true",
         description="Whether to use fake hardware or real CAN bus",
     )
+
+    end_effector = LaunchConfiguration("end_effector")
+    declare_end_effector_cmd = DeclareLaunchArgument(
+        "end_effector",
+        default_value="jaw",
+        description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro",
+    )
+
+    declare_report_collisions_cmd = DeclareLaunchArgument(
+        "report_collisions",
+        default_value="true",
+        description=(
+            "Run collision_link_reporter alongside move_group — logs exactly "
+            "which link pair is in contact (via /check_state_validity) "
+            "whenever the current pose goes invalid. Read-only, cheap "
+            "(2 Hz polling); set false to silence it."
+        ),
+    )
+
+    # Runtime (LaunchConfiguration) form, for the IfCondition/UnlessCondition
+    # gripper-spawner split below — separate from the plain-string
+    # _arg_from_argv() value passed into robot_description(mappings=...),
+    # which must stay a plain string (see _arg_from_argv's own docstring).
+    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
 
     # planning_pipelines restricted to ompl on purpose — same fix as
     # arm_gazebo.launch.py (see its own comment for the full story): with
@@ -53,7 +86,10 @@ def generate_launch_description() -> LaunchDescription:
     # launch path, so panel align needs the same fix here as in sim.
     moveit_config = (
         MoveItConfigsBuilder("indomitus_arm", package_name="arm_moveit_config")
-        .robot_description(mappings={"use_fake_hardware": use_fake_hardware})
+        .robot_description(mappings={
+            "use_fake_hardware": _arg_from_argv("use_fake_hardware", "true"),
+            "end_effector": _arg_from_argv("end_effector", "jaw"),
+        })
         .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
@@ -114,6 +150,18 @@ def generate_launch_description() -> LaunchDescription:
         )
         return [servo_node]
 
+    # move_group/moveit_servo are prebuilt binaries (not vendored here), so
+    # their own collision-check code can't be patched to print link names —
+    # this polls the same /check_state_validity service move_group already
+    # exposes and logs the colliding link pair by name. See
+    # arm_tasks/collision_link_reporter.py.
+    collision_link_reporter = Node(
+        package="arm_tasks",
+        executable="collision_link_reporter",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("report_collisions")),
+    )
+
     # Load the streaming teleop controller inactive — JTC owns the joints until
     # arm_tasks switches controllers for Servo.
     forward_spawner = Node(
@@ -126,10 +174,18 @@ def generate_launch_description() -> LaunchDescription:
     demo_launch = generate_demo_launch(moveit_config)
 
     ld = LaunchDescription()
+    # DeclareLaunchArgument (unlike SetLaunchConfiguration) only applies its
+    # default when the arg isn't already set — so use_rviz:=true on the CLI
+    # still wins over this, and generate_demo_launch()'s own default (true)
+    # never gets a chance to apply since this one runs first.
+    ld.add_action(DeclareLaunchArgument("use_rviz", default_value="false"))
     ld.add_action(declare_use_fake_hardware_cmd)
+    ld.add_action(declare_end_effector_cmd)
+    ld.add_action(declare_report_collisions_cmd)
     for action in demo_launch.entities:
         ld.add_action(action)
     ld.add_action(forward_spawner)
+    ld.add_action(collision_link_reporter)
 
     ld.add_action(
         RegisterEventHandler(
@@ -140,16 +196,13 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
-    # generate_demo_launch() only spawns ARM_CONTROLLER_NAME (the one
-    # trajectory-execution controller MoveIt itself knows about) — the
-    # gripper's own position controller(s) aren't part of that and need
-    # their own spawner. Which controllers exist depends on the same
-    # use_fake_hardware split arm_macro.xacro makes for the gripper
-    # <ros2_control> block: fake hardware (or sim) exposes both fingers,
+    # Gripper controllers aren't spawned by generate_demo_launch(); only jaw
+    # has finger joints, and which finger interfaces exist depends on
+    # use_fake_hardware too: fake hardware (or sim) exposes both fingers,
     # but real hardware only stubs the right one (JawGripperStub — the real
     # arm has no gripper motor yet, see arm_macro.xacro) with no left-finger
-    # interface at all, so spawning gripper_left_controller there would
-    # just fail waiting for an interface that will never exist.
+    # interface at all, so spawning gripper_left_controller there would just
+    # fail waiting for an interface that will never exist.
     ld.add_action(
         Node(
             package="controller_manager",
@@ -162,7 +215,9 @@ def generate_launch_description() -> LaunchDescription:
                 "--service-call-timeout", "70",
             ],
             output="screen",
-            condition=IfCondition(use_fake_hardware),
+            condition=IfCondition(PythonExpression([
+                "'", end_effector, "' == 'jaw' and '", use_fake_hardware, "' == 'true'"
+            ])),
         )
     )
     ld.add_action(
@@ -176,7 +231,9 @@ def generate_launch_description() -> LaunchDescription:
                 "--service-call-timeout", "70",
             ],
             output="screen",
-            condition=UnlessCondition(use_fake_hardware),
+            condition=IfCondition(PythonExpression([
+                "'", end_effector, "' == 'jaw' and '", use_fake_hardware, "' != 'true'"
+            ])),
         )
     )
 

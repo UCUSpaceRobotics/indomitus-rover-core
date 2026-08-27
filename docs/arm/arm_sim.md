@@ -36,9 +36,11 @@ ros2 launch arm_moveit_config demo.launch.py          # fake hardware
 ros2 run arm_tasks keyboard_servo_node
 ```
 
+Runs headless by default — see [arm_teleop.md](arm_teleop.md) for visualization.
+
 Servo teleop streams positions to `indomitus_arm_forward_position_controller`
-at ~33 Hz (`publish_period: 0.03`). Press **r** (keyboard) or **A** (gamepad)
-to go **home** and start Servo (controller switch is in `arm_tasks`).
+at the rate set by `publish_period` in `servo.yaml` (currently `0.01`, 100 Hz).
+Press **r** (keyboard) or **A** (gamepad) to go **home** and start Servo.
 
 If teleop still feels like each joint “steps then stops”, rebuild
 `arm_hardware_interface` (MIT velocity feedforward from position Δ) and

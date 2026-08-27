@@ -13,7 +13,7 @@
 |---|---|---|
 | GUI-only RViz | `arm_bringup/arm_standalone.launch.py gui_only:=true` | Inspect URDF / joint sliders — **no** motors, **no** ros2_control |
 | MoveIt stack | `arm_moveit_config/demo.launch.py` | Plan&Execute + `servo_node` |
-| Cartesian teleop | `ros2 run arm_tasks keyboard_servo_node` | After demo is up; gamepad: `joy_node` + `gamepad_servo_node` |
+| Cartesian teleop | `ros2 run arm_tasks keyboard_servo_node` | After demo is up; gamepad: `arm_tasks/gamepad.launch.py` |
 
 On the host (for RViz):
 
@@ -40,6 +40,12 @@ Terminal 1 — MoveIt + controllers + Servo:
 ros2 launch arm_moveit_config demo.launch.py use_fake_hardware:=false
 ```
 
+Runs **headless by default** (works on the Jetson, no display). To watch live, on a laptop (same `ROS_DOMAIN_ID`):
+
+```bash
+ros2 launch arm_viz rviz.launch.py
+```
+
 Terminal 2 — keyboard (wait until spawners / `servo_node` are up):
 
 ```bash
@@ -49,9 +55,11 @@ ros2 run arm_tasks keyboard_servo_node
 Gamepad instead of keyboard:
 
 ```bash
-ros2 run joy joy_node
-ros2 run arm_tasks gamepad_servo_node
+ros2 launch arm_tasks gamepad.launch.py
 ```
+Starts `game_controller_node` (not `joy_node`) — canonical SDL button/axis
+mapping, stable across machines/controllers, instead of joy_node's raw
+per-device layout (see `GamepadInputLoop`'s docstring).
 
 Do not run keyboard and gamepad together — both publish `/servo_node/delta_twist_cmds`.
 
@@ -148,7 +156,7 @@ Servo `publish_period` is **0.03 s (~33 Hz)** so each joint step stays above MIT
 
 Cartesian Servo is open-loop `J⁺ · twist`. Pure XYZ (`ω = 0`) still lets TCP attitude walk (Q/E especially — shoulder/elbow fold). The keyboard node adds a light **orientation hold** on unused rotation axes and does **not** slow XYZ. That is not industrial Cartesian pose-IK; drift can remain on a 6-DOF arm near the home wrist.
 
-Servo collision checking is **off** (must be off at process start). Plan&Execute in `move_group` still checks collisions. Singularity deceleration thresholds are set very high (NHWA-style) so Jacobian condition number does not freeze +X from home.
+Servo collision checking is **on** (start-time-only param — see `servo.yaml`). Plan&Execute in `move_group` still checks collisions too. Singularity deceleration thresholds are set very high (NHWA-style) so Jacobian condition number does not freeze +X from home.
 
 Before **Plan & Execute** in RViz: stop teleop (exit the input node) so JTC owns the joints.
 

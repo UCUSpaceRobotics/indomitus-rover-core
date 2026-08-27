@@ -1,4 +1,5 @@
 import os
+import sys
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -11,17 +12,35 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
-from launch.substitutions import LaunchConfiguration, Command
+from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_move_group_launch
+
+
+def _arg_from_argv(name: str, default: str) -> str:
+    """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro
+    path — LaunchConfiguration ones desync across sub-launches. Same
+    helper/reasoning as demo.launch.py's own.
+    """
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return default
 
 
 def generate_launch_description():
     arm_description_dir = get_package_share_directory('arm_description')
     arm_moveit_config_dir = get_package_share_directory('arm_moveit_config')
-    arm_viz_dir = get_package_share_directory('arm_viz')
+    # FindPackageShare is lazy (unlike get_package_share_directory) — won't
+    # crash this whole file if arm_viz is absent (e.g. Jetson prod) and
+    # use_rviz is false.
+    arm_viz_rviz_config = PathJoinSubstitution(
+        [FindPackageShare('arm_viz'), 'rviz', 'arm.rviz']
+    )
     xacro_file = os.path.join(arm_description_dir, 'urdf', 'arm_standalone.urdf.xacro')
     ros2_controllers_yaml = os.path.join(arm_moveit_config_dir, 'config', 'ros2_controllers.yaml')
 
@@ -29,6 +48,12 @@ def generate_launch_description():
         'use_fake_hardware',
         default_value='true',
         description='Use mock_components/GenericSystem instead of the real CAN hardware interface'
+    )
+
+    end_effector_arg = DeclareLaunchArgument(
+        'end_effector',
+        default_value='jaw',
+        description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"
     )
 
     # Pure kinematic preview: sliders drive /joint_states directly, no ros2_control,
@@ -40,10 +65,18 @@ def generate_launch_description():
         description='Pure URDF/TF preview with manual sliders — no ros2_control, no hardware'
     )
 
+    # Default true (laptop viz check); set false for headless (e.g. Jetson).
+    use_rviz_arg = DeclareLaunchArgument(
+        'use_rviz',
+        default_value='true',
+        description='Launch rviz2 (needs arm_viz\'s rviz2 dependency present)'
+    )
+
     robot_description_content = ParameterValue(
         Command([
             'xacro ', xacro_file,
-            ' use_fake_hardware:=', LaunchConfiguration('use_fake_hardware')
+            ' use_fake_hardware:=', LaunchConfiguration('use_fake_hardware'),
+            ' end_effector:=', LaunchConfiguration('end_effector')
         ]),
         value_type=str
     )
@@ -67,9 +100,15 @@ def generate_launch_description():
     # comment in arm_sim/launch/arm_gazebo.launch.py: without this,
     # move_group ambiguously picks CHOMP, which rejects panel_align_node's
     # Cartesian pose-constraint goals outright (INVALID_GOAL_CONSTRAINTS).
-    moveit_config = MoveItConfigsBuilder(
-        'indomitus_arm', package_name='arm_moveit_config'
-    ).planning_pipelines(pipelines=['ompl']).to_moveit_configs()
+    moveit_config = (
+        MoveItConfigsBuilder('indomitus_arm', package_name='arm_moveit_config')
+        .robot_description(mappings={
+            'use_fake_hardware': _arg_from_argv('use_fake_hardware', 'true'),
+            'end_effector': _arg_from_argv('end_effector', 'jaw'),
+        })
+        .planning_pipelines(pipelines=['ompl'])
+        .to_moveit_configs()
+    )
     move_group_launch = generate_move_group_launch(moveit_config)
 
     with open(os.path.join(arm_moveit_config_dir, 'config', 'servo.yaml')) as f:
@@ -101,7 +140,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         use_fake_hardware_arg,
+        end_effector_arg,
         gui_only_arg,
+        use_rviz_arg,
 
         Node(
             package='robot_state_publisher',
@@ -156,6 +197,7 @@ def generate_launch_description():
         Node(
             package='rviz2',
             executable='rviz2',
-            arguments=['-d', os.path.join(arm_viz_dir, 'rviz', 'arm.rviz')]
+            arguments=['-d', arm_viz_rviz_config],
+            condition=IfCondition(LaunchConfiguration('use_rviz'))
         )
     ])
