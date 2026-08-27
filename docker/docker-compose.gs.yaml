@@ -97,7 +97,10 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
 
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$TARGET_ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+      # ROS_DISTRO, not TARGET_ROS_DISTRO: the latter is a build arg and is not
+      # in the container's environment, so the copied-around spelling of this
+      # check expands to /opt/ros//setup.bash and reports unhealthy forever.
+      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
       interval: 10s
       timeout: 5s
       retries: 3
