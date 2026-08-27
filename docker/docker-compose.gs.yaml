@@ -18,6 +18,12 @@
 #   docker compose -f docker/docker-compose.gs.yaml --project-directory . exec rover_gs bash
 #   ros2 control set_hardware_component_state RoverHardware active
 
+# Its own compose project. Without this the project name comes from the
+# directory, which is the same one the root docker-compose.yaml uses, and then
+# `docker compose up` on either file treats the other's container as an orphan
+# and removes it.
+name: indomitus-rover-gs
+
 services:
   rover_gs:
     platform: linux/amd64
