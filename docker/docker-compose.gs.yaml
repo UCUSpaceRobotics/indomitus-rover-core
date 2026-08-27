@@ -1,30 +1,4 @@
 # Runs this repo's container ON THE GROUND STATION laptop, not on the rover.
-#
-# Why it exists: the GS reaches the rover through the mast Pi, which is an L3
-# router, and multicast SPDP does not cross a router. Without the Fast DDS
-# profile below a container here sees nothing — or worse, sees a stale graph
-# from the ros2 daemon while every service call hangs waiting for a peer that
-# was never really discovered.
-#
-# What it is for: the ros2 CLI tools that live in this image and not in the
-# ground-station one — `ros2 control`, `ros2 lifecycle`, controller_manager_msgs
-# — pointed at the real rover. It launches nothing.
-#
-# A per-device template, like docker-compose.prod.yaml beside it. On a ground
-# station laptop copy it to the repo root as docker-compose.yaml, which is
-# gitignored, and plain compose commands then do the right thing:
-#
-#   cp docker/docker-compose.gs.yaml docker-compose.yaml
-#   docker compose up -d
-#   docker compose exec rover_dev bash
-#   ros2 control set_hardware_component_state RoverHardware active
-#
-# Paths below are relative to the repo root, which is what makes that copy
-# work. Running the template in place needs --project-directory instead, or
-# compose resolves them against docker/, mounts the wrong tree at /work and
-# leaves the DDS profile unfindable:
-#
-#   docker compose -f docker/docker-compose.gs.yaml --project-directory . up -d
 
 services:
   rover_dev:
