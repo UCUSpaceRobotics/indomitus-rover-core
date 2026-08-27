@@ -48,7 +48,7 @@ def _launch_setup(context: LaunchContext, *args, **kwargs):
                 "camera_frame_id": camera_frame_id_val,
             },
         ],
-        respawn=True,       # Crucial: Restarts node if USB cable wiggles loose
+        respawn=True, # General safety net: restarts on unexpected process exit
         respawn_delay=2.0,
     )
 
