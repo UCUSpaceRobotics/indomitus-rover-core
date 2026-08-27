@@ -39,7 +39,7 @@ services:
       - SDL_VIDEODRIVER=dummy
       - SDL_AUDIODRIVER=dummy
     volumes:
-      - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
+      - /home/jetson/indomitus-rover-core/src:/opt/ws/src:rw
       - /dev:/dev:rw
       - /run/udev:/run/udev:ro
       - /usr/local/zed/settings/:/usr/local/zed/settings/:rw

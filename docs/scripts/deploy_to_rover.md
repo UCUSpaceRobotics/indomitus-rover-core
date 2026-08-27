@@ -37,8 +37,8 @@ The script is pre-configured with default values matching the standard repositor
 
 * `--eth` : Use a wired Ethernet connection instead of the Wi-Fi hotspot.
 * `--ip IP` : The Jetson IP address. (Default: `10.42.0.1`)
-* `--user USER` : The Jetson SSH username. (Default: `indomitus-rover`)
-* `--dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/indomitus-rover/indomitus-rover-core/`)
+* `--user USER` : The Jetson SSH username. (Default: `jetson`)
+* `--dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/jetson/indomitus-rover-core/`)
 * `--image-name NAME` : The base Docker image name. (Default: `ghcr.io/ucuspacerobotics/indomitus-rover-core`)
 * `--tag TAG` : The Docker image tag (e.g., `develop-prod`, `feature-shared-branch-prod`). The script automatically derives the GitHub branch and exact commit from this tag.
 * `--commit SHA` : Git commit SHA (7+ hex characters) to pull. Overrides `--tag` in `pull` mode.
