@@ -164,6 +164,10 @@ DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
 # as long as SDL recognizes the pad. Override via --ros-args if it doesn't.
 DEFAULT_GAMEPAD_SHIFT_BUTTON = 10
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
+# Wall-clock seconds the raw quintic blend (_home_trajectory) takes to reach
+# the target — not a planning time, just how long the smooth rest-to-rest
+# move is stretched over.
+DEFAULT_SAFE_POSE_DURATION = 6.0
 DEFAULT_GRIPPER_SPEED = 0.006   # m/s
 DEFAULT_GRIPPER_STROKE = 0.012  # m — matches finger_stroke in arm_macro.xacro
 # 0 = closed (fingertips touching, matches finger_x_closed in the URDF),
@@ -355,24 +359,26 @@ def _resolve_keyboard_device_path(requested: str) -> str | None:
         return None
     return candidates[0][1]
 
+# Must mirror moveit_servo::StatusCode (status_codes.h) exactly — a prior
+# version of this table was off by one, mislabeling JOINT_BOUND as HALT_FOR_COLLISION.
 SERVO_STATUS_INVALID                              = -1
 SERVO_STATUS_OK                                    = 0
 SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY = 1
 SERVO_STATUS_HALT_FOR_SINGULARITY                  = 2
-SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY    = 3
-SERVO_STATUS_DECELERATE_FOR_COLLISION              = 4
-SERVO_STATUS_HALT_FOR_COLLISION                    = 5
-SERVO_STATUS_JOINT_BOUND                           = 6
+SERVO_STATUS_DECELERATE_FOR_COLLISION              = 3
+SERVO_STATUS_HALT_FOR_COLLISION                    = 4
+SERVO_STATUS_JOINT_BOUND                           = 5
+SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY    = 6
 
 SERVO_STATUS_NAMES = {
     SERVO_STATUS_INVALID: 'INVALID',
     SERVO_STATUS_OK: 'NO_WARNING',
     SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY: 'DECELERATE_FOR_APPROACHING_SINGULARITY',
     SERVO_STATUS_HALT_FOR_SINGULARITY: 'HALT_FOR_SINGULARITY',
-    SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY: 'DECELERATE_FOR_LEAVING_SINGULARITY',
     SERVO_STATUS_DECELERATE_FOR_COLLISION: 'DECELERATE_FOR_COLLISION',
     SERVO_STATUS_HALT_FOR_COLLISION: 'HALT_FOR_COLLISION',
     SERVO_STATUS_JOINT_BOUND: 'JOINT_BOUND',
+    SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY: 'DECELERATE_FOR_LEAVING_SINGULARITY',
 }
 
 
@@ -411,6 +417,7 @@ class ServoController(Node):
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
         self.declare_parameter('gamepad_shift_button', DEFAULT_GAMEPAD_SHIFT_BUTTON)
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
+        self.declare_parameter('safe_pose_duration', DEFAULT_SAFE_POSE_DURATION)
         self.declare_parameter('gripper_speed', DEFAULT_GRIPPER_SPEED)
         self.declare_parameter('gripper_stroke', DEFAULT_GRIPPER_STROKE)
         # SocketCAN interface the SAFE gripper firmware is on — 'can0' for
@@ -459,6 +466,7 @@ class ServoController(Node):
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._gamepad_shift_button = int(self.get_parameter('gamepad_shift_button').value)
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
+        self._safe_pose_duration   = self.get_parameter('safe_pose_duration').value
         self._gripper_speed        = self.get_parameter('gripper_speed').value
         self._gripper_stroke       = self.get_parameter('gripper_stroke').value
         self._gripper_can_iface    = self.get_parameter('gripper_can_iface').value
@@ -1429,6 +1437,9 @@ class ServoController(Node):
             if code in (SERVO_STATUS_OK, SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY,
                         SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY):
                 self.get_logger().info(f'Servo status -> {name}')
+            elif code == SERVO_STATUS_DECELERATE_FOR_COLLISION:
+                # Scales velocity down, doesn't zero it — motion continues.
+                self.get_logger().warn(f'Servo status -> {name} (decelerating, not stopped)')
             else:
                 self.get_logger().warn(f'Servo status -> {name} (motion stopped by Servo)')
             if code == SERVO_STATUS_HALT_FOR_SINGULARITY:
@@ -1677,7 +1688,7 @@ HELP = """
 ║  Other:                                          ║
 ║    r      — move to home + start servo           ║
 ║    f      — level tool (collision-checked; locks ║
-║             pitch/yaw after — 'r' unlocks)        ║
+║             pitch/yaw after — 'r' unlocks)       ║
 ║    ESC/x  — exit                                 ║
 ╚══════════════════════════════════════════════════╝
 """
