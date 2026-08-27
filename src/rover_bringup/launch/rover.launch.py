@@ -26,6 +26,22 @@ def _lora_fallback():
     return include_launch('rover_comms', 'lora.launch.py')
 
 
+def _rover_sensors_include(launch_file, launch_arguments, label, condition=None):
+    """Include a rover_sensors launch file, or log why it is missing.
+
+    include_launch() resolves the package share directory while the launch
+    description is being built, so a rover_sensors that is not built raises
+    and takes the whole of bringup down with it. Camera drivers are optional
+    peripherals - a missing rover_sensors build must never be the reason the
+    rover refuses to start.
+    """
+    try:
+        get_package_share_directory('rover_sensors')
+    except PackageNotFoundError:
+        return LogInfo(msg=f'rover_sensors is not built - starting without {label}.')
+    return include_launch('rover_sensors', launch_file, launch_arguments, condition=condition)
+
+
 def generate_launch_description():
     rover_bringup_share = get_package_share_directory('rover_bringup')
     rover_description_share = get_package_share_directory('rover_description')
@@ -58,9 +74,28 @@ def generate_launch_description():
         include_launch('rover_bringup', 'can.launch.py', {
             'interface': LaunchConfiguration('interface'),
         }),
-        include_launch('rover_sensors', 'zed2i.launch.py', {
+        _rover_sensors_include('zed2i.launch.py', {
             'mode': zed2i_mode_val,
-        }, condition=IfCondition(NotEqualsSubstitution(zed2i_mode_val, ''))),
+        }, label='the ZED2i camera',
+            condition=IfCondition(NotEqualsSubstitution(zed2i_mode_val, ''))),
+        _rover_sensors_include('arducam.launch.py', {
+            'camera_name': 'mast',
+            'camera_path': '/dev/arducam-mast',
+            'namespace': 'mast_arducam',
+            'camera_frame_id': 'mast_arducam_optical_frame',
+        }, label='the mast arducam'),
+        _rover_sensors_include('arducam.launch.py', {
+            'camera_name': 'rear',
+            'camera_path': '/dev/arducam-rear',
+            'namespace': 'rear_arducam',
+            'camera_frame_id': 'rear_arducam_optical_frame',
+        }, label='the rear arducam'),
+        _rover_sensors_include('arducam.launch.py', {
+            'camera_name': 'container',
+            'camera_path': '/dev/arducam-container',
+            'namespace': 'container_arducam',
+            'camera_frame_id': 'container_arducam_optical_frame',
+        }, label='the container arducam'),
         include_launch('rover_description', 'robot_state_publisher.launch.py', {
             'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
             'xacro_args': ['use_sim:=false can_interface:=', LaunchConfiguration('interface')]
