@@ -4,7 +4,10 @@
   <xacro:include filename="$(find rover_description)/urdf/properties.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/inertia_macros.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/rocker_assembly.xacro"/>
-  <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>
+
+  <xacro:if value="$(arg mount_arm)">
+    <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>
+  </xacro:if>
 
   <!-- ===================== MATERIALS ===================== -->
   <material name="blue_body">
