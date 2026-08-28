@@ -15,9 +15,6 @@ controller_manager:
     swerve_controller_test:
       type: rover_controller/RoverSwerveControllerTest
 
-    odometry_controller:
-      type: rover_controller/RoverOdometryController
-
 joint_state_broadcaster:
   ros__parameters:
     extra_joints:
@@ -126,20 +123,3 @@ swerve_controller_test:
     wheelbase:     0.797   # meters, front-to-rear axle distance
     track_width:   0.644   # meters, left-to-right wheel distance
     wheel_radius:  0.156   # meters
-
-odometry_controller:
-  ros__parameters:
-    odom_topic: "/wheels/odom"
-    wheelbase:     0.797   # meters, front-to-rear axle distance
-    track_width:   0.644   # meters, left-to-right wheel distance
-    wheel_radius:  0.156   # meters
-    steer_joint_names:
-      - fl_wheel_mount_joint
-      - fr_wheel_mount_joint
-      - bl_wheel_mount_joint
-      - br_wheel_mount_joint
-    drive_joint_names:
-      - fl_wheel_joint
-      - fr_wheel_joint
-      - bl_wheel_joint
-      - br_wheel_joint
