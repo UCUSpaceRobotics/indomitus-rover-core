@@ -1,0 +1,99 @@
+controller_manager:
+  ros__parameters:
+    # Keep >= 100 Hz: the Damiao comm-loss watchdog disables the motor if
+    # MIT frames stop arriving; the hardware interface sends one frame per
+    # joint per update() cycle.
+    update_rate: 100  # Hz
+
+    indomitus_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    # Streaming position setpoints for MoveIt Servo teleop (Float64MultiArray).
+    # Mutually exclusive with indomitus_arm_controller — only one may claim the
+    # position command interfaces at a time. Spawn inactive; arm_tasks switches
+    # before start_servo / before FollowJointTrajectory (home, teach, Execute).
+    indomitus_arm_forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+
+    gripper_right_controller:
+      type: position_controllers/JointGroupPositionController
+
+    gripper_left_controller:
+      type: position_controllers/JointGroupPositionController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+indomitus_arm_controller:
+  ros__parameters:
+    joints:
+      - arm_mount_base_joint
+      - arm_base_shoulder_joint
+      - arm_shoulder_forearm_joint
+      - arm_forearm_wrist_1_joint
+      - arm_wrist_1_wrist_2_joint
+      - arm_wrist_2_end_effector_joint
+
+    command_interfaces:
+      - position
+      - velocity        # populated by JTC -> used as MIT velocity feedforward
+
+    state_interfaces:
+      - position
+      - velocity
+
+    # Goals may name a subset of joints; the JTC holds the rest at their
+    # current position, which is what makes single-joint test moves possible.
+    allow_partial_joints_goal: true
+
+    # Left at the library default (true, deprecated) on purpose: legacy Servo
+    # streamed single-point trajectories. Teleop now uses the forward position
+    # controller; this flag still matters for any leftover single-point goals.
+
+    # Spline interpolation follows the TOTG velocity/accel profile from MoveIt.
+    # Used for move_group Execute / home / teach_poses (multi-point timed paths).
+    # interpolation_method: splines
+
+    # On goal cancel / controller stop, ramp to hold over this time instead
+    # of freezing the setpoint instantly.
+    stop_trajectory_duration: 0.5   # seconds
+
+    # Safety net: abort the goal (and hold) if tracking degrades instead of
+    # pulling harder toward an unreachable trajectory.
+    constraints:
+      goal_time: 1.0                    # s of slack to reach the final point
+      # Velocity feedback is 12-bit over +-45 rad/s, so it quantizes to
+      # 0.022 rad/s steps: a joint at rest reports 0.011 and can read 0.033 or
+      # 0.055 on noise. 0.05 fell between two of those levels and failed goals
+      # on stationary joints. Keep this above a few quantization steps.
+      stopped_velocity_tolerance: 0.15  # rad/s considered "stopped" at goal
+      # Matches teach_poses.py's own GOAL_TOL_RAD. Anything stricter fails
+      # "held" joints for the transient kick a moving neighbour gives them.
+      arm_mount_base_joint:            { trajectory: 0.25, goal: 0.08 }
+      arm_base_shoulder_joint:         { trajectory: 0.25, goal: 0.08 }
+      arm_shoulder_forearm_joint:      { trajectory: 0.25, goal: 0.08 }
+      arm_forearm_wrist_1_joint:       { trajectory: 0.25, goal: 0.08 }
+      arm_wrist_1_wrist_2_joint:       { trajectory: 0.25, goal: 0.08 }
+      arm_wrist_2_end_effector_joint:  { trajectory: 0.25, goal: 0.08 }
+
+indomitus_arm_forward_position_controller:
+  ros__parameters:
+    joints:
+      - arm_mount_base_joint
+      - arm_base_shoulder_joint
+      - arm_shoulder_forearm_joint
+      - arm_forearm_wrist_1_joint
+      - arm_wrist_1_wrist_2_joint
+      - arm_wrist_2_end_effector_joint
+
+gripper_right_controller:
+  ros__parameters:
+    joints:
+      - arm_jaw_gripper_finger_right_joint
+    interface_name: position
+
+gripper_left_controller:
+  ros__parameters:
+    joints:
+      - arm_jaw_gripper_finger_left_joint
+    interface_name: position

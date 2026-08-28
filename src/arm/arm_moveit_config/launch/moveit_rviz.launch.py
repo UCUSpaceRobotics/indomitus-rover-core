@@ -1,0 +1,25 @@
+import sys
+
+from moveit_configs_utils import MoveItConfigsBuilder
+from moveit_configs_utils.launches import generate_moveit_rviz_launch
+
+
+def _arg_from_argv(name: str, default: str) -> str:
+    # See rsp.launch.py's _arg_from_argv.
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return default
+
+
+def generate_launch_description():
+    moveit_config = (
+        MoveItConfigsBuilder("indomitus_arm", package_name="arm_moveit_config")
+        .robot_description(mappings={
+            "use_fake_hardware": _arg_from_argv("use_fake_hardware", "true"),
+            "end_effector": _arg_from_argv("end_effector", "jaw"),
+        })
+        .to_moveit_configs()
+    )
+    return generate_moveit_rviz_launch(moveit_config)
