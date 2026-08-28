@@ -51,6 +51,7 @@ from controller_manager_msgs.srv import SwitchController
 from moveit_msgs.srv import ApplyPlanningScene
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.duration import Duration as TfWaitDuration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo
@@ -86,10 +87,14 @@ PLANNING_FRAME = 'arm_mount_link'
 
 DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
 DEFAULT_CAMERA_INFO_TOPIC = '/camera/camera_info'
-# Matches keyboard_servo_node.py's own panel_visible_max_age_sec default —
-# see its comment for why 1s was too tight (confirmed live: detection
-# drops out for over a second even with the panel fully in frame).
-DEFAULT_MAX_PANEL_POSE_AGE_SEC = 3.0
+# Must exceed keyboard_servo_node.py's ACTIVITY_INDICATOR_PRE_DELAY_SEC
+# (5s) with margin: the align request only reaches this node AFTER that
+# wait, so the check here has to tolerate a detection drop spanning it.
+DEFAULT_MAX_PANEL_POSE_AGE_SEC = 8.0
+# lookup_transform() waits up to this long for TF to catch up to
+# panel_pose's own timestamp — closes a small, normal race where the
+# detection's stamp is a touch ahead of the latest buffered TF sample.
+TF_LOOKUP_WAIT_SEC = 0.3
 
 # Panel collision box (panel_description/urdf/panel_macro.xacro's
 # panel_base_link collision geometry). Duplicated here — see
@@ -139,6 +144,7 @@ JOINT_LIMITS = {
     'arm_wrist_1_wrist_2_joint': (-math.pi, math.pi),
     'arm_wrist_2_end_effector_joint': (-math.pi, math.pi),
 }
+
 
 
 class PanelAlignNode(Node):
@@ -216,6 +222,9 @@ class PanelAlignNode(Node):
         # fallback collision reference when the panel isn't currently in
         # view (see _align_to_remembered_locked).
         self._remembered_panel_collision_pose: PoseStamped | None = None
+        # TCP orientation (xyzw, PLANNING_FRAME) from the same align that
+        # set _remembered_target_joints — see orient_gripper_to_remembered().
+        self._remembered_target_orientation: tuple | None = None
         # Guards align_to_panel() against running twice at once — the
         # 'align' service is registered on a ReentrantCallbackGroup (see
         # module docstring) so its own sub-calls can interleave, but that
@@ -223,6 +232,7 @@ class PanelAlignNode(Node):
         # otherwise run this whole sequence in parallel with the first,
         # against the same physical arm.
         self._align_running = threading.Lock()
+        self._orient_gripper_running = threading.Lock()
 
         # See module docstring: everything here shares one reentrant group
         # so the align service callback and its own sub-calls' response
@@ -255,6 +265,9 @@ class PanelAlignNode(Node):
 
         self.create_service(
             Trigger, 'panel_align/align', self._on_align_request, callback_group=cb_group)
+        self.create_service(
+            Trigger, 'panel_align/orient_gripper', self._on_orient_gripper_request,
+            callback_group=cb_group)
 
         self.get_logger().info('panel_align_node ready — waiting for camera<->tip TF...')
 
@@ -288,6 +301,11 @@ class PanelAlignNode(Node):
 
     def _on_align_request(self, request, response):
         response.success = self.align_to_panel()
+        response.message = self._last_status_message
+        return response
+
+    def _on_orient_gripper_request(self, request, response):
+        response.success = self.orient_gripper_to_remembered()
         response.message = self._last_status_message
         return response
 
@@ -334,6 +352,84 @@ class PanelAlignNode(Node):
         if self._remembered_target_joints is not None:
             return self._align_to_remembered_locked()
         return self._align_live_locked()
+
+    def orient_gripper_to_remembered(self) -> bool:
+        """Rotate the gripper to the remembered panel-facing orientation
+        in place — same position, new orientation. Locking mirrors
+        align_to_panel().
+        """
+        if not self._orient_gripper_running.acquire(blocking=False):
+            self.get_logger().warn('Gripper orient already in progress — ignoring concurrent request.')
+            return self._fail('Another gripper orient is already in progress.')
+        try:
+            try:
+                with arm_motion_lock():
+                    return self._orient_gripper_to_remembered_locked()
+            except ArmMotionBusy:
+                return self._fail(
+                    'keyboard_servo_node is currently commanding the arm (home/replay) '
+                    '— aborting gripper orient.'
+                )
+        finally:
+            self._orient_gripper_running.release()
+
+    def _orient_gripper_to_remembered_locked(self) -> bool:
+        """Rotate TIP_LINK to the remembered panel-facing orientation
+        while keeping its CURRENT position — a MoveGroup pose goal like
+        align_to_panel(), just built from where the tip already is
+        instead of a freshly computed panel-relative target. Any joint
+        may move to reach it.
+        """
+        self._last_status_message = ''
+
+        if self._remembered_target_orientation is None:
+            return self._fail(
+                'No remembered panel orientation yet — align to the panel (p) at least once first.'
+            )
+
+        try:
+            tf_tip = self._tf_buffer.lookup_transform(
+                PLANNING_FRAME, TIP_LINK, rclpy.time.Time(),
+                timeout=TfWaitDuration(seconds=TF_LOOKUP_WAIT_SEC))
+        except tf2_ros.TransformException as exc:
+            return self._fail(f'Could not resolve current {TIP_LINK} pose: {exc}')
+
+        target_pose_msg = PoseStamped()
+        target_pose_msg.header.frame_id = PLANNING_FRAME
+        target_pose_msg.pose.position.x = tf_tip.transform.translation.x
+        target_pose_msg.pose.position.y = tf_tip.transform.translation.y
+        target_pose_msg.pose.position.z = tf_tip.transform.translation.z
+        (target_pose_msg.pose.orientation.x, target_pose_msg.pose.orientation.y,
+         target_pose_msg.pose.orientation.z, target_pose_msg.pose.orientation.w
+         ) = self._remembered_target_orientation
+
+        if not self._call_stop_servo():
+            return self._fail('Could not confirm Servo stopped — aborting gripper orient.')
+
+        if not self._use_trajectory_controller():
+            return self._fail('Could not activate the trajectory controller — aborting gripper orient.')
+
+        goal_constraints = self._build_pose_goal_constraints(target_pose_msg)
+        plan_result = self._request_plan(goal_constraints)
+        if plan_result is None:
+            return self._fail('MoveGroup planning request timed out or was rejected.')
+        if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
+            return self._fail(
+                f'Planning gripper orientation failed (MoveItErrorCodes.val={plan_result.error_code.val}).'
+            )
+        planned_trajectory = plan_result.planned_trajectory
+
+        margin_ok, margin_reason = self._check_joint_margins(planned_trajectory)
+        if not margin_ok:
+            return self._fail(f'Planned pose too close to a joint limit: {margin_reason}')
+
+        exec_ok, exec_reason = self._execute(planned_trajectory)
+        if not exec_ok:
+            return self._fail(f'Trajectory execution failed: {exec_reason}')
+
+        self._last_status_message = 'Gripper oriented toward remembered panel position.'
+        self.get_logger().info(self._last_status_message)
+        return True
 
     def _align_to_remembered_locked(self) -> bool:
         self._last_status_message = ''
@@ -395,7 +491,8 @@ class PanelAlignNode(Node):
         try:
             tf_mount_camera = self._tf_buffer.lookup_transform(
                 PLANNING_FRAME, panel_pose.header.frame_id,
-                rclpy.time.Time.from_msg(panel_pose.header.stamp))
+                rclpy.time.Time.from_msg(panel_pose.header.stamp),
+                timeout=TfWaitDuration(seconds=TF_LOOKUP_WAIT_SEC))
         except tf2_ros.TransformException:
             return None
         t = tf_mount_camera.transform.translation
@@ -459,7 +556,8 @@ class PanelAlignNode(Node):
         try:
             tf_mount_camera = self._tf_buffer.lookup_transform(
                 PLANNING_FRAME, panel_pose.header.frame_id,
-                rclpy.time.Time.from_msg(panel_pose.header.stamp))
+                rclpy.time.Time.from_msg(panel_pose.header.stamp),
+                timeout=TfWaitDuration(seconds=TF_LOOKUP_WAIT_SEC))
         except tf2_ros.TransformException as exc:
             return self._fail(
                 f'Could not resolve {panel_pose.header.frame_id} -> {PLANNING_FRAME} TF: {exc}')
@@ -531,6 +629,7 @@ class PanelAlignNode(Node):
         traj = planned_trajectory.joint_trajectory
         self._remembered_target_joints = dict(zip(traj.joint_names, traj.points[-1].positions))
         self._remembered_panel_collision_pose = panel_pose_mount_msg
+        self._remembered_target_orientation = target_orientation
 
         self._last_status_message = f'Aligned to panel (standoff={standoff.distance:.3f}m).'
         self.get_logger().info(self._last_status_message)
