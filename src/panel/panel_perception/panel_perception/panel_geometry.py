@@ -143,9 +143,11 @@ def _fit_orientation_from_marker_layout(
     than a generic least-squares fit across however many markers happen
     to be visible) is deliberate: it's what actually guarantees the
     panel's own real top edge comes out exactly along the resulting
-    local X axis — i.e. panel_align_node's target camera roll ends up
-    matching the panel's own edges exactly, not just "close" in a
-    least-squares sense. Requires all 3 of the panel's configured
+    local X axis, not just "close" in a least-squares sense — used for
+    the panel's collision box and its outward-normal/forward direction
+    (camera_target_math.py's compute_target_tip_pose levels roll against
+    world-up separately, not against this fitted frame). Requires all 3
+    of the panel's configured
     markers to be visible (needs BOTH edges to fully pin down the frame
     — with only 2 markers there's a single edge, one axis, and the roll
     about it is inherently undetermined by position alone, no matter how
@@ -173,8 +175,8 @@ def _fit_orientation_from_marker_layout(
     x_axis = right_raw / right_norm
     # Orthogonalize the measured "up" edge against X (real marker
     # measurements at these baselines won't be perfectly perpendicular),
-    # keeping X as the primary reference since panel_align_node's roll
-    # requirement cares about the top edge landing exactly horizontal.
+    # keeping X as the primary reference since the top edge itself is
+    # the thing this frame needs to land on exactly.
     z_raw = up_raw - np.dot(up_raw, x_axis) * x_axis
     z_norm = np.linalg.norm(z_raw)
     if z_norm < 1e-6:  # up_raw was parallel to right_raw — degenerate layout
