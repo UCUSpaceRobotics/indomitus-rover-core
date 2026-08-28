@@ -61,7 +61,7 @@ To simplify SocketCAN filtering and avoid ID collisions, CAN identifiers are res
 | `0x017–0x019` | Arm: Damiao wrist motors |
 | `0x01A–0x01B` | Arm end-effector: jaw gripper cmd / reply (ESP32 SAFE gripper firmware) |
 | `0x01C–0x01D` | Arm end-effector: astro-bio gripper cmd / reply (reserved, no firmware yet) |
-| `0x01E–0x01F` | Arm end-effector: drill_sampling gripper cmd / reply (reserved, no firmware yet) |
+| `0x01E–0x01F` | Arm end-effector: drill_sampling gripper cmd / reply (ESP32 claw+drill+lock firmware) |
 | `0x10A–0x111` | Motor position / angle communication |
 | `0x20A–0x210` | Damiao velocity commands |
 | `0x300–0x30F` | ESP32 lighting controller |
@@ -94,7 +94,7 @@ Only one tool is physically mounted at a time, so only one cmd/reply pair below 
 |------|--------|----------|--------|
 | jaw | `0x1A` | `0x1B` | ESP32 SAFE gripper firmware — see `arm_tasks/keyboard_servo_node.py`'s `GripperCanBus` |
 | astro-bio | `0x1C` | `0x1D` | Reserved, no firmware yet |
-| drill_sampling | `0x1E` | `0x1F` | Reserved, no firmware yet |
+| drill_sampling | `0x1E` | `0x1F` | ESP32 claw+drill+lock firmware — see `arm_tasks/keyboard_servo_node.py`'s `ClawDrillCanBus` |
 
 The reply ID carries every reply kind for that tool (ACKs and READ_* data) with **no tag byte** identifying which — the protocol is strictly one-outstanding-request-at-a-time, so the requester already knows which layout to expect from what it just sent. A client that can't rely on that has to fall back on DLC to tell replies apart (see `GripperCanBus.poll_load()`'s own comment for the caveat that comes with doing that). See the gripper firmware's own CAN API doc for the full command set (`SAFE_SET_SPREAD/ANGLE`, `SAFE_OPEN/CLOSE`, `START/STOP_SAFE_HOLD`, `READ_*`) and each reply's exact byte layout.
 

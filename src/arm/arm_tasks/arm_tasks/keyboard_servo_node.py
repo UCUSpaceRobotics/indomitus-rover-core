@@ -196,9 +196,9 @@ GRIPPER_JOINT_NAME = 'arm_jaw_gripper_finger_right_joint'
 # CAN ID allocation — one cmd/ack pair per end-effector tool (see
 # docs/hardware/can_bus.md's reserved-range table), only one of which is
 # ever live at a time since only one tool is physically mounted:
-#   jaw            0x1A cmd / 0x1B ack  (only one with real firmware today)
+#   jaw            0x1A cmd / 0x1B ack  (ESP32 SAFE gripper firmware)
 #   astro-bio      0x1C cmd / 0x1D ack  (reserved, no firmware yet)
-#   drill_sampling 0x1E cmd / 0x1F ack  (reserved, no firmware yet)
+#   drill_sampling 0x1E cmd / 0x1F ack  (ESP32 claw+drill+lock firmware — see ClawDrillCanBus below)
 #
 # CAN_ID_ACK carries every reply kind (ACKs to action commands AND
 # READ_* data) with NO tag byte identifying which — the firmware is
@@ -272,6 +272,22 @@ ACTIVITY_INDICATOR_PRE_DELAY_SEC = 5.0
 DEFAULT_ACTIVITY_INDICATOR_TOPIC = 'activity_indicator'
 ACTIVITY_INDICATOR_COLOR_ACTIVE = (0.0, 0.0, 1.0, 1.0)  # blue, a=1 (lit)
 ACTIVITY_INDICATOR_COLOR_IDLE = (0.0, 0.0, 0.0, 0.0)    # off
+# Claw+drill+lock (ESP32 firmware, drill_sampling tool) raw-CAN control —
+# same physical CAN bus as the jaw gripper above (only one tool is ever
+# mounted at a time), different ID pair per docs/hardware/can_bus.md.
+# Command byte0 only; the firmware's byte1-4 uint32 parameter (steps/ms)
+# is accepted on the wire for forward-compatibility but the current
+# firmware ignores it and always runs its own hardcoded step/duration
+# constants, so it's always sent as 0 here.
+DRILL_SAMPLING_CAN_ID_CMD = 0x1E
+CLAW_DRILL_CMD_CLOSE = 1        # claw CLOSE (closing)
+CLAW_DRILL_CMD_OPEN = 2         # claw OPEN (opening)
+CLAW_DRILL_CMD_STOP_STEP = 3
+CLAW_DRILL_CMD_DOWN = 4         # drill forward
+CLAW_DRILL_CMD_UP = 5           # drill reverse
+CLAW_DRILL_CMD_STOP_DRILL = 6
+CLAW_DRILL_CMD_LOCK = 7         # electric lock — GPIO10 HIGH
+CLAW_DRILL_CMD_UNLOCK = 8       # electric lock — GPIO10 LOW
 
 JTC_CONTROLLER_NAME = 'indomitus_arm_controller'
 FORWARD_CONTROLLER_NAME = 'indomitus_arm_forward_position_controller'
@@ -2490,6 +2506,83 @@ class GripperCanBus:
             self._sock = None
 
 
+class ClawDrillCanBus:
+    """Raw SocketCAN client for the drill_sampling tool's ESP32 firmware
+    (claw stepper + drill DC motor + electric lock transistor).
+
+    Same wire style as ``GripperCanBus`` (plain AF_CAN/SOCK_RAW socket,
+    manual struct packing) and the same physical bus/interface — only one
+    end-effector tool is ever mounted at a time, so this and
+    ``GripperCanBus`` never talk at once, just on different CAN IDs
+    (0x1E here vs 0x1A for the jaw). No replies are read back here (the
+    firmware's event frame on 0x1F is fire-and-forget from this client's
+    point of view — CLOSE/OPEN/DOWN/UP/STOP_*/LOCK/UNLOCK are all
+    one-shot commands with no data this caller needs).
+    """
+
+    _FRAME_FMT = '=IB3x8s'  # matches struct can_frame: id, dlc, 3 pad bytes, 8 data bytes
+
+    def __init__(self, iface: str, logger):
+        self._logger = logger
+        self._sock = None
+        try:
+            sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
+            sock.bind((iface,))
+            sock.setblocking(False)
+            self._sock = sock
+        except OSError as exc:
+            self._logger.warn(
+                f"ClawDrillCanBus: could not open '{iface}' ({exc}) — claw/"
+                'drill/lock commands will be dropped. Bring the interface '
+                f'up first, e.g.: sudo ip link set {iface} up type can '
+                'bitrate 1000000'
+            )
+
+    def _send(self, cmd_id: int, with_param: bool) -> None:
+        if self._sock is None:
+            return
+        # with_param=True matches the firmware's documented 5-byte layout
+        # (cmd + LE uint32 param) for CLOSE/OPEN/DOWN/UP — sent as 0 since
+        # the firmware ignores it today (see the constants' own comment).
+        # STOP_STEP/STOP_DRILL/LOCK/UNLOCK are the bare 1-byte form.
+        dlc = 5 if with_param else 1
+        data = bytes([cmd_id]).ljust(8, b'\x00')
+        frame = struct.pack(self._FRAME_FMT, DRILL_SAMPLING_CAN_ID_CMD, dlc, data)
+        try:
+            self._sock.send(frame)
+        except OSError as exc:
+            self._logger.warn(f'ClawDrillCanBus: send(cmd={cmd_id}) failed: {exc}')
+
+    def claw_close(self) -> None:
+        self._send(CLAW_DRILL_CMD_CLOSE, with_param=True)
+
+    def claw_open(self) -> None:
+        self._send(CLAW_DRILL_CMD_OPEN, with_param=True)
+
+    def stop_step(self) -> None:
+        self._send(CLAW_DRILL_CMD_STOP_STEP, with_param=False)
+
+    def drill_down(self) -> None:
+        self._send(CLAW_DRILL_CMD_DOWN, with_param=True)
+
+    def drill_up(self) -> None:
+        self._send(CLAW_DRILL_CMD_UP, with_param=True)
+
+    def stop_drill(self) -> None:
+        self._send(CLAW_DRILL_CMD_STOP_DRILL, with_param=False)
+
+    def lock(self) -> None:
+        self._send(CLAW_DRILL_CMD_LOCK, with_param=False)
+
+    def unlock(self) -> None:
+        self._send(CLAW_DRILL_CMD_UNLOCK, with_param=False)
+
+    def close(self) -> None:
+        if self._sock is not None:
+            self._sock.close()
+            self._sock = None
+
+
 GAMEPAD_HELP = """
 ╔══════════════════════════════════════════════╗
 ║  Gamepad — EEF control (view-relative)       ║
@@ -2501,10 +2594,19 @@ GAMEPAD_HELP = """
 ║  R1 + right   ↑↓  — pitch (TCP)              ║
 ║               ←→  — roll  (TCP)              ║
 ║  9 (button)       — push boost (hold)        ║
-║  11 (button)      — gripper OPEN             ║
-║  13 (button)      — gripper CLOSE            ║
-║   (SAFE gripper firmware, over CAN — B/Y     ║
-║   below now own sampling/drill mode entry)   ║
+║  11 (button)      — jaw: gripper OPEN        ║
+║                     drill_sampling: claw     ║
+║                     OPEN, or drill UP in     ║
+║                     drill mode               ║
+║  13 (button)      — jaw: gripper CLOSE       ║
+║                     drill_sampling: claw     ║
+║                     CLOSE, or drill DOWN in  ║
+║                     drill mode               ║
+║  12 (button)      — drill_sampling: LOCK     ║
+║  14 (button)      — drill_sampling: UNLOCK   ║
+║   (SAFE gripper / claw+drill+lock firmware,  ║
+║   over CAN — B/Y below own sampling/drill    ║
+║   mode entry)                                ║
 ║   drill: right ←→ fwd/back, right ↑↓         ║
 ║   left/right, left ↑↓ up/down, no roll       ║
 ║   sampling: right ↑↓/←→ inverted, left ←→    ║
@@ -2578,16 +2680,22 @@ class GamepadInputLoop:
     # Shift button has no class constant — parameterized (DEFAULT_GAMEPAD_SHIFT_BUTTON),
     # read via self._shift_button, in case a pad's SDL mapping is ever wrong.
 
-    # DPAD_LEFT / DPAD_UP under game_controller_node's canonical mapping.
+    # DPAD_UP / DPAD_LEFT under game_controller_node's canonical mapping.
     # Formerly the sampling/drill mode toggles — that job moved to
     # BUTTON_SAMPLING_HOME/BUTTON_DRILL_HOME (B/Y) above, which also gate
-    # on end_effector (these two never did). Freed up for the gripper,
-    # which only makes sense to actuate on the jaw tool anyway — the same
-    # case where B/Y are locked out. GripperCanBus.safe_open/safe_close
-    # are one-shot commands, so these fire on rising edge like the mode
-    # buttons above, not held.
+    # on end_effector (these two never did). Freed up for the end-effector
+    # tool's own open/close-shaped action, dispatched by end_effector in
+    # _on_joy: jaw -> GripperCanBus.safe_open/safe_close; drill_sampling ->
+    # ClawDrillCanBus claw open/close (sampling) or drill up/down (drill
+    # mode) — see _on_joy's handling of these two for the exact routing.
+    # All one-shot commands, so these fire on rising edge, not held.
     BUTTON_GRIPPER_OPEN = 11
     BUTTON_GRIPPER_CLOSE = 13
+    # DPAD_DOWN / DPAD_RIGHT — drill_sampling tool's electric lock
+    # (ClawDrillCanBus.lock/unlock). No jaw/astrobio equivalent, so these
+    # are no-ops unless end_effector == 'drill_sampling'.
+    BUTTON_LOCK = 12
+    BUTTON_UNLOCK = 14
     # On-demand collision-checked "point straight down now" (mirrors
     # KeyboardInputLoop's 'f') — see ServoController.level_tool() for why
     # this needs to be its own move_group plan, not just a harder nudge
@@ -2678,6 +2786,10 @@ class GamepadInputLoop:
         )
 
         self._gripper_can = GripperCanBus(controller.gripper_can_iface, controller.get_logger())
+        # Same physical CAN bus as the jaw gripper above (gripper_can_iface)
+        # — only one end-effector tool is ever mounted, so only one of
+        # GripperCanBus/ClawDrillCanBus is ever actually talking to hardware.
+        self._claw_drill_can = ClawDrillCanBus(controller.gripper_can_iface, controller.get_logger())
         self._gripper_load_timer = controller.create_timer(
             GRIPPER_LOAD_POLL_PERIOD_SEC, self._on_gripper_load_timer
         )
@@ -2864,6 +2976,8 @@ class GamepadInputLoop:
         exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
         gripper_open_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_OPEN)
         gripper_close_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_CLOSE)
+        lock_pressed = self._button_rising_edge(buttons, self.BUTTON_LOCK)
+        unlock_pressed = self._button_rising_edge(buttons, self.BUTTON_UNLOCK)
         level_pressed = self._button_rising_edge(buttons, self.BUTTON_LEVEL)
         panel_align_pressed = self._button_rising_edge(buttons, self.BUTTON_PANEL_ALIGN)
         orient_gripper_pressed = self._button_rising_edge(buttons, self.BUTTON_ORIENT_GRIPPER)
@@ -2889,27 +3003,53 @@ class GamepadInputLoop:
         if exit_pressed:
             self._exit_event.set()
 
-        if gripper_open_pressed:
-            self._gripper_can.safe_open()
-            # Real hardware moves over CAN above; this drives the same
-            # gripper_right/left_controller topics the keyboard's b/v use,
-            # so RViz/Gazebo's fingers slide open too instead of sitting
-            # frozen on JawGripperStub's last echoed value.
-            self._controller.set_gripper_target(self._controller.gripper_stroke)
-            self._controller.get_logger().info('Gripper: SAFE_OPEN sent.')
-
-        if gripper_close_pressed:
-            self._gripper_can.safe_close()
-            self._controller.set_gripper_target(0.0)
-            self._controller.get_logger().info('Gripper: SAFE_CLOSE sent.')
-
         # A goes to the jaw-oriented "home" pose — wrong/unsafe target while
         # a drill is actually mounted, so it's locked out in that mode. B/Y
         # are the reverse: they're drill_sampling-specific targets
         # (sampling_home/drill_home), locked out whenever a drill isn't the
         # tool actually mounted. Purely based on the end_effector parameter
         # (see its declaration) — nothing here re-checks against the URDF.
+        # Also used below to route BUTTON_GRIPPER_OPEN/CLOSE/LOCK/UNLOCK to
+        # the tool that's actually mounted.
         end_effector = self._controller.end_effector
+
+        if gripper_open_pressed:
+            if end_effector == 'drill_sampling':
+                if self._drill_mode:
+                    self._claw_drill_can.drill_up()
+                    self._controller.get_logger().info('Drill: UP sent.')
+                else:
+                    self._claw_drill_can.claw_open()
+                    self._controller.get_logger().info('Claw: OPEN sent.')
+            else:
+                self._gripper_can.safe_open()
+                # Real hardware moves over CAN above; this drives the same
+                # gripper_right/left_controller topics the keyboard's b/v use,
+                # so RViz/Gazebo's fingers slide open too instead of sitting
+                # frozen on JawGripperStub's last echoed value.
+                self._controller.set_gripper_target(self._controller.gripper_stroke)
+                self._controller.get_logger().info('Gripper: SAFE_OPEN sent.')
+
+        if gripper_close_pressed:
+            if end_effector == 'drill_sampling':
+                if self._drill_mode:
+                    self._claw_drill_can.drill_down()
+                    self._controller.get_logger().info('Drill: DOWN sent.')
+                else:
+                    self._claw_drill_can.claw_close()
+                    self._controller.get_logger().info('Claw: CLOSE sent.')
+            else:
+                self._gripper_can.safe_close()
+                self._controller.set_gripper_target(0.0)
+                self._controller.get_logger().info('Gripper: SAFE_CLOSE sent.')
+
+        if lock_pressed and end_effector == 'drill_sampling':
+            self._claw_drill_can.lock()
+            self._controller.get_logger().info('Claw/drill: LOCK sent.')
+
+        if unlock_pressed and end_effector == 'drill_sampling':
+            self._claw_drill_can.unlock()
+            self._controller.get_logger().info('Claw/drill: UNLOCK sent.')
 
         if safe_pose_pressed and end_effector == 'drill_sampling':
             self._controller.get_logger().warn(
@@ -3095,9 +3235,10 @@ class GamepadInputLoop:
             #  - roll removed entirely — no operator roll input in drill
             #    mode at all; _level_hold's automatic leveling is the only
             #    thing setting orientation now (wz stays 0.0, see above)
-            view_vx = right_x * linear_speed
-            view_vy = right_y * linear_speed
-            view_vz = -left_y * linear_speed
+            # All three axes below inverted on explicit operator request.
+            view_vx = -right_x * linear_speed
+            view_vy = -right_y * linear_speed
+            view_vz = left_y * linear_speed
         elif shift:
             view_vy = left_x * linear_speed
             wx = right_y * angular_speed          # pitch
@@ -3246,6 +3387,7 @@ class GamepadInputLoop:
             print('\nExiting...')
             self._controller.stop()
             self._gripper_can.close()
+            self._claw_drill_can.close()
 
 
 def _run_teleop(controller: 'ServoController', input_loop) -> None:
