@@ -42,8 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential python3-pip \
     python3-colcon-common-extensions python3-rosdep \
     iputils-ping pkg-config usbutils iproute2 g++ make cmake \
-    can-utils \
-    vim && \
+    can-utils && \
     rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US.UTF-8
@@ -116,8 +115,5 @@ COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
 ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
 
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
-# RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && colcon build"
-
-# RUN rm -rf ${WS}/log/
 
 CMD ["bash"]
