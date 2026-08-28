@@ -87,15 +87,6 @@ RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
-# Debugging convenience tools, not any package's actual runtime
-# dependency (those go in that package's package.xml, resolved by
-# rosdep above) -- gst-launch-1.0/gst-inspect-1.0 for isolating
-# GStreamer pipeline issues (e.g. arm_sensors' camera pipelines) outside
-# of any ROS node, rqt_image_view for eyeballing a live image topic.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gstreamer1.0-tools ros-humble-rqt-image-view && \
-    rm -rf /var/lib/apt/lists/*
-
 CMD ["bash"]
 
 
