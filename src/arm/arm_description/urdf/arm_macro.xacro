@@ -4,6 +4,7 @@
   <xacro:arg name="use_fake_hardware" default="true"/>
   <xacro:arg name="end_effector" default="jaw"/>
   <xacro:arg name="sim" default="false"/>
+  <xacro:arg name="can_interface" default="can0"/>
   <!-- When the arm is mounted into another robot's URDF (e.g. the rover, see
        rover_description's mount_arm arg) that outer URDF already adds its
        own single gz_ros2_control-system plugin covering every <ros2_control>
@@ -415,7 +416,7 @@
           </xacro:if>
           <xacro:unless value="$(arg use_fake_hardware)">
             <plugin>arm_hardware_interface/ArmCanSystem</plugin>
-            <param name="can_interface">can0</param>
+            <param name="can_interface">$(arg can_interface)</param>
             <!-- Stiffness ramps 0 -> 100% over this many seconds after activation -->
             <param name="gain_ramp_secs">15.0</param>
             <!-- Hard rate limiter on outgoing position commands (rad/s) —

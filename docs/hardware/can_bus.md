@@ -92,11 +92,11 @@ Only one tool is physically mounted at a time, so only one cmd/reply pair below 
 
 | Tool | Cmd ID | Reply ID | Status |
 |------|--------|----------|--------|
-| jaw | `0x1A` | `0x1B` | ESP32 SAFE gripper firmware — see `arm_tasks/keyboard_servo_node.py`'s `GripperCanBus` |
+| jaw | `0x1A` | `0x1B` | ESP32 SAFE gripper firmware — see `arm_peripherals/end_effector_can_node.py` |
 | astro-bio | `0x1C` | `0x1D` | Reserved, no firmware yet |
-| drill_sampling | `0x1E` | `0x1F` | ESP32 claw+drill+lock firmware — see `arm_tasks/keyboard_servo_node.py`'s `ClawDrillCanBus` |
+| drill_sampling | `0x1E` | `0x1F` | ESP32 claw+drill+lock firmware — see `arm_peripherals/end_effector_can_node.py` |
 
-The reply ID carries every reply kind for that tool (ACKs and READ_* data) with **no tag byte** identifying which — the protocol is strictly one-outstanding-request-at-a-time, so the requester already knows which layout to expect from what it just sent. A client that can't rely on that has to fall back on DLC to tell replies apart (see `GripperCanBus.poll_load()`'s own comment for the caveat that comes with doing that). See the gripper firmware's own CAN API doc for the full command set (`SAFE_SET_SPREAD/ANGLE`, `SAFE_OPEN/CLOSE`, `START/STOP_SAFE_HOLD`, `READ_*`) and each reply's exact byte layout.
+The reply ID carries every reply kind for that tool (ACKs and READ_* data) with **no tag byte** identifying which — the protocol is strictly one-outstanding-request-at-a-time, so the requester already knows which layout to expect from what it just sent. A client that can't rely on that has to fall back on DLC to tell replies apart (see `arm_peripherals/end_effector_can_node.py`'s `_on_can_frame()` for the caveat that comes with doing that). See the gripper firmware's own CAN API doc for the full command set (`SAFE_SET_SPREAD/ANGLE`, `SAFE_OPEN/CLOSE`, `START/STOP_SAFE_HOLD`, `READ_*`) and each reply's exact byte layout.
 
 ```bash
 # jaw: SAFE_OPEN / SAFE_CLOSE

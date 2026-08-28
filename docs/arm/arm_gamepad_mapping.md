@@ -48,13 +48,13 @@
 
 | `end_effector` | Режим | `buttons[11]` | `buttons[13]` |
 |---|---|---|---|
-| `jaw` | — | Відкрити захват (`GripperCanBus.safe_open`) | Закрити захват (`GripperCanBus.safe_close`) |
-| `drill_sampling` | sampling (за замовчуванням, або після B) | Клешня OPEN (`ClawDrillCanBus.claw_open`) | Клешня CLOSE (`ClawDrillCanBus.claw_close`) |
-| `drill_sampling` | drill (після Y) | Дриль UP/реверс (`ClawDrillCanBus.drill_up`) | Дриль DOWN/вперед (`ClawDrillCanBus.drill_down`) |
+| `jaw` | — | Відкрити захват (`EndEffectorClient.send('open')`) | Закрити захват (`EndEffectorClient.send('close')`) |
+| `drill_sampling` | sampling (за замовчуванням, або після B) | Клешня OPEN (`EndEffectorClient.send('open')`) | Клешня CLOSE (`EndEffectorClient.send('close')`) |
+| `drill_sampling` | drill (після Y) | Дриль UP/реверс (`EndEffectorClient.send('drill_up')`) | Дриль DOWN/вперед (`EndEffectorClient.send('drill_down')`) |
 
-Кнопки 12/14 (D-Pad вниз/вправо) — електрозамок drill_sampling-інструмента (`ClawDrillCanBus.lock`/`unlock`), незалежно від sampling/drill підрежиму. Порядок LOCK=12/UNLOCK=14 обрано довільно (просто дві сусідні вільні кнопки D-Pad) — легко поміняти місцями, якщо оператору зручніше навпаки.
+Кнопки 12/14 (D-Pad вниз/вправо) — електрозамок drill_sampling-інструмента (`EndEffectorClient.send('lock'/'unlock')`), незалежно від sampling/drill підрежиму. Порядок LOCK=12/UNLOCK=14 обрано довільно (просто дві сусідні вільні кнопки D-Pad) — легко поміняти місцями, якщо оператору зручніше навпаки.
 
-Обидва CAN-клієнти (`GripperCanBus` для jaw, `ClawDrillCanBus` для drill_sampling) сидять на одному фізичному CAN-інтерфейсі (`gripper_can_iface`, дефолт `can0`) — конфлікту немає, бо на руці одночасно змонтований лише один інструмент, і в коду різні CAN ID (jaw `0x1A`, drill_sampling `0x1E`, за `docs/hardware/can_bus.md`).
+`GamepadInputLoop` більше не відкриває CAN-сокет напряму: `EndEffectorClient` (єдиний клієнт для обох інструментів) публікує одноразові команди в топік `end_effector_controller/command` (`std_msgs/String`) і читає стан з `end_effector_controller/state`. Реальний CAN-лінк живе окремо, в плейн-вузлі `arm_peripherals/end_effector_can_node.py` (той самий патерн, що й `rover_peripherals`'ів вузол освітлення), який і резолвить, що саме означає `open`/`close` для змонтованого інструмента (`jaw` чи `drill_sampling`) — тому `gamepad_servo_node` більше не має параметра `gripper_can_iface` і може працювати на іншій машині, ніж `demo.launch.py`.
 
 ### Підсумок: які кнопки налаштовувати на ground station
 
@@ -127,10 +127,10 @@ R1/shift ігнорується в sampling і drill режимах.
 
 ## 5. Кінцевий інструмент (end effector) — окремий CAN-канал
 
-Кнопки 11/12/13/14 шлють одноразові CAN-команди напряму на прошивку змонтованого інструмента, а не через сервоконтур руки. Спрацьовують по натисканню (не по утриманню).
+Кнопки 11/12/13/14 шлють одноразові команди на топік `end_effector_controller/command`, а не через сервоконтур руки. Спрацьовують по натисканню (не по утриманню). Сам CAN живе в окремому вузлі, `arm_peripherals/end_effector_can_node.py` (не в `keyboard_servo_node.py`), який транслює ці команди в проводовий протокол змонтованого інструмента:
 
-- **jaw** (`GripperCanBus`, CAN `0x1A`): `SAFE_OPEN`/`SAFE_CLOSE`.
-- **drill_sampling** (`ClawDrillCanBus`, CAN `0x1E`): `OPEN`(2)/`CLOSE`(1) для клешні, `UP`(5)/`DOWN`(4) для дриля, `LOCK`(7)/`UNLOCK`(8) для електрозамка.
+- **jaw** (CAN `0x1A`): `SAFE_OPEN`/`SAFE_CLOSE`.
+- **drill_sampling** (CAN `0x1E`): `OPEN`(2)/`CLOSE`(1) для клешні, `UP`(5)/`DOWN`(4) для дриля, `LOCK`(7)/`UNLOCK`(8) для електрозамка.
 
 ## 6. Відомі розбіжності зі старою документацією
 

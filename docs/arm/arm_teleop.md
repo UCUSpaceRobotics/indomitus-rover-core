@@ -46,6 +46,14 @@ Runs **headless by default** (works on the Jetson, no display). To watch live, o
 ros2 launch arm_viz rviz.launch.py
 ```
 
+`demo.launch.py` also brings up its own `ros2_socketcan` bridge for the
+end-effector tool's CAN traffic by default (`bring_up_can_bridge:=true`,
+see `arm_peripherals/end_effector_can_node.py`). If the arm is mounted on
+the rover and `rover.launch.py` is already running, it already brought up a
+bridge on this same physical CAN interface — pass `bring_up_can_bridge:=false`
+here to avoid a second bridge colliding on the `socket_can_sender`/
+`socket_can_receiver` node names.
+
 Terminal 2 — keyboard (wait until spawners / `servo_node` are up):
 
 ```bash
@@ -60,6 +68,17 @@ ros2 launch arm_tasks gamepad.launch.py
 Starts `game_controller_node` (not `joy_node`) — canonical SDL button/axis
 mapping, stable across machines/controllers, instead of joy_node's raw
 per-device layout (see `GamepadInputLoop`'s docstring).
+
+As of this change, `gamepad.launch.py` no longer touches CAN directly — the
+end-effector's CAN link now lives in a plain node (`arm_peripherals`, the
+same `can_msgs/Frame`-over-`ros2_socketcan` pattern `rover_peripherals`'s
+lighting node already uses for the rover's own ESP32 peripherals), spawned
+by `demo.launch.py` itself. So `gamepad.launch.py` can now run on a
+**separate machine** (e.g. a laptop) from `demo.launch.py`, the same way
+`rover_teleop/joy.launch.py` already runs separately from the rover's own
+bringup — provided both machines share the same `ROS_DOMAIN_ID` and have
+working DDS discovery between them (same requirement as the optional RViz
+laptop viewer above).
 
 Do not run keyboard and gamepad together — both publish `/servo_node/delta_twist_cmds`.
 

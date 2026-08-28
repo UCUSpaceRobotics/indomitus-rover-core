@@ -8,7 +8,6 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
     end_effector = LaunchConfiguration('end_effector')
-    gripper_can_iface = LaunchConfiguration('gripper_can_iface')
 
     game_controller_node = Node(
         package='joy',
@@ -33,7 +32,6 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'end_effector': end_effector,
-            'gripper_can_iface': gripper_can_iface,
         }],
     )
 
@@ -52,15 +50,6 @@ def generate_launch_description():
                 'buttons in gamepad_servo_node — match this to what you '
                 'actually launched the arm with (demo.launch.py '
                 'end_effector:=...).'
-            ),
-        ),
-        DeclareLaunchArgument(
-            'gripper_can_iface',
-            default_value='can0',
-            description=(
-                'SocketCAN interface the SAFE gripper firmware (jaw tool) '
-                "is on. 'can0' for real hardware, 'vcan0' for sim/bench "
-                'testing.'
             ),
         ),
         game_controller_node,

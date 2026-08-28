@@ -10,6 +10,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MotorStatus.msg"
   "msg/ChassisStatus.msg"
   "msg/FaultEvent.msg"
+  "msg/EndEffectorState.msg"
   "action/ContainerLid.action"
   "srv/GetWeight.srv"
   "srv/SetSteerZero.srv"

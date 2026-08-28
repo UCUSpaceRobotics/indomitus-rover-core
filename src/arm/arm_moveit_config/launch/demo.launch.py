@@ -15,11 +15,12 @@ import sys
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events.process import ProcessExited
 from launch.launch_context import LaunchContext
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -45,6 +46,15 @@ def _arg_from_argv(name: str, default: str) -> str:
     return default
 
 
+def _arg_from_argv_or_none(name: str):
+    """Like _arg_from_argv(), but None (no fallback) instead of a default."""
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return None
+
+
 def generate_launch_description() -> LaunchDescription:
     declare_use_fake_hardware_cmd = DeclareLaunchArgument(
         "use_fake_hardware",
@@ -58,6 +68,19 @@ def generate_launch_description() -> LaunchDescription:
         default_value="jaw",
         description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro",
     )
+
+    declare_can_interface_cmd = DeclareLaunchArgument(
+        "can_interface",
+        default_value="",
+        description="SocketCAN interface for joints + end-effector; unset uses each component's own default.",
+    )
+
+    declare_bring_up_can_bridge_cmd = DeclareLaunchArgument(
+        "bring_up_can_bridge",
+        default_value="true",
+        description="Bring up our own ros2_socketcan bridge; set false if rover.launch.py already did.",
+    )
+    bring_up_can_bridge = LaunchConfiguration("bring_up_can_bridge")
 
     declare_report_collisions_cmd = DeclareLaunchArgument(
         "report_collisions",
@@ -84,12 +107,17 @@ def generate_launch_description() -> LaunchDescription:
     # (as panel_align_node.py's align requests do), and CHOMP rejects any
     # Cartesian pose-constraint goal outright. This is the real-hardware
     # launch path, so panel align needs the same fix here as in sim.
+    robot_description_mappings = {
+        "use_fake_hardware": _arg_from_argv("use_fake_hardware", "true"),
+        "end_effector": _arg_from_argv("end_effector", "jaw"),
+    }
+    can_interface_from_argv = _arg_from_argv_or_none("can_interface")
+    if can_interface_from_argv is not None:
+        robot_description_mappings["can_interface"] = can_interface_from_argv
+
     moveit_config = (
         MoveItConfigsBuilder("indomitus_arm", package_name="arm_moveit_config")
-        .robot_description(mappings={
-            "use_fake_hardware": _arg_from_argv("use_fake_hardware", "true"),
-            "end_effector": _arg_from_argv("end_effector", "jaw"),
-        })
+        .robot_description(mappings=robot_description_mappings)
         .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
@@ -181,6 +209,8 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(DeclareLaunchArgument("use_rviz", default_value="false"))
     ld.add_action(declare_use_fake_hardware_cmd)
     ld.add_action(declare_end_effector_cmd)
+    ld.add_action(declare_can_interface_cmd)
+    ld.add_action(declare_bring_up_can_bridge_cmd)
     ld.add_action(declare_report_collisions_cmd)
     for action in demo_launch.entities:
         ld.add_action(action)
@@ -236,5 +266,41 @@ def generate_launch_description() -> LaunchDescription:
             ])),
         )
     )
+
+    # ---- End-effector CAN link (real hardware only) ----
+    real_hardware_condition = IfCondition(PythonExpression([
+        "'", use_fake_hardware, "' != 'true'"
+    ]))
+
+    end_effector_can_include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory("arm_peripherals"),
+                         "launch", "end_effector_can.launch.py")
+        ),
+        launch_arguments={"end_effector": end_effector}.items(),
+        condition=real_hardware_condition,
+    )
+
+    # reuses rover_bringup's ros2_socketcan bridge; filter covers only
+    # jaw/astrobio/drill_sampling cmd/ack pairs (0x1A-0x1F), not joint IDs.
+    can_bridge_condition = IfCondition(PythonExpression([
+        "'", bring_up_can_bridge, "' == 'true' and '", use_fake_hardware, "' != 'true'"
+    ]))
+
+    can_bridge_launch_arguments = {"receiver_filters": "1A:7FE,1C:7FE,1E:7FE"}
+    if can_interface_from_argv is not None:
+        can_bridge_launch_arguments["interface"] = can_interface_from_argv
+
+    can_bridge_include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory("rover_bringup"),
+                         "launch", "can.launch.py")
+        ),
+        launch_arguments=can_bridge_launch_arguments.items(),
+        condition=can_bridge_condition,
+    )
+
+    ld.add_action(can_bridge_include)
+    ld.add_action(end_effector_can_include)
 
     return ld
