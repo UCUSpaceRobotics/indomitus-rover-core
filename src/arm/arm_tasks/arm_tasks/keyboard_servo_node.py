@@ -35,7 +35,16 @@ Controls:
     p      — align to detected panel (see panel_align_node); the first
              successful align each session is remembered, so later presses
              replay that exact position instead of re-planning
+    f      — level tool (collision-checked; locks pitch/yaw after — 'r'
+             unlocks)
+    m      — rotate the gripper in place to face the remembered panel
+             direction, current position kept (needs 'p' once first)
     ESC/x  — exit
+
+    r/p/f/m (and their gamepad equivalents, see below) first light the
+    activity indicator and hold for 5s with the arm untouched before
+    actually moving — ERC 2026 Rules, Appendix 3, REQ-OPS-080/090/100 (see
+    ServoController.run_planned_activity()).
 
 Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller).
 All gamepad translation is view-relative (arm_camera_link); rotation is
@@ -48,6 +57,7 @@ about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
     R1 + right stick left/right — roll (TCP)
     A                — move to home + start servo
     Button 12        — align to detected panel (see keyboard 'p' above)
+    Button 14        — reorient gripper only (see keyboard 'm' above)
     X                — exit
 
 Usage (stack in one terminal, input in another):
@@ -66,6 +76,7 @@ Usage (stack in one terminal, input in another):
 import sys
 import os
 import fcntl
+import functools
 import threading
 import termios
 import time
@@ -82,7 +93,7 @@ from rclpy.action import ActionClient
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped, Quaternion, TwistStamped
 from sensor_msgs.msg import JointState, Joy
-from std_msgs.msg import Int8, Float64MultiArray
+from std_msgs.msg import Int8, Float64MultiArray, ColorRGBA
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
@@ -237,6 +248,30 @@ DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC = 3.0
 # JTC, apply planning scene, plan, execute): 5 + 7 + 6 + 15 + 65 = 98s
 # (with default allowed_planning_time=5.0). 120s leaves real margin.
 DEFAULT_PANEL_ALIGN_TIMEOUT = 120.0
+
+# ERC 2026 Rules, Appendix 3 — Requirements:
+#   REQ-DES-050/REQ-FUN-070: the rover carries an activity-indicator lamp;
+#     autonomous/planned activity must show a colour distinct from manual
+#     control. Blue is this team's choice for that colour (the rules only
+#     mandate a DIFFERENT colour, not a specific one — yellow/orange/red
+#     are the suggestion for the general standby/working states, which
+#     this node has no reason to know about).
+#   REQ-OPS-080: the indicator must be emitting at least 5s before a
+#     planned activity starts, and keep emitting until it finishes.
+#   REQ-OPS-090: the rover must stay completely still for those first 5s.
+#   REQ-OPS-100: the activity itself must not start until that 5s has
+#     elapsed since the command (r/p/f, or their gamepad equivalents) was
+#     issued.
+# run_planned_activity() below is the single place all three (align_to_
+# panel, move_to_safe_pose, level_tool) route through to satisfy all four
+# — see its own docstring. This publishes an INTENT only: no physical
+# lamp/GPIO driver exists anywhere in this repo yet (confirmed against
+# origin/develop too) — a future hardware-side subscriber on
+# activity_indicator_topic is what actually lights the lamp.
+ACTIVITY_INDICATOR_PRE_DELAY_SEC = 5.0
+DEFAULT_ACTIVITY_INDICATOR_TOPIC = 'activity_indicator'
+ACTIVITY_INDICATOR_COLOR_ACTIVE = (0.0, 0.0, 1.0, 1.0)  # blue, a=1 (lit)
+ACTIVITY_INDICATOR_COLOR_IDLE = (0.0, 0.0, 0.0, 0.0)    # off
 
 JTC_CONTROLLER_NAME = 'indomitus_arm_controller'
 FORWARD_CONTROLLER_NAME = 'indomitus_arm_forward_position_controller'
@@ -433,6 +468,7 @@ class ServoController(Node):
         self.declare_parameter('panel_pose_topic', DEFAULT_PANEL_POSE_TOPIC)
         self.declare_parameter('panel_visible_max_age_sec', DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC)
         self.declare_parameter('panel_align_timeout', DEFAULT_PANEL_ALIGN_TIMEOUT)
+        self.declare_parameter('activity_indicator_topic', DEFAULT_ACTIVITY_INDICATOR_TOPIC)
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -474,6 +510,7 @@ class ServoController(Node):
         self._panel_pose_topic          = self.get_parameter('panel_pose_topic').value
         self._panel_visible_max_age_sec = self.get_parameter('panel_visible_max_age_sec').value
         self._panel_align_timeout       = self.get_parameter('panel_align_timeout').value
+        self._activity_indicator_topic  = self.get_parameter('activity_indicator_topic').value
 
         self.vx = 0.0
         self.vy = 0.0
@@ -546,6 +583,7 @@ class ServoController(Node):
         self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
         self._stop_client  = self.create_client(Trigger, 'servo_node/stop_servo')
         self._panel_align_client = self.create_client(Trigger, 'panel_align/align')
+        self._orient_gripper_client = self.create_client(Trigger, 'panel_align/orient_gripper')
         self._switch_client = self.create_client(
             SwitchController, 'controller_manager/switch_controller'
         )
@@ -566,6 +604,12 @@ class ServoController(Node):
         )
         self._panel_pose_sub = self.create_subscription(
             PoseStamped, self._panel_pose_topic, self._on_panel_pose, 10
+        )
+        # See ACTIVITY_INDICATOR_PRE_DELAY_SEC's comment (REQ-OPS-080/090/100)
+        # — publishes activity-indicator INTENT; nothing in this repo drives
+        # a physical lamp off it yet.
+        self._activity_indicator_pub = self.create_publisher(
+            ColorRGBA, self._activity_indicator_topic, 10
         )
         self._timer = self.create_timer(1.0 / self._publish_rate, self._publish)
 
@@ -923,6 +967,53 @@ class ServoController(Node):
             activate=[FORWARD_CONTROLLER_NAME],
             deactivate=[JTC_CONTROLLER_NAME],
         )
+
+    def _signal_activity_indicator(self, active: bool) -> None:
+        """Publish the activity-indicator colour (best-effort, never raises).
+
+        ``active`` picks ACTIVITY_INDICATOR_COLOR_ACTIVE (blue) or
+        ACTIVITY_INDICATOR_COLOR_IDLE (off) — see that pair's own comment
+        for why blue and for the caveat that nothing yet turns this into
+        light on real hardware.
+        """
+        r, g, b, a = ACTIVITY_INDICATOR_COLOR_ACTIVE if active else ACTIVITY_INDICATOR_COLOR_IDLE
+        msg = ColorRGBA(r=r, g=g, b=b, a=a)
+        self._activity_indicator_pub.publish(msg)
+
+    def run_planned_activity(self, action, label: str):
+        """Run ``action`` (a zero-arg callable) gated by the ERC-mandated
+        activity-indicator warm-up — the single choke point 'r'/'p'/'f' and
+        their gamepad equivalents all route their actual move/align/level
+        call through, so REQ-OPS-080/090/100 are satisfied exactly once
+        instead of separately at each of the 6 call sites (3 actions x
+        keyboard + gamepad).
+
+        Sequence:
+          1. Publish the indicator ON (blue) immediately.
+          2. Sleep ACTIVITY_INDICATOR_PRE_DELAY_SEC (5s) — REQ-OPS-090 needs
+             the arm to stay completely still for this whole window, which
+             is automatic here since ``action`` (the actual move) has not
+             been called yet.
+          3. Only then call ``action()`` — REQ-OPS-100's "at least 5s after
+             the command was issued" — and return whatever it returns.
+          4. Publish the indicator OFF once ``action()`` returns, success or
+             failure alike (``finally``) — REQ-OPS-080's "continue to emit
+             ... until all rover activities are finished".
+
+        Callers are already running this on their own background thread
+        (spawned from ``_read_loop``/``_on_joy``'s button dispatch), so the
+        5s sleep here does not stall keyboard/joy event processing.
+        """
+        self.get_logger().info(
+            f'{label}: activity indicator on, holding {ACTIVITY_INDICATOR_PRE_DELAY_SEC:.0f}s '
+            f'before moving (ERC REQ-OPS-080/090/100)...'
+        )
+        self._signal_activity_indicator(True)
+        try:
+            time.sleep(ACTIVITY_INDICATOR_PRE_DELAY_SEC)
+            return action()
+        finally:
+            self._signal_activity_indicator(False)
 
     def stop_servo(self) -> bool:
         """Call the Servo ``stop_servo`` service and wait for confirmation.
@@ -1362,6 +1453,44 @@ class ServoController(Node):
         self._panel_align_succeeded_once = True
         return True
 
+    def orient_gripper_to_panel(self) -> bool:
+        """Ask panel_align_node to reorient just the gripper toward the
+        remembered panel direction, without moving the arm back to the
+        remembered position. Mirrors align_to_panel()'s call pattern.
+        """
+        self.stop()
+
+        if not self._orient_gripper_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('panel_align/orient_gripper service not available')
+            return False
+
+        done_event = threading.Event()
+        outcome = {'success': False, 'message': ''}
+
+        def _cb(future):
+            try:
+                result = future.result()
+                outcome['success'] = result.success
+                outcome['message'] = result.message
+            except Exception as e:
+                outcome['message'] = f'orient gripper call failed: {e!r}'
+            finally:
+                done_event.set()
+
+        future = self._orient_gripper_client.call_async(Trigger.Request())
+        future.add_done_callback(_cb)
+
+        if not done_event.wait(timeout=self._panel_align_timeout):
+            self.get_logger().warn(
+                f'panel_align/orient_gripper timed out after {self._panel_align_timeout:.1f}s'
+            )
+            return False
+        if not outcome['success']:
+            self.get_logger().error(f'Gripper orient failed: {outcome["message"]}')
+            return False
+        self.get_logger().info(f'Gripper orient succeeded: {outcome["message"]}')
+        return True
+
     def start_servo(self) -> bool:
         """Switch to streaming controller, then start MoveIt Servo.
 
@@ -1685,10 +1814,12 @@ HELP = """
 ║    b / v  — open / close                         ║
 ║  Panel:                                          ║
 ║    p      — align to detected panel              ║
+║    m      — reorient gripper only (p first)      ║
 ║  Other:                                          ║
 ║    r      — move to home + start servo           ║
 ║    f      — level tool (collision-checked; locks ║
 ║             pitch/yaw after — 'r' unlocks)       ║
+║  p/r/f wait 5s (activity indicator) before moving║
 ║    ESC/x  — exit                                 ║
 ╚══════════════════════════════════════════════════╝
 """
@@ -1782,6 +1913,7 @@ class KeyboardInputLoop:
         self._safe_pose_running = threading.Lock()
         self._level_running = threading.Lock()
         self._panel_align_running = threading.Lock()
+        self._orient_gripper_running = threading.Lock()
 
         # Rising-edge state for the panel-detected prompt/gate (see
         # _check_panel_visibility and _read_loop's KEY_P handling).
@@ -1961,7 +2093,7 @@ class KeyboardInputLoop:
             return
         try:
             print('Aligning to panel...')
-            if self._controller.align_to_panel():
+            if self._controller.run_planned_activity(self._controller.align_to_panel, 'align_to_panel'):
                 print('Panel align succeeded.')
             else:
                 print('Panel align failed.')
@@ -1969,6 +2101,22 @@ class KeyboardInputLoop:
             self._controller.start_servo()
         finally:
             self._panel_align_running.release()
+
+    def _handle_orient_gripper(self):
+        """Rotate the gripper in place to face the remembered panel direction."""
+        if not self._orient_gripper_running.acquire(blocking=False):
+            return
+        try:
+            print('Orienting gripper toward panel...')
+            if self._controller.run_planned_activity(
+                    self._controller.orient_gripper_to_panel, 'orient_gripper_to_panel'):
+                print('Gripper oriented.')
+            else:
+                print('Gripper orient failed.')
+            print('Resuming manual control...')
+            self._controller.start_servo()
+        finally:
+            self._orient_gripper_running.release()
 
     def _handle_safe_pose(self):
         """Clear pressed keys, stop motion, and move to the safe pose.
@@ -1990,7 +2138,7 @@ class KeyboardInputLoop:
                 self._gripper_pressed.clear()
             self._controller.stop()
             print('Moving to home...')
-            if self._controller.move_to_safe_pose():
+            if self._controller.run_planned_activity(self._controller.move_to_safe_pose, 'move_to_safe_pose'):
                 if self._exit_event.is_set():
                     print('Exit requested during home move — Servo not started.')
                     return
@@ -2017,7 +2165,7 @@ class KeyboardInputLoop:
             return
         try:
             print('Leveling tool...')
-            if self._controller.level_tool():
+            if self._controller.run_planned_activity(self._controller.level_tool, 'level_tool'):
                 print('Tool leveled.')
             else:
                 print('Level move failed.')
@@ -2087,6 +2235,17 @@ class KeyboardInputLoop:
                                     ).start()
                                 else:
                                     print('No panel currently in view and no panel position remembered yet.')
+                                continue
+
+                            if code == ecodes.KEY_M and value == self._KEYSTATE_DOWN:
+                                if not self._servo_started:
+                                    continue
+                                if self._controller.has_remembered_panel_position:
+                                    threading.Thread(
+                                        target=self._handle_orient_gripper, daemon=True
+                                    ).start()
+                                else:
+                                    print('No panel position remembered yet — align (p) first.')
                                 continue
 
                             if code in self._GRIPPER_KEYS:
@@ -2358,6 +2517,8 @@ GAMEPAD_HELP = """
 ║  B                — go to sampling_home      ║
 ║  Y                — go to drill_home         ║
 ║  Button 12        — align to panel           ║
+║  Button 14        — reorient gripper only    ║
+║  A/B/Y/12/14: 5s indicator wait before move  ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
 """
@@ -2432,9 +2593,8 @@ class GamepadInputLoop:
     # this needs to be its own move_group plan, not just a harder nudge
     # from _level_hold. Index unverified — see the comment above.
     BUTTON_LEVEL = 6
-    # Confirmed live via `ros2 topic echo /joy` on real hardware (see the
-    # keyboard's 'p' for the equivalent key).
     BUTTON_PANEL_ALIGN = 12    # 'p' equivalent — align to detected panel
+    BUTTON_ORIENT_GRIPPER = 14  # 'm' equivalent — reorient gripper only
 
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
@@ -2473,6 +2633,8 @@ class GamepadInputLoop:
         self._safe_pose_active = False
         self._level_running = threading.Lock()
         self._level_active = False
+        self._orient_gripper_running = threading.Lock()
+        self._orient_gripper_active = False
         self._prev_cmd = (0.0,) * 6
 
         # Teleop (axes -> velocity) is locked out until the first
@@ -2704,6 +2866,7 @@ class GamepadInputLoop:
         gripper_close_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_CLOSE)
         level_pressed = self._button_rising_edge(buttons, self.BUTTON_LEVEL)
         panel_align_pressed = self._button_rising_edge(buttons, self.BUTTON_PANEL_ALIGN)
+        orient_gripper_pressed = self._button_rising_edge(buttons, self.BUTTON_ORIENT_GRIPPER)
 
         # Log the raw state on any button change, not just the mapped ones,
         # so an unmapped shift button still shows up.
@@ -2799,7 +2962,7 @@ class GamepadInputLoop:
         elif level_pressed:
             threading.Thread(target=self._handle_level, daemon=True).start()
 
-        if self._teleop_locked or self._safe_pose_active or self._level_active:
+        if self._teleop_locked or self._safe_pose_active or self._level_active or self._orient_gripper_active:
             self._controller.stop()
             return
 
@@ -2857,6 +3020,12 @@ class GamepadInputLoop:
                 threading.Thread(target=self._handle_panel_align, daemon=True).start()
             else:
                 print('No panel currently in view and no panel position remembered yet.')
+
+        if orient_gripper_pressed:
+            if self._controller.has_remembered_panel_position:
+                threading.Thread(target=self._handle_orient_gripper, daemon=True).start()
+            else:
+                print('No panel position remembered yet — align (button 12) first.')
 
         if self._panel_prompt_pending:
             # Same "any real stick input dismisses it" rule as
@@ -2964,7 +3133,7 @@ class GamepadInputLoop:
             return
         try:
             print('Aligning to panel...')
-            if self._controller.align_to_panel():
+            if self._controller.run_planned_activity(self._controller.align_to_panel, 'align_to_panel'):
                 print('Panel align succeeded.')
             else:
                 print('Panel align failed.')
@@ -2972,6 +3141,25 @@ class GamepadInputLoop:
             self._controller.start_servo()
         finally:
             self._panel_align_running.release()
+
+    def _handle_orient_gripper(self):
+        """Rotate the gripper in place to face the remembered panel direction
+        (mirrors KeyboardInputLoop._handle_orient_gripper)."""
+        if not self._orient_gripper_running.acquire(blocking=False):
+            return
+        self._orient_gripper_active = True
+        try:
+            print('Orienting gripper toward panel...')
+            if self._controller.run_planned_activity(
+                    self._controller.orient_gripper_to_panel, 'orient_gripper_to_panel'):
+                print('Gripper oriented.')
+            else:
+                print('Gripper orient failed.')
+            print('Resuming manual control...')
+            self._controller.start_servo()
+        finally:
+            self._orient_gripper_active = False
+            self._orient_gripper_running.release()
 
     def _handle_safe_pose(self):
         """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
@@ -2995,17 +3183,20 @@ class GamepadInputLoop:
             self._controller.stop()
             print('Moving to home...')
             if self._sampling_mode:
-                home_ok = self._controller.move_to_safe_pose(
+                action = functools.partial(
+                    self._controller.move_to_safe_pose,
                     positions=self._controller.sampling_home_pose,
                     name=self._controller.sampling_home_pose_name,
                 )
             elif self._drill_mode:
-                home_ok = self._controller.move_to_safe_pose(
+                action = functools.partial(
+                    self._controller.move_to_safe_pose,
                     positions=self._controller.drill_home_pose,
                     name=self._controller.drill_home_pose_name,
                 )
             else:
-                home_ok = self._controller.move_to_safe_pose()
+                action = self._controller.move_to_safe_pose
+            home_ok = self._controller.run_planned_activity(action, 'move_to_safe_pose')
             if home_ok:
                 print('Starting servo...')
                 if self._controller.start_servo():
@@ -3036,7 +3227,7 @@ class GamepadInputLoop:
         try:
             self._controller.stop()
             print('Leveling tool...')
-            if self._controller.level_tool():
+            if self._controller.run_planned_activity(self._controller.level_tool, 'level_tool'):
                 print('Tool leveled.')
             else:
                 print('Level move failed.')
