@@ -45,8 +45,8 @@ services:
       - /dev:/dev:rw
       - /run/udev:/run/udev:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
-      - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
+      # - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
+      # - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
     deploy:
       resources:
         reservations:
