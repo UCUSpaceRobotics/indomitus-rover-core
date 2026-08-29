@@ -119,28 +119,13 @@ HOLD_ANGULAR_MAX = 0.8
 HOLD_CMD_EPS = 1e-4
 # _level_hold target (sampling + drill modes): world-down, roll unconstrained.
 DOWN_AXIS = (0.0, 0.0, -1.0)
-# Which local ee_frame axis _level_hold aligns to DOWN_AXIS — different per
-# mode because the drill and the sample claw point in different fixed
-# directions on the same drill_sampling mesh. SAMPLING_POINT_AXIS is
-# arm_tcp_link's own Z (the claw/reach axis every other tool's TCP also
-# uses). DRILL_POINT_AXIS was derived geometrically, not measured on
-# hardware: drill.stl's bore axis (PCA principal axis, >60x eigenvalue
-# separation from the other two — an unambiguous single axis) is raw-frame
-# +X (mount->tip), rotated by the same rpy="0 pi pi/2" mesh correction
-# arm_macro.xacro applies to drill_sampling -> (0,-1,0). If drill mode ends
-# up pointing UP instead of down, the mount/tip ends were guessed backwards
-# — flip the sign here.
+
 SAMPLING_POINT_AXIS = (0.0, 0.0, 1.0)
 DRILL_POINT_AXIS = (0.0, -1.0, 0.0)
 # Untested on real hardware yet — B/Y (sampling_home/drill_home) and the
 # level button log and do nothing while False.
 SAMPLING_DRILL_MODES_ENABLED = True
-# level_tool()'s target: a full, fixed joint vector (same order as
-# HOME_POSE_JOINTS), driven there by hand (teleop) and verified live via
-# /compute_fk against the drill's real bore axis (DRILL_POINT_AXIS,
-# derivation in its own comment above): dot-product with straight-down =
-# 1.00000 (0.05 degrees off). Verified for the drill specifically — see
-# level_tool()'s own docstring for why it isn't gated on _drill_mode yet.
+
 LEVEL_TOOL_TARGET_POSE = [
     -0.06367867092618458,  # arm_mount_base_joint
     0.8861027135101929,    # arm_base_shoulder_joint
@@ -149,88 +134,29 @@ LEVEL_TOOL_TARGET_POSE = [
     2.125629420127624,     # arm_wrist_1_wrist_2_joint
     -1.0466698958262262,   # arm_wrist_2_end_effector_joint
 ]
-# Cartesian teleop publishes the twist in arm_mount_link (Servo command frame).
-# Stick XYZ are already in that frame. Stick roll/pitch/yaw are interpreted in
-# arm_tcp_link and rotated into mount before publish so orientation stays
-# EEF-local while translation stays world/mount-aligned.
+
 DEFAULT_LINEAR_FRAME  = 'arm_mount_link'
 DEFAULT_EE_FRAME      = 'arm_tcp_link'
-# Second, view-relative translation set (arrows + T/G). The camera is
-# rigidly bolted to arm_end_effector_link, same as the gripper, so "forward"
-# is the same physical direction either way — but arm_camera_link is the frame
-# whose axes are REP-103 (+X forward / +Y left / +Z up), matching the sign
-# convention of the mount-frame keys. arm_tcp_link is NOT a drop-in substitute:
-# it inherits the EEF axes, where the gripper points along +Z, so the arrow
-# keys would mean something else entirely.
+
 DEFAULT_VIEW_FRAME    = 'arm_camera_link'
 # Fallback if poses.json "home" cannot be loaded (matches SRDF group_state home).
 DEFAULT_HOME_POSE     = [-1.552, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
 # 'auto' picks a USB/external keyboard (Keychron, etc.) over the laptop's
 # built-in AT Translated Set 2 device — the usual failure mode in Docker.
 DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
-# Index of the gamepad button held to shift the right stick from
-# up-down + yaw to pitch + roll. 10 = RIGHTSHOULDER under game_controller_node's
-# canonical mapping (see GamepadInputLoop) — stable across controllers/machines
-# as long as SDL recognizes the pad. Override via --ros-args if it doesn't.
 DEFAULT_GAMEPAD_SHIFT_BUTTON = 10
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
-# Wall-clock seconds the raw quintic blend (_home_trajectory) takes to reach
-# the target — not a planning time, just how long the smooth rest-to-rest
-# move is stretched over.
+
 DEFAULT_SAFE_POSE_DURATION = 6.0
 DEFAULT_GRIPPER_SPEED = 0.006   # m/s
 DEFAULT_GRIPPER_STROKE = 0.012  # m — matches finger_stroke in arm_macro.xacro
-# 0 = closed (fingertips touching, matches finger_x_closed in the URDF),
-# gripper_stroke = open — commanded directly on gripper_right_controller/
-# gripper_left_controller, bypassing Servo entirely (Servo only drives the
-# six arm joints). Each finger has its own single-joint controller.
+
 GRIPPER_JOINT_NAME = 'arm_jaw_gripper_finger_right_joint'
 
 DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
-# Deliberately reads panel_pose (gated at 2+ markers in
-# panel_pose_fuser_node), not the cheaper panel_visible (1+) — confirmed
-# live that a single marker's monocular pose estimate is unreliable
-# enough to compute a physically unreachable align target, so prompting
-# "press P" on 1-marker detections just set the operator up for a
-# guaranteed failed align. The prompt/gate below only fires when align
-# would actually stand a chance.
-# How stale a panel_pose message can be before is_panel_visible() reports
-# False. 1.0 was too tight in practice — confirmed live that 2-marker
-# detection can drop out for a second or more even while the panel stays
-# fully in frame (motion blur, a marginal viewing angle), and by the time
-# the operator reacts to the prompt and presses 'p', is_panel_visible()
-# had often already gone stale again. 3s gives real human reaction time
-# plus some detection-dropout slack.
 DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC = 3.0
-# Must stay above panel_align_node's own worst-case total wait, or this
-# node gives up and calls start_servo() (switching ros2_control back to
-# the streaming controller) while panel_align_node's /execute_trajectory
-# goal is still active server-side — two controllers contending for the
-# same joints. panel_align_node's worst case, summing every wait_for_
-# service/server + done.wait() in its sequence (stop_servo, switch to
-# JTC, apply planning scene, plan, execute): 5 + 7 + 6 + 15 + 65 = 98s
-# (with default allowed_planning_time=5.0). 120s leaves real margin.
 DEFAULT_PANEL_ALIGN_TIMEOUT = 120.0
 
-# ERC 2026 Rules, Appendix 3 — Requirements:
-#   REQ-DES-050/REQ-FUN-070: the rover carries an activity-indicator lamp;
-#     autonomous/planned activity must show a colour distinct from manual
-#     control. Blue is this team's choice for that colour (the rules only
-#     mandate a DIFFERENT colour, not a specific one — yellow/orange/red
-#     are the suggestion for the general standby/working states, which
-#     this node has no reason to know about).
-#   REQ-OPS-080: the indicator must be emitting at least 5s before a
-#     planned activity starts, and keep emitting until it finishes.
-#   REQ-OPS-090: the rover must stay completely still for those first 5s.
-#   REQ-OPS-100: the activity itself must not start until that 5s has
-#     elapsed since the command (r/p/f, or their gamepad equivalents) was
-#     issued.
-# run_planned_activity() below is the single place all three (align_to_
-# panel, move_to_safe_pose, level_tool) route through to satisfy all four
-# — see its own docstring. This publishes an INTENT only: no physical
-# lamp/GPIO driver exists anywhere in this repo yet (confirmed against
-# origin/develop too) — a future hardware-side subscriber on
-# activity_indicator_topic is what actually lights the lamp.
 ACTIVITY_INDICATOR_PRE_DELAY_SEC = 5.0
 DEFAULT_ACTIVITY_INDICATOR_TOPIC = 'activity_indicator'
 ACTIVITY_INDICATOR_COLOR_ACTIVE = (0.0, 0.0, 1.0, 1.0)  # blue, a=1 (lit)
@@ -418,12 +344,6 @@ class ServoController(Node):
         self.declare_parameter('safe_pose_duration', DEFAULT_SAFE_POSE_DURATION)
         self.declare_parameter('gripper_speed', DEFAULT_GRIPPER_SPEED)
         self.declare_parameter('gripper_stroke', DEFAULT_GRIPPER_STROKE)
-        # Which physical tool is mounted right now — 'jaw' (default, matches
-        # arm_macro.xacro's end_effector arg default), 'drill_sampling', or
-        # 'astrobio'. Purely a teleop-side hint for gating which mode-jump
-        # buttons make sense (see GamepadInputLoop._on_joy); NOT wired into
-        # the URDF/xacro end_effector arg — set this to the same value you
-        # launched the arm with.
         self.declare_parameter('end_effector', 'jaw')
         self.declare_parameter('panel_pose_topic', DEFAULT_PANEL_POSE_TOPIC)
         self.declare_parameter('panel_visible_max_age_sec', DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC)
@@ -490,11 +410,6 @@ class ServoController(Node):
         # set_sampling_mode()/set_drill_mode(). Mutually exclusive (see those).
         self._sampling_mode = False
         self._drill_mode = False
-        # Set True by a successful level_tool() — set_velocity() then zeroes
-        # any wx/wy (pitch/yaw) it's given, keeping vx/vy/vz and wz (roll)
-        # working normally, so translating/rolling afterward can't tilt the
-        # tool back off vertical. Cleared by a successful move_to_safe_pose()
-        # ('r'), same re-arm point teleop already uses.
         self._pitch_yaw_locked = False
         self._joint_positions = {}
 
@@ -506,24 +421,8 @@ class ServoController(Node):
         self._gripper_state_received = False
         self._last_gripper_tick_time = None
 
-        # Session-scoped only (reset by restarting this node) — see
-        # align_to_panel(). False until the first successful
-        # panel_align/align call. panel_align_node itself now owns the
-        # remembered joint target (and replans a fresh, collision-checked
-        # path to that exact target every call) — this node only needs
-        # to know THAT one exists, for prompt/gating purposes, not the
-        # actual joint values.
         self._panel_align_succeeded_once = False
         self._last_panel_visible_time = None
-        # Guards _move_to_joint_positions() against a second 'r' (home)
-        # press racing a first one still in flight — both would submit a
-        # FollowJointTrajectory goal to the same JTC action server via
-        # self._traj_client; confirmed live: the second goal preempts the
-        # first outright (goal status 5/CANCELED), not a queued or
-        # rejected goal, so the operator sees one of the two moves
-        # silently "fail" mid-flight with no obvious cause. 'r' vs 'p'
-        # (panel align) racing is now guarded separately, cross-process,
-        # by arm_motion_lock() — see that module and this same method.
         self._motion_lock = threading.Lock()
 
         self._tf_buffer = Buffer()
@@ -859,11 +758,6 @@ class ServoController(Node):
             self.get_logger().error('controller_manager/switch_controller unavailable')
             return False
 
-        # STRICT rejects the request outright if any entry is already in the
-        # state it's asking for (e.g. re-activating an already-active JTC) —
-        # this happens routinely, since move_to_safe_pose() calls
-        # stop_servo() (which itself switches to JTC) immediately followed
-        # by its own use_trajectory_controller() call.
         states = self._controller_states()
         if states:
             activate = [c for c in activate if states.get(c) != 'active']
@@ -993,10 +887,6 @@ class ServoController(Node):
         future = self._stop_client.call_async(Trigger.Request())
         future.add_done_callback(_cb)
 
-        # 10s, not 3s: measured live on real hardware at ~2.5s (vs.
-        # near-instant in sim) — real CAN/controller round-trips are
-        # slower than sim's instant state updates. See start_servo()'s
-        # own comment for the matching (much larger) start-side gap.
         if not done_event.wait(timeout=10.0):
             self.get_logger().warn('Servo stop timed out')
             return False
@@ -1258,29 +1148,11 @@ class ServoController(Node):
         goal.request.pipeline_id = 'ompl'
         goal.request.goal_constraints = [constraints]
         goal.request.num_planning_attempts = 5
-        # 5.0 was timing out outright on genuinely hard goals (e.g. drill_home,
-        # a big single-joint swing with no collision at either end — just a
-        # narrow-passage sampling problem for RRTConnect, confirmed via
-        # /check_state_validity on both ends). 10.0 x replan_attempts=5 below
-        # = 50s worst case, still under DEFAULT_SAFE_POSE_TIMEOUT's 60s client
-        # wait — raise both together if this still isn't enough.
         goal.request.allowed_planning_time = 10.0
-        # Leaving these unset does NOT fall back to joint_limits.yaml's
-        # default_velocity/acceleration_scaling_factor (0.1) — measured
-        # ~0.44 rad/s on mount_base_joint (raw limit 0.5) when left at 0.0,
-        # i.e. still near full speed. Raised a bit from the documented
-        # "beginner" 0.1 on explicit request — still explicit, not trusting
-        # an unset field.
+
         goal.request.max_velocity_scaling_factor = 0.15
         goal.request.max_acceleration_scaling_factor = 0.15
         goal.planning_options.plan_only = False  # plan then execute in one goal
-        # num_planning_attempts above only governs OMPL's OWN internal sampling
-        # tries within ONE outer attempt — "Planning attempt 1 of at most 1" in
-        # the logs either way. RRTConnect's post-hoc path validation sometimes
-        # flags a few waypoints invalid (a narrow self-collision graze, not a
-        # fundamentally blocked path) even when the outer attempt "succeeds" at
-        # the coarse resolution — replan retries the WHOLE outer attempt with a
-        # fresh random seed, which is what actually re-samples around it.
         goal.planning_options.replan = True
         goal.planning_options.replan_attempts = 5
 
@@ -1483,12 +1355,6 @@ class ServoController(Node):
         future = self._start_client.call_async(Trigger.Request())
         future.add_done_callback(_cb)
 
-        # 20s, not 3s: measured live on real hardware at a consistent
-        # ~12s per call (both first and repeat calls) — moveit_servo's
-        # start_servo handler is simply much slower against the real CAN
-        # round-trip than it ever was in sim, where 3s had margin to
-        # spare. Not a one-time warm-up cost, so no shortcut available
-        # other than waiting it out.
         if not done_event.wait(timeout=20.0):
             self.get_logger().error('Servo start timed out')
             self.use_trajectory_controller()
@@ -1787,12 +1653,6 @@ class KeyboardInputLoop:
     special "safe pose" and "exit" key bindings.
     """
 
-    # (vx, vy, vz, wx, wy, wz, view_vx, view_vy, view_vz)
-    #   vx..vz      — arm_mount_link (absolute)
-    #   wx..wz      — arm_tcp_link; in camera terms wx=pitch, wy=yaw, wz=roll
-    #   view_vx..vz — arm_camera_link, REP-103: +X forward, +Y left, +Z up
-    # Both translation sets use the same sign convention, so the arrow block
-    # is the mount block re-expressed in the view frame — nothing else moved.
     _DIRECTIONS = {
         ecodes.KEY_W: ( 1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
         ecodes.KEY_S: (-1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
@@ -1806,11 +1666,6 @@ class KeyboardInputLoop:
         ecodes.KEY_O: ( 0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0),
         ecodes.KEY_J: ( 0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0),  # roll
         ecodes.KEY_L: ( 0.0,  0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0),
-        # View-relative translation (camera / gripper point of view).
-        # T/G rather than PgUp/PgDn: compact keyboards (Keychron and friends)
-        # only expose the navigation cluster behind an Fn layer. T sits above
-        # G, so the pair reads as up/down straight off the key layout, and it
-        # leaves the left hand free while the right hand is on the arrows.
         ecodes.KEY_UP:    ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  1.0,  0.0,  0.0),
         ecodes.KEY_DOWN:  ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0,  0.0,  0.0),
         ecodes.KEY_LEFT:  ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  1.0,  0.0),
@@ -1819,15 +1674,8 @@ class KeyboardInputLoop:
         ecodes.KEY_G:     ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  0.0, -1.0),
     }
 
-    # Keys that only ever produce wx/wy (pitch/yaw) — suppressed from the
-    # per-keypress console line while _pitch_yaw_locked is set, since
-    # set_velocity() has already zeroed them and printing a line that's
-    # all zeros is just noise.
     _PITCH_YAW_KEYS = {ecodes.KEY_I, ecodes.KEY_K, ecodes.KEY_U, ecodes.KEY_O}
 
-    # Gripper — separate from _DIRECTIONS (own velocity channel on
-    # ServoController, published directly to the finger controllers rather
-    # than summed into the Servo twist).
     _GRIPPER_KEYS = {
         ecodes.KEY_B: 1.0,   # open
         ecodes.KEY_V: -1.0,  # close
@@ -1837,12 +1685,6 @@ class KeyboardInputLoop:
     _KEYSTATE_DOWN = 1
     _KEYSTATE_REPEAT = 2
 
-    # How long is_panel_visible() must stay continuously False before the
-    # panel-detected prompt/gate treats it as actually gone (see
-    # _check_panel_visibility) — bigger than ServoController's own ~1s
-    # message-staleness tolerance, to absorb realistic detection dropouts
-    # (a single marker at a marginal angle, motion blur while driving)
-    # without spamming a fresh prompt on every one of them.
     _PANEL_LOST_CONFIRM_SEC = 2.0
 
     def __init__(self, controller: 'ServoController'):
@@ -1869,15 +1711,6 @@ class KeyboardInputLoop:
         self._panel_align_running = threading.Lock()
         self._orient_gripper_running = threading.Lock()
 
-        # Rising-edge state for the panel-detected prompt/gate (see
-        # _check_panel_visibility and _read_loop's KEY_P handling).
-        # Confirmed on top of is_panel_visible()'s own staleness tolerance:
-        # a single marker at a marginal angle can still drop detection for
-        # a second or more at a time while the operator is actively
-        # driving, which without this debounce would reset
-        # _panel_was_visible on every such gap and re-fire the prompt on
-        # every flicker. Only a gap longer than _PANEL_LOST_CONFIRM_SEC
-        # now counts as "actually gone".
         self._panel_was_visible = False
         self._panel_prompt_pending = False
         self._panel_lost_since = None
@@ -1996,13 +1829,6 @@ class KeyboardInputLoop:
             self._panel_lost_since = None
             visible = True
         elif self._panel_was_visible:
-            # Was confirmed visible last tick, raw reading just dropped —
-            # this is the grace period. NOT entered on a raw-False reading
-            # that follows an already-False state: that path would start
-            # counting from lost_sec=0 every poll, which is always <
-            # _PANEL_LOST_CONFIRM_SEC, so it would read as "still visible"
-            # forever — including right at node startup, before the panel
-            # had ever actually been seen once.
             if self._panel_lost_since is None:
                 self._panel_lost_since = now
             lost_sec = (now - self._panel_lost_since).nanoseconds / 1e9
@@ -2012,12 +1838,6 @@ class KeyboardInputLoop:
 
         if visible and not self._panel_was_visible:
             self._panel_prompt_pending = True
-            # Halt whatever's currently moving, not just future key
-            # events — "doesn't react until the operator answers" should
-            # apply to motion already in progress too, and this also
-            # means a stray key-up for a key held before the prompt
-            # appeared (dropped below while pending) leaves nothing
-            # actually still moving.
             self._controller.stop()
             print('\n>>> Panel detected! Press P to align to it. <<<')
         self._panel_was_visible = visible
@@ -2176,11 +1996,6 @@ class KeyboardInputLoop:
                             if code == ecodes.KEY_P and value == self._KEYSTATE_DOWN:
                                 if not self._servo_started:
                                     continue
-                                # 'p' always answers a pending prompt (if
-                                # any) and works whenever the panel is
-                                # visible OR a position is already
-                                # remembered this session — see
-                                # _check_panel_visibility's docstring.
                                 self._panel_prompt_pending = False
                                 if (self._controller.is_panel_visible()
                                         or self._controller.has_remembered_panel_position):
@@ -2205,36 +2020,12 @@ class KeyboardInputLoop:
                             if code in self._GRIPPER_KEYS:
                                 if not self._servo_started:
                                     continue
-                                # A pending panel prompt gates movement-ish
-                                # keys until the operator answers it — 'p'
-                                # (handled above) or, per the requirement,
-                                # simply continuing to drive: the first
-                                # gripper/direction key press after the
-                                # prompt appeared both dismisses it AND is
-                                # processed normally below, rather than
-                                # being swallowed as a wasted first press.
-                                # Only gates DOWN specifically
-                                # (dismiss-and-act) — UP must always fall
-                                # through to the normal handling regardless
-                                # of pending state, or a key held before the
-                                # prompt appeared (and released while still
-                                # pending) would get stuck in the pressed
-                                # set forever (stop() only zeroes velocity,
-                                # it doesn't touch the pressed sets).
                                 if self._panel_prompt_pending and value == self._KEYSTATE_DOWN:
                                     self._panel_prompt_pending = False
                                     print('Continuing manual control (panel align not triggered).')
                                 if value == self._KEYSTATE_DOWN:
                                     with self._lock:
                                         already_pressed = code in self._gripper_pressed
-                                        # Sticky-key defensive fix: a missed
-                                        # key-up for the opposite gripper key
-                                        # (seen with a scripted virtual-uinput
-                                        # test keyboard) would otherwise leave
-                                        # it stuck forever, summing to zero net
-                                        # velocity and — via the dedup below —
-                                        # silently eating every future press of
-                                        # this same key too.
                                         other = (ecodes.KEY_V if code == ecodes.KEY_B
                                                  else ecodes.KEY_B)
                                         self._gripper_pressed.discard(other)
@@ -2476,16 +2267,6 @@ class GamepadInputLoop:
     # Shift button has no class constant — parameterized (DEFAULT_GAMEPAD_SHIFT_BUTTON),
     # read via self._shift_button, in case a pad's SDL mapping is ever wrong.
 
-    # DPAD_UP / DPAD_LEFT under game_controller_node's canonical mapping.
-    # Formerly the sampling/drill mode toggles — that job moved to
-    # BUTTON_SAMPLING_HOME/BUTTON_DRILL_HOME (B/Y) above, which also gate
-    # on end_effector (these two never did). Freed up for the end-effector
-    # tool's own open/close-shaped action, dispatched by end_effector in
-    # _on_joy: jaw -> EndEffectorClient.send('open'/'close'); drill_sampling
-    # -> .send('open'/'close') (sampling mode) or .send('drill_up'/
-    # 'drill_down') (drill mode) — see _on_joy's handling of these two for
-    # the exact routing. All one-shot commands, so these fire on rising
-    # edge, not held.
     BUTTON_GRIPPER_OPEN = 11
     BUTTON_GRIPPER_CLOSE = 13
     # DPAD_DOWN / DPAD_RIGHT — drill_sampling tool's electric lock
@@ -2527,11 +2308,6 @@ class GamepadInputLoop:
         self._sampling_mode = False
         self._drill_mode = False
         self._exit_event = threading.Event()
-        # None means "no trustworthy baseline yet" — the first message
-        # after startup or a /joy dropout only seeds this, it never
-        # fires a rising-edge action (a gamepad can report a stale
-        # "pressed" button on that first message, which was causing
-        # spurious exits).
         self._prev_buttons = None
         self._safe_pose_running = threading.Lock()
         self._panel_align_running = threading.Lock()
@@ -2542,37 +2318,15 @@ class GamepadInputLoop:
         self._orient_gripper_active = False
         self._prev_cmd = (0.0,) * 6
 
-        # Teleop (axes -> velocity) is locked out until the first
-        # safe-pose move (A) completes — Servo hasn't been started yet
-        # at that point, so nothing would move anyway, and the arm's
-        # real-world pose is unknown to this process until then. This
-        # is a one-time latch: once armed it stays armed, including
-        # across /joy dropouts (e.g. a Bluetooth reconnect) — there is
-        # no re-arm button and no trip back to the fixed safe pose.
         self._last_joy_time = None
         self._joy_silent = False
         self._teleop_locked = True
 
-        # A dropout does not re-lock teleop, but it does set this: the
-        # first /joy message(s) after a dropout can report stale values
-        # (observed live: full deflection with nothing touched) — likely
-        # a freshly re-created Bluetooth HID device reporting a default
-        # before its first real report arrives. So we force zero
-        # velocity and wait, with no timeout, until one message reports
-        # everything centered/released, then resume from wherever the
-        # arm already is.
         self._joy_settling = False
         # Per-trigger rest samples (axis index -> float). None until the
         # first centered settle so we do not assume both are +1.0.
         self._trigger_rest = {}
 
-        # Rising-edge state for the panel-detected prompt/gate — same
-        # concept as KeyboardInputLoop's, driven from _on_joy instead of a
-        # separate timer since joy_node publishes continuously even at
-        # rest, so this callback already fires regularly on its own.
-        # _panel_lost_since debounces is_panel_visible() dropouts shorter
-        # than _PANEL_LOST_CONFIRM_SEC — see KeyboardInputLoop's version
-        # for why this matters.
         self._panel_was_visible = False
         self._panel_prompt_pending = False
         self._panel_lost_since = None
@@ -2735,10 +2489,6 @@ class GamepadInputLoop:
                     f'pressed. Pick a real index from the buttons[] list above.'
                 )
 
-        # Button edges are always processed, even while teleop is locked
-        # out — buttons are digital (no analog drift), and the safe-pose
-        # button is the only way to clear the lock, so it must keep
-        # working while locked or the arm could never be armed at all.
         safe_pose_pressed = self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE)
         sampling_home_pressed = self._button_rising_edge(buttons, self.BUTTON_SAMPLING_HOME)
         drill_home_pressed = self._button_rising_edge(buttons, self.BUTTON_DRILL_HOME)
@@ -2772,14 +2522,6 @@ class GamepadInputLoop:
         if exit_pressed:
             self._exit_event.set()
 
-        # A goes to the jaw-oriented "home" pose — wrong/unsafe target while
-        # a drill is actually mounted, so it's locked out in that mode. B/Y
-        # are the reverse: they're drill_sampling-specific targets
-        # (sampling_home/drill_home), locked out whenever a drill isn't the
-        # tool actually mounted. Purely based on the end_effector parameter
-        # (see its declaration) — nothing here re-checks against the URDF.
-        # Also used below to route BUTTON_GRIPPER_OPEN/CLOSE/LOCK/UNLOCK to
-        # the tool that's actually mounted.
         end_effector = self._controller.end_effector
 
         if gripper_open_pressed:
@@ -2792,10 +2534,6 @@ class GamepadInputLoop:
                     self._controller.get_logger().info('Claw: OPEN sent.')
             else:
                 self._ee_client.send('open')
-                # Real hardware moves over CAN above; this drives the same
-                # gripper_right/left_controller topics the keyboard's b/v use,
-                # so RViz/Gazebo's fingers slide open too instead of sitting
-                # frozen on JawGripperStub's last echoed value.
                 self._controller.set_gripper_target(self._controller.gripper_stroke)
                 self._controller.get_logger().info('Gripper: SAFE_OPEN sent.')
 
@@ -2907,10 +2645,6 @@ class GamepadInputLoop:
             self._panel_lost_since = None
             panel_visible = True
         elif self._panel_was_visible:
-            # See KeyboardInputLoop's identical logic for why this must be
-            # gated on _panel_was_visible — otherwise a raw-False reading
-            # right at startup (never actually seen the panel once) reads
-            # as "still visible" for the whole grace period, every time.
             if self._panel_lost_since is None:
                 self._panel_lost_since = now
             panel_visible = (now - self._panel_lost_since).nanoseconds / 1e9 < self._PANEL_LOST_CONFIRM_SEC
@@ -2953,28 +2687,10 @@ class GamepadInputLoop:
                 self._controller.stop()
                 return
 
-        # Left stick — view-relative translation in the horizontal plane.
-        # Stick sign convention (see class docstring): left = +1, forward = +1;
-        # camera frame is REP-103 (+X forward, +Y left), so both pass straight
-        # through with no flip. view_vy (left/right) is assigned below, per
-        # mode — sampling mode swaps its source axis with right_y.
         left_x = self._axis(axes, self.AXIS_LEFT_X)
         left_y = self._axis(axes, self.AXIS_LEFT_Y)
         view_vx = left_y * linear_speed
 
-        # Right stick — normally two modes, mutually exclusive so a held R1
-        # can never translate and rotate at once:
-        #   plain:   up/down = view +Z/-Z, left/right = yaw
-        #   R1 held: up/down = pitch,      left/right = roll
-        # Rotation stays about the TCP axes, same as the keyboard's I/K/U/O/J/L.
-        #
-        # Sampling/drill mode overrides all of that — no pitch or yaw stick
-        # input exists in either mode (R1/shift is ignored), because
-        # ServoController's _level_hold locks pitch+yaw to level on every
-        # cycle. SAMPLING mode still has manual roll (left left/right, see
-        # its branch below for the two swaps composed). DRILL mode has NO
-        # roll input at all anymore — see its branch below for the full
-        # remap (both explicit requests, muscle-memory preference).
         right_x = self._axis(axes, self.AXIS_RIGHT_X)
         right_y = self._axis(axes, self.AXIS_RIGHT_Y)
         shift = self._button_pressed(buttons, self._shift_button)
@@ -2982,29 +2698,10 @@ class GamepadInputLoop:
         view_vz = 0.0
         wx = wy = wz = 0.0
         if self._sampling_mode:
-            # Two swaps composed (right_y -> left/right, right_x -> up/down,
-            # left_x -> roll), THEN both right-stick axes inverted on
-            # further explicit request: right_x/right_y each flipped sign
-            # from what they were right after the swap above.
             view_vy = -right_y * linear_speed      # inverted
             view_vz = right_x * linear_speed       # inverted
             wz = -left_x * angular_speed           # roll — pitch/yaw locked level
         elif self._drill_mode:
-            # Full remap on explicit request, drill mode only (each new
-            # instruction hands an axis its role, freeing up whoever had it
-            # before — not additive):
-            #  - right left/right -> forward/back
-            #  - right up/down -> left/right (NEW: took over left stick
-            #    left/right's old job here)
-            #  - left up/down -> up/down (right stick up/down moved away to
-            #    left/right above, so left stick up/down alone drives this
-            #    now — no more combining both sticks' up/down)
-            #  - left left/right -> unused (freed up by the above; nothing
-            #    reads left_x in this branch anymore)
-            #  - roll removed entirely — no operator roll input in drill
-            #    mode at all; _level_hold's automatic leveling is the only
-            #    thing setting orientation now (wz stays 0.0, see above)
-            # All three axes below inverted on explicit operator request.
             view_vx = -right_x * linear_speed
             view_vy = -right_y * linear_speed
             view_vz = left_y * linear_speed
