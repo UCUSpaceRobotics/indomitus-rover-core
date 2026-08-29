@@ -220,6 +220,62 @@ def test_remembered_replay_fails_on_joint_limit_margin(node, monkeypatch):
     assert executed == []  # never even tried to move — rejected before execution
 
 
+# ── orient_gripper_to_remembered() ('m'): tighter tolerance, no replan ──
+
+def _fake_tf(x, y, z):
+    class _T:
+        transform = type('X', (), {'translation': type('V', (), {'x': x, 'y': y, 'z': z})()})()
+    return _T()
+
+
+def test_orient_gripper_fails_without_remembered_orientation(node, monkeypatch):
+    node._remembered_target_orientation = None
+    stop_calls = []
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: stop_calls.append(True) or True)
+
+    assert node._orient_gripper_to_remembered_locked() is False
+    assert stop_calls == []  # bailed out before touching the arm at all
+
+
+def test_orient_gripper_uses_tighter_tolerance_and_current_position(node, monkeypatch):
+    node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
+    monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(1.0, 2.0, 3.0))
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
+    monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+
+    plan_calls = []
+
+    def _fake_request_plan(goal_constraints):
+        plan_calls.append(goal_constraints)
+        return _fake_plan_result(_valid_joint_positions())
+    monkeypatch.setattr(node, '_request_plan', _fake_request_plan)
+    monkeypatch.setattr(node, '_execute', lambda traj: (True, ''))
+
+    assert node._orient_gripper_to_remembered_locked() is True
+    assert len(plan_calls) == 1
+    pc = plan_calls[0].position_constraints[0]
+    assert (pc.constraint_region.primitive_poses[0].position.x,
+            pc.constraint_region.primitive_poses[0].position.y,
+            pc.constraint_region.primitive_poses[0].position.z) == (1.0, 2.0, 3.0)
+    oc = plan_calls[0].orientation_constraints[0]
+    expected = node.get_parameter('orient_gripper_orientation_tolerance').value
+    assert oc.absolute_x_axis_tolerance == expected
+    assert expected < node.get_parameter('orientation_tolerance').value
+
+
+def test_orient_gripper_fails_cleanly_on_plan_failure(node, monkeypatch):
+    node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
+    monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(0.0, 0.0, 0.0))
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
+    monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+    monkeypatch.setattr(node, '_request_plan', lambda gc: None)
+    executed = []
+    monkeypatch.setattr(node, '_execute', lambda traj: executed.append(True) or (True, ''))
+
+    assert node._orient_gripper_to_remembered_locked() is False
+    assert executed == []
+
+
 class _NullContext:
     def __enter__(self):
         return self

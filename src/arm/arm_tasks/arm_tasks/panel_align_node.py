@@ -196,6 +196,10 @@ class PanelAlignNode(Node):
         # enough for "camera aimed at the panel".
         self.declare_parameter('position_tolerance', 0.02)
         self.declare_parameter('orientation_tolerance', 0.2)
+        # Tighter than orientation_tolerance above: that one's loose to
+        # keep live-align's IK convergent (see below); orient_gripper's
+        # position is already fixed, so precision matters more here.
+        self.declare_parameter('orient_gripper_orientation_tolerance', 0.03)
         # This 60s, summed with every other wait_for_service/server +
         # done.wait() in align_to_panel()'s sequence, must stay under
         # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
@@ -409,7 +413,8 @@ class PanelAlignNode(Node):
         if not self._use_trajectory_controller():
             return self._fail('Could not activate the trajectory controller — aborting gripper orient.')
 
-        goal_constraints = self._build_pose_goal_constraints(target_pose_msg)
+        orient_tol = self.get_parameter('orient_gripper_orientation_tolerance').value
+        goal_constraints = self._build_pose_goal_constraints(target_pose_msg, orient_tol=orient_tol)
         plan_result = self._request_plan(goal_constraints)
         if plan_result is None:
             return self._fail('MoveGroup planning request timed out or was rejected.')
@@ -734,9 +739,10 @@ class PanelAlignNode(Node):
             return False
         return bool(result.get('r') and result['r'].success)
 
-    def _build_pose_goal_constraints(self, target_pose: PoseStamped) -> Constraints:
+    def _build_pose_goal_constraints(self, target_pose: PoseStamped, orient_tol: float = None) -> Constraints:
         pos_tol = self.get_parameter('position_tolerance').value
-        orient_tol = self.get_parameter('orientation_tolerance').value
+        if orient_tol is None:
+            orient_tol = self.get_parameter('orientation_tolerance').value
 
         pc = PositionConstraint()
         pc.header = target_pose.header
