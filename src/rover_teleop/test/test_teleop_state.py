@@ -10,9 +10,9 @@ No ROS import anywhere in here — teleop_state is deliberately standalone.
 from rover_teleop.teleop_state import GenerationGuard, JoyWatchdog
 
 
-def live_watchdog(timeout=0.5, at=100.0):
+def live_watchdog(timeout=0.5, at=100.0, zero_burst=3):
     """A watchdog that has just seen a /joy message, i.e. not timed out."""
-    watchdog = JoyWatchdog(timeout=timeout)
+    watchdog = JoyWatchdog(timeout=timeout, zero_burst=zero_burst)
     watchdog.on_message(at)
     return watchdog
 
@@ -38,19 +38,59 @@ def test_a_watchdog_that_has_never_seen_a_message_is_stale():
     assert watchdog.tick(100.0, active=True).publish_zero is True
 
 
-def test_timeout_publishes_zeros_every_tick_not_just_the_edge():
-    # The rover must keep hearing zeros, not hear one and then silence: a
-    # single zero followed by nothing is indistinguishable from a stalled
-    # publisher to anything downstream watching /cmd_vel.
-    watchdog = live_watchdog(timeout=0.5, at=100.0)
+def test_timeout_publishes_a_burst_of_zeros_not_a_single_one():
+    # One zero followed by silence is indistinguishable from a dropped message
+    # to anything downstream. The stop has to be worth relying on.
+    watchdog = live_watchdog(timeout=0.5, at=100.0, zero_burst=3)
 
     first = watchdog.tick(100.6, active=True)
     assert first == (True, True)
 
-    for step in range(1, 6):
-        later = watchdog.tick(100.6 + step * 0.1, active=True)
-        # Stale is announced once; the zeros keep coming.
-        assert later == (False, True)
+    # Stale is announced once; the rest of the burst keeps coming.
+    assert watchdog.tick(100.7, active=True) == (False, True)
+    assert watchdog.tick(100.8, active=True) == (False, True)
+
+
+def test_the_burst_ends_and_the_topic_goes_quiet():
+    # The reason the zeros are finite: cmd_vel_joy has the highest priority in
+    # twist_mux, so a node that keeps publishing after the gamepad is unplugged
+    # holds that priority forever and locks the ground station out of a rover
+    # nobody is driving. Going quiet lets the mux time this input out and fall
+    # through to whoever is still there.
+    watchdog = live_watchdog(timeout=0.5, at=100.0, zero_burst=3)
+
+    published = sum(
+        1 for step in range(50)
+        if watchdog.tick(100.6 + step * 0.05, active=True).publish_zero
+    )
+
+    assert published == 3
+
+
+def test_a_reconnect_re_arms_the_burst():
+    # However brief the gap, the next disconnect gets a full stop of its own.
+    watchdog = live_watchdog(timeout=0.5, at=100.0, zero_burst=3)
+    for step in range(10):
+        watchdog.tick(100.6 + step * 0.05, active=True)
+
+    watchdog.on_message(103.0)
+
+    published = sum(
+        1 for step in range(10)
+        if watchdog.tick(103.6 + step * 0.05, active=True).publish_zero
+    )
+    assert published == 3
+
+
+def test_a_zero_length_burst_publishes_nothing():
+    # An operator who would rather hand the topic over instantly can ask for
+    # it; the swerve controller's own cmd_vel_timeout_s still stops the rover.
+    watchdog = live_watchdog(timeout=0.5, at=100.0, zero_burst=0)
+
+    tick = watchdog.tick(100.6, active=True)
+
+    assert tick.went_stale is True
+    assert tick.publish_zero is False
 
 
 # ── reconnect while the joystick is not the active command source ────────────
@@ -134,11 +174,19 @@ def test_recovery_while_inactive_leaves_the_joystick_ready_to_drive():
 
 
 def test_going_active_while_still_timed_out_starts_publishing_zeros():
-    watchdog = live_watchdog(timeout=0.5, at=100.0)
-    assert watchdog.tick(100.6, active=False).publish_zero is False
+    # The burst is only spent on zeros actually published, so yielding to nav
+    # through a whole disconnect does not use it up. An operator taking control
+    # back gets a full stop, not an exhausted counter.
+    watchdog = live_watchdog(timeout=0.5, at=100.0, zero_burst=3)
+    for step in range(20):
+        assert watchdog.tick(100.6 + step * 0.05, active=False).publish_zero is False
 
     # Nothing came back, but the operator took control anyway.
-    assert watchdog.tick(100.7, active=True).publish_zero is True
+    published = sum(
+        1 for step in range(20)
+        if watchdog.tick(101.6 + step * 0.05, active=True).publish_zero
+    )
+    assert published == 3
 
 
 # ── superseded service replies ───────────────────────────────────────────────
