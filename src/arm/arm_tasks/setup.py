@@ -10,7 +10,11 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml', 'poses.json']),
-        ('share/' + package_name + '/launch', ['launch/gamepad.launch.py']),
+        ('share/' + package_name + '/launch', [
+            'launch/gamepad.launch.py',
+            'launch/gamepad_joy.launch.py',
+            'launch/gamepad_servo.launch.py',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
