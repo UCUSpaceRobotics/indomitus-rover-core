@@ -1,8 +1,16 @@
-# Individual LED control: R Y G B
-bool red
-bool yellow
-bool green
-bool blue
+# Set any subset of the traffic-light colours, leaving the rest alone.
+#
+# KEEP is 0 so that a zero-initialised request is a no-op: switching one colour
+# must not disturb the other three. The node that serves this owns the full
+# state, so callers never have to track it.
+int8 KEEP=0
+int8 OFF=1
+int8 ON=2
+
+int8 red
+int8 yellow
+int8 green
+int8 blue
 ---
 bool success
 string message

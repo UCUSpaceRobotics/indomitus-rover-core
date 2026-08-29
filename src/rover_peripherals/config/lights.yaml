@@ -1,0 +1,28 @@
+lights_can_node:
+  ros__parameters:
+
+    can:
+      # CAN ID for sending commands to ESP32
+      cmd_id: 0x300
+
+      # CAN ID for responses from ESP32
+      resp_id: 0x301
+
+      # Commands
+      cmd_spotlight_on:         0x01
+      cmd_spotlight_off:        0x02
+      cmd_traffic_light:        0x03  # byte 1 = bitmask R=bit0 Y=bit1 G=bit2 B=bit3
+      cmd_beautiful_light_on:   0x04
+      cmd_beautiful_light_off:  0x05
+
+      # Status responses from ESP32
+      status_ok:    0x00
+      status_error: 0x01
+
+    timeouts: # in seconds
+      ack_s: 2.0
+
+    # lights/state is published on change, no faster than this. It crosses the
+    # Wi-Fi link to the ground station, and nothing downstream needs it quicker
+    # than the joystick repaints its light bar (also 2 Hz).
+    state_pub_rate: 2.0

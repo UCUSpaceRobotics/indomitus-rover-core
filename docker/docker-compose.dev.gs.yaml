@@ -14,6 +14,7 @@ services:
         INSTALL_SIM_TOOLS: "false"
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
+    pull_policy: never
     # Same name and service as the other templates on purpose: they are
     # alternatives, one per device, and `docker compose up` on whichever one is
     # copied to the root simply replaces the container.

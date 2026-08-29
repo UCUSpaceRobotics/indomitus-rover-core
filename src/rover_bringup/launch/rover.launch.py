@@ -74,6 +74,10 @@ def generate_launch_description():
             'inactive_controllers': 'swerve_controller_test',
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
+        # Owns motors + controller activation. Not in joy.launch.py on
+        # purpose: the ground station must be able to power the drive with
+        # no gamepad plugged into the rover.
+        include_launch('rover_teleop', 'drive_power.launch.py'),
         _lora_fallback(), # Publishes cmd_vel_lora, which twist_mux carries below cmd_vel_ext.
         include_launch('rover_diagnostics', 'fault_logger.launch.py'),
         include_launch('rover_peripherals', 'lighting.launch.py'),

@@ -12,6 +12,7 @@ services:
         INSTALL_SIM_TOOLS: "false"
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
+    pull_policy: never
     container_name: rover_dev
     command: tail -f /dev/null # command: autolaunch
     network_mode: host
