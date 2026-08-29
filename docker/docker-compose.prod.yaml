@@ -7,8 +7,7 @@ services:
       dockerfile: docker/Dockerfile
       target: prod
       args:
-        BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-stereolabs/zed:5.4-devel-l4t-r36.4}
-        BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-devel-l4t-r36.4}
+        BASE_IMAGE: ${BASE_IMAGE:-ros:humble-ros-base}
         UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
 
