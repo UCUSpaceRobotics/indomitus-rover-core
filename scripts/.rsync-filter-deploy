@@ -7,6 +7,11 @@
 - arm_sim/
 - panel_sim/
 
+# Temporary ignored packages while we are using other Jetson
+- rover_localization
+- rover_navigation
+- rover_costmap_plugins
+
 # Python & Linting Caches
 - __pycache__/
 - *.pyc
