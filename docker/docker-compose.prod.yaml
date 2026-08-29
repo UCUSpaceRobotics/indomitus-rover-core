@@ -13,6 +13,7 @@ services:
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-prod}
+    pull_policy: never
     container_name: rover_prod
     command: tail -f /dev/null # command: autolaunch
     network_mode: host
