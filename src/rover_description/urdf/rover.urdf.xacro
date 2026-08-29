@@ -7,7 +7,10 @@
   <xacro:include filename="$(find rover_description)/urdf/macros/accessories.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/stereo_camera.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/lidar.xacro"/>
-  <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>
+
+  <xacro:if value="$(arg mount_arm)">
+    <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>
+  </xacro:if>
 
   <!-- ===================== MATERIALS ===================== -->
   <material name="blue_body">
