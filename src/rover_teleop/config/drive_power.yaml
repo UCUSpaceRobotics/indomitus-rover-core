@@ -1,4 +1,4 @@
-drive_power:
+/**/drive_power:
   ros__parameters:
 
     # The swerve controller drive/power activates and deactivates. Must match
@@ -11,7 +11,7 @@ drive_power:
 
     # Sends the Damiao clear-error frame (FF..FB) to every drive motor.
     # Motors come back inhibited — cycle drive/power to re-enable.
-    clear_errors_service: /rover_hardware_node/clear_motor_errors
+    clear_errors_service: rover_hardware_node/clear_motor_errors
 
     # drive/state is published on change, no faster than this. It crosses the
     # Wi-Fi link to the ground station, and nothing downstream needs it quicker

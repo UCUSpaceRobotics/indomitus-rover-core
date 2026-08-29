@@ -72,7 +72,7 @@ class FaultLoggerNode(Node):
     def __init__(self):
         super().__init__('fault_logger_node')
 
-        self.declare_parameter('topic', '/fault_events')
+        self.declare_parameter('topic', 'fault_events')
         self.declare_parameter('log_dir', '~/.ros/rover_faults')
         self.declare_parameter('log_prefix', 'faults')
         self.declare_parameter('max_bytes', 5 * 1024 * 1024)

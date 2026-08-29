@@ -1,7 +1,9 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.substitutions import (
+    EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution,
+)
+from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -9,6 +11,7 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     joy_dev = LaunchConfiguration('joy_dev')
     autorepeat_rate = LaunchConfiguration('autorepeat_rate')
+    namespace_val = LaunchConfiguration('rover_namespace')
 
     default_config = PathJoinSubstitution([
         FindPackageShare('rover_teleop'),
@@ -37,11 +40,16 @@ def generate_launch_description():
         output='screen',
         parameters=[default_config],
         remappings=[
-            ('/cmd_vel', '/cmd_vel_joy'),
+            ('cmd_vel', 'cmd_vel_joy'),
         ]
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'rover_namespace',
+            default_value=EnvironmentVariable('ROVER_NAMESPACE', default_value='rover'),
+            description='ROS namespace all rover nodes/topics are pushed under (arm excluded).',
+        ),
         DeclareLaunchArgument(
             'joy_dev',
             default_value='/dev/input/js0',
@@ -53,6 +61,9 @@ def generate_launch_description():
             description='Joystick autorepeat rate (Hz); 0.0 disables autorepeat, '
                         'joystick will only send on state change'
         ),
-        joy_node,
-        joy_interpreter,
+        GroupAction([
+            PushRosNamespace(namespace_val),
+            joy_node,
+            joy_interpreter,
+        ]),
     ])

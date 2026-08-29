@@ -67,7 +67,7 @@ RoverSwerveControllerTest::on_configure(const rclcpp_lifecycle::State & /*previo
     });
 
     cmd_vel_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
-        "/cmd_vel",
+        "cmd_vel",
         rclcpp::SystemDefaultsQoS(),
         [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
             if (!std::isfinite(msg->linear.x) ||

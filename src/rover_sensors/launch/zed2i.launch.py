@@ -78,20 +78,25 @@ def _launch_setup(context: LaunchContext, *args, **kwargs):
         GroupAction(
             actions=[
                 # Odometry
-                SetRemap(src="/zed2i/zed_node/odom", dst="/zed2i/odom"),
+                SetRemap(src="zed2i/zed_node/odom", dst="zed2i/odom"),
 
                 # RGB Images
-                SetRemap(src="/zed2i/zed_node/rgb/color/rect/image", dst="/zed2i/rgb/image_rect_color"),
-                SetRemap(src="/zed2i/zed_node/rgb/color/rect/camera_info", dst="/zed2i/rgb/camera_info"),
+                SetRemap(src="zed2i/zed_node/rgb/color/rect/image", dst="zed2i/rgb/image_rect_color"),
+                SetRemap(src="zed2i/zed_node/rgb/color/rect/camera_info", dst="zed2i/rgb/camera_info"),
 
                 # Pointcloud & Depth Images
-                SetRemap(src="/zed2i/zed_node/point_cloud/cloud_registered", dst="/zed2i/points"),
-                SetRemap(src="/zed2i/zed_node/depth/depth_registered", dst="/zed2i/depth/depth_registered"),
-                SetRemap(src="/zed2i/zed_node/depth/camera_info", dst="/zed2i/depth/camera_info"),
+                SetRemap(src="zed2i/zed_node/point_cloud/cloud_registered", dst="zed2i/points"),
+                SetRemap(src="zed2i/zed_node/depth/depth_registered", dst="zed2i/depth/depth_registered"),
+                SetRemap(src="zed2i/zed_node/depth/camera_info", dst="zed2i/depth/camera_info"),
 
                 # Pose & IMU
-                SetRemap(src="/zed2i/zed_node/pose", dst="/zed2i/pose"),
-                SetRemap(src="/zed2i/zed_node/imu/data", dst="/zed2i/imu/data"),
+                SetRemap(src="zed2i/zed_node/pose", dst="zed2i/pose"),
+                SetRemap(src="zed2i/zed_node/imu/data", dst="zed2i/imu/data"),
+
+                # tf/tf_static stay global regardless of the pushed rover
+                # namespace - see docs/software/tf_ownership.md.
+                SetRemap(src="tf", dst="/tf"),
+                SetRemap(src="tf_static", dst="/tf_static"),
 
                 IncludeLaunchDescription(
                     launch_description_source=PythonLaunchDescriptionSource(child_launch_file_path),

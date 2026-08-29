@@ -1,5 +1,5 @@
 # rover_sim/parameters/controller.yaml
-controller_manager:
+/**/controller_manager:
   ros__parameters:
     update_rate: 100
 
@@ -18,7 +18,7 @@ controller_manager:
     diff_bar_effort_controller:
       type: rover_sim/RockerDiffController
 
-swerve_controller:
+/**/swerve_controller:
   ros__parameters:
     drive_joint_names:
       - fl_wheel_joint
@@ -40,7 +40,7 @@ swerve_controller:
     max_steer_deg: 90.0
     max_steer_rate_deg: 90.0 
 
-swerve_controller_test:
+/**/swerve_controller_test:
   ros__parameters:
     drive_joint_names:
       - fl_wheel_joint
@@ -92,9 +92,9 @@ swerve_controller_test:
     track_width:  0.644
     wheel_radius: 0.156
 
-odometry_controller:
+/**/odometry_controller:
   ros__parameters:
-    odom_topic: "/wheels/odom"
+    odom_topic: "wheels/odom"
     wheelbase: 0.797
     track_width: 0.644
     wheel_radius: 0.156
@@ -109,7 +109,7 @@ odometry_controller:
       - bl_wheel_joint
       - br_wheel_joint
 
-diff_bar_effort_controller:
+/**/diff_bar_effort_controller:
   ros__parameters:
     k_stiffness: 2000.0
     d_damping: 10.0

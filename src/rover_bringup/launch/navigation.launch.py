@@ -3,16 +3,22 @@
 from typing import Callable, List, Optional, Union
 
 from launch import LaunchContext, LaunchDescription, Action, Substitution
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch.actions import ExecuteProcess, RegisterEventHandler, LogInfo
 from launch.event_handlers import OnProcessExit
 from launch.events.process import ProcessExited
+from launch_ros.actions import PushRosNamespace
 from rover_bringup.launch_utils import include_launch
 
 
 def _declare_launch_arguments() -> List[Action]:
     return [
+        DeclareLaunchArgument(
+            "rover_namespace",
+            default_value=EnvironmentVariable("ROVER_NAMESPACE", default_value="rover"),
+            description="ROS namespace all rover nodes/topics are pushed under (arm excluded).",
+        ),
         DeclareLaunchArgument(
             "rplidar_params_file",
             default_value="",
@@ -37,11 +43,16 @@ def _declare_launch_arguments() -> List[Action]:
 
 
 def _wait_for_topic_cmd(
+    namespace: Substitution,
     topics: Union[str, List[str]], waiting_message: str, interval: Union[Substitution, str],
 ) -> List:
     """
     Block until every topic in `topics` actually publishes a message, logging
     `waiting_message` every `interval` seconds while it waits.
+
+    `topics` are relative names under `namespace` - this runs as a plain shell
+    subprocess, not a ROS node, so it never sees the launch file's pushed ROS
+    namespace and the rover namespace has to be spelled out here explicitly.
     """
     if isinstance(topics, str):
         topics = [topics]
@@ -53,7 +64,8 @@ def _wait_for_topic_cmd(
         check_parts += [
             "timeout ",
             interval,
-            f" ros2 topic echo --once --no-arr {topic} > /dev/null 2>&1",
+            " ros2 topic echo --once --no-arr /", namespace, "/", topic,
+            " > /dev/null 2>&1",
         ]
 
     return [
@@ -91,6 +103,7 @@ def _on_success(
 def generate_launch_description() -> LaunchDescription:
     launch_arguments = _declare_launch_arguments()
 
+    namespace_val = LaunchConfiguration("rover_namespace")
     rplidar_params_file_val = LaunchConfiguration("rplidar_params_file")
     scan_filter_params_file_val = LaunchConfiguration("scan_filter_params_file")
     nav2_params_file_val = LaunchConfiguration("nav2_params_file")
@@ -118,8 +131,9 @@ def generate_launch_description() -> LaunchDescription:
 
     wait_for_lidar = ExecuteProcess(
         cmd=_wait_for_topic_cmd(
-            "/rplidar/scan_filtered",
-            "[navigation] Waiting for RPLIDAR scan filter (topic /rplidar/scan_filtered)...",
+            namespace_val,
+            "rplidar/scan_filtered",
+            "[navigation] Waiting for RPLIDAR scan filter (topic rplidar/scan_filtered)...",
             "3",  # seconds between messages
         ),
         output="screen",
@@ -127,8 +141,9 @@ def generate_launch_description() -> LaunchDescription:
 
     wait_for_stereo_camera = ExecuteProcess(
         cmd=_wait_for_topic_cmd(
-            ["/zed2i/points", "/zed2i/odom"],
-            "[navigation] Waiting for ZED2i topics (/zed2i/points, /zed2i/odom) "
+            namespace_val,
+            ["zed2i/points", "zed2i/odom"],
+            "[navigation] Waiting for ZED2i topics (zed2i/points, zed2i/odom) "
             "- is rover.launch.py running with zed2i_mode:=nav?",
             "3",  # seconds between messages
         ),
@@ -143,16 +158,23 @@ def generate_launch_description() -> LaunchDescription:
                 [
                     LogInfo(msg="Sensors are online, launching SLAM and Navigation..."),
 
-                    include_launch("rover_localization", "slam.launch.py", {
-                        "use_sim_time": "false",
-                        "config_path": slam_params_file_val,
-                    }),
+                    # A fresh push, not a reliance on the outer GroupAction's:
+                    # that one is popped as soon as its own action list is
+                    # visited, long before this on_exit callback ever fires.
+                    GroupAction([
+                        PushRosNamespace(namespace_val),
 
-                    include_launch("rover_navigation", "nav2.launch.py", {
-                        "use_sim": "false",
-                        "cmd_vel_topic": "cmd_vel_nav",
-                        "params_file": nav2_params_file_val,
-                    }),
+                        include_launch("rover_localization", "slam.launch.py", {
+                            "use_sim_time": "false",
+                            "config_path": slam_params_file_val,
+                        }),
+
+                        include_launch("rover_navigation", "nav2.launch.py", {
+                            "use_sim": "false",
+                            "cmd_vel_topic": "cmd_vel_nav",
+                            "params_file": nav2_params_file_val,
+                        }),
+                    ]),
                 ]
             )
         )
@@ -168,12 +190,16 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         *launch_arguments,
 
-        lidar_launch,
-        scan_filter_launch,
+        GroupAction([
+            PushRosNamespace(namespace_val),
 
-        lidar_reminder,
-        zed2i_reminder,
-        wait_for_lidar,
-        start_camera_wait,
-        start_nav_and_slam,
+            lidar_launch,
+            scan_filter_launch,
+
+            lidar_reminder,
+            zed2i_reminder,
+            wait_for_lidar,
+            start_camera_wait,
+            start_nav_and_slam,
+        ]),
     ])

@@ -214,7 +214,7 @@ void RoverOdometryController::declare_parameters()
     decl("wheelbase", 0.797);
     decl("track_width", 0.644);
     decl("wheel_radius", 0.156);
-    decl("odom_topic", std::string("/wheels/odom"));
+    decl("odom_topic", std::string("wheels/odom"));
 
     decl("steer_joint_names",
         std::vector<std::string>{

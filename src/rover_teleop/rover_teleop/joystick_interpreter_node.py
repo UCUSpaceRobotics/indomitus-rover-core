@@ -105,8 +105,8 @@ class JoystickInterpreterNode(Node):
 
         self._cmd_pub_rate = float(declare_and_get('cmd_pub_rate', 20.0))
 
-        self._joy_sub = self.create_subscription(Joy, '/joy', self._on_joy, 10)
-        self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self._joy_sub = self.create_subscription(Joy, 'joy', self._on_joy, 10)
+        self._cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
 
         # The ground station operator's answer to "why is the rover ignoring
         # my sticks?" — this node outranks them in twist_mux whenever it is
@@ -122,11 +122,11 @@ class JoystickInterpreterNode(Node):
         self._requests = {
             name: GuardedCall(self.create_client(Trigger, name))
             for name in (
-                '/drive/power/toggle',
-                '/drive/compact/toggle',
-                '/drive/clear_errors',
-                '/lights/spotlight/toggle',
-                '/lights/beautiful/toggle',
+                'drive/power/toggle',
+                'drive/compact/toggle',
+                'drive/clear_errors',
+                'lights/spotlight/toggle',
+                'lights/beautiful/toggle',
             )
         }
 
@@ -143,19 +143,19 @@ class JoystickInterpreterNode(Node):
         self._toggles = [
             ButtonToggle(declare_and_get('vy_toggle_button', 8), self._on_vy_toggle_pressed),
             ButtonToggle(declare_and_get('motor_toggle_button', 9),
-                         lambda: self._request('/drive/power/toggle')),
+                         lambda: self._request('drive/power/toggle')),
             ButtonToggle(declare_and_get('raw_twist_mode_button', 3),
                          self._on_raw_twist_mode_toggle_pressed),
             ButtonToggle(declare_and_get('compact_mode_button', 1),
-                         lambda: self._request('/drive/compact/toggle')),
+                         lambda: self._request('drive/compact/toggle')),
             ButtonToggle(declare_and_get('granny_button', 10), self._on_granny_toggle_pressed),
             ButtonToggle(declare_and_get('spotlight_button', 4),
-                         lambda: self._request('/lights/spotlight/toggle')),
+                         lambda: self._request('lights/spotlight/toggle')),
             ButtonToggle(declare_and_get('beautiful_button', 5),
-                         lambda: self._request('/lights/beautiful/toggle')),
+                         lambda: self._request('lights/beautiful/toggle')),
             ButtonToggle(declare_and_get('active_toggle_button', 2), self._on_active_toggle_pressed),
             ButtonToggle(declare_and_get('clear_errors_button', 20),
-                         lambda: self._request('/drive/clear_errors')),
+                         lambda: self._request('drive/clear_errors')),
         ]
 
         self.get_logger().info(
