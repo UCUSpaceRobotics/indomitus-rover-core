@@ -41,7 +41,7 @@ which link it's using.
 - **Laptop:** `10.43.0.1` — static, set by the "Jetson Tether" NetworkManager
   profile, which also shares the laptop's internet to the Jetson (for setting refer to [ssh.md](./ssh.md)).
 - **Jetson:** DHCP-assigned by the laptop, changes on reconnect — check with
-  `ip addr show enP8p1s0` (run on Jetson) or use `indomitus-rover.local` for automatic resolution.
+  `ip addr show enP8p1s0` (run on Jetson) or use `indomitus-rover-computer.local` for automatic resolution.
 - **ETH0** port on the Jetson must be used. ETH1 is reserved for a real router.
 
 ## 3. Jetson ↔ Mast Pi ↔ Ground Station PC

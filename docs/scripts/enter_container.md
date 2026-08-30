@@ -41,6 +41,6 @@ The script accepts the following flags to override defaults depending on the sub
 
 ## Notes
 
-- In rover mode, `--eth` sets the target to `indomitus-rover.local` and disables Wi-Fi auto-connect logic.
+- In rover mode, `--eth` sets the target to `indomitus-rover-computer.local` and disables Wi-Fi auto-connect logic.
 - In rover mode, `--ip` always sets the final target address based on argument order (the last assignment wins).
 - Both local and rover shells source ROS and workspace setup files before opening an interactive shell.
