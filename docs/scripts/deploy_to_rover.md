@@ -45,7 +45,7 @@ The script is pre-configured with default values matching the standard repositor
 * `--container-name NAME`: The name of the Docker container on the Jetson. (Default: `rover_prod`)
 * `--dockerfile FILE` : Path to the local Dockerfile. (Default: `docker/Dockerfile`)
 * `--compose FILE` : Path to the Production Compose file. (Default: `docker/docker-compose.prod.yaml`)
-* `--ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `IndomitusRover`)
+* `--ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `ERC_UCUSpaceRobotics_A`)
 * `--pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `19283746`)
 * `-h, --help` : Display the help message and exit.
 

@@ -130,7 +130,7 @@ To power down the rover, perform **one** of the following actions:
 | **Jetson Username** | `indomitus-rover` |
 | **Jetson Computer Name** | `indomitus-rover-computer` |
 | **Jetson Password** | `1` |
-| **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
+| **Wi-Fi Hotspot Name (SSID)** | `ERC_UCUSpaceRobotics_A` |
 | **Wi-Fi Password** | `19283746` |
 | **Jetson Static IP for Hotspot** | `10.42.0.1` |
 | **Jetson Container ROS_DOMAIN_ID** | `42` |

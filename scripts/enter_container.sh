@@ -116,7 +116,7 @@ run_rover() {
   local CONTAINER_NAME="rover_prod"
   local COMPOSE_FILE="docker-compose.prod.yaml"
   local WORKSPACE_DIR="/opt/ws"
-  local WIFI_SSID="IndomitusRover"
+  local WIFI_SSID="ERC_UCUSpaceRobotics_A"
   local WIFI_PASS="19283746"
   local USE_ETH=false
 

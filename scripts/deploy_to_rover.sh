@@ -25,7 +25,7 @@ IMAGE_COMMIT=""
 CONTAINER_NAME="rover_prod"
 DOCKERFILE="docker/Dockerfile"
 COMPOSE_FILE="docker/docker-compose.prod.yaml"
-WIFI_SSID="IndomitusRover"
+WIFI_SSID="ERC_UCUSpaceRobotics_A"
 WIFI_PASS="19283746"
 
 # ACTION MODES
