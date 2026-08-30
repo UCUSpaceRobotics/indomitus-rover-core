@@ -34,6 +34,8 @@ sub-calls' response callbacks can interleave on different threads.
 """
 
 import math
+import os
+import socket
 import threading
 import xml.etree.ElementTree as ET
 
@@ -48,6 +50,7 @@ from moveit_msgs.msg import (
     PositionConstraint,
 )
 from controller_manager_msgs.srv import SwitchController
+from indomitus_interfaces.srv import AcquireArmMotionLock, ReleaseArmMotionLock
 from moveit_msgs.srv import ApplyPlanningScene
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -130,20 +133,33 @@ PANEL_COLLISION_LOCAL_OFFSET = ((0.0, 0.013, 0.225), (0.0, 0.0, 0.0, 1.0))
 # panel's exact vertical center.
 DEFAULT_PANEL_CENTER_Z_OFFSET = 0.225  # PANEL_HEIGHT / 2 -- vertical center
 
-# Joint position limits (arm_description/urdf/arm_macro.xacro's <limit> tags
-# on each revolute joint) — duplicated rather than parsed from
-# robot_description at runtime, same tradeoff as PANEL_WIDTH/HEIGHT above.
-# Used only for the post-plan joint-limit-margin check (step 7); NOT used
-# for IK/collision — MoveGroup's own planner already enforces the real
-# ones from the URDF/SRDF.
+# Panel-task-specific joint bounds — narrower than the real hardware
+# limit (arm_macro.xacro's URDF <limit>, +-2pi on every joint, needed for
+# drill/home elsewhere). Matches develop's own pre-teleop-push-boost
+# arm_macro.xacro: arm_shoulder_forearm_joint and arm_forearm_wrist_1_joint
+# at +-pi/2, the rest at +-pi. Used for both the post-plan margin check
+# (step 7) and as OMPL path constraints (see
+# PANEL_JOINT_LIMIT_PATH_CONSTRAINTS below).
 JOINT_LIMITS = {
     'arm_mount_base_joint': (-math.pi, math.pi),
     'arm_base_shoulder_joint': (-math.pi, math.pi),
     'arm_shoulder_forearm_joint': (-math.pi / 2, math.pi / 2),
-    'arm_forearm_wrist_1_joint': (-math.pi, math.pi),
+    'arm_forearm_wrist_1_joint': (-math.pi / 2, math.pi / 2),
     'arm_wrist_1_wrist_2_joint': (-math.pi, math.pi),
     'arm_wrist_2_end_effector_joint': (-math.pi, math.pi),
 }
+
+# Actually keeps OMPL's sampled path inside JOINT_LIMITS, unlike the
+# post-plan-only margin check below — the URDF itself allows +-2pi (real
+# hardware needs that), so without this OMPL freely wanders the full
+# range and _check_joint_margins() only finds out afterward, wasting a
+# full plan + the 5s ERC activity delay on a plan it then has to reject.
+PANEL_JOINT_LIMIT_PATH_CONSTRAINTS = Constraints(joint_constraints=[
+    JointConstraint(
+        joint_name=name, position=(lo + hi) / 2,
+        tolerance_above=(hi - lo) / 2, tolerance_below=(hi - lo) / 2, weight=1.0)
+    for name, (lo, hi) in JOINT_LIMITS.items()
+])
 
 
 
@@ -200,6 +216,11 @@ class PanelAlignNode(Node):
         # keep live-align's IK convergent (see below); orient_gripper's
         # position is already fixed, so precision matters more here.
         self.declare_parameter('orient_gripper_orientation_tolerance', 0.03)
+        # position_tolerance (0.02) is sized for live-align's IK convergence;
+        # orient_gripper is meant to rotate IN PLACE, so it needs its own,
+        # much tighter region — 5mm — or a "rotation" could also drift the
+        # tip sideways within the shared 2cm sphere.
+        self.declare_parameter('orient_gripper_position_tolerance', 0.005)
         # This 60s, summed with every other wait_for_service/server +
         # done.wait() in align_to_panel()'s sequence, must stay under
         # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
@@ -207,6 +228,10 @@ class PanelAlignNode(Node):
         # literal) so tests can shrink it instead of actually waiting 60s
         # to exercise the cancel-on-timeout path.
         self.declare_parameter('execution_timeout_sec', 60.0)
+        # Covers this node's own worst case (allowed_planning_time +
+        # execution_timeout_sec + service-call overhead) with margin — the
+        # cross-host arm_motion_lock lease, not this node's own timeouts.
+        self.declare_parameter('arm_motion_lock_lease_sec', 90.0)
 
         self._panel_pose_topic = self.get_parameter('panel_pose_topic').value
         self._camera_info_topic = self.get_parameter('camera_info_topic').value
@@ -266,6 +291,14 @@ class PanelAlignNode(Node):
             Trigger, 'servo_node/stop_servo', callback_group=cb_group)
         self._switch_controller_client = self.create_client(
             SwitchController, 'controller_manager/switch_controller', callback_group=cb_group)
+        self._acquire_lock_client = self.create_client(
+            AcquireArmMotionLock, 'arm_motion_lock/acquire', callback_group=cb_group)
+        self._release_lock_client = self.create_client(
+            ReleaseArmMotionLock, 'arm_motion_lock/release', callback_group=cb_group)
+        # Identifies THIS process to arm_motion_lock_server — hostname
+        # covers the actual cross-host case (GS vs Jetson), pid separates
+        # two runs on the same host (e.g. sim + a stray leftover process).
+        self._motion_lock_holder_id = f'{socket.gethostname()}/panel_align_node/{os.getpid()}'
 
         self.create_service(
             Trigger, 'panel_align/align', self._on_align_request, callback_group=cb_group)
@@ -333,13 +366,13 @@ class PanelAlignNode(Node):
             return self._fail('Another panel align is already in progress.')
         try:
             try:
-                with arm_motion_lock():
+                with arm_motion_lock(
+                        self._acquire_lock_client, self._release_lock_client,
+                        self._motion_lock_holder_id,
+                        self.get_parameter('arm_motion_lock_lease_sec').value):
                     return self._align_to_panel_locked()
-            except ArmMotionBusy:
-                return self._fail(
-                    'keyboard_servo_node is currently commanding the arm (home/replay) '
-                    '— aborting panel align.'
-                )
+            except ArmMotionBusy as exc:
+                return self._fail(f'{exc} — aborting panel align.')
         finally:
             self._align_running.release()
 
@@ -367,13 +400,13 @@ class PanelAlignNode(Node):
             return self._fail('Another gripper orient is already in progress.')
         try:
             try:
-                with arm_motion_lock():
+                with arm_motion_lock(
+                        self._acquire_lock_client, self._release_lock_client,
+                        self._motion_lock_holder_id,
+                        self.get_parameter('arm_motion_lock_lease_sec').value):
                     return self._orient_gripper_to_remembered_locked()
-            except ArmMotionBusy:
-                return self._fail(
-                    'keyboard_servo_node is currently commanding the arm (home/replay) '
-                    '— aborting gripper orient.'
-                )
+            except ArmMotionBusy as exc:
+                return self._fail(f'{exc} — aborting gripper orient.')
         finally:
             self._orient_gripper_running.release()
 
@@ -413,8 +446,21 @@ class PanelAlignNode(Node):
         if not self._use_trajectory_controller():
             return self._fail('Could not activate the trajectory controller — aborting gripper orient.')
 
+        # Same collision-box source preference as _align_to_remembered_locked:
+        # live detection if available, else the cached pose from when this
+        # orientation was learned. Without this, orient_gripper planned
+        # against an empty scene — a wrist rotation this close to the panel
+        # needs the same protection align already gets.
+        collision_pose = self._current_live_panel_collision_pose()
+        if collision_pose is None:
+            collision_pose = self._remembered_panel_collision_pose
+        if collision_pose is not None and not self._apply_panel_collision_object(collision_pose):
+            return self._fail('Could not insert panel CollisionObject into the planning scene.')
+
         orient_tol = self.get_parameter('orient_gripper_orientation_tolerance').value
-        goal_constraints = self._build_pose_goal_constraints(target_pose_msg, orient_tol=orient_tol)
+        pos_tol = self.get_parameter('orient_gripper_position_tolerance').value
+        goal_constraints = self._build_pose_goal_constraints(
+            target_pose_msg, orient_tol=orient_tol, pos_tol=pos_tol)
         plan_result = self._request_plan(goal_constraints)
         if plan_result is None:
             return self._fail('MoveGroup planning request timed out or was rejected.')
@@ -739,8 +785,10 @@ class PanelAlignNode(Node):
             return False
         return bool(result.get('r') and result['r'].success)
 
-    def _build_pose_goal_constraints(self, target_pose: PoseStamped, orient_tol: float = None) -> Constraints:
-        pos_tol = self.get_parameter('position_tolerance').value
+    def _build_pose_goal_constraints(
+            self, target_pose: PoseStamped, orient_tol: float = None, pos_tol: float = None) -> Constraints:
+        if pos_tol is None:
+            pos_tol = self.get_parameter('position_tolerance').value
         if orient_tol is None:
             orient_tol = self.get_parameter('orientation_tolerance').value
 
@@ -811,6 +859,9 @@ class PanelAlignNode(Node):
         req.max_acceleration_scaling_factor = self.get_parameter('max_acceleration_scaling_factor').value
         req.start_state.is_diff = True
         req.goal_constraints = [goal_constraints]
+        # Every plan this node ever requests is panel-related — safe to
+        # apply unconditionally (see PANEL_JOINT_LIMIT_PATH_CONSTRAINTS).
+        req.path_constraints = PANEL_JOINT_LIMIT_PATH_CONSTRAINTS
         goal.planning_options = PlanningOptions(plan_only=True)
 
         done = threading.Event()
