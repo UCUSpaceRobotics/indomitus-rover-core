@@ -135,6 +135,7 @@ def _launch_can_nodes(context, *args, **kwargs) -> List[Action]:
         package="ros2_socketcan",
         executable="socket_can_sender_node_exe",
         name="socket_can_sender",
+        namespace="",
         parameters=[{
             "interface": LaunchConfiguration("interface"),
             "timeout_sec": LaunchConfiguration("sender_timeout_sec"),
@@ -146,6 +147,7 @@ def _launch_can_nodes(context, *args, **kwargs) -> List[Action]:
         package="ros2_socketcan",
         executable="socket_can_receiver_node_exe",
         name="socket_can_receiver",
+        namespace="",
         parameters=[{
             "interface": LaunchConfiguration("interface"),
             "interval_sec": LaunchConfiguration("receiver_interval_sec"),
