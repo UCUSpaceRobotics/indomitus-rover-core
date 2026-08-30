@@ -264,33 +264,42 @@ def test_orient_gripper_fails_without_remembered_orientation(node, monkeypatch):
     assert stop_calls == []  # bailed out before touching the arm at all
 
 
-def test_orient_gripper_uses_tighter_tolerance_and_current_position(node, monkeypatch):
+def test_orient_gripper_uses_ik_solution_for_current_position(node, monkeypatch):
     node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
     monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(1.0, 2.0, 3.0))
     monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
     monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
 
+    ik_calls = []
+    solution = _valid_joint_positions()
+
+    def _fake_compute_ik(target_pose):
+        ik_calls.append(target_pose)
+        return solution
+    monkeypatch.setattr(node, '_compute_ik_within_panel_limits', _fake_compute_ik)
+
     plan_calls = []
 
     def _fake_request_plan(goal_constraints):
         plan_calls.append(goal_constraints)
-        return _fake_plan_result(_valid_joint_positions())
+        return _fake_plan_result(solution)
     monkeypatch.setattr(node, '_request_plan', _fake_request_plan)
     monkeypatch.setattr(node, '_execute', lambda traj: (True, ''))
 
     assert node._orient_gripper_to_remembered_locked() is True
+    # IK ran on the CURRENT tip position (from TF) + the remembered
+    # orientation — not a fresh Cartesian pose goal (see
+    # _compute_ik_within_panel_limits' own docstring for why).
+    assert len(ik_calls) == 1
+    p = ik_calls[0].pose.position
+    assert (p.x, p.y, p.z) == (1.0, 2.0, 3.0)
+    # Planned as an exact joint-space goal to the IK solution, guaranteed
+    # inside JOINT_LIMITS by _compute_ik_within_panel_limits itself.
     assert len(plan_calls) == 1
-    pc = plan_calls[0].position_constraints[0]
-    assert (pc.constraint_region.primitive_poses[0].position.x,
-            pc.constraint_region.primitive_poses[0].position.y,
-            pc.constraint_region.primitive_poses[0].position.z) == (1.0, 2.0, 3.0)
-    expected_pos_tol = node.get_parameter('orient_gripper_position_tolerance').value
-    assert pc.constraint_region.primitives[0].dimensions[0] == expected_pos_tol
-    assert expected_pos_tol < node.get_parameter('position_tolerance').value
-    oc = plan_calls[0].orientation_constraints[0]
-    expected = node.get_parameter('orient_gripper_orientation_tolerance').value
-    assert oc.absolute_x_axis_tolerance == expected
-    assert expected < node.get_parameter('orientation_tolerance').value
+    assert not plan_calls[0].position_constraints
+    assert not plan_calls[0].orientation_constraints
+    got = {jc.joint_name: jc.position for jc in plan_calls[0].joint_constraints}
+    assert got == solution
 
 
 def test_orient_gripper_applies_live_panel_collision_object_when_available(node, monkeypatch):
@@ -301,6 +310,7 @@ def test_orient_gripper_applies_live_panel_collision_object_when_available(node,
     monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
     monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
     monkeypatch.setattr(node, '_current_live_panel_collision_pose', lambda: live_pose)
+    monkeypatch.setattr(node, '_compute_ik_within_panel_limits', lambda pose: _valid_joint_positions())
 
     collision_calls = []
     monkeypatch.setattr(
@@ -319,6 +329,7 @@ def test_orient_gripper_falls_back_to_remembered_collision_pose(node, monkeypatc
     monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
     monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
     monkeypatch.setattr(node, '_current_live_panel_collision_pose', lambda: None)  # panel not visible now
+    monkeypatch.setattr(node, '_compute_ik_within_panel_limits', lambda pose: _valid_joint_positions())
 
     collision_calls = []
     monkeypatch.setattr(
@@ -338,10 +349,15 @@ def test_orient_gripper_fails_cleanly_when_collision_object_apply_fails(node, mo
     monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
     monkeypatch.setattr(node, '_current_live_panel_collision_pose', lambda: None)
     monkeypatch.setattr(node, '_apply_panel_collision_object', lambda pose: False)
+    ik_calls = []
+    monkeypatch.setattr(
+        node, '_compute_ik_within_panel_limits',
+        lambda pose: ik_calls.append(True) or _valid_joint_positions())
     planned = []
     monkeypatch.setattr(node, '_request_plan', lambda gc: planned.append(True) or _fake_plan_result({}))
 
     assert node._orient_gripper_to_remembered_locked() is False
+    assert ik_calls == []  # never even tried IK — rejected before that
     assert planned == []  # never even tried to plan — rejected before that
 
 
@@ -350,12 +366,79 @@ def test_orient_gripper_fails_cleanly_on_plan_failure(node, monkeypatch):
     monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(0.0, 0.0, 0.0))
     monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
     monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+    monkeypatch.setattr(node, '_compute_ik_within_panel_limits', lambda pose: _valid_joint_positions())
     monkeypatch.setattr(node, '_request_plan', lambda gc: None)
     executed = []
     monkeypatch.setattr(node, '_execute', lambda traj: executed.append(True) or (True, ''))
 
     assert node._orient_gripper_to_remembered_locked() is False
     assert executed == []
+
+
+def test_orient_gripper_fails_cleanly_when_no_ik_solution(node, monkeypatch):
+    node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
+    monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(0.0, 0.0, 0.0))
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
+    monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+    monkeypatch.setattr(node, '_compute_ik_within_panel_limits', lambda pose: None)
+    planned = []
+    monkeypatch.setattr(node, '_request_plan', lambda gc: planned.append(True) or _fake_plan_result({}))
+
+    assert node._orient_gripper_to_remembered_locked() is False
+    assert planned == []  # never even tried to plan — no IK solution to plan toward
+
+
+# ── _compute_ik_within_panel_limits(): retries until a solution fits ────
+
+def _fake_ik_result(joint_positions: dict, error_val=MoveItErrorCodes.SUCCESS):
+    class _Result:
+        error_code = MoveItErrorCodes(val=error_val)
+        solution = type('S', (), {'joint_state': type('J', (), {
+            'name': list(joint_positions.keys()), 'position': list(joint_positions.values()),
+        })()})()
+    return _Result()
+
+
+def test_compute_ik_within_panel_limits_returns_first_valid_solution(node, monkeypatch):
+    monkeypatch.setattr(node._compute_ik_client, 'wait_for_service', lambda timeout_sec=0: True)
+    valid = _valid_joint_positions()
+    monkeypatch.setattr(
+        node._compute_ik_client, 'call_async', lambda req: _FakeFuture(_fake_ik_result(valid)))
+
+    result = node._compute_ik_within_panel_limits(PoseStamped())
+    assert result == valid
+
+
+def test_compute_ik_within_panel_limits_retries_past_out_of_range_solutions(node, monkeypatch):
+    monkeypatch.setattr(node._compute_ik_client, 'wait_for_service', lambda timeout_sec=0: True)
+    out_of_range = {name: hi + 1.0 for name, (lo, hi) in JOINT_LIMITS.items()}
+    valid = _valid_joint_positions()
+    responses = [_fake_ik_result(out_of_range), _fake_ik_result(out_of_range), _fake_ik_result(valid)]
+    calls = []
+
+    def _call_async(req):
+        calls.append(req)
+        return _FakeFuture(responses[len(calls) - 1])
+    monkeypatch.setattr(node._compute_ik_client, 'call_async', _call_async)
+
+    result = node._compute_ik_within_panel_limits(PoseStamped())
+    assert result == valid
+    assert len(calls) == 3
+
+
+def test_compute_ik_within_panel_limits_gives_up_after_attempts_exhausted(node, monkeypatch):
+    node.set_parameters([Parameter('live_align_ik_attempts', value=3)])
+    monkeypatch.setattr(node._compute_ik_client, 'wait_for_service', lambda timeout_sec=0: True)
+    out_of_range = {name: hi + 1.0 for name, (lo, hi) in JOINT_LIMITS.items()}
+    calls = []
+
+    def _call_async(req):
+        calls.append(req)
+        return _FakeFuture(_fake_ik_result(out_of_range))
+    monkeypatch.setattr(node._compute_ik_client, 'call_async', _call_async)
+
+    assert node._compute_ik_within_panel_limits(PoseStamped()) is None
+    assert len(calls) == 3
 
 
 class _NullContext:

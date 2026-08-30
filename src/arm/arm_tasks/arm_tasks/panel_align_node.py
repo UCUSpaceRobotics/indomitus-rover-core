@@ -47,11 +47,11 @@ from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import (
     BoundingVolume, CollisionObject, Constraints, JointConstraint, MoveItErrorCodes,
     OrientationConstraint, PlanningOptions, PlanningScene, PlanningSceneWorld,
-    PositionConstraint,
+    PositionConstraint, PositionIKRequest,
 )
 from controller_manager_msgs.srv import SwitchController
 from indomitus_interfaces.srv import AcquireArmMotionLock, ReleaseArmMotionLock
-from moveit_msgs.srv import ApplyPlanningScene
+from moveit_msgs.srv import ApplyPlanningScene, GetPositionIK
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration as TfWaitDuration
@@ -133,18 +133,19 @@ PANEL_COLLISION_LOCAL_OFFSET = ((0.0, 0.013, 0.225), (0.0, 0.0, 0.0, 1.0))
 # panel's exact vertical center.
 DEFAULT_PANEL_CENTER_Z_OFFSET = 0.225  # PANEL_HEIGHT / 2 -- vertical center
 
-# Panel-task-specific joint bounds — narrower than the real hardware
-# limit (arm_macro.xacro's URDF <limit>, +-2pi on every joint, needed for
-# drill/home elsewhere). Matches develop's own pre-teleop-push-boost
-# arm_macro.xacro: arm_shoulder_forearm_joint and arm_forearm_wrist_1_joint
-# at +-pi/2, the rest at +-pi. Used for both the post-plan margin check
-# (step 7) and as OMPL path constraints (see
-# PANEL_JOINT_LIMIT_PATH_CONSTRAINTS below).
+# Panel-task-specific joint bounds. arm_forearm_wrist_1_joint matches
+# arm_macro.xacro's own real-hardware limit (+-200deg, not +-90 — a
+# strict +-pi/2 here made every standoff/z_offset combination
+# unreachable, confirmed live via an exhaustive sweep); the other 4
+# joints are further restricted than the real +-200deg hardware limit,
+# same rationale as arm_shoulder_forearm_joint's own +-pi/2. Used for
+# both the post-plan margin check (step 7) and as OMPL path constraints
+# (see PANEL_JOINT_LIMIT_PATH_CONSTRAINTS below).
 JOINT_LIMITS = {
     'arm_mount_base_joint': (-math.pi, math.pi),
     'arm_base_shoulder_joint': (-math.pi, math.pi),
     'arm_shoulder_forearm_joint': (-math.pi / 2, math.pi / 2),
-    'arm_forearm_wrist_1_joint': (-math.pi / 2, math.pi / 2),
+    'arm_forearm_wrist_1_joint': (-20 * math.pi / 18, 20 * math.pi / 18),
     'arm_wrist_1_wrist_2_joint': (-math.pi, math.pi),
     'arm_wrist_2_end_effector_joint': (-math.pi, math.pi),
 }
@@ -221,6 +222,17 @@ class PanelAlignNode(Node):
         # much tighter region — 5mm — or a "rotation" could also drift the
         # tip sideways within the shared 2cm sphere.
         self.declare_parameter('orient_gripper_position_tolerance', 0.005)
+        # OMPL's own goal-region sampler is unreliable once path_constraints
+        # (JOINT_LIMITS) are combined with a Cartesian pose goal — confirmed
+        # live: a target well within every joint's limit, comfortably
+        # solvable by a single /compute_ik call, still made the OMPL
+        # planner report "Insufficient states in sampleable goal region"
+        # every time. Solving IK ourselves first (this many tries, KDL's
+        # own random-restart doing the real work) and then planning a
+        # JOINT-space goal to that solution sidesteps the OMPL weakness
+        # entirely — same approach _align_to_remembered_locked already
+        # uses successfully for replay.
+        self.declare_parameter('live_align_ik_attempts', 8)
         # This 60s, summed with every other wait_for_service/server +
         # done.wait() in align_to_panel()'s sequence, must stay under
         # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
@@ -287,6 +299,8 @@ class PanelAlignNode(Node):
             self, ExecuteTrajectory, 'execute_trajectory', callback_group=cb_group)
         self._apply_scene_client = self.create_client(
             ApplyPlanningScene, 'apply_planning_scene', callback_group=cb_group)
+        self._compute_ik_client = self.create_client(
+            GetPositionIK, 'compute_ik', callback_group=cb_group)
         self._stop_servo_client = self.create_client(
             Trigger, 'servo_node/stop_servo', callback_group=cb_group)
         self._switch_controller_client = self.create_client(
@@ -457,10 +471,15 @@ class PanelAlignNode(Node):
         if collision_pose is not None and not self._apply_panel_collision_object(collision_pose):
             return self._fail('Could not insert panel CollisionObject into the planning scene.')
 
-        orient_tol = self.get_parameter('orient_gripper_orientation_tolerance').value
-        pos_tol = self.get_parameter('orient_gripper_position_tolerance').value
-        goal_constraints = self._build_pose_goal_constraints(
-            target_pose_msg, orient_tol=orient_tol, pos_tol=pos_tol)
+        # IK-then-joint-goal, not a Cartesian pose goal — same reason as
+        # _align_live_locked (see live_align_ik_attempts' comment).
+        ik_solution = self._compute_ik_within_panel_limits(target_pose_msg)
+        if ik_solution is None:
+            return self._fail(
+                'No IK solution within the panel task\'s own joint limits for this '
+                'orientation — aborting gripper orient.'
+            )
+        goal_constraints = self._build_joint_goal_constraints(ik_solution)
         plan_result = self._request_plan(goal_constraints)
         if plan_result is None:
             return self._fail('MoveGroup planning request timed out or was rejected.')
@@ -654,7 +673,15 @@ class PanelAlignNode(Node):
         if not self._apply_panel_collision_object(panel_pose_mount_msg):
             return self._fail('Could not insert panel CollisionObject into the planning scene.')
 
-        goal_constraints = self._build_pose_goal_constraints(target_pose_msg)
+        # IK-then-joint-goal, not a Cartesian pose goal — see
+        # live_align_ik_attempts' own comment for why.
+        ik_solution = self._compute_ik_within_panel_limits(target_pose_msg)
+        if ik_solution is None:
+            return self._fail(
+                'No IK solution within the panel task\'s own joint limits for this target '
+                '— out of reach at the current standoff/aim height.'
+            )
+        goal_constraints = self._build_joint_goal_constraints(ik_solution)
         plan_result = self._request_plan(goal_constraints)
         if plan_result is None:
             return self._fail('MoveGroup planning request timed out or was rejected.')
@@ -743,6 +770,47 @@ class PanelAlignNode(Node):
         if not done.wait(timeout=5.0):
             return False
         return bool(result.get('r') and result['r'].ok)
+
+    def _compute_ik_within_panel_limits(self, target_pose: PoseStamped) -> dict | None:
+        """Call /compute_ik repeatedly until a solution lands inside
+        JOINT_LIMITS, or attempts run out. Each call gets its own random
+        seed from KDL internally (no seed_state set here), so repeat
+        calls really do explore different branches — this is what makes
+        this reliable where OMPL's own combined pose-goal + path-
+        constraint sampling isn't (see live_align_ik_attempts' comment).
+        """
+        if not self._compute_ik_client.wait_for_service(timeout_sec=3.0):
+            self.get_logger().error('/compute_ik service not available')
+            return None
+
+        attempts = self.get_parameter('live_align_ik_attempts').value
+        for _ in range(attempts):
+            req = GetPositionIK.Request()
+            req.ik_request = PositionIKRequest(
+                group_name=GROUP_NAME, pose_stamped=target_pose, avoid_collisions=True)
+            req.ik_request.timeout.sec = 0
+            req.ik_request.timeout.nanosec = 200_000_000
+
+            done = threading.Event()
+            result = {}
+
+            def _cb(fut):
+                result['r'] = fut.result()
+                done.set()
+
+            self._compute_ik_client.call_async(req).add_done_callback(_cb)
+            if not done.wait(timeout=3.0):
+                continue
+            r = result.get('r')
+            if r is None or r.error_code.val != MoveItErrorCodes.SUCCESS:
+                continue
+
+            solution = dict(zip(r.solution.joint_state.name, r.solution.joint_state.position))
+            solution = {name: solution[name] for name in JOINT_LIMITS if name in solution}
+            if all(JOINT_LIMITS[name][0] <= pos <= JOINT_LIMITS[name][1]
+                   for name, pos in solution.items()):
+                return solution
+        return None
 
     def _apply_panel_collision_object(self, panel_pose: PoseStamped) -> bool:
         if not self._apply_scene_client.wait_for_service(timeout_sec=3.0):
