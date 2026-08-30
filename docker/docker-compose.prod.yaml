@@ -32,7 +32,7 @@ services:
       retries: 3
       start_period: 5s
     environment:
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
       - ROS_LOCALHOST_ONLY=0
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
