@@ -8,13 +8,28 @@ services, the ground station has latching switches and calls the SetBool ones
 with an absolute value. Neither keeps a copy, so neither can drift; both read
 the truth back off lights/state.
 
-Service: lights/spotlight         (std_srvs/srv/SetBool)  - absolute
-Service: lights/spotlight/toggle  (std_srvs/srv/Trigger)  - invert
-Service: lights/beautiful         (std_srvs/srv/SetBool)  - absolute
-Service: lights/beautiful/toggle  (std_srvs/srv/Trigger)  - invert
+Every light below (except /lights/traffic_light) is served by a matched pair:
+
+  Service: lights/<name>          (std_srvs/srv/SetBool)  - absolute
+  Service: lights/<name>/toggle   (std_srvs/srv/Trigger)  - invert
+
+  lights/spotlight        - both spotlight pins together
+  lights/spotlight_left   - left spotlight pin only
+  lights/spotlight_right  - right spotlight pin only
+  lights/beautiful        - decorative animation, all 4 pins
+  lights/beautiful_1..4   - one decorative pin, static (fights the animation
+                             if it is running - that is a firmware quirk, not
+                             something this node papers over)
+  lights/traffic_red      - traffic-head red pin only
+  lights/traffic_green    - traffic-head green pin only
+  lights/traffic_blue     - traffic-head blue pin only
+  lights/buzzer           - buzzer
+  lights/tower            - all three traffic-head pins together
+
 Service: lights/traffic_light     (indomitus_interfaces/srv/SetTrafficLight)
-  request:  int8 red/yellow/green/blue, each KEEP | OFF | ON
+  request:  int8 red/green/blue, each KEEP | OFF | ON
   response: bool success, string message
+  The traffic head is red/green/blue only - the firmware has no yellow LED.
 
 Topic:   lights/state             (indomitus_interfaces/msg/LightsState)
   Latched. Republished on a 2 Hz heartbeat so a console can tell live state
@@ -22,8 +37,9 @@ Topic:   lights/state             (indomitus_interfaces/msg/LightsState)
   operator's switch does not appear to lag - see _heartbeat and _publish_change.
 
 CAN TX (PC -> ESP32)  ID cmd_id:
-  Spotlight:     byte 0 = cmd_spotlight_on | cmd_spotlight_off
-  Traffic light: byte 0 = cmd_traffic_light, byte 1 = bitmask (R=bit0 Y=bit1 G=bit2 B=bit3)
+  Any single-pin light: byte 0 = cmd_<name>_on | cmd_<name>_off
+  Traffic light:        byte 0 = cmd_traffic_light, byte 1 = bitmask
+                         (R=bit0 G=bit1 B=bit2)
 
 CAN RX (ESP32 -> PC):
   ID resp_id  byte 0 = echo cmd, byte 1 = 0x00 OK | 0x01 ERROR
@@ -42,6 +58,8 @@ from indomitus_interfaces.srv import SetTrafficLight
 
 import threading
 from dataclasses import replace
+from functools import partial
+from typing import Callable, NamedTuple
 
 from rover_peripherals.lights_state import (
     LightsState,
@@ -49,6 +67,22 @@ from rover_peripherals.lights_state import (
     resolve_traffic,
     traffic_mask,
 )
+
+
+class LightSpec(NamedTuple):
+    """One SetBool/toggle-served light: what it is called on the wire, and
+    which LightsState fields flip together when it fires.
+
+    `toggle_from` reads the target off the current state - that is what makes
+    /toggle atomic: the read and the write both happen inside _can_lock, so
+    two toggles racing cannot both see the same 'before'.
+    """
+
+    label: str
+    on_cmd: int
+    off_cmd: int
+    fields: tuple
+    toggle_from: Callable[[LightsState], bool]
 
 
 class LightsCanNode(Node):
@@ -83,13 +117,7 @@ class LightsCanNode(Node):
         self._state_min_period = 0.05
         self._last_state_publish = 0.0
 
-        # LightsState field -> (log label, CAN 'on' command, CAN 'off' command).
-        # Both the SetBool and the /toggle handler for a light go through the
-        # same entry, so the two can never disagree about what they send.
-        self._bool_lights = {
-            "spotlight": ("SPOTLIGHT", self._cmd_spotlight_on, self._cmd_spotlight_off),
-            "beautiful": ("BEAUTIFUL_LIGHT", self._cmd_beautiful_on, self._cmd_beautiful_off),
-        }
+        self._lights = self._build_light_specs()
 
         # --- CAN pub/sub ---
         self._pub = self.create_publisher(Frame, "/to_can_bus", 10)
@@ -119,22 +147,20 @@ class LightsCanNode(Node):
         )
 
         # --- Services ---
-        self._spotlight_srv = self.create_service(
-            SetBool, "lights/spotlight", self._on_spotlight_request,
-            callback_group=self._service_cbg,
-        )
-        self._spotlight_toggle_srv = self.create_service(
-            Trigger, "lights/spotlight/toggle", self._on_spotlight_toggle,
-            callback_group=self._service_cbg,
-        )
-        self._beautiful_srv = self.create_service(
-            SetBool, "lights/beautiful", self._on_beautiful_request,
-            callback_group=self._service_cbg,
-        )
-        self._beautiful_toggle_srv = self.create_service(
-            Trigger, "lights/beautiful/toggle", self._on_beautiful_toggle,
-            callback_group=self._service_cbg,
-        )
+        # One SetBool + one Trigger per light in self._lights, both wired to
+        # the same LightSpec so they can never disagree about what they send.
+        self._light_services = {}
+        for name, spec in self._lights.items():
+            set_srv = self.create_service(
+                SetBool, f"lights/{name}", partial(self._on_light_set, name),
+                callback_group=self._service_cbg,
+            )
+            toggle_srv = self.create_service(
+                Trigger, f"lights/{name}/toggle", partial(self._on_light_toggle, name),
+                callback_group=self._service_cbg,
+            )
+            self._light_services[name] = (set_srv, toggle_srv)
+
         self._traffic_srv = self.create_service(
             SetTrafficLight, "lights/traffic_light", self._on_traffic_request,
             callback_group=self._service_cbg,
@@ -148,14 +174,16 @@ class LightsCanNode(Node):
 
         self._publish_state()
 
+        service_lines = "\n".join(
+            f"  /lights/{name:<16} (Service) - SetBool, absolute\n"
+            f"  /lights/{name}/toggle (Service) - Trigger, invert"
+            for name in self._lights
+        )
         self.get_logger().info(
             f"LightsCanNode ready\n"
             f"  CAN TX id=0x{self._cmd_id:03X}\n"
             f"  CAN RX id=0x{self._resp_id:03X}\n"
-            f"  /lights/spotlight         (Service) - SetBool, absolute\n"
-            f"  /lights/spotlight/toggle  (Service) - Trigger, invert\n"
-            f"  /lights/beautiful         (Service) - SetBool, absolute\n"
-            f"  /lights/beautiful/toggle  (Service) - Trigger, invert\n"
+            f"{service_lines}\n"
             f"  /lights/traffic_light     (Service) - per-colour KEEP/OFF/ON\n"
             f"  /lights/state             (Topic)   - latched, {self._state_pub_rate} Hz + on change\n"
         )
@@ -170,11 +198,33 @@ class LightsCanNode(Node):
         self.declare_parameter("can.cmd_spotlight_on",    0x01)
         self.declare_parameter("can.cmd_spotlight_off",   0x02)
         self.declare_parameter("can.cmd_traffic_light",   0x03)
+        self.declare_parameter("can.cmd_beautiful_light_on",  0x04)
+        self.declare_parameter("can.cmd_beautiful_light_off", 0x05)
+        self.declare_parameter("can.cmd_red_on",           0x06)
+        self.declare_parameter("can.cmd_red_off",          0x07)
+        self.declare_parameter("can.cmd_green_on",         0x08)
+        self.declare_parameter("can.cmd_green_off",        0x09)
+        self.declare_parameter("can.cmd_blue_on",          0x0A)
+        self.declare_parameter("can.cmd_blue_off",         0x0B)
+        self.declare_parameter("can.cmd_buzzer_on",        0x0C)
+        self.declare_parameter("can.cmd_buzzer_off",       0x0D)
+        self.declare_parameter("can.cmd_spotlight_left_on",   0x20)
+        self.declare_parameter("can.cmd_spotlight_left_off",  0x21)
+        self.declare_parameter("can.cmd_spotlight_right_on",  0x22)
+        self.declare_parameter("can.cmd_spotlight_right_off", 0x23)
+        self.declare_parameter("can.cmd_beautiful_1_on",   0x24)
+        self.declare_parameter("can.cmd_beautiful_1_off",  0x25)
+        self.declare_parameter("can.cmd_beautiful_2_on",   0x26)
+        self.declare_parameter("can.cmd_beautiful_2_off",  0x27)
+        self.declare_parameter("can.cmd_beautiful_3_on",   0x28)
+        self.declare_parameter("can.cmd_beautiful_3_off",  0x29)
+        self.declare_parameter("can.cmd_beautiful_4_on",   0x2A)
+        self.declare_parameter("can.cmd_beautiful_4_off",  0x2B)
+        self.declare_parameter("can.cmd_tower_on",         0x2C)
+        self.declare_parameter("can.cmd_tower_off",        0x2D)
         self.declare_parameter("can.status_ok",           0x00)
         self.declare_parameter("can.status_error",        0x01)
         self.declare_parameter("timeouts.ack_s",          2.0)
-        self.declare_parameter("can.cmd_beautiful_light_on",  0x04)
-        self.declare_parameter("can.cmd_beautiful_light_off", 0x05)
         # Capped low on purpose: lights/state crosses the Wi-Fi link to the
         # ground station, and nothing downstream needs it faster than the
         # joystick repaints its light bar.
@@ -186,12 +236,85 @@ class LightsCanNode(Node):
         self._cmd_spotlight_on   = self.get_parameter("can.cmd_spotlight_on").value
         self._cmd_spotlight_off  = self.get_parameter("can.cmd_spotlight_off").value
         self._cmd_traffic_light  = self.get_parameter("can.cmd_traffic_light").value
+        self._cmd_beautiful_on   = self.get_parameter("can.cmd_beautiful_light_on").value
+        self._cmd_beautiful_off  = self.get_parameter("can.cmd_beautiful_light_off").value
+        self._cmd_red_on         = self.get_parameter("can.cmd_red_on").value
+        self._cmd_red_off        = self.get_parameter("can.cmd_red_off").value
+        self._cmd_green_on       = self.get_parameter("can.cmd_green_on").value
+        self._cmd_green_off      = self.get_parameter("can.cmd_green_off").value
+        self._cmd_blue_on        = self.get_parameter("can.cmd_blue_on").value
+        self._cmd_blue_off       = self.get_parameter("can.cmd_blue_off").value
+        self._cmd_buzzer_on      = self.get_parameter("can.cmd_buzzer_on").value
+        self._cmd_buzzer_off     = self.get_parameter("can.cmd_buzzer_off").value
+        self._cmd_spotlight_left_on   = self.get_parameter("can.cmd_spotlight_left_on").value
+        self._cmd_spotlight_left_off  = self.get_parameter("can.cmd_spotlight_left_off").value
+        self._cmd_spotlight_right_on  = self.get_parameter("can.cmd_spotlight_right_on").value
+        self._cmd_spotlight_right_off = self.get_parameter("can.cmd_spotlight_right_off").value
+        self._cmd_beautiful_1_on  = self.get_parameter("can.cmd_beautiful_1_on").value
+        self._cmd_beautiful_1_off = self.get_parameter("can.cmd_beautiful_1_off").value
+        self._cmd_beautiful_2_on  = self.get_parameter("can.cmd_beautiful_2_on").value
+        self._cmd_beautiful_2_off = self.get_parameter("can.cmd_beautiful_2_off").value
+        self._cmd_beautiful_3_on  = self.get_parameter("can.cmd_beautiful_3_on").value
+        self._cmd_beautiful_3_off = self.get_parameter("can.cmd_beautiful_3_off").value
+        self._cmd_beautiful_4_on  = self.get_parameter("can.cmd_beautiful_4_on").value
+        self._cmd_beautiful_4_off = self.get_parameter("can.cmd_beautiful_4_off").value
+        self._cmd_tower_on       = self.get_parameter("can.cmd_tower_on").value
+        self._cmd_tower_off      = self.get_parameter("can.cmd_tower_off").value
         self._status_ok          = self.get_parameter("can.status_ok").value
         self._status_error       = self.get_parameter("can.status_error").value
         self._ack_timeout        = self.get_parameter("timeouts.ack_s").value
-        self._cmd_beautiful_on  = self.get_parameter("can.cmd_beautiful_light_on").value
-        self._cmd_beautiful_off = self.get_parameter("can.cmd_beautiful_light_off").value
-        self._state_pub_rate    = float(self.get_parameter("state_pub_rate").value)
+        self._state_pub_rate     = float(self.get_parameter("state_pub_rate").value)
+
+    def _build_light_specs(self) -> dict:
+        """Every SetBool/toggle-served light, keyed by its `lights/<name>` name.
+
+        `spotlight` and `tower` are the only entries whose `fields` names more
+        than one LightsState field - they drive several pins from one CAN
+        command, same as the firmware does.
+        """
+        return {
+            "spotlight": LightSpec(
+                "SPOTLIGHT", self._cmd_spotlight_on, self._cmd_spotlight_off,
+                ("spotlight_left", "spotlight_right"),
+                lambda s: not (s.spotlight_left and s.spotlight_right)),
+            "spotlight_left": LightSpec(
+                "SPOTLIGHT_LEFT", self._cmd_spotlight_left_on, self._cmd_spotlight_left_off,
+                ("spotlight_left",), lambda s: not s.spotlight_left),
+            "spotlight_right": LightSpec(
+                "SPOTLIGHT_RIGHT", self._cmd_spotlight_right_on, self._cmd_spotlight_right_off,
+                ("spotlight_right",), lambda s: not s.spotlight_right),
+            "beautiful": LightSpec(
+                "BEAUTIFUL_LIGHT", self._cmd_beautiful_on, self._cmd_beautiful_off,
+                ("beautiful",), lambda s: not s.beautiful),
+            "beautiful_1": LightSpec(
+                "BEAUTIFUL_1", self._cmd_beautiful_1_on, self._cmd_beautiful_1_off,
+                ("beautiful_1",), lambda s: not s.beautiful_1),
+            "beautiful_2": LightSpec(
+                "BEAUTIFUL_2", self._cmd_beautiful_2_on, self._cmd_beautiful_2_off,
+                ("beautiful_2",), lambda s: not s.beautiful_2),
+            "beautiful_3": LightSpec(
+                "BEAUTIFUL_3", self._cmd_beautiful_3_on, self._cmd_beautiful_3_off,
+                ("beautiful_3",), lambda s: not s.beautiful_3),
+            "beautiful_4": LightSpec(
+                "BEAUTIFUL_4", self._cmd_beautiful_4_on, self._cmd_beautiful_4_off,
+                ("beautiful_4",), lambda s: not s.beautiful_4),
+            "traffic_red": LightSpec(
+                "TRAFFIC_RED", self._cmd_red_on, self._cmd_red_off,
+                ("traffic_red",), lambda s: not s.traffic_red),
+            "traffic_green": LightSpec(
+                "TRAFFIC_GREEN", self._cmd_green_on, self._cmd_green_off,
+                ("traffic_green",), lambda s: not s.traffic_green),
+            "traffic_blue": LightSpec(
+                "TRAFFIC_BLUE", self._cmd_blue_on, self._cmd_blue_off,
+                ("traffic_blue",), lambda s: not s.traffic_blue),
+            "buzzer": LightSpec(
+                "BUZZER", self._cmd_buzzer_on, self._cmd_buzzer_off,
+                ("buzzer",), lambda s: not s.buzzer),
+            "tower": LightSpec(
+                "TOWER", self._cmd_tower_on, self._cmd_tower_off,
+                ("traffic_red", "traffic_green", "traffic_blue"),
+                lambda s: not (s.traffic_red and s.traffic_green and s.traffic_blue)),
+        }
 
     # =======================================================================
     # State topic
@@ -211,12 +334,17 @@ class LightsCanNode(Node):
         self._last_state_publish = self._now_seconds()
 
         msg = LightsStateMsg()
-        msg.spotlight      = state.spotlight
-        msg.beautiful      = state.beautiful
-        msg.traffic_red    = state.traffic_red
-        msg.traffic_yellow = state.traffic_yellow
-        msg.traffic_green  = state.traffic_green
-        msg.traffic_blue   = state.traffic_blue
+        msg.spotlight_left  = state.spotlight_left
+        msg.spotlight_right = state.spotlight_right
+        msg.beautiful       = state.beautiful
+        msg.beautiful_1     = state.beautiful_1
+        msg.beautiful_2     = state.beautiful_2
+        msg.beautiful_3     = state.beautiful_3
+        msg.beautiful_4     = state.beautiful_4
+        msg.traffic_red     = state.traffic_red
+        msg.traffic_green   = state.traffic_green
+        msg.traffic_blue    = state.traffic_blue
+        msg.buzzer          = state.buzzer
         self._state_pub.publish(msg)
 
     def _now_seconds(self) -> float:
@@ -244,47 +372,38 @@ class LightsCanNode(Node):
     # Services
     # =======================================================================
 
-    def _on_spotlight_request(self, request, response):
-        return self._apply_bool_light(
-            "spotlight", lambda _state: request.data, response)
+    def _on_light_set(self, name: str, request, response):
+        return self._apply_light(
+            self._lights[name], lambda _state: request.data, response)
 
-    def _on_spotlight_toggle(self, request, response):
-        return self._apply_bool_light(
-            "spotlight", lambda state: not state.spotlight, response)
+    def _on_light_toggle(self, name: str, request, response):
+        spec = self._lights[name]
+        return self._apply_light(spec, spec.toggle_from, response)
 
-    def _on_beautiful_request(self, request, response):
-        return self._apply_bool_light(
-            "beautiful", lambda _state: request.data, response)
-
-    def _on_beautiful_toggle(self, request, response):
-        return self._apply_bool_light(
-            "beautiful", lambda state: not state.beautiful, response)
-
-    def _apply_bool_light(self, field: str, desired_from, response):
-        """Drive one on/off light.
+    def _apply_light(self, spec: LightSpec, desired_from, response):
+        """Drive one light, or a group of pins one CAN command fans out to.
 
         `desired_from` reads the target off the current state, which is what
         makes a toggle atomic: the read and the write both happen inside
         _can_lock, so two toggles racing cannot both see the same 'before'.
         """
-        label, on_cmd, off_cmd = self._bool_lights[field]
-
         with self._can_lock:
             desired = bool(desired_from(self._state))
             state_str = "ON" if desired else "OFF"
-            self.get_logger().info(f"Service call: {label} {state_str}")
+            self.get_logger().info(f"Service call: {spec.label} {state_str}")
 
-            cmd = on_cmd if desired else off_cmd
+            cmd = spec.on_cmd if desired else spec.off_cmd
             ok, status = self._send_and_wait(cmd, [cmd])
 
             if ok and status == self._status_ok:
-                self._commit(replace(self._state, **{field: desired}))
+                changes = {field: desired for field in spec.fields}
+                self._commit(replace(self._state, **changes))
                 response.success = True
-                response.message = f"{label} {state_str} OK"
+                response.message = f"{spec.label} {state_str} OK"
             else:
                 response.success = False
                 response.message = (
-                    f"{label} {state_str} FAIL"
+                    f"{spec.label} {state_str} FAIL"
                     + (" (timeout)" if not ok else " (ESP32 error)")
                 )
 
@@ -296,7 +415,6 @@ class LightsCanNode(Node):
                 desired = resolve_traffic(
                     self._state,
                     red=request.red,
-                    yellow=request.yellow,
                     green=request.green,
                     blue=request.blue,
                 )
