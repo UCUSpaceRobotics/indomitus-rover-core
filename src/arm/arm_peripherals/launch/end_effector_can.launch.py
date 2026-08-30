@@ -12,7 +12,7 @@ def generate_launch_description():
             description=(
                 "Which tool is physically mounted right now: 'jaw', "
                 "'drill_sampling', or 'astrobio' — see arm_macro.xacro. "
-                'Match this to demo.launch.py end_effector:=...'
+                'Match this to arm_bringup/arm.launch.py end_effector:=...'
             ),
         ),
         DeclareLaunchArgument(

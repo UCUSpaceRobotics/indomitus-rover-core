@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-<name>arm_tasks</name>
+<name>arm_teleop</name>
 <version>0.0.0</version>
 <description>
-    Task-level automation for the Indomitus arm (panel alignment, pose teaching, collision debugging) — pure ROS clients against the /arm stack, no direct hardware access.
+    Direct operator control of the Indomitus arm (keyboard + gamepad teleop), mirroring rover_teleop's split from task-level nodes.
 </description>
 <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
 <license>MIT</license>
@@ -28,12 +28,12 @@
 
 <exec_depend>arm_description</exec_depend>
 
-<exec_depend>arm_teleop</exec_depend>
-
 <exec_depend>launch</exec_depend>
 <exec_depend>launch_ros</exec_depend>
+<exec_depend>joy</exec_depend>
 <exec_depend>python3-numpy</exec_depend>
 <exec_depend>python3-scipy</exec_depend>
+<exec_depend>python3-evdev</exec_depend>
 
 <test_depend>ament_copyright</test_depend>
 <test_depend>ament_flake8</test_depend>

@@ -13,7 +13,7 @@ from moveit_msgs.msg import MoveItErrorCodes, RobotTrajectory
 from rclpy.parameter import Parameter
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from arm_tasks.arm_motion_lock import ArmMotionBusy
+from arm_teleop.arm_motion_lock import ArmMotionBusy
 from arm_tasks.panel_align_node import JOINT_LIMITS, PanelAlignNode
 
 

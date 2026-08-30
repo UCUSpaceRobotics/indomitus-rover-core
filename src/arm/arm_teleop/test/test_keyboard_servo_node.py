@@ -17,7 +17,7 @@ from geometry_msgs.msg import PoseStamped
 from rclpy.duration import Duration
 from sensor_msgs.msg import JointState, Joy
 
-from arm_tasks.keyboard_servo_node import (
+from arm_teleop.keyboard_servo_node import (
     GRIPPER_JOINT_NAME,
     HOME_POSE_JOINTS,
     GamepadInputLoop,

@@ -11,9 +11,9 @@
 
 | Mode | Launch | Use case |
 |---|---|---|
-| GUI-only RViz | `arm_bringup/arm_standalone.launch.py gui_only:=true` | Inspect URDF / joint sliders — **no** motors, **no** ros2_control |
-| MoveIt stack | `arm_moveit_config/demo.launch.py` | Plan&Execute + `servo_node` |
-| Cartesian teleop | `ros2 run arm_tasks keyboard_servo_node` | After demo is up; gamepad: `arm_tasks/gamepad.launch.py` |
+| GUI-only RViz | `arm_viz/urdf_preview.launch.py` | Inspect URDF / joint sliders — **no** motors, **no** ros2_control |
+| MoveIt stack | `arm_bringup/arm.launch.py` | Plan&Execute + `servo_node` |
+| Cartesian teleop | `ros2 run arm_teleop keyboard_servo_node` | After demo is up; gamepad: `arm_teleop/gamepad.launch.py` |
 
 On the host (for RViz):
 
@@ -37,16 +37,16 @@ sudo ip link set can0 txqueuelen 1000
 Terminal 1 — MoveIt + controllers + Servo:
 
 ```bash
-ros2 launch arm_moveit_config demo.launch.py use_fake_hardware:=false
+ros2 launch arm_bringup arm.launch.py use_fake_hardware:=false
 ```
 
 Runs **headless by default** (works on the Jetson, no display). To watch live, on a laptop (same `ROS_DOMAIN_ID`):
 
 ```bash
-ros2 launch arm_viz rviz.launch.py
+ros2 launch arm_viz moveit_rviz.launch.py
 ```
 
-`demo.launch.py` also brings up its own `ros2_socketcan` bridge for the
+`arm.launch.py` also brings up its own `ros2_socketcan` bridge for the
 end-effector tool's CAN traffic by default (`bring_up_can_bridge:=true`,
 see `arm_peripherals/end_effector_can_node.py`). If the arm is mounted on
 the rover and `rover.launch.py` is already running, it already brought up a
@@ -57,13 +57,13 @@ here to avoid a second bridge colliding on the `socket_can_sender`/
 Terminal 2 — keyboard (wait until spawners / `servo_node` are up):
 
 ```bash
-ros2 run arm_tasks keyboard_servo_node
+ros2 run arm_teleop keyboard_servo_node
 ```
 
 Gamepad instead of keyboard:
 
 ```bash
-ros2 launch arm_tasks gamepad.launch.py
+ros2 launch arm_teleop gamepad.launch.py
 ```
 Starts `game_controller_node` (not `joy_node`) — canonical SDL button/axis
 mapping, stable across machines/controllers, instead of joy_node's raw
@@ -73,8 +73,8 @@ As of this change, `gamepad.launch.py` no longer touches CAN directly — the
 end-effector's CAN link now lives in a plain node (`arm_peripherals`, the
 same `can_msgs/Frame`-over-`ros2_socketcan` pattern `rover_peripherals`'s
 lighting node already uses for the rover's own ESP32 peripherals), spawned
-by `demo.launch.py` itself. So `gamepad.launch.py` can now run on a
-**separate machine** (e.g. a laptop) from `demo.launch.py`, the same way
+by `arm.launch.py` itself. So `gamepad.launch.py` can now run on a
+**separate machine** (e.g. a laptop) from `arm.launch.py`, the same way
 `rover_teleop/joy.launch.py` already runs separately from the rover's own
 bringup — provided both machines share the same `ROS_DOMAIN_ID` and have
 working DDS discovery between them (same requirement as the optional RViz
@@ -134,7 +134,7 @@ If the shift button does nothing on your pad, the node logs the complete `/joy` 
 Press the physical R1 alone, read which index actually flips in the `buttons[...]` list (not just whatever this doc or the default says), and pass it:
 
 ```bash
-ros2 run arm_tasks gamepad_servo_node --ros-args -p gamepad_shift_button:=10
+ros2 run arm_teleop gamepad_servo_node --ros-args -p gamepad_shift_button:=10
 ```
 
 **Rotation naming is from the camera's point of view, not the TCP axis letters.** TCP `+X` is the camera's left-right axis → **pitch** (`wx`), TCP `+Y` its vertical axis → **yaw** (`wy`), TCP `+Z` its line of sight → **roll** (`wz`).
@@ -145,12 +145,12 @@ Gamepad mapping stays in `gamepad_servo_node`, not `teleop_twist_joy`: that pack
 
 ### 4. Shutdown / releasing the arm
 
-Ctrl+C on `demo.launch.py` (or exiting teleop) does **not** torque-disable the motors. `ArmCanSystem::on_deactivate`/`on_shutdown` leave them **holding** the last command, not free: Steadywin (mount/shoulder/elbow) keeps executing its last MIT command indefinitely with no ROS process required, and Damiao (wrists) only goes limp once its own comm-loss watchdog trips, some time after CAN traffic actually stops. Do not assume Ctrl+C means the arm is safe to let go of.
+Ctrl+C on `arm.launch.py` (or exiting teleop) does **not** torque-disable the motors. `ArmCanSystem::on_deactivate`/`on_shutdown` leave them **holding** the last command, not free: Steadywin (mount/shoulder/elbow) keeps executing its last MIT command indefinitely with no ROS process required, and Damiao (wrists) only goes limp once its own comm-loss watchdog trips, some time after CAN traffic actually stops. Do not assume Ctrl+C means the arm is safe to let go of.
 
 To actually release it:
 
 1. **Support the arm** — it has no gravity compensation once disabled and will sag/fall under its own weight.
-2. Stop teleop (Esc/x/X), then Ctrl+C `demo.launch.py`.
+2. Stop teleop (Esc/x/X), then Ctrl+C `arm.launch.py`.
 3. Run:
    ```bash
    python3 scripts/arm/disable_motors.py
@@ -182,21 +182,21 @@ Before **Plan & Execute** in RViz: stop teleop (exit the input node) so JTC owns
 ## Fake hardware (no CAN)
 
 ```bash
-ros2 launch arm_moveit_config demo.launch.py use_fake_hardware:=true
-ros2 run arm_tasks keyboard_servo_node
+ros2 launch arm_bringup arm.launch.py use_fake_hardware:=true
+ros2 run arm_teleop keyboard_servo_node
 ```
 
 ## GUI-only (no control)
 
 ```bash
-ros2 launch arm_bringup arm_standalone.launch.py gui_only:=true
+ros2 launch arm_viz urdf_preview.launch.py
 ```
 
 ## Named poses
 
 SRDF group states: `home`, `ready`, `experiment` (RViz Goal State).
 
-Also `src/arm/arm_tasks/poses.json` — used by **r** / **A** and:
+Also `src/arm/arm_teleop/poses.json` — used by **r** / **A** and:
 
 ```bash
 ros2 run arm_tasks teach_poses goto home

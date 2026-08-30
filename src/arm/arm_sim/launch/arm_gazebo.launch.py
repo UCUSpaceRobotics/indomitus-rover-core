@@ -28,7 +28,7 @@ from moveit_configs_utils.launches import generate_move_group_launch
 def _arg_from_argv(name: str, default: str) -> str:
     """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro
     path — LaunchConfiguration ones desync across sub-launches. Same
-    helper/reasoning as demo.launch.py's own.
+    helper/reasoning as arm_bringup/arm.launch.py's own.
     """
     prefix = f"{name}:="
     for arg in sys.argv:
@@ -257,7 +257,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # Streaming teleop controller, spawned inactive — JTC owns the joints
-    # until arm_tasks switches controllers for Servo. Mirrors demo.launch.py;
+    # until arm_teleop switches controllers for Servo. Mirrors arm_bringup/arm.launch.py;
     # a separate spawner call because --inactive applies to the whole call.
     forward_spawner = Node(
         package="controller_manager",
@@ -351,7 +351,7 @@ def generate_launch_description() -> LaunchDescription:
         servo_yaml = yaml.safe_load(f)
     servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
 
-    # Inverse Jacobian only — see demo.launch.py (KDL searchPositionIK
+    # Inverse Jacobian only — see arm_bringup/arm.launch.py (KDL searchPositionIK
     # from home makes +X teleop freeze while -X still works).
     servo_node = Node(
         package="moveit_servo",

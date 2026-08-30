@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from arm_tasks.arm_motion_lock import ArmMotionBusy, arm_motion_lock
+from arm_teleop.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 
 
 def test_acquire_and_release_within_one_process():

@@ -12,28 +12,28 @@ For **hardware + joystick teleop** (streaming Servo), see **[arm_teleop.md](arm_
 
 | Mode | Launch file | Use case |
 |---|---|---|
-| Standalone visualization | `arm_bringup/arm_standalone.launch.py` | Quick URDF/mesh checks, manual joint testing via GUI |
-| MoveIt stack | `arm_moveit_config/demo.launch.py` | Planning, Execute, Servo node |
-| Cartesian teleop | `ros2 run arm_tasks keyboard_servo_node` | After demo; see [arm_teleop.md](arm_teleop.md) |
+| Standalone visualization | `arm_viz/urdf_preview.launch.py` | Quick URDF/mesh checks, manual joint testing via GUI |
+| MoveIt stack | `arm_bringup/arm.launch.py` | Planning, Execute, Servo node |
+| Cartesian teleop | `ros2 run arm_teleop keyboard_servo_node` | After demo; see [arm_teleop.md](arm_teleop.md) |
 
 ### Standalone Visualization
 
 1. On the **host**: `xhost +local:docker`
 2. In the container:
    ```bash
-   ros2 launch arm_bringup arm_standalone.launch.py gui_only:=true
+   ros2 launch arm_viz urdf_preview.launch.py
    ```
 
 Sliders only — no ros2_control / CAN. For control without planning:
 ```bash
-ros2 launch arm_bringup arm_standalone.launch.py use_fake_hardware:=true
+ros2 launch arm_bringup arm.launch.py use_fake_hardware:=true
 ```
 
 ### MoveIt demo
 
 ```bash
-ros2 launch arm_moveit_config demo.launch.py          # fake hardware
-ros2 run arm_tasks keyboard_servo_node
+ros2 launch arm_bringup arm.launch.py          # fake hardware
+ros2 run arm_teleop keyboard_servo_node
 ```
 
 Runs headless by default — see [arm_teleop.md](arm_teleop.md) for visualization.
@@ -44,7 +44,7 @@ Press **r** (keyboard) or **A** (gamepad) to go **home** and start Servo.
 
 If teleop still feels like each joint “steps then stops”, rebuild
 `arm_hardware_interface` (MIT velocity feedforward from position Δ) and
-restart `demo.launch`.
+restart `arm.launch`.
 
 #### Fake Hardware vs. Real Hardware
 

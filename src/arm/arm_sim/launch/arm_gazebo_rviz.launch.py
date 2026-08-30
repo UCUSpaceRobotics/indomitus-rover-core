@@ -14,7 +14,7 @@ from moveit_configs_utils.launches import generate_moveit_rviz_launch
 def _arg_from_argv(name: str, default: str) -> str:
     """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro
     path — LaunchConfiguration ones desync across sub-launches. Same
-    helper/reasoning as arm_moveit_config/launch/demo.launch.py's own.
+    helper/reasoning as arm_bringup/launch/arm.launch.py's own.
     """
     prefix = f"{name}:="
     for arg in sys.argv:
@@ -29,7 +29,7 @@ def generate_launch_description() -> LaunchDescription:
     Thin wrapper: includes arm_gazebo.launch.py unchanged (Gazebo,
     ros2_control, move_group, servo) and adds the same RViz setup that
     arm_moveit_config's moveit_rviz.launch.py provides. Use this instead
-    of running demo.launch.py next to Gazebo — demo.launch.py starts its
+    of running arm_bringup/arm.launch.py next to Gazebo — arm.launch.py starts its
     own mock-hardware controller_manager, which conflicts with the
     Gazebo-backed one (duplicate /joint_states publishers).
     """

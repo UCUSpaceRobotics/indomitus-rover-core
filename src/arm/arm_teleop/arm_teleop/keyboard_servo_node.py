@@ -61,16 +61,16 @@ about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
     X                — exit
 
 Usage (stack in one terminal, input in another):
-        ros2 launch arm_moveit_config demo.launch.py use_fake_hardware:=false
-        ros2 run arm_tasks keyboard_servo_node
+        ros2 launch arm_bringup arm.launch.py use_fake_hardware:=false
+        ros2 run arm_teleop keyboard_servo_node
         # optional: pin a device — ros2 run ... --ros-args -p keyboard_device_path:=/dev/input/event19
 
     Gazebo sim (sim clock + faster speeds, see arm_sim/config/keyboard_servo_sim.yaml):
-        ros2 run arm_tasks keyboard_servo_node --ros-args \\
+        ros2 run arm_teleop keyboard_servo_node --ros-args \\
             --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
 
     Gamepad only:
-        ros2 launch arm_tasks gamepad.launch.py
+        ros2 launch arm_teleop gamepad.launch.py
 """
 
 import sys
@@ -106,7 +106,7 @@ from indomitus_interfaces.msg import EndEffectorState
 import evdev
 from evdev import ecodes
 
-from arm_tasks.arm_motion_lock import ArmMotionBusy, arm_motion_lock
+from arm_teleop.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 
 
 DEFAULT_LINEAR_SPEED  = 0.6
@@ -179,12 +179,12 @@ HOME_POSE_JOINTS = [
 def _load_home_pose_from_json(pose_name='home'):
     """Return ``pose_name`` joint positions from poses.json, or None if unavailable."""
     candidates = [
-        Path('/opt/ws/src/arm/arm_tasks/poses.json'),
+        Path('/opt/ws/src/arm/arm_teleop/poses.json'),
         Path(__file__).resolve().parent.parent / 'poses.json',
     ]
     try:
         from ament_index_python.packages import get_package_share_directory
-        share = Path(get_package_share_directory('arm_tasks')) / 'poses.json'
+        share = Path(get_package_share_directory('arm_teleop')) / 'poses.json'
         candidates.insert(0, share)
     except Exception:
         pass
@@ -2220,7 +2220,7 @@ class GamepadInputLoop:
     subscription to the ``joy`` package's ``/joy`` topic — as this module's
     docstring already promises, ``ServoController`` itself needs no changes.
 
-    Launch via ``arm_tasks/launch/gamepad.launch.py``, which starts
+    Launch via ``arm_teleop/launch/gamepad.launch.py``, which starts
     ``game_controller_node`` (not plain ``joy_node``): it maps raw HID
     reports through SDL's GameController DB into a fixed canonical index
     order (A=0, X=2, LEFTSHOULDER=9, RIGHTSHOULDER=10, DPAD_UP=11,
@@ -2893,7 +2893,7 @@ def main():
 def main_gamepad():
     """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
 
-    Requires a running ``joy`` publisher — see ``arm_tasks/launch/gamepad.launch.py``.
+    Requires a running ``joy`` publisher — see ``arm_teleop/launch/gamepad.launch.py``.
     See ``_run_teleop`` for the shared spin/cleanup lifecycle.
     """
     rclpy.init()

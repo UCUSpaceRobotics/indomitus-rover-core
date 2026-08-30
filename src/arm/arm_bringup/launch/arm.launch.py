@@ -1,9 +1,13 @@
 """
-Launch file for MoveIt demo + moveit_servo.
+Real top-level bringup for the Indomitus arm: MoveIt (move_group) +
+moveit_servo, controllers, and (optionally) the on-rover half of gamepad
+teleop — all under one launch command, headless by default. Lives in
+arm_bringup rather than arm_moveit_config so that package can stay pure
+MoveIt-Setup-Assistant-generated config/launch, safe to regenerate.
 
 Servo streams joint *positions* (Float64MultiArray) to
 indomitus_arm_forward_position_controller. That controller is spawned
-inactive; arm_tasks switches JTC <-> forward around home / start_servo.
+inactive; arm_teleop switches JTC <-> forward around home / start_servo.
 
 servo_node still waits until indomitus_arm_controller (JTC) has been
 spawned successfully so /joint_states and the hardware stack are up.
@@ -87,14 +91,36 @@ def generate_launch_description() -> LaunchDescription:
     )
     bring_up_can_bridge = LaunchConfiguration("bring_up_can_bridge")
 
+    # Default false: collision_link_reporter lives in arm_tasks, which is
+    # excluded from the Jetson production image (see docker/Dockerfile's
+    # SIMULATION_PKGS — arm_tasks's remaining nodes are pure network clients
+    # meant to run from a dev/ground-station container, not on the Jetson
+    # itself). A plain Jetson run of this launch file must not try to spawn
+    # a node from a package that was never built into that image; opt in
+    # explicitly with report_collisions:=true only when running from a
+    # container that actually has arm_tasks built (e.g. the dev/GS one).
     declare_report_collisions_cmd = DeclareLaunchArgument(
         "report_collisions",
-        default_value="true",
+        default_value="false",
         description=(
             "Run collision_link_reporter alongside move_group — logs exactly "
             "which link pair is in contact (via /check_state_validity) "
             "whenever the current pose goes invalid. Read-only, cheap "
-            "(2 Hz polling); set false to silence it."
+            "(2 Hz polling). Requires arm_tasks to be built on this machine "
+            "(it is NOT part of the Jetson production image); leave false "
+            "there and enable only from a dev/ground-station container."
+        ),
+    )
+
+    declare_bring_up_gamepad_cmd = DeclareLaunchArgument(
+        "bring_up_gamepad",
+        default_value="true",
+        description=(
+            "Also bring up gamepad_servo_node (the rover-side half of "
+            "gamepad teleop) here, so this one launch covers arm + on-rover "
+            "gamepad control. The laptop-side half (joystick input) is "
+            "still `arm_teleop/launch/gamepad_joy.launch.py`, run "
+            "separately on the other machine."
         ),
     )
 
@@ -197,7 +223,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # Load the streaming teleop controller inactive — JTC owns the joints until
-    # arm_tasks switches controllers for Servo.
+    # arm_teleop switches controllers for Servo.
     forward_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -244,58 +270,6 @@ def generate_launch_description() -> LaunchDescription:
         ])),
     )
 
-    # Standalone RViz, deliberately OUTSIDE arm_group (not namespaced): the
-    # MotionPlanning panel's own internal MoveGroupInterface concatenates
-    # "Move Group Namespace" (moveit.rviz: "arm") onto whatever namespace
-    # rviz2 itself already has. Put rviz2 under /arm too (like the old
-    # use_rviz path below still does) and every one of ITS OWN connections
-    # (get_planning_scene, attached_collision_object, trajectory_execution_event,
-    # its interactive marker topic) doubles up to /arm/arm/... and silently
-    # fails — confirmed live via `ros2 topic list` showing exactly those 4
-    # topics doubled while everything else was a clean single /arm/. Plan/
-    # Execute never worked over there because of this. Passing
-    # robot_description(+semantic) directly as parameters here (not relying
-    # on the /arm/robot_description topic) avoids a separate, unrelated
-    # startup-race timeout the topic-based path hit in a plain standalone
-    # `ros2 run rviz2` test.
-    declare_rviz_standalone_cmd = DeclareLaunchArgument(
-        "rviz_standalone",
-        default_value="false",
-        description=(
-            "Launch RViz un-namespaced (moveit.rviz's own 'Move Group "
-            "Namespace: arm' points it at the arm) instead of use_rviz's "
-            "in-/arm copy — use this one, Plan/Execute are broken in the "
-            "other from double-namespacing. See the comment just above."
-        ),
-    )
-    standalone_rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        arguments=["-d", os.path.join(
-            get_package_share_directory("arm_moveit_config"), "config", "moveit.rviz")],
-        parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-        ],
-        # Several internal moveit_ros_visualization sub-displays (Scene Robot's
-        # own planning-scene monitor, the Scene Objects tab, current_state_monitor)
-        # use bare topic names, ignoring "Move Group Namespace" entirely — confirmed
-        # live via `ros2 topic list` showing all of these duplicated at the bare
-        # root name alongside the real /arm/ one. current_state_monitor's
-        # 'joint_states' even crashed rviz2 (segfault) when it resolved to the
-        # nonexistent root /joint_states.
-        remappings=[
-            ("joint_states", "arm/joint_states"),
-            ("monitored_planning_scene", "arm/monitored_planning_scene"),
-            ("planning_scene", "arm/planning_scene"),
-            ("planning_scene_world", "arm/planning_scene_world"),
-            ("display_planned_path", "arm/display_planned_path"),
-            ("recognized_object_array", "arm/recognized_object_array"),
-        ],
-        output="screen",
-        condition=IfCondition(LaunchConfiguration("rviz_standalone")),
-    )
-
     real_hardware_condition = IfCondition(PythonExpression([
         "'", use_fake_hardware, "' != 'true'"
     ]))
@@ -308,11 +282,33 @@ def generate_launch_description() -> LaunchDescription:
         condition=real_hardware_condition,
     )
 
+    # On-rover half of gamepad teleop — the laptop/GS half (joystick input,
+    # game_controller_node) is launched separately via
+    # arm_teleop/launch/gamepad_joy.launch.py on the other machine, same
+    # split as rover_teleop's own joy.launch.py. Kept OUTSIDE arm_group on
+    # purpose: gamepad_servo.launch.py's own gamepad_servo_node Node already
+    # hardcodes namespace='arm' itself, and combining that with this file's
+    # ambient PushRosNamespace('arm') double-nests everything it touches to
+    # /arm/arm/... (confirmed live via `ros2 node list`/`ros2 topic list`
+    # showing /arm/arm/joy, /arm/arm/keyboard_servo_node, etc. — the exact
+    # same double-namespace bug this session already hit and fixed for
+    # standalone RViz's "Move Group Namespace").
+    gamepad_servo_include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory("arm_teleop"),
+                         "launch", "gamepad_servo.launch.py")
+        ),
+        launch_arguments={"end_effector": end_effector}.items(),
+        condition=IfCondition(LaunchConfiguration("bring_up_gamepad")),
+    )
+
     # Everything ROS-graph-facing for the arm lives under /arm — the rover
     # runs its own move_group/controller_manager/joint_states etc. under the
     # same bare names, so without this the two collide when run together.
-    # The CAN bridge below is deliberately kept OUTSIDE this group: it's
-    # shared physical hardware the rover's own bringup may already own.
+    # The CAN bridge and gamepad_servo_include are deliberately kept OUTSIDE
+    # this group: the CAN bridge is shared physical hardware the rover's own
+    # bringup may already own, and gamepad_servo_include already sets its
+    # own namespace='arm' (see its own comment above).
     arm_group = GroupAction([
         PushRosNamespace("arm"),
         *demo_launch.entities,
@@ -334,9 +330,9 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(declare_can_interface_cmd)
     ld.add_action(declare_bring_up_can_bridge_cmd)
     ld.add_action(declare_report_collisions_cmd)
-    ld.add_action(declare_rviz_standalone_cmd)
+    ld.add_action(declare_bring_up_gamepad_cmd)
     ld.add_action(arm_group)
-    ld.add_action(standalone_rviz_node)
+    ld.add_action(gamepad_servo_include)
 
     ld.add_action(
         RegisterEventHandler(

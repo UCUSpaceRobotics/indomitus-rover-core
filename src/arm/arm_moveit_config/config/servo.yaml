@@ -58,8 +58,8 @@ moveit_servo:
     halt_all_joints_in_cartesian_mode: true
 
     # check_collisions is a start-time-only param — `ros2 param set` will NOT
-    # toggle a running servo_node, a rebuild + fresh demo.launch.py restart
-    # is required to apply any change here.
+    # toggle a running servo_node, a rebuild + fresh arm_bringup/arm.launch.py
+    # restart is required to apply any change here.
     check_collisions: true
     collision_check_rate: 10.0
     # Deceleration ramps from full speed at this distance down to 0 exactly

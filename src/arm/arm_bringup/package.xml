@@ -28,10 +28,20 @@
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>joint_trajectory_controller</exec_depend>
 
-  <!-- Both skippable at runtime (use_rviz:=false, gui_only:=false) for headless. -->
-  <exec_depend>rviz2</exec_depend>
-  <exec_depend>joint_state_publisher_gui</exec_depend>
-  <exec_depend>arm_viz</exec_depend>
+  <!-- Real top-level bringup (arm.launch.py): MoveIt + Servo + CAN peripherals
+       + on-rover gamepad teleop. Fully headless — no rviz2/joint_state_publisher_gui
+       anywhere in this package; those live only in arm_viz. -->
+  <exec_depend>arm_moveit_config</exec_depend>
+  <exec_depend>moveit_configs_utils</exec_depend>
+  <exec_depend>moveit_servo</exec_depend>
+  <exec_depend>arm_peripherals</exec_depend>
+  <exec_depend>rover_bringup</exec_depend>
+  <exec_depend>arm_teleop</exec_depend>
+  <!-- collision_link_reporter (report_collisions:=true) only — arm_tasks is
+       excluded from the Jetson production image (docker/Dockerfile's
+       SIMULATION_PKGS), so arm.launch.py defaults report_collisions to
+       false; this dependency is still correct/harmless to declare here. -->
+  <exec_depend>arm_tasks</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

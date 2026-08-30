@@ -25,10 +25,10 @@ import contextlib
 import fcntl
 import time
 
-# Both keyboard_servo_node.py and panel_align_node.py live in this same
-# arm_tasks package but run as separate ros2 run processes — /tmp is a
-# simple, always-available rendezvous point for them, same tradeoff
-# already accepted for the sim marker-layout file (see
+# keyboard_servo_node.py (this package, arm_teleop) and panel_align_node.py
+# (arm_tasks) run as separate ros2 run processes, from separate packages —
+# /tmp is a simple, always-available rendezvous point for them, same
+# tradeoff already accepted for the sim marker-layout file (see
 # panel_pose_fuser_node.py's PANEL_MARKER_LAYOUT_SIM_FILE).
 ARM_MOTION_LOCK_PATH = '/tmp/indomitus_arm_motion.lock'
 

@@ -58,7 +58,7 @@ from sensor_msgs.msg import CameraInfo
 from shape_msgs.msg import SolidPrimitive
 from std_srvs.srv import Trigger
 
-from arm_tasks.arm_motion_lock import ArmMotionBusy, arm_motion_lock
+from arm_teleop.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 from arm_tasks.camera_target_math import (
     StandoffResult, compose_transforms, compute_standoff_distance, compute_target_tip_pose,
 )

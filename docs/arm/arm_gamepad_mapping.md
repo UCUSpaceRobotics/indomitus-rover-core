@@ -1,9 +1,9 @@
 # Мапінг геймпада для керування рукою (arm gamepad teleop)
 
 > Для ground station: точний перелік осей/кнопок геймпада, які використовує
-> `gamepad_servo_node` (`src/arm/arm_tasks/arm_tasks/keyboard_servo_node.py`,
+> `gamepad_servo_node` (`src/arm/arm_teleop/arm_teleop/keyboard_servo_node.py`,
 > клас `GamepadInputLoop`) для ручного керування рукою. Запускається через
-> `src/arm/arm_tasks/launch/gamepad.launch.py`.
+> `src/arm/arm_teleop/launch/gamepad.launch.py`.
 >
 > Індекси відповідають **канонічному SDL GameController мапінгу**
 > (`joy/game_controller_node`, а не сирий `joy_node`) — тобто той самий
@@ -54,7 +54,7 @@
 
 Кнопки 12/14 (D-Pad вниз/вправо) — електрозамок drill_sampling-інструмента (`EndEffectorClient.send('lock'/'unlock')`), незалежно від sampling/drill підрежиму. Порядок LOCK=12/UNLOCK=14 обрано довільно (просто дві сусідні вільні кнопки D-Pad) — легко поміняти місцями, якщо оператору зручніше навпаки.
 
-`GamepadInputLoop` більше не відкриває CAN-сокет напряму: `EndEffectorClient` (єдиний клієнт для обох інструментів) публікує одноразові команди в топік `end_effector_controller/command` (`std_msgs/String`) і читає стан з `end_effector_controller/state`. Реальний CAN-лінк живе окремо, в плейн-вузлі `arm_peripherals/end_effector_can_node.py` (той самий патерн, що й `rover_peripherals`'ів вузол освітлення), який і резолвить, що саме означає `open`/`close` для змонтованого інструмента (`jaw` чи `drill_sampling`) — тому `gamepad_servo_node` більше не має параметра `gripper_can_iface` і може працювати на іншій машині, ніж `demo.launch.py`.
+`GamepadInputLoop` більше не відкриває CAN-сокет напряму: `EndEffectorClient` (єдиний клієнт для обох інструментів) публікує одноразові команди в топік `end_effector_controller/command` (`std_msgs/String`) і читає стан з `end_effector_controller/state`. Реальний CAN-лінк живе окремо, в плейн-вузлі `arm_peripherals/end_effector_can_node.py` (той самий патерн, що й `rover_peripherals`'ів вузол освітлення), який і резолвить, що саме означає `open`/`close` для змонтованого інструмента (`jaw` чи `drill_sampling`) — тому `gamepad_servo_node` більше не має параметра `gripper_can_iface` і може працювати на іншій машині, ніж `arm_bringup/arm.launch.py`.
 
 ### Підсумок: які кнопки налаштовувати на ground station
 

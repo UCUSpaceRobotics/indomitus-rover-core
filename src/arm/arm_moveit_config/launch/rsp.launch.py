@@ -5,8 +5,8 @@ from moveit_configs_utils.launches import generate_rsp_launch
 
 
 def _arg_from_argv(name: str, default: str) -> str:
-    # This file builds its own moveit_config, bypassing demo.launch.py's — must
-    # re-resolve args itself. See demo.launch.py's _arg_from_argv.
+    # This file builds its own moveit_config, bypassing arm_bringup/arm.launch.py's
+    # — must re-resolve args itself. See arm_bringup/arm.launch.py's _arg_from_argv.
     prefix = f"{name}:="
     for arg in sys.argv:
         if arg.startswith(prefix):
