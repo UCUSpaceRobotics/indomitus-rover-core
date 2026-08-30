@@ -14,7 +14,7 @@ source "${SCRIPT_DIR}/utils.sh"
 JETSON_USER="indomitus-rover"
 JETSON_IP="10.42.0.1"
 WIFI_SSID="IndomitusRover"
-WIFI_PASS="12345678"
+WIFI_PASS="19283746"
 TARGET_MODE=""   # Must be set via positional arg: rover|local
 
 # Flags to forward to setup.sh

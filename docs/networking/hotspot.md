@@ -5,14 +5,14 @@
 
 * wifi module installed on Jetson
 * Jetson creates wifi-hotspot and connects to it on boot up
-* your laptop is connected to that same network (`IndomitusRover` with password `12345678`)
+* your laptop is connected to that same network (`IndomitusRover` with password `19283746`)
 
 > **Important:** If at any stage you are asked for the password for the user on the Jetson, the current password is `1`
 
 
 ## Connect over ssh
 
-1. Connect to `IndomitusRover` Wi-Fi network with password `12345678`
+1. Connect to `IndomitusRover` Wi-Fi network with password `19283746`
 
 2. Run the command to ssh into the Jetson
    
@@ -40,10 +40,10 @@
 
     *Look for an interface name that starts with wlx followed by a MAC address (for example, `wlx00c0caba86c1`). Copy it, you will need it for the next step.*
 
-2. Create hotspot `IndomitusRover` with password `12345678` and force the connection name to be `Hotspot`. Replace `wlx00c0caba86c1` in the command with the copied name:
+2. Create hotspot `IndomitusRover` with password `19283746` and force the connection name to be `Hotspot`. Replace `wlx00c0caba86c1` in the command with the copied name:
 
    ```bash
-   sudo nmcli dev wifi hotspot ifname wlx00c0caba86c1 con-name "Hotspot" ssid "IndomitusRover" password "12345678"
+   sudo nmcli dev wifi hotspot ifname wlx00c0caba86c1 con-name "Hotspot" ssid "IndomitusRover" password "19283746"
    ```
 
 3. Verify the connection was created successfully:

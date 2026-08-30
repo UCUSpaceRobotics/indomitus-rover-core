@@ -14,7 +14,7 @@ Follow these steps to power on and operate the rover:
 
 1. **Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button. When the rover is powered on, the CAN interface is automatically set up, the Docker container starts, and the Wi-Fi hotspot is turned on (**note that it takes ~1 minute for the network to appear**).
 
-2. **Connect to the hotspot:** Connect your computer to the Jetson's Wi-Fi hotspot (`IndomitusRover`) using the password `12345678`.
+2. **Connect to the hotspot:** Connect your computer to the Jetson's Wi-Fi hotspot (`IndomitusRover`) using the password `19283746`.
 
 3. **Enter the container on the rover:** Use the following command to enter the container's terminal on the rover:
    ```bash

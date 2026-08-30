@@ -26,7 +26,7 @@ CONTAINER_NAME="rover_prod"
 DOCKERFILE="docker/Dockerfile"
 COMPOSE_FILE="docker/docker-compose.prod.yaml"
 WIFI_SSID="IndomitusRover"
-WIFI_PASS="12345678"
+WIFI_PASS="19283746"
 
 # ACTION MODES
 REMOTE_BUILD_MODE=false
