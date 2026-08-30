@@ -1790,7 +1790,10 @@ class KeyboardInputLoop:
         prompt on every flicker.
         """
         now = self._controller.get_clock().now()
-        raw_visible = self._controller.is_panel_visible()
+        # Jaw-only, same as the P/M key handlers above and GamepadInputLoop's
+        # equivalent lockout — suppresses the prompt entirely for other tools.
+        raw_visible = (self._controller.end_effector == 'jaw'
+                       and self._controller.is_panel_visible())
         if raw_visible:
             self._panel_lost_since = None
             visible = True
@@ -1962,6 +1965,17 @@ class KeyboardInputLoop:
                             if code == ecodes.KEY_P and value == self._KEYSTATE_DOWN:
                                 if not self._servo_started:
                                     continue
+                                # Panel align/orient is jaw-only — only the
+                                # jaw gripper physically interacts with the
+                                # panel (see GamepadInputLoop's identical
+                                # lockout for the reasoning).
+                                if self._controller.end_effector != 'jaw':
+                                    print(
+                                        f"Panel align is locked out with end_effector="
+                                        f"'{self._controller.end_effector}' — only the "
+                                        'jaw gripper interacts with the panel.'
+                                    )
+                                    continue
                                 self._panel_prompt_pending = False
                                 if (self._controller.is_panel_visible()
                                         or self._controller.has_remembered_panel_position):
@@ -1974,6 +1988,13 @@ class KeyboardInputLoop:
 
                             if code == ecodes.KEY_M and value == self._KEYSTATE_DOWN:
                                 if not self._servo_started:
+                                    continue
+                                if self._controller.end_effector != 'jaw':
+                                    print(
+                                        f"Gripper orient is locked out with end_effector="
+                                        f"'{self._controller.end_effector}' — only the "
+                                        'jaw gripper interacts with the panel.'
+                                    )
                                     continue
                                 if self._controller.has_remembered_panel_position:
                                     threading.Thread(
@@ -2618,7 +2639,12 @@ class GamepadInputLoop:
         angular_speed = self._angular_speed * boost
 
         now = self._controller.get_clock().now()
-        raw_panel_visible = self._controller.is_panel_visible()
+        # Panel detection/prompting is jaw-only — see panel_align_pressed's
+        # own lockout below for why (only the jaw gripper interacts with
+        # the panel). Suppressed entirely for other tools, or a
+        # drill/astrobio operator would get an unhelpful "press button 7"
+        # prompt (and an unwanted stop()) for a feature that just refuses.
+        raw_panel_visible = end_effector == 'jaw' and self._controller.is_panel_visible()
         if raw_panel_visible:
             self._panel_lost_since = None
             panel_visible = True
@@ -2635,14 +2661,24 @@ class GamepadInputLoop:
             print('\n>>> Panel detected! Press button 7 to align to it. <<<')
         self._panel_was_visible = panel_visible
 
-        if panel_align_pressed:
+        if panel_align_pressed and end_effector != 'jaw':
+            self._controller.get_logger().warn(
+                f"Panel align is locked out with end_effector='{end_effector}' "
+                '— only the jaw gripper interacts with the panel.'
+            )
+        elif panel_align_pressed:
             self._panel_prompt_pending = False
             if panel_visible or self._controller.has_remembered_panel_position:
                 threading.Thread(target=self._handle_panel_align, daemon=True).start()
             else:
                 print('No panel currently in view and no panel position remembered yet.')
 
-        if orient_gripper_pressed:
+        if orient_gripper_pressed and end_effector != 'jaw':
+            self._controller.get_logger().warn(
+                f"Gripper orient is locked out with end_effector='{end_effector}' "
+                '— only the jaw gripper interacts with the panel.'
+            )
+        elif orient_gripper_pressed:
             if self._controller.has_remembered_panel_position:
                 threading.Thread(target=self._handle_orient_gripper, daemon=True).start()
             else:
