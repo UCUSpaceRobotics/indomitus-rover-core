@@ -243,6 +243,17 @@ def generate_launch_description() -> LaunchDescription:
         condition=UnlessCondition(LaunchConfiguration("camera")),
     )
 
+    # Sim is single-host, but panel_align_node/keyboard_servo_node still
+    # run as separate processes here too — bring up the same lock server
+    # the real GS/Jetson split needs (arm_bringup/arm.launch.py), so sim
+    # actually exercises the real locking path instead of silently having
+    # none.
+    arm_motion_lock_server = Node(
+        package="arm_teleop",
+        executable="arm_motion_lock_server",
+        output="screen",
+    )
+
     controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -399,6 +410,7 @@ def generate_launch_description() -> LaunchDescription:
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
             delete_marker_layout_file,
+            arm_motion_lock_server,
             gz_sim,
             robot_state_publisher,
             spawn_entity,

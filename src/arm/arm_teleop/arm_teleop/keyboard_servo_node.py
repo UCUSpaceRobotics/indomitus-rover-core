@@ -56,8 +56,8 @@ about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
     R1 + right stick up/down    — pitch (TCP)
     R1 + right stick left/right — roll (TCP)
     A                — move to home + start servo
-    Button 12        — align to detected panel (see keyboard 'p' above)
-    Button 14        — reorient gripper only (see keyboard 'm' above)
+    Button 7         — align to detected panel (see keyboard 'p' above)
+    Button 8         — reorient gripper only (see keyboard 'm' above)
     X                — exit
 
 Usage (stack in one terminal, input in another):
@@ -94,17 +94,17 @@ from sensor_msgs.msg import JointState, Joy
 from std_msgs.msg import Int8, Float64MultiArray, ColorRGBA, String
 from std_srvs.srv import Trigger
 from action_msgs.msg import GoalStatus
-from control_msgs.action import FollowJointTrajectory
 from controller_manager_msgs.srv import ListControllers, SwitchController
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import TransformException
 from indomitus_interfaces.msg import EndEffectorState
+from indomitus_interfaces.srv import AcquireArmMotionLock, ReleaseArmMotionLock
 import evdev
 from evdev import ecodes
+import socket
 
 from arm_teleop.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 
@@ -147,7 +147,6 @@ DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
 DEFAULT_GAMEPAD_SHIFT_BUTTON = 10
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
 
-DEFAULT_SAFE_POSE_DURATION = 6.0
 DEFAULT_GRIPPER_SPEED = 0.006   # m/s
 DEFAULT_GRIPPER_STROKE = 0.012  # m — matches finger_stroke in arm_macro.xacro
 
@@ -174,6 +173,28 @@ HOME_POSE_JOINTS = [
     'arm_wrist_1_wrist_2_joint',
     'arm_wrist_2_end_effector_joint',
 ]
+# Same values as arm_macro.xacro's <limit> tags — duplicated (like
+# panel_align_node.py's own JOINT_LIMITS) so a bad poses.json entry can
+# be caught here, before it's ever sent as a home/mode-engage target.
+HOME_POSE_JOINT_LIMITS = {
+    'arm_mount_base_joint': (-2 * math.pi, 2 * math.pi),
+    'arm_base_shoulder_joint': (-2 * math.pi, 2 * math.pi),
+    'arm_shoulder_forearm_joint': (-2 * math.pi, 2 * math.pi),
+    'arm_forearm_wrist_1_joint': (-2 * math.pi, 2 * math.pi),
+    'arm_wrist_1_wrist_2_joint': (-2 * math.pi, 2 * math.pi),
+    'arm_wrist_2_end_effector_joint': (-2 * math.pi, 2 * math.pi),
+}
+
+
+def _pose_limit_violation(pose: list) -> str:
+    """Empty string if every joint in ``pose`` (HOME_POSE_JOINTS order) is
+    within HOME_POSE_JOINT_LIMITS, else a description of the first one
+    that isn't."""
+    for name, value in zip(HOME_POSE_JOINTS, pose):
+        lo, hi = HOME_POSE_JOINT_LIMITS[name]
+        if not (lo <= value <= hi):
+            return f'{name}={value:.4f} outside [{lo:.4f}, {hi:.4f}]'
+    return ''
 
 
 def _load_home_pose_from_json(pose_name='home'):
@@ -341,7 +362,6 @@ class ServoController(Node):
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
         self.declare_parameter('gamepad_shift_button', DEFAULT_GAMEPAD_SHIFT_BUTTON)
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
-        self.declare_parameter('safe_pose_duration', DEFAULT_SAFE_POSE_DURATION)
         self.declare_parameter('gripper_speed', DEFAULT_GRIPPER_SPEED)
         self.declare_parameter('gripper_stroke', DEFAULT_GRIPPER_STROKE)
         self.declare_parameter('end_effector', 'jaw')
@@ -367,6 +387,13 @@ class ServoController(Node):
         # Prefer poses.json home unless the caller overrode safe_pose explicitly.
         pose_from_param = list(self.get_parameter('safe_pose').value)
         pose_from_json = _load_home_pose_from_json(self._home_pose_name)
+        if pose_from_json is not None:
+            violation = _pose_limit_violation(pose_from_json)
+            if violation:
+                self.get_logger().error(
+                    f'poses.json["{self._home_pose_name}"] {violation} — ignoring it.'
+                )
+                pose_from_json = None
         if pose_from_param == list(DEFAULT_HOME_POSE) and pose_from_json is not None:
             self._safe_pose = pose_from_json
             pose_source = f'poses.json["{self._home_pose_name}"]'
@@ -382,7 +409,6 @@ class ServoController(Node):
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._gamepad_shift_button = int(self.get_parameter('gamepad_shift_button').value)
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
-        self._safe_pose_duration   = self.get_parameter('safe_pose_duration').value
         self._gripper_speed        = self.get_parameter('gripper_speed').value
         self._gripper_stroke       = self.get_parameter('gripper_stroke').value
         self._end_effector         = self.get_parameter('end_effector').value
@@ -411,6 +437,11 @@ class ServoController(Node):
         self._sampling_mode = False
         self._drill_mode = False
         self._pitch_yaw_locked = False
+        # Set for the duration of run_planned_activity()'s 5s pre-delay —
+        # set_velocity()/set_gripper_velocity() force zero while this is
+        # True, regardless of what's requested, so held teleop input can't
+        # move the arm during the ERC-mandated stationary window.
+        self._activity_delay_active = False
         self._joint_positions = {}
 
         self.gripper_vel = 0.0
@@ -448,15 +479,18 @@ class ServoController(Node):
         self._list_controllers_client = self.create_client(
             ListControllers, 'controller_manager/list_controllers'
         )
-        self._traj_client  = ActionClient(
-            self,
-            FollowJointTrajectory,
-            'indomitus_arm_controller/follow_joint_trajectory'
-        )
-        # move_action (not a raw FollowJointTrajectory goal): plans with OMPL
-        # against the live planning scene, so a home/mode-engage move routes
-        # around collisions instead of driving straight into the decel zone.
+        # Home/mode-engage moves plan through this (OMPL, collision-checked
+        # against the live planning scene) instead of a raw FollowJointTrajectory
+        # goal — see _move_to_joint_positions_locked()/level_tool().
         self._move_group_client = ActionClient(self, MoveGroup, 'move_action')
+        self._acquire_lock_client = self.create_client(
+            AcquireArmMotionLock, 'arm_motion_lock/acquire')
+        self._release_lock_client = self.create_client(
+            ReleaseArmMotionLock, 'arm_motion_lock/release')
+        # Identifies THIS process to arm_motion_lock_server — hostname
+        # covers the actual cross-host case (GS vs Jetson), pid separates
+        # two runs on the same host (e.g. sim + a stray leftover process).
+        self._motion_lock_holder_id = f'{socket.gethostname()}/keyboard_servo_node/{os.getpid()}'
         self._js_sub = self.create_subscription(
             JointState, 'joint_states', self._on_joint_state, 10
         )
@@ -555,9 +589,18 @@ class ServoController(Node):
         """Load poses.json[pose_name], falling back to the jaw safe pose with a warning."""
         pose = _load_home_pose_from_json(pose_name)
         if pose is not None:
+            violation = _pose_limit_violation(pose)
+            if violation:
+                self.get_logger().error(
+                    f'poses.json["{pose_name}"] {violation} — refusing to use it '
+                    'as a home/mode-engage target; re-teach it. Falling back to '
+                    'the jaw home pose until then.'
+                )
+                pose = None
+        if pose is not None:
             return pose
         self.get_logger().warn(
-            f'No "{pose_name}" entry in poses.json — its mode\'s A/R '
+            f'No valid "{pose_name}" entry in poses.json — its mode\'s A/R '
             'will use the jaw home pose until one is added.'
         )
         return self._safe_pose
@@ -613,6 +656,10 @@ class ServoController(Node):
                 push strength instead of staying fixed while the push
                 triples.
         """
+        if self._activity_delay_active:
+            # ERC-mandated stationary window (see run_planned_activity) —
+            # every component forced to zero regardless of what's asked.
+            vx = vy = vz = wx = wy = wz = view_vx = view_vy = view_vz = 0.0
         self.vx = vx
         self.vy = vy
         self.vz = vz
@@ -633,7 +680,7 @@ class ServoController(Node):
         Positive opens (toward gripper_stroke), negative closes (toward 0,
         the touching/closed position set by finger_x_closed in the URDF).
         """
-        self.gripper_vel = vel
+        self.gripper_vel = 0.0 if self._activity_delay_active else vel
 
     def set_gripper_target(self, position: float):
         """Jump the visualized gripper straight to ``position`` (meters).
@@ -658,37 +705,6 @@ class ServoController(Node):
             index = msg.name.index(GRIPPER_JOINT_NAME)
             self._gripper_position = msg.position[index]
             self._gripper_state_received = True
-
-    def _current_arm_positions(self):
-        """Latest measured arm joints, or None if any name is missing."""
-        try:
-            return [self._joint_positions[n] for n in HOME_POSE_JOINTS]
-        except KeyError:
-            return None
-
-    @staticmethod
-    def _home_trajectory(q0, q1, duration: float, n_points: int = 24):
-        """Rest-to-rest quintic in joint space (zero vel/accel at ends)."""
-        n_points = max(2, int(n_points))
-        dq = [b - a for a, b in zip(q0, q1)]
-        points = []
-        for i in range(1, n_points + 1):
-            u = i / n_points
-            s = u * u * u * (10.0 - 15.0 * u + 6.0 * u * u)
-            ds_du = 30.0 * u * u * (1.0 - 2.0 * u + u * u)
-            sdot = ds_du / duration
-            t = u * duration
-            pt = JointTrajectoryPoint()
-            pt.positions = [a + s * d for a, d in zip(q0, dq)]
-            pt.velocities = [sdot * d for d in dq]
-            pt.time_from_start = Duration(
-                sec=int(t),
-                nanosec=int((t % 1.0) * 1e9),
-            )
-            points.append(pt)
-        points[-1].positions = list(q1)
-        points[-1].velocities = [0.0] * len(q1)
-        return points
 
     def stop(self):
         """Zero out all velocity components, halting Cartesian and gripper motion.
@@ -830,21 +846,22 @@ class ServoController(Node):
 
     def run_planned_activity(self, action, label: str):
         """Run ``action`` (a zero-arg callable) gated by the ERC-mandated
-        activity-indicator warm-up — the single choke point 'r'/'p'/'f' and
-        their gamepad equivalents all route their actual move/align/level
-        call through, so REQ-OPS-080/090/100 are satisfied exactly once
-        instead of separately at each of the 6 call sites (3 actions x
-        keyboard + gamepad).
+        activity-indicator warm-up — the single choke point 'r'/'p'/'f'/'m'
+        and their gamepad equivalents all route their actual move/align/
+        level/orient call through, so REQ-OPS-080/090/100 are satisfied
+        exactly once instead of separately at each call site.
 
         Sequence:
-          1. Publish the indicator ON (blue) immediately.
-          2. Sleep ACTIVITY_INDICATOR_PRE_DELAY_SEC (5s) — REQ-OPS-090 needs
-             the arm to stay completely still for this whole window, which
-             is automatic here since ``action`` (the actual move) has not
-             been called yet.
-          3. Only then call ``action()`` — REQ-OPS-100's "at least 5s after
-             the command was issued" — and return whatever it returns.
-          4. Publish the indicator OFF once ``action()`` returns, success or
+          1. stop() plus _activity_delay_active=True — set_velocity() and
+             set_gripper_velocity() force zero while this is set, so held
+             stick/key input during the wait can't sneak a command through
+             (review-flagged: the sleep alone did not guarantee this).
+          2. Publish the indicator ON (blue).
+          3. Sleep ACTIVITY_INDICATOR_PRE_DELAY_SEC (5s) — REQ-OPS-090.
+          4. Clear _activity_delay_active, then call ``action()`` —
+             REQ-OPS-100's "at least 5s after the command was issued" —
+             and return whatever it returns.
+          5. Publish the indicator OFF once ``action()`` returns, success or
              failure alike (``finally``) — REQ-OPS-080's "continue to emit
              ... until all rover activities are finished".
 
@@ -856,11 +873,15 @@ class ServoController(Node):
             f'{label}: activity indicator on, holding {ACTIVITY_INDICATOR_PRE_DELAY_SEC:.0f}s '
             f'before moving (ERC REQ-OPS-080/090/100)...'
         )
+        self.stop()
+        self._activity_delay_active = True
         self._signal_activity_indicator(True)
         try:
             time.sleep(ACTIVITY_INDICATOR_PRE_DELAY_SEC)
+            self._activity_delay_active = False
             return action()
         finally:
+            self._activity_delay_active = False
             self._signal_activity_indicator(False)
 
     def stop_servo(self) -> bool:
@@ -941,15 +962,12 @@ class ServoController(Node):
         return success
 
     def _move_to_joint_positions(self, target_positions, label: str) -> bool:
-        """Blend from the current joint state to ``target_positions`` and wait.
+        """Plan (OMPL, collision-checked) and execute a move from the
+        current joint state to ``target_positions``, then wait.
 
-        Used by ``move_to_safe_pose()`` for the home move — a raw,
-        UNPLANNED point-to-point blend (quintic via ``_home_trajectory``),
-        not collision-checked. NOT used for panel-align replay anymore:
-        that goes through panel_align_node's own MoveIt planning now (a
-        fresh, collision-checked plan to the remembered joint target every
-        call — see panel_align_node.py's ``_align_to_remembered_locked``),
-        precisely because a raw move like this one can't tell whether the
+        Used by ``move_to_safe_pose()`` for the home move, and by
+        panel_align_node.py's own remembered-position replay for the same
+        reason: a raw point-to-point move can't tell whether the
         straight-line path to the target is actually clear. Callers are
         responsible for ``stop()``/``stop_servo()``/switching to the
         trajectory controller first.
@@ -979,100 +997,37 @@ class ServoController(Node):
                 f'Another arm motion is already in progress — aborting {label}.'
             )
             return False
+        # Lease covers _execute_move_group_constraints' own timeout
+        # (self._safe_pose_timeout) plus margin for the planning/service-
+        # call overhead around it; <=0 there means "wait forever", so
+        # give the lease itself a long-but-finite cap instead of a lease
+        # too short to survive an intentionally unbounded wait.
+        lease_sec = self._safe_pose_timeout + 15.0 if self._safe_pose_timeout > 0.0 else 600.0
         try:
             try:
-                with arm_motion_lock():
+                with arm_motion_lock(
+                        self._acquire_lock_client, self._release_lock_client,
+                        self._motion_lock_holder_id, lease_sec):
                     return self._move_to_joint_positions_locked(target_positions, label)
-            except ArmMotionBusy:
-                self.get_logger().error(
-                    f'panel_align_node is currently commanding the arm — aborting {label}.'
-                )
+            except ArmMotionBusy as exc:
+                self.get_logger().error(f'{exc} — aborting {label}.')
                 return False
         finally:
             self._motion_lock.release()
 
     def _move_to_joint_positions_locked(self, target_positions, label: str) -> bool:
-        if not self._traj_client.wait_for_server(timeout_sec=3.0):
-            self.get_logger().error('Trajectory action server not available')
-            return False
-
-        traj = JointTrajectory()
-        traj.joint_names = HOME_POSE_JOINTS
-        q0 = self._current_arm_positions()
-        q1 = list(target_positions)
-        if q0 is None:
-            self.get_logger().warn(
-                f'No joint_states yet — {label} is a single waypoint'
-            )
-            point = JointTrajectoryPoint()
-            point.positions = q1
-            point.velocities = [0.0] * len(q1)
-            point.time_from_start = Duration(
-                sec=int(self._safe_pose_duration),
-                nanosec=int((self._safe_pose_duration % 1.0) * 1e9),
-            )
-            traj.points = [point]
-        else:
-            traj.points = self._home_trajectory(
-                q0, q1, self._safe_pose_duration
-            )
-
-        goal = FollowJointTrajectory.Goal()
-        goal.trajectory = traj
-
+        joint_constraints = [
+            JointConstraint(joint_name=n, position=p, tolerance_above=0.005, tolerance_below=0.005, weight=1.0)
+            for n, p in zip(HOME_POSE_JOINTS, target_positions)
+        ]
         self.get_logger().info(
-            f'Moving to {label}: {[round(v, 4) for v in target_positions]}'
+            f'Moving to {label} (collision-checked plan): {[round(v, 4) for v in target_positions]}'
         )
-
-        done_event = threading.Event()
-        outcome = {'success': False, 'error': ''}
-
-        def result_cb(future):
-            """Record the trajectory result's status and error code."""
-            try:
-                wrapped = future.result()
-                result = wrapped.result
-                if (wrapped.status == GoalStatus.STATUS_SUCCEEDED
-                        and result.error_code == FollowJointTrajectory.Result.SUCCESSFUL):
-                    outcome['success'] = True
-                else:
-                    outcome['error'] = (
-                        f'goal status {wrapped.status}, '
-                        f'controller error code {result.error_code}'
-                        + (f' ({result.error_string})' if result.error_string else '')
-                    )
-            except Exception as e:
-                outcome['error'] = f'failed to read result: {e!r}'
-            finally:
-                done_event.set()
-
-        def goal_response_cb(future):
-            """Handle the trajectory action's goal-acceptance response."""
-            try:
-                goal_handle = future.result()
-            except Exception as e:
-                goal_handle = None
-                outcome['error'] = f'goal request failed: {e!r}'
-            if not goal_handle or not goal_handle.accepted:
-                outcome['error'] = outcome['error'] or 'goal rejected'
-                done_event.set()
-                return
-            result_future = goal_handle.get_result_async()
-            result_future.add_done_callback(result_cb)
-
-        future = self._traj_client.send_goal_async(goal)
-        future.add_done_callback(goal_response_cb)
-
-        timeout = self._safe_pose_timeout if self._safe_pose_timeout > 0.0 else None
-        if not done_event.wait(timeout=timeout):
-            self.get_logger().warn(
-                f'No trajectory result within {self._safe_pose_timeout:.1f}s — '
-                'controller may be unresponsive '
-                '(raise the safe_pose_timeout parameter if the sim is just slow).'
-            )
-            return False
-        if not outcome['success']:
-            self.get_logger().error(f'{label} move failed: {outcome["error"]}')
+        success, error = self._execute_move_group_constraints(
+            Constraints(joint_constraints=joint_constraints)
+        )
+        if not success:
+            self.get_logger().error(f'{label} move failed: {error}')
             return False
         self.get_logger().info(f'{label} reached!')
         return True
@@ -1158,6 +1113,7 @@ class ServoController(Node):
 
         done_event = threading.Event()
         outcome = {'success': False, 'error': ''}
+        goal_handle_box = {}
 
         def result_cb(future):
             """Record the move_group result's status and MoveIt error code."""
@@ -1188,8 +1144,8 @@ class ServoController(Node):
                 outcome['error'] = outcome['error'] or 'goal rejected'
                 done_event.set()
                 return
-            result_future = goal_handle.get_result_async()
-            result_future.add_done_callback(result_cb)
+            goal_handle_box['gh'] = goal_handle
+            goal_handle.get_result_async().add_done_callback(result_cb)
 
         future = self._move_group_client.send_goal_async(goal)
         future.add_done_callback(goal_response_cb)
@@ -1201,6 +1157,16 @@ class ServoController(Node):
                 'controller may be unresponsive '
                 '(raise the safe_pose_timeout parameter if the sim is just slow).'
             )
+            # Critical: not cancelling here would leave the goal running
+            # server-side after this returns "failed" — callers restart
+            # Servo right after any outcome, which would then race an
+            # execution still in flight. See panel_align_node.py's
+            # _execute() for the same pattern.
+            gh = goal_handle_box.get('gh')
+            if gh is not None:
+                cancel_done = threading.Event()
+                gh.cancel_goal_async().add_done_callback(lambda _f: cancel_done.set())
+                cancel_done.wait(timeout=5.0)
             return False, 'timed out waiting for a result'
         return outcome['success'], outcome['error']
 
@@ -2205,9 +2171,9 @@ GAMEPAD_HELP = """
 ║  A                — home + start servo       ║
 ║  B                — go to sampling_home      ║
 ║  Y                — go to drill_home         ║
-║  Button 12        — align to panel           ║
-║  Button 14        — reorient gripper only    ║
-║  A/B/Y/12/14: 5s indicator wait before move  ║
+║  Button 7          — align to panel          ║
+║  Button 8          — reorient gripper only   ║
+║  A/B/Y/7/8: 5s indicator wait before move    ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
 """
@@ -2279,8 +2245,14 @@ class GamepadInputLoop:
     # this needs to be its own move_group plan, not just a harder nudge
     # from _level_hold. Index unverified — see the comment above.
     BUTTON_LEVEL = 6
-    BUTTON_PANEL_ALIGN = 12    # 'p' equivalent — align to detected panel
-    BUTTON_ORIENT_GRIPPER = 14  # 'm' equivalent — reorient gripper only
+    # NOT 12/14 — those are BUTTON_LOCK/BUTTON_UNLOCK above, gated on
+    # end_effector=='drill_sampling'. panel_align/orient_gripper have no
+    # such gate (any end_effector, whenever a panel is visible/remembered),
+    # so sharing an index with LOCK/UNLOCK let one button press fire both
+    # a drill command and an arm motion at once (review-flagged). L3/R3
+    # (stick clicks) are otherwise unused.
+    BUTTON_PANEL_ALIGN = 7      # 'p' equivalent — align to detected panel
+    BUTTON_ORIENT_GRIPPER = 8   # 'm' equivalent — reorient gripper only
 
     _DEADZONE = 0.2
     _JOY_TIMEOUT_SEC = 0.2
@@ -2654,7 +2626,7 @@ class GamepadInputLoop:
         if panel_visible and not self._panel_was_visible:
             self._panel_prompt_pending = True
             self._controller.stop()
-            print('\n>>> Panel detected! Press button 12 to align to it. <<<')
+            print('\n>>> Panel detected! Press button 7 to align to it. <<<')
         self._panel_was_visible = panel_visible
 
         if panel_align_pressed:
@@ -2668,7 +2640,7 @@ class GamepadInputLoop:
             if self._controller.has_remembered_panel_position:
                 threading.Thread(target=self._handle_orient_gripper, daemon=True).start()
             else:
-                print('No panel position remembered yet — align (button 12) first.')
+                print('No panel position remembered yet — align (button 7) first.')
 
         if self._panel_prompt_pending:
             # Same "any real stick input dismisses it" rule as

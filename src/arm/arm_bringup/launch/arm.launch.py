@@ -222,6 +222,16 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration("report_collisions")),
     )
 
+    # Hosted here (Jetson, alongside controller_manager) rather than per-
+    # process: keyboard_servo_node and panel_align_node both run as GS
+    # clients of this same lock, over the network, for real cross-host
+    # mutual exclusion — see arm_teleop/arm_motion_lock.py's own docstring.
+    arm_motion_lock_server = Node(
+        package="arm_teleop",
+        executable="arm_motion_lock_server",
+        output="screen",
+    )
+
     # Load the streaming teleop controller inactive — JTC owns the joints until
     # arm_teleop switches controllers for Servo.
     forward_spawner = Node(
@@ -312,6 +322,7 @@ def generate_launch_description() -> LaunchDescription:
     arm_group = GroupAction([
         PushRosNamespace("arm"),
         *demo_launch.entities,
+        arm_motion_lock_server,
         forward_spawner,
         collision_link_reporter,
         gripper_both_spawner,

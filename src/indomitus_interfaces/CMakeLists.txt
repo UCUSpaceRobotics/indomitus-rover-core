@@ -17,6 +17,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetWeight.srv"
   "srv/SetSteerZero.srv"
   "srv/SetTrafficLight.srv"
+  "srv/AcquireArmMotionLock.srv"
+  "srv/ReleaseArmMotionLock.srv"
   DEPENDENCIES std_msgs action_msgs
 )
 
