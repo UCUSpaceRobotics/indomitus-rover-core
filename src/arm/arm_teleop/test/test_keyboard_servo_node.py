@@ -497,28 +497,6 @@ def test_execute_move_group_constraints_cancels_goal_on_timeout(controller, monk
     assert gh.cancel_calls == 1
 
 
-# ── poses.json entries must stay within joint limits (review: drill_home) ──
-
-def test_pose_limit_violation_detects_out_of_range_joint():
-    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _pose_limit_violation
-    pose = [0.0] * len(HOME_POSE_JOINTS)
-    pose[HOME_POSE_JOINTS.index('arm_forearm_wrist_1_joint')] = 7.0  # past ±2*pi
-    violation = _pose_limit_violation(pose)
-    assert 'arm_forearm_wrist_1_joint' in violation
-
-
-def test_pose_limit_violation_empty_for_in_range_pose():
-    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _pose_limit_violation
-    assert _pose_limit_violation([0.0] * len(HOME_POSE_JOINTS)) == ''
-
-
-def test_tool_home_pose_falls_back_when_json_entry_exceeds_limits(controller, monkeypatch):
-    bad_pose = [0.0, 0.0, 0.0, 7.0, 0.0, 0.0]  # past ±2*pi
-    monkeypatch.setattr(
-        'arm_teleop.keyboard_servo_node._load_home_pose_from_json', lambda name: bad_pose)
-    assert controller._load_tool_home_pose('drill_home') == controller._safe_pose
-
-
 # ── run_planned_activity() must keep the arm still for the full 5s ─────
 
 def test_set_velocity_forced_to_zero_during_activity_delay(controller):

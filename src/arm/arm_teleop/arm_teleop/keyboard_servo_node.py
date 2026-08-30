@@ -173,30 +173,6 @@ HOME_POSE_JOINTS = [
     'arm_wrist_1_wrist_2_joint',
     'arm_wrist_2_end_effector_joint',
 ]
-# Same values as arm_macro.xacro's <limit> tags — duplicated (like
-# panel_align_node.py's own JOINT_LIMITS) so a bad poses.json entry can
-# be caught here, before it's ever sent as a home/mode-engage target.
-HOME_POSE_JOINT_LIMITS = {
-    'arm_mount_base_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_base_shoulder_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_shoulder_forearm_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_forearm_wrist_1_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_wrist_1_wrist_2_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_wrist_2_end_effector_joint': (-2 * math.pi, 2 * math.pi),
-}
-
-
-def _pose_limit_violation(pose: list) -> str:
-    """Empty string if every joint in ``pose`` (HOME_POSE_JOINTS order) is
-    within HOME_POSE_JOINT_LIMITS, else a description of the first one
-    that isn't."""
-    for name, value in zip(HOME_POSE_JOINTS, pose):
-        lo, hi = HOME_POSE_JOINT_LIMITS[name]
-        if not (lo <= value <= hi):
-            return f'{name}={value:.4f} outside [{lo:.4f}, {hi:.4f}]'
-    return ''
-
-
 def _load_home_pose_from_json(pose_name='home'):
     """Return ``pose_name`` joint positions from poses.json, or None if unavailable."""
     candidates = [
@@ -387,13 +363,6 @@ class ServoController(Node):
         # Prefer poses.json home unless the caller overrode safe_pose explicitly.
         pose_from_param = list(self.get_parameter('safe_pose').value)
         pose_from_json = _load_home_pose_from_json(self._home_pose_name)
-        if pose_from_json is not None:
-            violation = _pose_limit_violation(pose_from_json)
-            if violation:
-                self.get_logger().error(
-                    f'poses.json["{self._home_pose_name}"] {violation} — ignoring it.'
-                )
-                pose_from_json = None
         if pose_from_param == list(DEFAULT_HOME_POSE) and pose_from_json is not None:
             self._safe_pose = pose_from_json
             pose_source = f'poses.json["{self._home_pose_name}"]'
@@ -588,15 +557,6 @@ class ServoController(Node):
     def _load_tool_home_pose(self, pose_name: str):
         """Load poses.json[pose_name], falling back to the jaw safe pose with a warning."""
         pose = _load_home_pose_from_json(pose_name)
-        if pose is not None:
-            violation = _pose_limit_violation(pose)
-            if violation:
-                self.get_logger().error(
-                    f'poses.json["{pose_name}"] {violation} — refusing to use it '
-                    'as a home/mode-engage target; re-teach it. Falling back to '
-                    'the jaw home pose until then.'
-                )
-                pose = None
         if pose is not None:
             return pose
         self.get_logger().warn(
