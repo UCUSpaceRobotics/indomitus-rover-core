@@ -244,6 +244,58 @@ def generate_launch_description() -> LaunchDescription:
         ])),
     )
 
+    # Standalone RViz, deliberately OUTSIDE arm_group (not namespaced): the
+    # MotionPlanning panel's own internal MoveGroupInterface concatenates
+    # "Move Group Namespace" (moveit.rviz: "arm") onto whatever namespace
+    # rviz2 itself already has. Put rviz2 under /arm too (like the old
+    # use_rviz path below still does) and every one of ITS OWN connections
+    # (get_planning_scene, attached_collision_object, trajectory_execution_event,
+    # its interactive marker topic) doubles up to /arm/arm/... and silently
+    # fails — confirmed live via `ros2 topic list` showing exactly those 4
+    # topics doubled while everything else was a clean single /arm/. Plan/
+    # Execute never worked over there because of this. Passing
+    # robot_description(+semantic) directly as parameters here (not relying
+    # on the /arm/robot_description topic) avoids a separate, unrelated
+    # startup-race timeout the topic-based path hit in a plain standalone
+    # `ros2 run rviz2` test.
+    declare_rviz_standalone_cmd = DeclareLaunchArgument(
+        "rviz_standalone",
+        default_value="false",
+        description=(
+            "Launch RViz un-namespaced (moveit.rviz's own 'Move Group "
+            "Namespace: arm' points it at the arm) instead of use_rviz's "
+            "in-/arm copy — use this one, Plan/Execute are broken in the "
+            "other from double-namespacing. See the comment just above."
+        ),
+    )
+    standalone_rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        arguments=["-d", os.path.join(
+            get_package_share_directory("arm_moveit_config"), "config", "moveit.rviz")],
+        parameters=[
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+        ],
+        # Several internal moveit_ros_visualization sub-displays (Scene Robot's
+        # own planning-scene monitor, the Scene Objects tab, current_state_monitor)
+        # use bare topic names, ignoring "Move Group Namespace" entirely — confirmed
+        # live via `ros2 topic list` showing all of these duplicated at the bare
+        # root name alongside the real /arm/ one. current_state_monitor's
+        # 'joint_states' even crashed rviz2 (segfault) when it resolved to the
+        # nonexistent root /joint_states.
+        remappings=[
+            ("joint_states", "arm/joint_states"),
+            ("monitored_planning_scene", "arm/monitored_planning_scene"),
+            ("planning_scene", "arm/planning_scene"),
+            ("planning_scene_world", "arm/planning_scene_world"),
+            ("display_planned_path", "arm/display_planned_path"),
+            ("recognized_object_array", "arm/recognized_object_array"),
+        ],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("rviz_standalone")),
+    )
+
     real_hardware_condition = IfCondition(PythonExpression([
         "'", use_fake_hardware, "' != 'true'"
     ]))
@@ -282,7 +334,9 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(declare_can_interface_cmd)
     ld.add_action(declare_bring_up_can_bridge_cmd)
     ld.add_action(declare_report_collisions_cmd)
+    ld.add_action(declare_rviz_standalone_cmd)
     ld.add_action(arm_group)
+    ld.add_action(standalone_rviz_node)
 
     ld.add_action(
         RegisterEventHandler(

@@ -11,17 +11,17 @@ moveit_servo:
 
     planning_frame: arm_mount_link
 
-    cartesian_command_in_topic: /servo_node/delta_twist_cmds
+    cartesian_command_in_topic: servo_node/delta_twist_cmds
 
-    joint_command_in_topic: /servo_node/delta_joint_cmds
+    joint_command_in_topic: servo_node/delta_joint_cmds
 
-    joint_topic: /joint_states
+    joint_topic: joint_states
 
-    status_topic: /servo_node/status
+    status_topic: servo_node/status
 
     # Stream joint position setpoints (not short JointTrajectory goals).
     # Avoids JTC preempt/restart every publish_period — the main teleop jerk source.
-    command_out_topic: /indomitus_arm_forward_position_controller/commands
+    command_out_topic: indomitus_arm_forward_position_controller/commands
 
     # speed_units: this multiplies the teleop twist. 0.2 made W's per-cycle
     # joint step (~0.0006 rad) sit on the MIT position deadband (0.0005 rad),
@@ -82,4 +82,4 @@ moveit_servo:
     joint_limit_margin: 0.1
 
     is_primary_planning_scene_monitor: false
-    monitored_planning_scene_topic: /monitored_planning_scene
+    monitored_planning_scene_topic: monitored_planning_scene
