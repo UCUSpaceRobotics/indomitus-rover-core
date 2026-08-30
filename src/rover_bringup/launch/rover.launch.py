@@ -42,7 +42,7 @@ def generate_launch_description():
     namespace_val = LaunchConfiguration('rover_namespace')
 
     interface_arg = DeclareLaunchArgument(
-        'interface', default_value='can0',
+        'interface', default_value='can_rover',
         description='SocketCAN network interface name',
     )
 
