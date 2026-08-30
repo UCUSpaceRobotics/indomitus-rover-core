@@ -2548,13 +2548,18 @@ class GamepadInputLoop:
                 '— no drill/sampling tool mounted.'
             )
         elif sampling_home_pressed:
-            self._sampling_mode = True
-            self._drill_mode = False
-            self._controller.set_sampling_mode(True)
+            # Mode is NOT flipped here — only once the home move actually
+            # succeeds (see _handle_safe_pose's target_mode handling).
+            # Flipping it immediately would change axis mapping/collision
+            # assumptions for a physical configuration the arm may never
+            # reach (review-flagged: a rejected/failed move used to leave
+            # software mode and physical pose out of sync).
             self._controller.get_logger().info(
                 'B pressed — going straight to sampling_home.'
             )
-            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+            threading.Thread(
+                target=self._handle_safe_pose, args=('sampling',), daemon=True
+            ).start()
 
         if drill_home_pressed and not SAMPLING_DRILL_MODES_ENABLED:
             self._controller.get_logger().warn(
@@ -2566,13 +2571,14 @@ class GamepadInputLoop:
                 '— no drill/sampling tool mounted.'
             )
         elif drill_home_pressed:
-            self._drill_mode = True
-            self._sampling_mode = False
-            self._controller.set_drill_mode(True)
+            # See sampling_home_pressed's comment above — same deferred-
+            # mode-switch reasoning applies here.
             self._controller.get_logger().info(
                 'Y pressed — going straight to drill_home.'
             )
-            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+            threading.Thread(
+                target=self._handle_safe_pose, args=('drill',), daemon=True
+            ).start()
 
         if level_pressed and not SAMPLING_DRILL_MODES_ENABLED:
             self._controller.get_logger().warn(
@@ -2740,8 +2746,15 @@ class GamepadInputLoop:
             self._orient_gripper_active = False
             self._orient_gripper_running.release()
 
-    def _handle_safe_pose(self):
+    def _handle_safe_pose(self, target_mode=None):
         """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
+
+        Args:
+            target_mode: ``'sampling'``/``'drill'`` if this move was
+                triggered by B/Y (mode-engage), or ``None`` for plain A
+                (jaw/astrobio home). Only decides which pose to target
+                and which mode to commit AFTER a successful move — see
+                below.
 
         Guarded by a non-blocking lock so a second button press while a
         move is already in progress is ignored instead of racing a
@@ -2754,6 +2767,13 @@ class GamepadInputLoop:
 
         This is also the only place ``_teleop_locked`` is cleared (see
         its declaration in ``__init__``).
+
+        Sampling/drill mode itself is committed (on both this loop and
+        the controller) ONLY after ``home_ok`` — review-flagged: setting
+        it immediately on button press let the software mode (and its
+        axis mapping / _level_hold target) change even when the move was
+        rejected/failed, leaving the arm physically in its old
+        configuration while teleop already assumed the new one.
         """
         if not self._safe_pose_running.acquire(blocking=False):
             return
@@ -2761,13 +2781,13 @@ class GamepadInputLoop:
         try:
             self._controller.stop()
             print('Moving to home...')
-            if self._sampling_mode:
+            if target_mode == 'sampling':
                 action = functools.partial(
                     self._controller.move_to_safe_pose,
                     positions=self._controller.sampling_home_pose,
                     name=self._controller.sampling_home_pose_name,
                 )
-            elif self._drill_mode:
+            elif target_mode == 'drill':
                 action = functools.partial(
                     self._controller.move_to_safe_pose,
                     positions=self._controller.drill_home_pose,
@@ -2777,6 +2797,14 @@ class GamepadInputLoop:
                 action = self._controller.move_to_safe_pose
             home_ok = self._controller.run_planned_activity(action, 'move_to_safe_pose')
             if home_ok:
+                if target_mode == 'sampling':
+                    self._sampling_mode = True
+                    self._drill_mode = False
+                    self._controller.set_sampling_mode(True)
+                elif target_mode == 'drill':
+                    self._drill_mode = True
+                    self._sampling_mode = False
+                    self._controller.set_drill_mode(True)
                 print('Starting servo...')
                 if self._controller.start_servo():
                     self._teleop_locked = False
