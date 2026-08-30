@@ -10,6 +10,8 @@ one: an unfilled field changes nothing.
 No ROS import anywhere in here — lights_state is deliberately standalone.
 """
 
+from dataclasses import replace
+
 import pytest
 
 from rover_peripherals.lights_state import (
@@ -150,3 +152,38 @@ def test_a_bad_value_names_the_colour_that_was_wrong():
 def test_describe_traffic_reads_out_every_colour():
     assert describe_traffic(LightsState(traffic_red=True, traffic_blue=True)) == (
         'R=1 Y=0 G=0 B=1')
+
+
+@pytest.mark.parametrize('colour', ['red', 'green', 'blue'])
+def test_one_tower_lamp_switches_without_disturbing_the_others(colour):
+    """The field names rover_lighting_node drives a single lamp through.
+
+    Its _bool_lights registry addresses these by name, so a typo here is an
+    AttributeError raised only when somebody flips that switch on the console.
+    Each lamp also has to move alone: a console switch holds one of them and
+    knows nothing about the rest.
+    """
+    field = f'traffic_{colour}'
+    lit = replace(LightsState(), **{field: True})
+
+    assert getattr(lit, field) is True
+    others = [c for c in ('red', 'yellow', 'green', 'blue') if c != colour]
+    assert not any(getattr(lit, f'traffic_{other}') for other in others)
+
+
+def test_the_firmware_disagrees_with_traffic_mask_about_green_and_blue():
+    """Pins a known mismatch, so nobody 'fixes' the per-lamp path onto the mask.
+
+    light_control's light_set_traffic_mask reads bit0 red, bit1 green, bit2
+    blue — it has no yellow lamp. traffic_mask packs bit1 yellow, bit2 green,
+    bit3 blue. So a mask asking for green lights blue, and one asking for blue
+    lights nothing. rover_lighting_node therefore drives single lamps with the
+    firmware's per-colour CAN commands instead of packing a mask.
+    """
+    firmware_bits = {'red': 0, 'green': 1, 'blue': 2}
+    for colour, firmware_bit in firmware_bits.items():
+        mask = traffic_mask(replace(LightsState(), **{f'traffic_{colour}': True}))
+        if colour == 'red':
+            assert mask == 1 << firmware_bit
+        else:
+            assert mask != 1 << firmware_bit

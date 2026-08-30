@@ -89,6 +89,14 @@ class LightsCanNode(Node):
         self._bool_lights = {
             "spotlight": ("SPOTLIGHT", self._cmd_spotlight_on, self._cmd_spotlight_off),
             "beautiful": ("BEAUTIFUL_LIGHT", self._cmd_beautiful_on, self._cmd_beautiful_off),
+            # The tower's three lamps, one switch each. lights/traffic_light
+            # still drives them together; these are the same lamps reached one
+            # at a time, because a console switch holds exactly one of them and
+            # cannot describe the other two.
+            **{
+                f"traffic_{colour}": (colour.upper(), *self._cmd_colour[colour])
+                for colour in ("red", "green", "blue")
+            },
         }
 
         # --- CAN pub/sub ---
@@ -139,6 +147,23 @@ class LightsCanNode(Node):
             SetTrafficLight, "lights/traffic_light", self._on_traffic_request,
             callback_group=self._service_cbg,
         )
+        # Held in a dict only so the handles stay referenced; rclpy drops a
+        # service whose Python object is collected.
+        self._colour_srv = {}
+        for colour in ("red", "green", "blue"):
+            field = f"traffic_{colour}"
+            self._colour_srv[colour] = self.create_service(
+                SetBool, f"lights/{colour}",
+                lambda req, resp, f=field: self._apply_bool_light(
+                    f, lambda _state: req.data, resp),
+                callback_group=self._service_cbg,
+            )
+            self._colour_srv[f"{colour}/toggle"] = self.create_service(
+                Trigger, f"lights/{colour}/toggle",
+                lambda req, resp, f=field: self._apply_bool_light(
+                    f, lambda state: not getattr(state, f), resp),
+                callback_group=self._service_cbg,
+            )
 
         # --- response state ---
         self._resp_lock  = threading.Lock()
@@ -157,6 +182,8 @@ class LightsCanNode(Node):
             f"  /lights/beautiful         (Service) - SetBool, absolute\n"
             f"  /lights/beautiful/toggle  (Service) - Trigger, invert\n"
             f"  /lights/traffic_light     (Service) - per-colour KEEP/OFF/ON\n"
+            f"  /lights/{{red,green,blue}}    (Service) - SetBool, absolute\n"
+            f"  /lights/{{red,green,blue}}/toggle (Service) - Trigger, invert\n"
             f"  /lights/state             (Topic)   - latched, {self._state_pub_rate} Hz + on change\n"
         )
 
@@ -175,6 +202,17 @@ class LightsCanNode(Node):
         self.declare_parameter("timeouts.ack_s",          2.0)
         self.declare_parameter("can.cmd_beautiful_light_on",  0x04)
         self.declare_parameter("can.cmd_beautiful_light_off", 0x05)
+        # Per-colour commands, from CanProtocol in light_control's
+        # can_manager.hpp. Deliberately used instead of packing a traffic mask:
+        # the mask's bit order is disputed between this node and the firmware
+        # (see the note on traffic_mask below), while these three pairs address
+        # one lamp each and cannot be misread.
+        self.declare_parameter("can.cmd_red_light_on",    0x06)
+        self.declare_parameter("can.cmd_red_light_off",   0x07)
+        self.declare_parameter("can.cmd_green_light_on",  0x08)
+        self.declare_parameter("can.cmd_green_light_off", 0x09)
+        self.declare_parameter("can.cmd_blue_light_on",   0x0A)
+        self.declare_parameter("can.cmd_blue_light_off",  0x0B)
         # Capped low on purpose: lights/state crosses the Wi-Fi link to the
         # ground station, and nothing downstream needs it faster than the
         # joystick repaints its light bar.
@@ -191,6 +229,13 @@ class LightsCanNode(Node):
         self._ack_timeout        = self.get_parameter("timeouts.ack_s").value
         self._cmd_beautiful_on  = self.get_parameter("can.cmd_beautiful_light_on").value
         self._cmd_beautiful_off = self.get_parameter("can.cmd_beautiful_light_off").value
+        self._cmd_colour = {
+            colour: (
+                self.get_parameter(f"can.cmd_{colour}_light_on").value,
+                self.get_parameter(f"can.cmd_{colour}_light_off").value,
+            )
+            for colour in ("red", "green", "blue")
+        }
         self._state_pub_rate    = float(self.get_parameter("state_pub_rate").value)
 
     # =======================================================================
