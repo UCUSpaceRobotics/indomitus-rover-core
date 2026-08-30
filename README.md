@@ -133,7 +133,7 @@ To power down the rover, perform **one** of the following actions:
 | **Wi-Fi Hotspot Name (SSID)** | `ERC_UCUSpaceRobotics_A` |
 | **Wi-Fi Password** | `19283746` |
 | **Jetson Static IP for Hotspot** | `10.42.0.1` |
-| **Jetson Container ROS_DOMAIN_ID** | `42` |
+| **Jetson Container ROS_DOMAIN_ID** | `90` |
 
 
 ### SSH Access to the Jetson
@@ -198,7 +198,7 @@ echo $ROS_DOMAIN_ID
 
 2. Start the container with the new ID. You can pass the variable directly into the start command:
    ```bash
-   ROS_DOMAIN_ID=132 docker compose up -d
+   ROS_DOMAIN_ID=90 docker compose up -d
    ```
 
 *(Alternatively, you can permanently change the `ROS_DOMAIN_ID` value inside your `docker-compose.yml` file before running the standard `docker compose up -d` command).*

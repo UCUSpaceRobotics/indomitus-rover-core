@@ -49,7 +49,7 @@ Follow these steps to power on and operate the rover:
 
 8. **Start the container:** Run the following command to start the container on the laptop:
    ```bash
-   IMAGE_TAG=develop-dev ROS_DOMAIN_ID=42 docker compose up -d
+   IMAGE_TAG=develop-dev ROS_DOMAIN_ID=90 docker compose up -d
    ```
 
 9. **Enter the container terminal:** Run the following command to enter the container terminal on the laptop:
