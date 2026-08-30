@@ -10,10 +10,11 @@ from launch.actions import (
     Shutdown,
     TimerAction,
 )
+from launch.actions import GroupAction
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -86,6 +87,7 @@ def generate_launch_description():
         package='controller_manager',
         executable='spawner',
         arguments=['indomitus_arm_controller'],
+        namespace='arm',
         condition=UnlessCondition(LaunchConfiguration('gui_only'))
     )
 
@@ -93,6 +95,7 @@ def generate_launch_description():
         package='controller_manager',
         executable='spawner',
         arguments=['gripper_right_controller', 'gripper_left_controller'],
+        namespace='arm',
         output='screen',
     )
 
@@ -121,6 +124,7 @@ def generate_launch_description():
         package='moveit_servo',
         executable='servo_node_main',
         name='servo_node',
+        namespace='arm',
         output='screen',
         parameters=[
             moveit_config.robot_description,
@@ -136,7 +140,16 @@ def generate_launch_description():
                 LogInfo(msg=f'Controller activation failed (exit code {event.returncode}).'),
                 Shutdown(reason='controller activation failed'),
             ]
-        return list(move_group_launch.entities) + [servo_node, gripper_spawner]
+        # move_group_launch comes from a MoveIt helper with no namespace hook
+        # of its own — wrap it fresh here rather than relying on an outer
+        # PushRosNamespace, since this whole list is only added to the tree
+        # once this event fires (well after any earlier group would have
+        # closed its scope).
+        return [
+            GroupAction([PushRosNamespace('arm'), *move_group_launch.entities]),
+            servo_node,
+            gripper_spawner,
+        ]
 
     return LaunchDescription([
         use_fake_hardware_arg,
@@ -147,6 +160,7 @@ def generate_launch_description():
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
+            namespace='arm',
             parameters=[robot_description]
         ),
 
@@ -154,6 +168,7 @@ def generate_launch_description():
         Node(
             package='joint_state_publisher_gui',
             executable='joint_state_publisher_gui',
+            namespace='arm',
             condition=IfCondition(LaunchConfiguration('gui_only'))
         ),
 
@@ -161,6 +176,7 @@ def generate_launch_description():
         Node(
             package='controller_manager',
             executable='ros2_control_node',
+            namespace='arm',
             parameters=[robot_description, ros2_controllers_yaml],
             output='screen',
             condition=UnlessCondition(LaunchConfiguration('gui_only'))
@@ -172,6 +188,7 @@ def generate_launch_description():
                     package='controller_manager',
                     executable='spawner',
                     arguments=['joint_state_broadcaster'],
+                    namespace='arm',
                     condition=UnlessCondition(LaunchConfiguration('gui_only'))
                 ),
                 arm_controller_spawner,
@@ -182,6 +199,7 @@ def generate_launch_description():
                     package='controller_manager',
                     executable='spawner',
                     arguments=['indomitus_arm_forward_position_controller', '--inactive'],
+                    namespace='arm',
                     condition=UnlessCondition(LaunchConfiguration('gui_only'))
                 ),
             ]
@@ -197,6 +215,7 @@ def generate_launch_description():
         Node(
             package='rviz2',
             executable='rviz2',
+            namespace='arm',
             arguments=['-d', arm_viz_rviz_config],
             condition=IfCondition(LaunchConfiguration('use_rviz'))
         )

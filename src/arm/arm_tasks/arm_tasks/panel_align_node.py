@@ -257,11 +257,11 @@ class PanelAlignNode(Node):
             1.0, self._try_cache_camera_to_tip, callback_group=cb_group)
 
         self._move_action_client = ActionClient(
-            self, MoveGroup, '/move_action', callback_group=cb_group)
+            self, MoveGroup, 'move_action', callback_group=cb_group)
         self._execute_client = ActionClient(
-            self, ExecuteTrajectory, '/execute_trajectory', callback_group=cb_group)
+            self, ExecuteTrajectory, 'execute_trajectory', callback_group=cb_group)
         self._apply_scene_client = self.create_client(
-            ApplyPlanningScene, '/apply_planning_scene', callback_group=cb_group)
+            ApplyPlanningScene, 'apply_planning_scene', callback_group=cb_group)
         self._stop_servo_client = self.create_client(
             Trigger, 'servo_node/stop_servo', callback_group=cb_group)
         self._switch_controller_client = self.create_client(

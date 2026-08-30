@@ -14,6 +14,7 @@ def generate_launch_description():
         package='joy',
         executable='game_controller_node',
         name='joy_node',
+        namespace='arm',
         output='screen',
         parameters=[{
             'dev': joy_dev,

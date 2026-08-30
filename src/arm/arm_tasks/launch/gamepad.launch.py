@@ -13,6 +13,7 @@ def generate_launch_description():
         package='joy',
         executable='game_controller_node',
         name='joy_node',
+        namespace='arm',
         output='screen',
         parameters=[{
             'dev': joy_dev,
@@ -29,6 +30,7 @@ def generate_launch_description():
     gamepad_servo_node = Node(
         package='arm_tasks',
         executable='gamepad_servo_node',
+        namespace='arm',
         output='screen',
         parameters=[{
             'end_effector': end_effector,

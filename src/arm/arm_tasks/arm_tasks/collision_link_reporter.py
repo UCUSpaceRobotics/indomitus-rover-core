@@ -28,8 +28,8 @@ class CollisionLinkReporter(Node):
         super().__init__('collision_link_reporter')
         self._latest_js = None
         self._in_collision = False
-        self._client = self.create_client(GetStateValidity, '/check_state_validity')
-        self.create_subscription(JointState, '/joint_states', self._on_js, 10)
+        self._client = self.create_client(GetStateValidity, 'check_state_validity')
+        self.create_subscription(JointState, 'joint_states', self._on_js, 10)
         self.create_timer(CHECK_PERIOD_SEC, self._check)
         self.get_logger().info(
             f'collision_link_reporter ready — polling /check_state_validity '

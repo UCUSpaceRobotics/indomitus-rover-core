@@ -15,14 +15,19 @@ import sys
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events.process import ProcessExited
 from launch.launch_context import LaunchContext
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch_ros.actions import Node
+from launch_ros.actions import Node, PushRosNamespace
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_demo_launch
 
@@ -140,6 +145,7 @@ def generate_launch_description() -> LaunchDescription:
         package="moveit_servo",
         executable="servo_node_main",
         name="servo_node",
+        namespace="arm",
         output="screen",
         parameters=[
             moveit_config.robot_description,
@@ -201,6 +207,70 @@ def generate_launch_description() -> LaunchDescription:
 
     demo_launch = generate_demo_launch(moveit_config)
 
+    # Gripper controllers aren't spawned by generate_demo_launch(); only jaw
+    # has finger joints, and which finger interfaces exist depends on
+    # use_fake_hardware too: fake hardware (or sim) exposes both fingers,
+    # but real hardware only stubs the right one (JawGripperStub — the real
+    # arm has no gripper motor yet, see arm_macro.xacro) with no left-finger
+    # interface at all, so spawning gripper_left_controller there would just
+    # fail waiting for an interface that will never exist.
+    gripper_both_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[
+            "gripper_right_controller",
+            "gripper_left_controller",
+            "--controller-manager-timeout", "60",
+            "--switch-timeout", "60",
+            "--service-call-timeout", "70",
+        ],
+        output="screen",
+        condition=IfCondition(PythonExpression([
+            "'", end_effector, "' == 'jaw' and '", use_fake_hardware, "' == 'true'"
+        ])),
+    )
+    gripper_right_only_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[
+            "gripper_right_controller",
+            "--controller-manager-timeout", "60",
+            "--switch-timeout", "60",
+            "--service-call-timeout", "70",
+        ],
+        output="screen",
+        condition=IfCondition(PythonExpression([
+            "'", end_effector, "' == 'jaw' and '", use_fake_hardware, "' != 'true'"
+        ])),
+    )
+
+    real_hardware_condition = IfCondition(PythonExpression([
+        "'", use_fake_hardware, "' != 'true'"
+    ]))
+    end_effector_can_include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory("arm_peripherals"),
+                         "launch", "end_effector_can.launch.py")
+        ),
+        launch_arguments={"end_effector": end_effector}.items(),
+        condition=real_hardware_condition,
+    )
+
+    # Everything ROS-graph-facing for the arm lives under /arm — the rover
+    # runs its own move_group/controller_manager/joint_states etc. under the
+    # same bare names, so without this the two collide when run together.
+    # The CAN bridge below is deliberately kept OUTSIDE this group: it's
+    # shared physical hardware the rover's own bringup may already own.
+    arm_group = GroupAction([
+        PushRosNamespace("arm"),
+        *demo_launch.entities,
+        forward_spawner,
+        collision_link_reporter,
+        gripper_both_spawner,
+        gripper_right_only_spawner,
+        end_effector_can_include,
+    ])
+
     ld = LaunchDescription()
     # DeclareLaunchArgument (unlike SetLaunchConfiguration) only applies its
     # default when the arg isn't already set — so use_rviz:=true on the CLI
@@ -212,10 +282,7 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(declare_can_interface_cmd)
     ld.add_action(declare_bring_up_can_bridge_cmd)
     ld.add_action(declare_report_collisions_cmd)
-    for action in demo_launch.entities:
-        ld.add_action(action)
-    ld.add_action(forward_spawner)
-    ld.add_action(collision_link_reporter)
+    ld.add_action(arm_group)
 
     ld.add_action(
         RegisterEventHandler(
@@ -226,63 +293,9 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
-    # Gripper controllers aren't spawned by generate_demo_launch(); only jaw
-    # has finger joints, and which finger interfaces exist depends on
-    # use_fake_hardware too: fake hardware (or sim) exposes both fingers,
-    # but real hardware only stubs the right one (JawGripperStub — the real
-    # arm has no gripper motor yet, see arm_macro.xacro) with no left-finger
-    # interface at all, so spawning gripper_left_controller there would just
-    # fail waiting for an interface that will never exist.
-    ld.add_action(
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            arguments=[
-                "gripper_right_controller",
-                "gripper_left_controller",
-                "--controller-manager-timeout", "60",
-                "--switch-timeout", "60",
-                "--service-call-timeout", "70",
-            ],
-            output="screen",
-            condition=IfCondition(PythonExpression([
-                "'", end_effector, "' == 'jaw' and '", use_fake_hardware, "' == 'true'"
-            ])),
-        )
-    )
-    ld.add_action(
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            arguments=[
-                "gripper_right_controller",
-                "--controller-manager-timeout", "60",
-                "--switch-timeout", "60",
-                "--service-call-timeout", "70",
-            ],
-            output="screen",
-            condition=IfCondition(PythonExpression([
-                "'", end_effector, "' == 'jaw' and '", use_fake_hardware, "' != 'true'"
-            ])),
-        )
-    )
-
-    # ---- End-effector CAN link (real hardware only) ----
-    real_hardware_condition = IfCondition(PythonExpression([
-        "'", use_fake_hardware, "' != 'true'"
-    ]))
-
-    end_effector_can_include = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory("arm_peripherals"),
-                         "launch", "end_effector_can.launch.py")
-        ),
-        launch_arguments={"end_effector": end_effector}.items(),
-        condition=real_hardware_condition,
-    )
-
     # reuses rover_bringup's ros2_socketcan bridge; filter covers only
     # jaw/astrobio/drill_sampling cmd/ack pairs (0x1A-0x1F), not joint IDs.
+    # Kept unnamespaced — see arm_group's own comment above.
     can_bridge_condition = IfCondition(PythonExpression([
         "'", bring_up_can_bridge, "' == 'true' and '", use_fake_hardware, "' != 'true'"
     ]))
@@ -301,6 +314,5 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     ld.add_action(can_bridge_include)
-    ld.add_action(end_effector_can_include)
 
     return ld

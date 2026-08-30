@@ -76,7 +76,7 @@ def _resolve_poses_file():
 
 
 POSES_FILE = _resolve_poses_file()
-ACTION = "/indomitus_arm_controller/follow_joint_trajectory"
+ACTION = "indomitus_arm_controller/follow_joint_trajectory"
 JTC_CONTROLLER_NAME = "indomitus_arm_controller"
 FORWARD_CONTROLLER_NAME = "indomitus_arm_forward_position_controller"
 
@@ -100,7 +100,7 @@ class Teach(Node):
     def __init__(self):
         super().__init__("teach_poses")
         self._js = None
-        self.create_subscription(JointState, "/joint_states", self._on_js, 10)
+        self.create_subscription(JointState, "joint_states", self._on_js, 10)
 
     def _on_js(self, msg):
         self._js = msg
