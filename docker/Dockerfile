@@ -1,7 +1,11 @@
 ARG UBUNTU_VERSION=22.04
 ARG TARGET_ROS_DISTRO=humble
 ARG BASE_IMAGE="ros:humble-ros-base"
-ARG SIMULATION_PKGS="rover_sim rover_viz arm_sim arm_viz panel_sim"
+# arm_tasks is not simulation code — it's excluded here (despite the var name)
+# because its remaining nodes are pure network clients against /arm, meant to
+# run from a dev/ground-station container rather than build into the Jetson
+# production image.
+ARG SIMULATION_PKGS="rover_sim rover_viz arm_sim arm_viz panel_sim arm_tasks"
 ARG WS="/opt/ws"
 
 ####################

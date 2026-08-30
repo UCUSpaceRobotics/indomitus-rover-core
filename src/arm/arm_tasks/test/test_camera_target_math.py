@@ -109,3 +109,25 @@ class TestTargetTipPose:
         near, _ = compute_target_tip_pose(panel_pose_in_camera, camera_to_tip, standoff=0.3)
         far, _ = compute_target_tip_pose(panel_pose_in_camera, camera_to_tip, standoff=0.6)
         assert far[1] < near[1]  # further out means more negative Y
+
+    def test_roll_stays_level_when_panel_is_tilted(self):
+        # Panel rolled 30 deg about its own front-facing (+Y) axis —
+        # forward direction is unaffected (rotation about the axis
+        # itself), but its own +Z (what the old construction rolled the
+        # camera to match) is now tilted.
+        tilted_quat = tuple(Rotation.from_euler('y', 30, degrees=True).as_quat().tolist())
+        panel_pose_in_camera = ((0.0, 0.0, 0.0), tilted_quat)
+        camera_to_tip = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+        _, orientation = compute_target_tip_pose(panel_pose_in_camera, camera_to_tip, standoff=1.0)
+        image_down = Rotation.from_quat(orientation).apply([0.0, 1.0, 0.0])
+        np.testing.assert_allclose(image_down, (0.0, 0.0, -1.0), atol=1e-9)
+
+    def test_roll_matches_old_behaviour_for_a_level_panel(self):
+        # Sanity check that levelling doesn't change anything when the
+        # panel already agrees with world_up (matches the -90deg-about-X
+        # result the identity-panel tests above already pin down).
+        panel_pose_in_camera = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+        camera_to_tip = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+        _, orientation = compute_target_tip_pose(panel_pose_in_camera, camera_to_tip, standoff=1.0)
+        r = Rotation.from_quat(orientation)
+        np.testing.assert_allclose(r.as_euler('xyz', degrees=True), (-90.0, 0.0, 0.0), atol=1e-6)

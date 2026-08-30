@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arm_peripherals</name>
+  <version>0.0.0</version>
+  <description>
+    Nodes that control the arm's end-effector tool (gripper/claw/drill/lock)
+    via CAN bus. Talks to the ESP32 tool firmware over can_msgs/Frame on
+    /to_can_bus and /from_can_bus (see ros2_socketcan, brought up by
+    rover_bringup/can.launch.py) rather than opening SocketCAN itself —
+    same pattern rover_peripherals already uses for the rover's lights/
+    power-monitor ESP32 peripherals.
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+
+  <!-- Interfaces -->
+  <depend>can_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>indomitus_interfaces</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

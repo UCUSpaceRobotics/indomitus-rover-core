@@ -108,10 +108,17 @@ private:
     // Per-joint clamps, split by motor family: the Steadywin joints (0..2)
     // carry the arm and are rated 48 Nm, the Damiao wrists (3..5) only 9 Nm
     // continuous, so one shared limit would be either useless or unsafe.
-    double gravity_ff_max_nm_sw_{20.0};
-    double gravity_ff_max_nm_dm_{6.0};
+    double gravity_ff_max_nm_sw_{48.0};
+    double gravity_ff_max_nm_dm_{9.0};
     inline double gravity_ff_max_nm(std::size_t i) const
     { return i < NUM_STEADYWIN ? gravity_ff_max_nm_sw_ : gravity_ff_max_nm_dm_; }
+
+    // End-effector payload override for gravity comp (kLinkMass[NUM_JOINTS-1]
+    // default); set per-tool via arm_macro.xacro's ee_tool_mass_kg/com_{x,y,z}.
+    double ee_tool_mass_kg_{0.4};
+    double ee_tool_com_x_{0.0};
+    double ee_tool_com_y_{0.0};
+    double ee_tool_com_z_{0.06};
 
     std::array<std::string, NUM_JOINTS> joint_names_;
 
@@ -126,6 +133,7 @@ private:
     std::array<double, NUM_JOINTS> hw_velocity_states_{};
     std::array<bool, NUM_JOINTS>   feedback_seen_{};
     std::array<uint8_t, NUM_JOINTS> dm_last_err_{};   // Damiao error nibble per joint
+    std::array<float, NUM_JOINTS>  last_torque_nm_{}; // most recent measured torque per joint
 
     // Rate limiter memory: last position command actually sent (URDF frame)
     std::array<double, NUM_JOINTS> last_sent_command_{};

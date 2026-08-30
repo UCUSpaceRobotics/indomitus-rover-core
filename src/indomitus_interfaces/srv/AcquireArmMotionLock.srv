@@ -1,0 +1,9 @@
+# Cross-host arm-motion mutual exclusion — see arm_teleop/arm_motion_lock.py
+# and arm_motion_lock_server.py. Lease-based: an unreleased lock expires on
+# its own after lease_sec, instead of deadlocking forever if the holder
+# crashes or loses network before it can release.
+string holder_id
+float64 lease_sec
+---
+bool granted
+string message

@@ -91,17 +91,13 @@ def compute_target_tip_pose(
     panel_pose_in_camera: Transform,
     camera_to_tip: Transform,
     standoff: float,
+    world_up: tuple[float, float, float] = (0.0, 0.0, 1.0),
 ) -> Transform:
     """Target tip_link pose, in the camera's current frame.
 
     Args:
         panel_pose_in_camera: T_C_P — the fused panel detection, i.e. the
             panel's pose as seen right now from the current camera frame.
-            Its orientation is used as-is (roll included) — see
-            ``panel_geometry.py``'s ``_fit_orientation_from_marker_layout``
-            for where that roll actually comes from (the panel's own
-            measured edges, when all 3 markers are visible) rather than
-            being corrected here.
         camera_to_tip: T_C_T — tip_link's pose in the camera's frame. This
             is a *constant* (both links are fixed-joint children of
             arm_end_effector_link), so the caller should look it up via
@@ -110,6 +106,13 @@ def compute_target_tip_pose(
             source_frame=tip_link, time=Time())``.
         standoff: desired distance (m) from the panel to the target
             camera position, along the panel's own outward normal.
+        world_up: vertical direction, in the same frame as
+            ``panel_pose_in_camera`` — camera roll is levelled against
+            this rather than the panel's own (possibly tilted) local +Z,
+            so a panel that isn't perfectly plumb doesn't tilt the camera
+            to match it. Defaults to (0,0,1), correct whenever the caller
+            resolved the detection into ``arm_mount_link`` first (as
+            ``panel_align_node.py`` always does).
 
     Returns:
         T_C_Ttarget — the target tip_link pose, in whatever frame "C"
@@ -130,17 +133,31 @@ def compute_target_tip_pose(
         full story.
 
     Derivation: the panel's front face is at local -Y (arm approaches
-    from -Y, per panel_macro.xacro), so outward normal = -Y_panel. The
-    target camera orientation looks straight at the panel with the
-    image-up direction (-Y_camera, ROS optical convention has +Y down)
-    aligned to the panel's own +Z (physical up) — working through the
-    three orthonormal axes this is exactly Rx(-90 deg), the same rotation
-    pattern arm_camera_optical_joint already uses for its own
-    pointing-frame -> optical-frame conversion (rpy="-pi/2 0 -pi/2").
+    from -Y, per panel_macro.xacro), so outward normal = -Y_panel and the
+    target's forward axis is +Y_panel. Image-down (ROS optical
+    convention, +Y down) is Gram-Schmidt'd against world_up instead of
+    the panel's own +Z — reduces to the old fixed Rx(-90 deg) result
+    exactly whenever the panel's own +Z already equals world_up.
     """
-    t_panel_cameratarget: Transform = (
-        (0.0, -standoff, 0.0),
-        tuple(Rotation.from_euler('x', -np.pi / 2).as_quat().tolist()),
-    )
-    t_camera_cameratarget = compose_transforms(panel_pose_in_camera, t_panel_cameratarget)
+    panel_pos, panel_quat = panel_pose_in_camera
+    r_panel = Rotation.from_quat(panel_quat)
+
+    forward = r_panel.apply([0.0, 1.0, 0.0])
+    cameratarget_pos = np.array(panel_pos) + r_panel.apply([0.0, -standoff, 0.0])
+
+    right = np.cross(forward, world_up)
+    right_norm = np.linalg.norm(right)
+    if right_norm < 1e-6:
+        # forward parallel to world_up (camera would look straight up/
+        # down) — fall back to the panel's own local X so this never
+        # divides by zero.
+        right = r_panel.apply([1.0, 0.0, 0.0])
+        right = right - np.dot(right, forward) * forward
+        right_norm = np.linalg.norm(right)
+    right = right / right_norm
+    down = np.cross(forward, right)
+
+    cameratarget_quat = Rotation.from_matrix(np.column_stack([right, down, forward])).as_quat()
+    t_camera_cameratarget: Transform = (
+        tuple(cameratarget_pos.tolist()), tuple(cameratarget_quat.tolist()))
     return compose_transforms(t_camera_cameratarget, camera_to_tip)
