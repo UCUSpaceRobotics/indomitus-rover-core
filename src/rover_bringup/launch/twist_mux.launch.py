@@ -20,7 +20,7 @@ def generate_launch_description():
         output='screen',
         parameters=[twist_mux_config],
         remappings=[
-            ('/cmd_vel_out', '/cmd_vel'),
+            ('cmd_vel_out', 'cmd_vel'),
         ]
     )
 

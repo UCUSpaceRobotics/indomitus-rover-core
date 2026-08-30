@@ -7,7 +7,7 @@
 # controller from both rover_sim/config/controllers.yaml and
 # arm_sim/config/ros2_controllers.yaml. Keep these three files in sync by
 # hand until someone automates the merge.
-controller_manager:
+/**/controller_manager:
   ros__parameters:
     update_rate: 100
 
@@ -32,7 +32,7 @@ controller_manager:
     gripper_left_controller:
       type: position_controllers/JointGroupPositionController
 
-swerve_controller:
+/**/swerve_controller:
   ros__parameters:
     drive_joint_names:
       - fl_wheel_joint
@@ -54,7 +54,7 @@ swerve_controller:
     max_steer_deg: 90.0
     max_steer_rate_deg: 90.0
 
-odometry_controller:
+/**/odometry_controller:
   ros__parameters:
     wheelbase: 0.797
     track_width: 0.644
@@ -70,13 +70,13 @@ odometry_controller:
       - bl_wheel_joint
       - br_wheel_joint
 
-diff_bar_effort_controller:
+/**/diff_bar_effort_controller:
   ros__parameters:
     k_stiffness: 2000.0
     d_damping: 10.0
     effort_limit: 150.0
 
-indomitus_arm_controller:
+/**/indomitus_arm_controller:
   ros__parameters:
     joints:
       - arm_mount_base_joint
@@ -91,13 +91,13 @@ indomitus_arm_controller:
       - position
       - velocity
 
-gripper_right_controller:
+/**/gripper_right_controller:
   ros__parameters:
     joints:
       - arm_jaw_gripper_finger_right_joint
     interface_name: position
 
-gripper_left_controller:
+/**/gripper_left_controller:
   ros__parameters:
     joints:
       - arm_jaw_gripper_finger_left_joint

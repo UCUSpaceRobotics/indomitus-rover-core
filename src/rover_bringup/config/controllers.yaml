@@ -1,4 +1,4 @@
-controller_manager:
+/**/controller_manager:
   ros__parameters:
     update_rate: 100  # Hz - frequency of main loop
 
@@ -18,13 +18,13 @@ controller_manager:
     odometry_controller:
       type: rover_controller/RoverOdometryController
 
-joint_state_broadcaster:
+/**/joint_state_broadcaster:
   ros__parameters:
     extra_joints:
       - l_rocker_joint
       - r_rocker_joint
 
-swerve_controller:
+/**/swerve_controller:
   ros__parameters:
     drive_joint_names:
       - fl_wheel_joint
@@ -53,7 +53,7 @@ swerve_controller:
     track_width:   0.644   # meters, left-to-right wheel distance
     wheel_radius:  0.156   # meters
 
-swerve_controller_test:
+/**/swerve_controller_test:
   ros__parameters:
     drive_joint_names:
       - fl_wheel_joint
@@ -127,9 +127,9 @@ swerve_controller_test:
     track_width:   0.644   # meters, left-to-right wheel distance
     wheel_radius:  0.156   # meters
 
-odometry_controller:
+/**/odometry_controller:
   ros__parameters:
-    odom_topic: "/wheels/odom"
+    odom_topic: "wheels/odom"
     wheelbase:     0.797   # meters, front-to-rear axle distance
     track_width:   0.644   # meters, left-to-right wheel distance
     wheel_radius:  0.156   # meters

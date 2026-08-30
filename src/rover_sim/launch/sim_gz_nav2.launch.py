@@ -1,8 +1,9 @@
 from typing import List
 from launch import LaunchDescription
 from launch.action import Action
-from launch.actions import DeclareLaunchArgument, TimerAction
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, GroupAction, TimerAction
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
+from launch_ros.actions import PushRosNamespace
 from rover_bringup.launch_utils import include_launch
 
 # List of available worlds.
@@ -74,12 +75,18 @@ def _declare_launch_arguments() -> List[Action]:
             default_value="",
             description="Full path to the SLAM parameters file to override default params",
         ),
+        DeclareLaunchArgument(
+            "rover_namespace",
+            default_value=EnvironmentVariable("ROVER_NAMESPACE", default_value="rover"),
+            description="ROS namespace all rover nodes/topics are pushed under (arm excluded).",
+        ),
     ]
 
 
 def generate_launch_description() -> LaunchDescription:
     launch_arguments = _declare_launch_arguments()
 
+    namespace_val = LaunchConfiguration("rover_namespace")
     scan_filter_params_file_val = LaunchConfiguration("scan_filter_params_file")
     nav2_params_file_val = LaunchConfiguration("nav2_params_file")
     slam_params_file_val = LaunchConfiguration("slam_params_file")
@@ -87,6 +94,9 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         *launch_arguments,
 
+        # sim_gz.launch.py pushes `namespace` around its own nodes itself
+        # (it's also runnable standalone) - it's only threaded through here,
+        # not re-wrapped, so the namespace isn't pushed twice.
         include_launch("rover_sim", "sim_gz.launch.py", {
             "world_name": LaunchConfiguration("world_name"),
             "map_year": LaunchConfiguration("map_year"),
@@ -96,25 +106,30 @@ def generate_launch_description() -> LaunchDescription:
             "spawn_y": LaunchConfiguration("spawn_y"),
             "spawn_z": LaunchConfiguration("spawn_z"),
             "extra_xacro_args": "lidar_simulate_scan:=true stereo_camera_simulate_depth:=true",
+            "rover_namespace": namespace_val,
         }),
 
         TimerAction(
             period=10.0,
             actions=[
-                include_launch("rover_sensors", "scan_filter.launch.py", {
-                    "config_path": scan_filter_params_file_val
-                }),
+                GroupAction([
+                    PushRosNamespace(namespace_val),
 
-                include_launch("rover_localization", "slam.launch.py", {
-                    "use_sim_time": "true",
-                    "config_path": slam_params_file_val,
-                }),
+                    include_launch("rover_sensors", "scan_filter.launch.py", {
+                        "config_path": scan_filter_params_file_val
+                    }),
 
-                include_launch("rover_navigation", "nav2.launch.py", {
-                    "use_sim_time": "true",
-                    "cmd_vel_topic": "cmd_vel_nav",
-                    "params_file": nav2_params_file_val,
-                }),
+                    include_launch("rover_localization", "slam.launch.py", {
+                        "use_sim_time": "true",
+                        "config_path": slam_params_file_val,
+                    }),
+
+                    include_launch("rover_navigation", "nav2.launch.py", {
+                        "use_sim_time": "true",
+                        "cmd_vel_topic": "cmd_vel_nav",
+                        "params_file": nav2_params_file_val,
+                    }),
+                ]),
             ],
         ),
     ])

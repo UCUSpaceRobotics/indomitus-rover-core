@@ -1,4 +1,4 @@
-lights_can_node:
+/**/lights_can_node:
   ros__parameters:
 
     can:
