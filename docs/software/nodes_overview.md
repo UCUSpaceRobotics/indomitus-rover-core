@@ -41,7 +41,7 @@ ros2_control controller plugins implementing swerve-drive kinematics and odometr
 
 **`swerve_controller_test` is the swerve controller.** It is the only one launched, on hardware and in simulation. `swerve_controller` is kept in the tree — plugin, source and parameter blocks — purely as a regression fallback, not as a runtime alternative: the two are never spawned together and are never switched between while running.
 
-- **`swerve_controller_test`** — receives `geometry_msgs/Twist` on `/cmd_vel` and computes per-wheel velocity and steering angle targets, smoothing the twist as *shape + magnitude* rather than vx/vy/wz separately, so a throttle change leaves the steering angles alone. Also reads the drive joints' velocity state, which it uses to detect a real standstill. On hardware it is spawned **inactive** and the joystick's motor toggle activates it (`controller_name` in `rover_teleop/config/joy.yaml`); that ordering is deliberate, since it makes the controller seed its steering integrator from live encoder readings rather than from placeholder zeros. In simulation it is spawned active.
+- **`swerve_controller_test`** — receives `geometry_msgs/Twist` on `/cmd_vel` and computes per-wheel velocity and steering angle targets, smoothing the twist as *shape + magnitude* rather than vx/vy/wz separately, so a throttle change leaves the steering angles alone. Also reads the drive joints' velocity state, which it uses to detect a real standstill. On hardware it is spawned **inactive** and `drive_power_node` activates it when the drive is powered, from either operator (`controller_name` in `rover_teleop/config/drive_power.yaml`); that ordering is deliberate, since it makes the controller seed its steering integrator from live encoder readings rather than from placeholder zeros. In simulation it is spawned active.
 - **`swerve_controller`** — the controller it replaced, retained in case a regression sends us back to it. Falling back is a launch-time change, never a runtime one: in simulation, `ros2 launch rover_sim sim_gz.launch.py swerve_controller:=swerve_controller`; on hardware, an edit to `rover.launch.py`.
 - **`odometry_controller`** — reads wheel feedback and publishes odometry
 - **`ackermann_controller`** *(planned)* — Ackermann steering with fixed rear wheels, only front wheels steer
@@ -55,7 +55,7 @@ Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for
 Main launch and configuration package for the real rover.
 
 **Launch files:**
-- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `control.launch.py`, `twist_mux.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. Also conditionally includes `rover_sensors`' `zed2i.launch.py` via the `zed2i_mode` argument (`rgb`/`nav`/unset — unset skips launching the camera entirely, e.g. for test runs where it isn't connected)
+- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `control.launch.py`, `twist_mux.launch.py`, `rover_teleop`'s `drive_power.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. Also conditionally includes `rover_sensors`' `zed2i.launch.py` via the `zed2i_mode` argument (`rgb`/`nav`/unset — unset skips launching the camera entirely, e.g. for test runs where it isn't connected)
 - `can.launch.py` — configures and brings up the CAN bus interface
 - `control.launch.py` — shared controller-manager/spawner logic; used by both `rover.launch.py` (real) and `rover_sim/launch/sim_gz.launch.py` (sim), toggled via a `use_sim` argument
 - `twist_mux.launch.py` — velocity command multiplexer
@@ -91,13 +91,29 @@ URDF/xacro robot description files and 3D meshes. Sim/real-agnostic — differen
 ## 6. `rover_teleop` (Python)
 Teleoperation nodes.
 
-- **`joystick_interpreter_node`** — maps raw joystick input (`sensor_msgs/Joy`) to `Twist` commands on `/cmd_vel`
+- **`joystick_interpreter_node`** — maps raw joystick input (`sensor_msgs/Joy`) to `Twist` commands on `/cmd_vel` (remapped to `/cmd_vel_joy`). Owns only what shapes its own twist: strafe, granny, curvature vs raw twist, and whether it is publishing at all. Its buttons are momentary, so everything else they touch is a `Trigger` call asking an owner to invert state — `drive_power_node` for the drive, `lights_can_node` for the lights. Paints the controller light bar from `drive/state`, and publishes `teleop/joystick_active` so the ground station can see when this node is holding the mux.
+
+  When `/joy` goes stale it publishes a short burst of zeros (`timeout_zero_burst`, default 3) and then **stops publishing**. `cmd_vel_joy` has the highest priority in twist_mux, so a node that kept publishing zeros would hold that priority forever and lock the ground station out of a rover nobody is driving.
+
+- **`drive_power_node`** — owns motors, swerve-controller activation, compact mode, and the post-clear-errors inhibit, and publishes them latched on `drive/state`. Each is offered twice: `SetBool` for the ground station's latching switches, `Trigger` on `.../toggle` for the joystick's momentary buttons. `drive/power` does the hardware-component transition and the controller switch as one operation, so no caller has to sequence them.
+
+  Launched from `rover_bringup/launch/rover.launch.py`, **not** from `joy.launch.py`: the ground station has to be able to power the drive with no gamepad plugged into the rover.
+
+| Service | Type |
+|---|---|
+| `/drive/power` | `std_srvs/SetBool` |
+| `/drive/power/toggle` | `std_srvs/Trigger` |
+| `/drive/compact` | `std_srvs/SetBool` |
+| `/drive/compact/toggle` | `std_srvs/Trigger` |
+| `/drive/clear_errors` | `std_srvs/Trigger` |
 
 **Launch files:**
 - `launch/joy.launch.py` — launches the joystick driver + interpreter stack
+- `launch/drive_power.launch.py` — the drive power owner (included by rover bringup)
 
 **Config:**
 - `config/joy.yaml` — joystick driver config
+- `config/drive_power.yaml` — controller name, hardware component, clear-errors service
 
 ---
 

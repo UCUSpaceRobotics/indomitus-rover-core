@@ -205,6 +205,13 @@ def generate_launch_description() -> LaunchDescription:
         }),
         include_launch('rover_bringup', 'twist_mux.launch.py'),
 
+        # Serves the joystick's motor / compact / clear-errors buttons, and the
+        # same services the ground station calls.
+        include_launch('rover_teleop', 'drive_power.launch.py', {
+            'use_sim_time': 'true',
+            'controller_name': 'swerve_controller_test',
+        }),
+
         GroupAction(
             actions=[
                 *make_panel_nodes(panel_description_share),
