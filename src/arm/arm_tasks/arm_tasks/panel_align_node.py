@@ -45,9 +45,8 @@ from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose, PoseStamped
 from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import (
-    BoundingVolume, CollisionObject, Constraints, JointConstraint, MoveItErrorCodes,
-    OrientationConstraint, PlanningOptions, PlanningScene, PlanningSceneWorld,
-    PositionConstraint, PositionIKRequest,
+    CollisionObject, Constraints, JointConstraint, MoveItErrorCodes,
+    PlanningOptions, PlanningScene, PlanningSceneWorld, PositionIKRequest,
 )
 from controller_manager_msgs.srv import SwitchController
 from indomitus_interfaces.srv import AcquireArmMotionLock, ReleaseArmMotionLock
@@ -853,40 +852,13 @@ class PanelAlignNode(Node):
             return False
         return bool(result.get('r') and result['r'].success)
 
-    def _build_pose_goal_constraints(
-            self, target_pose: PoseStamped, orient_tol: float = None, pos_tol: float = None) -> Constraints:
-        if pos_tol is None:
-            pos_tol = self.get_parameter('position_tolerance').value
-        if orient_tol is None:
-            orient_tol = self.get_parameter('orientation_tolerance').value
-
-        pc = PositionConstraint()
-        pc.header = target_pose.header
-        pc.link_name = TIP_LINK
-        pc.constraint_region = BoundingVolume(
-            primitives=[SolidPrimitive(type=SolidPrimitive.SPHERE, dimensions=[pos_tol])],
-            primitive_poses=[target_pose.pose],
-        )
-        pc.weight = 1.0
-
-        oc = OrientationConstraint()
-        oc.header = target_pose.header
-        oc.link_name = TIP_LINK
-        oc.orientation = target_pose.pose.orientation
-        oc.absolute_x_axis_tolerance = orient_tol
-        oc.absolute_y_axis_tolerance = orient_tol
-        oc.absolute_z_axis_tolerance = orient_tol
-        oc.weight = 1.0
-
-        return Constraints(position_constraints=[pc], orientation_constraints=[oc])
-
     def _build_joint_goal_constraints(self, joint_positions: dict) -> Constraints:
         """Exact joint-space goal — used for remembered-position replay.
 
-        Unlike the Cartesian pose constraint above (a tolerance REGION,
-        which is what lets OMPL land on a different joint solution every
-        call — the reason replay needed to exist as its own thing in the
-        first place), a joint constraint with a tight tolerance pins down
+        Unlike a Cartesian pose constraint (a tolerance REGION, which is
+        what lets OMPL land on a different joint solution every call —
+        the reason replay needed to exist as its own thing in the first
+        place), a joint constraint with a tight tolerance pins down
         the exact final joint vector: whatever path gets planned there
         (fresh and collision-checked against the CURRENT scene every
         call), the arm always ends up at exactly the same pose.
@@ -915,8 +887,8 @@ class PanelAlignNode(Node):
         # confirmed live: once arm_moveit_config also loads chomp and
         # pilz_industrial_motion_planner alongside ompl, an empty
         # pipeline_id on this MoveGroup action request resolved to chomp
-        # instead, which can't plan the Cartesian (position + orientation
-        # constraint) goals _build_pose_goal_constraints produces at all
+        # instead, which can't plan a Cartesian (position + orientation
+        # constraint) goal at all
         # ("Only joint-space goals are supported" — move_group rejects
         # the whole request with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS
         # before planning even starts).

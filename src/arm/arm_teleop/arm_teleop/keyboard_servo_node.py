@@ -1750,7 +1750,10 @@ class KeyboardInputLoop:
         prompt on every flicker.
         """
         now = self._controller.get_clock().now()
-        raw_visible = self._controller.is_panel_visible()
+        # Jaw-only, same as the P/M key handlers above and GamepadInputLoop's
+        # equivalent lockout — suppresses the prompt entirely for other tools.
+        raw_visible = (self._controller.end_effector == 'jaw'
+                       and self._controller.is_panel_visible())
         if raw_visible:
             self._panel_lost_since = None
             visible = True
@@ -1922,6 +1925,17 @@ class KeyboardInputLoop:
                             if code == ecodes.KEY_P and value == self._KEYSTATE_DOWN:
                                 if not self._servo_started:
                                     continue
+                                # Panel align/orient is jaw-only — only the
+                                # jaw gripper physically interacts with the
+                                # panel (see GamepadInputLoop's identical
+                                # lockout for the reasoning).
+                                if self._controller.end_effector != 'jaw':
+                                    print(
+                                        f"Panel align is locked out with end_effector="
+                                        f"'{self._controller.end_effector}' — only the "
+                                        'jaw gripper interacts with the panel.'
+                                    )
+                                    continue
                                 self._panel_prompt_pending = False
                                 if (self._controller.is_panel_visible()
                                         or self._controller.has_remembered_panel_position):
@@ -1934,6 +1948,13 @@ class KeyboardInputLoop:
 
                             if code == ecodes.KEY_M and value == self._KEYSTATE_DOWN:
                                 if not self._servo_started:
+                                    continue
+                                if self._controller.end_effector != 'jaw':
+                                    print(
+                                        f"Gripper orient is locked out with end_effector="
+                                        f"'{self._controller.end_effector}' — only the "
+                                        'jaw gripper interacts with the panel.'
+                                    )
                                     continue
                                 if self._controller.has_remembered_panel_position:
                                     threading.Thread(
@@ -2508,13 +2529,18 @@ class GamepadInputLoop:
                 '— no drill/sampling tool mounted.'
             )
         elif sampling_home_pressed:
-            self._sampling_mode = True
-            self._drill_mode = False
-            self._controller.set_sampling_mode(True)
+            # Mode is NOT flipped here — only once the home move actually
+            # succeeds (see _handle_safe_pose's target_mode handling).
+            # Flipping it immediately would change axis mapping/collision
+            # assumptions for a physical configuration the arm may never
+            # reach (review-flagged: a rejected/failed move used to leave
+            # software mode and physical pose out of sync).
             self._controller.get_logger().info(
                 'B pressed — going straight to sampling_home.'
             )
-            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+            threading.Thread(
+                target=self._handle_safe_pose, args=('sampling',), daemon=True
+            ).start()
 
         if drill_home_pressed and not SAMPLING_DRILL_MODES_ENABLED:
             self._controller.get_logger().warn(
@@ -2526,13 +2552,14 @@ class GamepadInputLoop:
                 '— no drill/sampling tool mounted.'
             )
         elif drill_home_pressed:
-            self._drill_mode = True
-            self._sampling_mode = False
-            self._controller.set_drill_mode(True)
+            # See sampling_home_pressed's comment above — same deferred-
+            # mode-switch reasoning applies here.
             self._controller.get_logger().info(
                 'Y pressed — going straight to drill_home.'
             )
-            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
+            threading.Thread(
+                target=self._handle_safe_pose, args=('drill',), daemon=True
+            ).start()
 
         if level_pressed and not SAMPLING_DRILL_MODES_ENABLED:
             self._controller.get_logger().warn(
@@ -2572,7 +2599,12 @@ class GamepadInputLoop:
         angular_speed = self._angular_speed * boost
 
         now = self._controller.get_clock().now()
-        raw_panel_visible = self._controller.is_panel_visible()
+        # Panel detection/prompting is jaw-only — see panel_align_pressed's
+        # own lockout below for why (only the jaw gripper interacts with
+        # the panel). Suppressed entirely for other tools, or a
+        # drill/astrobio operator would get an unhelpful "press button 7"
+        # prompt (and an unwanted stop()) for a feature that just refuses.
+        raw_panel_visible = end_effector == 'jaw' and self._controller.is_panel_visible()
         if raw_panel_visible:
             self._panel_lost_since = None
             panel_visible = True
@@ -2589,14 +2621,24 @@ class GamepadInputLoop:
             print('\n>>> Panel detected! Press button 7 to align to it. <<<')
         self._panel_was_visible = panel_visible
 
-        if panel_align_pressed:
+        if panel_align_pressed and end_effector != 'jaw':
+            self._controller.get_logger().warn(
+                f"Panel align is locked out with end_effector='{end_effector}' "
+                '— only the jaw gripper interacts with the panel.'
+            )
+        elif panel_align_pressed:
             self._panel_prompt_pending = False
             if panel_visible or self._controller.has_remembered_panel_position:
                 threading.Thread(target=self._handle_panel_align, daemon=True).start()
             else:
                 print('No panel currently in view and no panel position remembered yet.')
 
-        if orient_gripper_pressed:
+        if orient_gripper_pressed and end_effector != 'jaw':
+            self._controller.get_logger().warn(
+                f"Gripper orient is locked out with end_effector='{end_effector}' "
+                '— only the jaw gripper interacts with the panel.'
+            )
+        elif orient_gripper_pressed:
             if self._controller.has_remembered_panel_position:
                 threading.Thread(target=self._handle_orient_gripper, daemon=True).start()
             else:
@@ -2700,8 +2742,15 @@ class GamepadInputLoop:
             self._orient_gripper_active = False
             self._orient_gripper_running.release()
 
-    def _handle_safe_pose(self):
+    def _handle_safe_pose(self, target_mode=None):
         """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
+
+        Args:
+            target_mode: ``'sampling'``/``'drill'`` if this move was
+                triggered by B/Y (mode-engage), or ``None`` for plain A
+                (jaw/astrobio home). Only decides which pose to target
+                and which mode to commit AFTER a successful move — see
+                below.
 
         Guarded by a non-blocking lock so a second button press while a
         move is already in progress is ignored instead of racing a
@@ -2714,6 +2763,13 @@ class GamepadInputLoop:
 
         This is also the only place ``_teleop_locked`` is cleared (see
         its declaration in ``__init__``).
+
+        Sampling/drill mode itself is committed (on both this loop and
+        the controller) ONLY after ``home_ok`` — review-flagged: setting
+        it immediately on button press let the software mode (and its
+        axis mapping / _level_hold target) change even when the move was
+        rejected/failed, leaving the arm physically in its old
+        configuration while teleop already assumed the new one.
         """
         if not self._safe_pose_running.acquire(blocking=False):
             return
@@ -2721,13 +2777,13 @@ class GamepadInputLoop:
         try:
             self._controller.stop()
             print('Moving to home...')
-            if self._sampling_mode:
+            if target_mode == 'sampling':
                 action = functools.partial(
                     self._controller.move_to_safe_pose,
                     positions=self._controller.sampling_home_pose,
                     name=self._controller.sampling_home_pose_name,
                 )
-            elif self._drill_mode:
+            elif target_mode == 'drill':
                 action = functools.partial(
                     self._controller.move_to_safe_pose,
                     positions=self._controller.drill_home_pose,
@@ -2737,6 +2793,14 @@ class GamepadInputLoop:
                 action = self._controller.move_to_safe_pose
             home_ok = self._controller.run_planned_activity(action, 'move_to_safe_pose')
             if home_ok:
+                if target_mode == 'sampling':
+                    self._sampling_mode = True
+                    self._drill_mode = False
+                    self._controller.set_sampling_mode(True)
+                elif target_mode == 'drill':
+                    self._drill_mode = True
+                    self._sampling_mode = False
+                    self._controller.set_drill_mode(True)
                 print('Starting servo...')
                 if self._controller.start_servo():
                     self._teleop_locked = False

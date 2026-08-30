@@ -81,8 +81,7 @@ jobs:
           platforms: linux/arm64
           push: true
           build-args: |
-            BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-l4t-r36.4
-            BASE_IMAGE=stereolabs/zed:5.4-devel-l4t-r36.4
+            BASE_IMAGE=ros:humble-ros-base
           tags: ${{ steps.metadata-tags.outputs.tags }}
           labels: ${{ steps.metadata-tags.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
@@ -149,8 +148,7 @@ jobs:
           push: true
           build-args: |
             INSTALL_SIM_TOOLS=true
-            BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04
-            BASE_IMAGE=stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04
+            BASE_IMAGE=ros:humble-ros-base
           tags: ${{ steps.meta-dev.outputs.tags }}
           labels: ${{ steps.meta-dev.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64

@@ -28,7 +28,7 @@ public:
   TiltBroadcasterNode()
   : Node("tilt_broadcaster_node")
   {
-    declare_parameter("imu_topic", std::string("/zed2i/imu/data"));
+    declare_parameter("imu_topic", std::string("zed2i/imu/data"));
     declare_parameter("parent_frame", std::string("base_footprint"));
     declare_parameter("child_frame", std::string("base_link"));
     // Height of base_link above base_footprint/ground -- must match

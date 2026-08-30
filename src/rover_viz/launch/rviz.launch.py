@@ -5,8 +5,9 @@ import launch.actions
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch.utilities import perform_substitutions
-from launch_ros.actions import Node
+from launch_ros.actions import Node, PushRosNamespace
 
 
 def urdf() -> str:
@@ -45,6 +46,10 @@ def launch_nodes(context: LaunchContext,
             parameters=[{'robot_description': urdf_string, 'publish_frequency': 100.0}],
             output='screen',
             arguments=['--ros-args', '--log-level', 'warn'],
+            remappings=[
+                ('tf', '/tf'),
+                ('tf_static', '/tf_static'),
+            ],
         ))
 
         publisher_pkg = 'joint_state_publisher_gui' if use_joint_gui else 'joint_state_publisher'
@@ -89,14 +94,23 @@ def generate_launch_description():
             'use_joint_state_publisher_gui', default_value='true',
             description='Use joint_state_publisher_gui instead of joint_state_publisher.',
         ),
-        launch.actions.OpaqueFunction(
-            function=launch_nodes,
-            kwargs={
-                'use_sim':   launch.substitutions.LaunchConfiguration('use_sim'),
-                'use_nav':   launch.substitutions.LaunchConfiguration('use_nav'),
-                'use_rviz':  launch.substitutions.LaunchConfiguration('use_rviz'),
-                'use_joint_state_publisher_gui': launch.substitutions.LaunchConfiguration(
-                    'use_joint_state_publisher_gui'),
-            },
+        launch.actions.DeclareLaunchArgument(
+            'rover_namespace',
+            default_value=EnvironmentVariable('ROVER_NAMESPACE', default_value='rover'),
+            description='ROS namespace all rover nodes/topics are pushed under (arm excluded). '
+                        'Must match the namespace of the rover graph being visualized.',
         ),
+        launch.actions.GroupAction([
+            PushRosNamespace(LaunchConfiguration('rover_namespace')),
+            launch.actions.OpaqueFunction(
+                function=launch_nodes,
+                kwargs={
+                    'use_sim':   launch.substitutions.LaunchConfiguration('use_sim'),
+                    'use_nav':   launch.substitutions.LaunchConfiguration('use_nav'),
+                    'use_rviz':  launch.substitutions.LaunchConfiguration('use_rviz'),
+                    'use_joint_state_publisher_gui': launch.substitutions.LaunchConfiguration(
+                        'use_joint_state_publisher_gui'),
+                },
+            ),
+        ]),
     ])

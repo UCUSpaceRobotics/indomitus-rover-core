@@ -28,12 +28,12 @@ ros2 launch rover_aruco aruco_debug.launch.py
 
 Configured via `config/aruco_params.yaml`.
 
-* **`cam_base_topic`:** Image topic base used by the tracker (Default: `/camera/image_raw`).
+* **`cam_base_topic`:** Image topic base used by the tracker (Default: `camera/image_raw`, resolved under the pushed `rover` namespace).
 * **`marker_size`:** Physical marker side length in meters (Default: `0.05`).
 * **`marker_dict`:** OpenCV ArUco dictionary used by the printed marker (Default: `4X4_50`).
 * **`publish_tf`:** Publishes detected marker poses to TF when enabled (Default: `true`).
 
-### The `/camera/usb_cam` Node (Debug Only)
+### The `/rover/camera/usb_cam` Node (Debug Only)
 
 Configured via `config/usb_cam_params.yaml`.
 
@@ -44,11 +44,13 @@ Configured via `config/usb_cam_params.yaml`.
 
 ### System Topics
 
-* **`/camera/image_raw` (Input):** Camera image stream. The image header must have a valid `frame_id`.
-* **`/camera/camera_info` (Input):** Camera calibration data from the same camera namespace.
-* **`/aruco_detections` (Output):** Detected marker IDs and poses.
-* **`/aruco_tracker/debug` (Output):** Debug image overlaying detected marker axes on top of the feed.
-* **`/tf` (Output):** Marker transforms (only if `publish_tf` is true).
+All topics below are relative and pushed under the `rover` namespace (override with the `rover_namespace` launch argument or `ROVER_NAMESPACE` env var), e.g. `/rover/camera/image_raw`.
+
+* **`camera/image_raw` (Input):** Camera image stream. The image header must have a valid `frame_id`.
+* **`camera/camera_info` (Input):** Camera calibration data from the same camera namespace.
+* **`aruco_detections` (Output):** Detected marker IDs and poses.
+* **`aruco_tracker/debug` (Output):** Debug image overlaying detected marker axes on top of the feed.
+* **`/tf` (Output):** Marker transforms (only if `publish_tf` is true) — stays global regardless of the pushed rover namespace.
 
 ---
 
@@ -56,11 +58,11 @@ Configured via `config/usb_cam_params.yaml`.
 
 After starting your preferred launch file, point the camera at a configured marker and verify the data flow:
 
-* **Verify image stream:** Run `ros2 topic hz /camera/image_raw`.
-* **Verify camera calibration:** Run `ros2 topic echo /camera/camera_info --once`.
-* **Verify marker detections:** Run `ros2 topic echo /aruco_detections --once`.
+* **Verify image stream:** Run `ros2 topic hz /rover/camera/image_raw`.
+* **Verify camera calibration:** Run `ros2 topic echo /rover/camera/camera_info --once`.
+* **Verify marker detections:** Run `ros2 topic echo /rover/aruco_detections --once`.
 * **Verify TF broadcasts:** Run `ros2 topic echo /tf --once` (if `publish_tf` is enabled).
-* **Visual validation:** Run `rviz2`, then select **Add > By topic > /aruco_detections/camera** (Note: this image path does not appear in standard topic lists). A working setup shows the webcam image and a bounding box over the detected marker. A **No Image** warning indicates a problem in the camera or detection pipeline.
+* **Visual validation:** Run `rviz2`, then select **Add > By topic > /rover/aruco_detections/camera** (Note: this image path does not appear in standard topic lists). A working setup shows the webcam image and a bounding box over the detected marker. A **No Image** warning indicates a problem in the camera or detection pipeline.
 
 ---
 
@@ -120,7 +122,7 @@ Store the YAML in `src/rover_aruco/config/` and update your camera launch files 
 
 ### Step 5: Post-Calibration Validation
 
-* **Intrinsics:** Run `ros2 topic echo /camera/camera_info --once` to confirm the new metrics are publishing.
+* **Intrinsics:** Run `ros2 topic echo /rover/camera/camera_info --once` to confirm the new metrics are publishing.
 * **Rectification:** Use `image_proc` to rectify the image and verify that straight physical lines remain straight near the image boundaries.
 * **ArUco Pose:** Test a marker matching your configured `marker_size`. Confirm that the pose does not jump erratically and that the depth estimate aligns with physical tape measurements.
 

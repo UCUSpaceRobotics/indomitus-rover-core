@@ -2,7 +2,7 @@
 
 The reason this module exists at all is that two operators command the same
 lights from different kinds of control — momentary buttons on the joystick,
-latching switches on the ground station — and the old all-four-bools request
+latching switches on the ground station — and the old all-bools request
 forced every caller to keep its own copy of the state to build one. Two copies
 is one too many. These tests pin the behaviour that lets callers stop keeping
 one: an unfilled field changes nothing.
@@ -26,8 +26,7 @@ from rover_peripherals.lights_state import (
 
 def all_traffic_on():
     return LightsState(
-        traffic_red=True, traffic_yellow=True,
-        traffic_green=True, traffic_blue=True,
+        traffic_red=True, traffic_green=True, traffic_blue=True,
     )
 
 
@@ -38,25 +37,28 @@ def test_nothing_lit_is_an_empty_mask():
 
 
 def test_each_colour_owns_the_bit_the_firmware_expects():
-    # R=bit0 Y=bit1 G=bit2 B=bit3. The ESP32 has no idea what our dataclass
-    # looks like, so this ordering is a wire contract, not an implementation
-    # detail — reordering the fields must not silently repaint the rover.
-    assert traffic_mask(LightsState(traffic_red=True))    == 0x01
-    assert traffic_mask(LightsState(traffic_yellow=True)) == 0x02
-    assert traffic_mask(LightsState(traffic_green=True))  == 0x04
-    assert traffic_mask(LightsState(traffic_blue=True))   == 0x08
+    # R=bit0 G=bit1 B=bit2 - the firmware has no yellow LED. The ESP32 has no
+    # idea what our dataclass looks like, so this ordering is a wire contract,
+    # not an implementation detail — reordering the fields must not silently
+    # repaint the rover.
+    assert traffic_mask(LightsState(traffic_red=True))   == 0x01
+    assert traffic_mask(LightsState(traffic_green=True)) == 0x02
+    assert traffic_mask(LightsState(traffic_blue=True))  == 0x04
 
 
 def test_colours_combine_into_one_mask():
-    assert traffic_mask(all_traffic_on()) == 0x0F
+    assert traffic_mask(all_traffic_on()) == 0x07
     assert traffic_mask(
-        LightsState(traffic_red=True, traffic_blue=True)) == 0x09
+        LightsState(traffic_red=True, traffic_blue=True)) == 0x05
 
 
 def test_the_mask_ignores_the_lights_that_are_not_on_the_traffic_head():
-    # spotlight and beautiful ride their own CAN commands; leaking them into
-    # the traffic mask would light colours nobody asked for.
-    assert traffic_mask(LightsState(spotlight=True, beautiful=True)) == 0x00
+    # spotlight, beautiful and the buzzer ride their own CAN commands; leaking
+    # them into the traffic mask would light colours nobody asked for.
+    assert traffic_mask(LightsState(
+        spotlight_left=True, spotlight_right=True,
+        beautiful=True, buzzer=True,
+    )) == 0x00
 
 
 # ── tri-state resolution ─────────────────────────────────────────────────────
@@ -91,21 +93,20 @@ def test_a_zero_initialised_request_changes_nothing():
     assert resolve_traffic(before) == before
 
 
-def test_switching_one_colour_leaves_the_other_three_alone():
+def test_switching_one_colour_leaves_the_others_alone():
     before = all_traffic_on()
 
     after = resolve_traffic(before, blue=OFF)
 
     assert after.traffic_blue is False
     assert after.traffic_red is True
-    assert after.traffic_yellow is True
     assert after.traffic_green is True
 
 
 def test_several_colours_can_move_in_one_request():
     after = resolve_traffic(LightsState(), red=ON, green=ON)
 
-    assert traffic_mask(after) == 0x05
+    assert traffic_mask(after) == 0x03
 
 
 def test_colours_can_move_in_opposite_directions_at_once():
@@ -121,12 +122,16 @@ def test_colours_can_move_in_opposite_directions_at_once():
 
 
 def test_resolving_never_touches_the_non_traffic_lights():
-    before = LightsState(spotlight=True, beautiful=True)
+    before = LightsState(
+        spotlight_left=True, spotlight_right=True, beautiful=True, buzzer=True,
+    )
 
     after = resolve_traffic(before, red=ON)
 
-    assert after.spotlight is True
+    assert after.spotlight_left is True
+    assert after.spotlight_right is True
     assert after.beautiful is True
+    assert after.buzzer is True
 
 
 def test_the_input_state_is_left_untouched():
@@ -135,18 +140,18 @@ def test_the_input_state_is_left_untouched():
     # a failed CAN transaction has to leave the old state standing.
     before = LightsState()
 
-    resolve_traffic(before, red=ON, yellow=ON, green=ON, blue=ON)
+    resolve_traffic(before, red=ON, green=ON, blue=ON)
 
     assert traffic_mask(before) == 0x00
 
 
 def test_a_bad_value_names_the_colour_that_was_wrong():
-    with pytest.raises(ValueError, match='yellow'):
-        resolve_traffic(LightsState(), yellow=42)
+    with pytest.raises(ValueError, match='green'):
+        resolve_traffic(LightsState(), green=42)
 
 
 # ── log/response text ────────────────────────────────────────────────────────
 
 def test_describe_traffic_reads_out_every_colour():
     assert describe_traffic(LightsState(traffic_red=True, traffic_blue=True)) == (
-        'R=1 Y=0 G=0 B=1')
+        'R=1 G=0 B=1')

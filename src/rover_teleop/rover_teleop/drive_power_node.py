@@ -122,19 +122,19 @@ class DrivePowerNode(Node):
 
         self._power_client = self.create_client(
             SetHardwareComponentState,
-            '/controller_manager/set_hardware_component_state')
+            'controller_manager/set_hardware_component_state')
         self._switch_client = self.create_client(
-            SwitchController, '/controller_manager/switch_controller')
+            SwitchController, 'controller_manager/switch_controller')
         self._compact_client = self.create_client(
-            SetBool, f'/{self._controller_name}/set_compact_mode')
+            SetBool, f'{self._controller_name}/set_compact_mode')
         self._clear_errors_client = self.create_client(
             Trigger,
             str(declare_and_get('clear_errors_service',
-                                '/rover_hardware_node/clear_motor_errors')))
+                                'rover_hardware_node/clear_motor_errors')))
         self._list_hardware_client = self.create_client(
-            ListHardwareComponents, '/controller_manager/list_hardware_components')
+            ListHardwareComponents, 'controller_manager/list_hardware_components')
         self._list_controllers_client = self.create_client(
-            ListControllers, '/controller_manager/list_controllers')
+            ListControllers, 'controller_manager/list_controllers')
 
         self._power_guard = GuardedCall(self._power_client)
         self._compact_guard = GuardedCall(self._compact_client)

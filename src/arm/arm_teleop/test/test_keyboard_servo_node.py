@@ -418,6 +418,42 @@ def test_gamepad_safe_pose_stays_locked_on_failure(controller, monkeypatch):
     assert loop._teleop_locked is True
 
 
+# ── review-flagged: mode state must not change ahead of a successful move ──
+
+def test_gamepad_sampling_mode_not_committed_on_home_failure(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda **kwargs: False)
+    loop._handle_safe_pose('sampling')
+    assert loop._sampling_mode is False
+    assert controller._sampling_mode is False
+
+
+def test_gamepad_drill_mode_not_committed_on_home_failure(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda **kwargs: False)
+    loop._handle_safe_pose('drill')
+    assert loop._drill_mode is False
+    assert controller._drill_mode is False
+
+
+def test_gamepad_sampling_mode_committed_on_home_success(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda **kwargs: True)
+    monkeypatch.setattr(controller, 'start_servo', lambda: True)
+    loop._handle_safe_pose('sampling')
+    assert loop._sampling_mode is True
+    assert controller._sampling_mode is True
+
+
+def test_gamepad_drill_mode_committed_on_home_success(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda **kwargs: True)
+    monkeypatch.setattr(controller, 'start_servo', lambda: True)
+    loop._handle_safe_pose('drill')
+    assert loop._drill_mode is True
+    assert controller._drill_mode is True
+
+
 def test_gamepad_joy_timeout_stops_the_arm(controller):
     loop = GamepadInputLoop(controller)
     controller.vx = 999.0

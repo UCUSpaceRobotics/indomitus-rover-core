@@ -7,8 +7,7 @@ services:
       dockerfile: docker/Dockerfile
       target: prod
       args:
-        BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-stereolabs/zed:5.4-devel-l4t-r36.4}
-        BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-devel-l4t-r36.4}
+        BASE_IMAGE: ${BASE_IMAGE:-ros:humble-ros-base}
         UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
 
@@ -33,7 +32,7 @@ services:
       retries: 3
       start_period: 5s
     environment:
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
       - ROS_LOCALHOST_ONLY=0
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
@@ -43,5 +42,5 @@ services:
       - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
       - /dev:/dev:rw
       - /run/udev:/run/udev:ro
-      - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
-      - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
+      # - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
+      # - /usr/local/zed/resources/:/usr/local/zed/resources/:rw

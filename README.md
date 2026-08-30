@@ -128,12 +128,12 @@ To power down the rover, perform **one** of the following actions:
 | Property | Value |
 | --- | --- |
 | **Jetson Username** | `indomitus-rover` |
-| **Jetson Computer Name** | `indomitus-rover` |
+| **Jetson Computer Name** | `indomitus-rover-computer` |
 | **Jetson Password** | `1` |
-| **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
-| **Wi-Fi Password** | `12345678` |
+| **Wi-Fi Hotspot Name (SSID)** | `ERC_UCUSpaceRobotics_A` |
+| **Wi-Fi Password** | `19283746` |
 | **Jetson Static IP for Hotspot** | `10.42.0.1` |
-| **Jetson Container ROS_DOMAIN_ID** | `42` |
+| **Jetson Container ROS_DOMAIN_ID** | `90` |
 
 
 ### SSH Access to the Jetson
@@ -148,7 +148,7 @@ You can SSH into the Jetson to access its bash shell for debugging or configurat
 
 2. **Initiate the connection:** Open your terminal and run the following command:
    ```bash
-   ssh indomitus-rover@indomitus-rover.local
+   ssh indomitus-rover@indomitus-rover-computer.local
    ```
 
 #### SSH via Ethernet
@@ -161,7 +161,7 @@ You can SSH into the Jetson to access its bash shell for debugging or configurat
 
 4. **Initiate the connection:** Open your terminal and run the following command:
    ```bash
-   ssh indomitus-rover@indomitus-rover.local
+   ssh indomitus-rover@indomitus-rover-computer.local
    ```
 
 > **Note:** For further details on the network configuration, refer to [ssh.md](docs/networking/ssh.md).
@@ -198,7 +198,7 @@ echo $ROS_DOMAIN_ID
 
 2. Start the container with the new ID. You can pass the variable directly into the start command:
    ```bash
-   ROS_DOMAIN_ID=132 docker compose up -d
+   ROS_DOMAIN_ID=90 docker compose up -d
    ```
 
 *(Alternatively, you can permanently change the `ROS_DOMAIN_ID` value inside your `docker-compose.yml` file before running the standard `docker compose up -d` command).*

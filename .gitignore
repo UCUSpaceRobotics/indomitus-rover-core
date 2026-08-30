@@ -205,29 +205,8 @@ dmypy.json
 # pytype static type analyzer
 .pytype/
 
-# Cython debug symbols
 cython_debug/
-
-# PyCharm
-#   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#   and can be added to the global gitignore or merged into this file.  For a more nuclear
-#   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
-
-# Abstra
-#   Abstra is an AI-powered process automation framework.
-#   Ignore directories containing user credentials, local state, and settings.
-#   Learn more at https://abstra.io/docs
 .abstra/
-
-# Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
-#   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer,
-#   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
-# Temporary file for partial code execution
 tempCodeRunnerFile.py
 
 # Ruff stuff:
@@ -245,9 +224,20 @@ __marimo__/
 .streamlit/secrets.toml
 
 *.log
-COLCON_IGNORE
 *.tar
+
+# COLCON
 colcon_defaults.yaml
+COLCON_IGNORE
+!src/rover_navigation/COLCON_IGNORE
+!src/rover_localization/COLCON_IGNORE
+!src/rover_costmap_plugins/COLCON_IGNORE
+
+# Ament
+AMENT_IGNORE
+!src/rover_navigation/AMENT_IGNORE
+!src/rover_localization/AMENT_IGNORE
+!src/rover_costmap_plugins/AMENT_IGNORE
 
 # Code formating
 .clang-format
