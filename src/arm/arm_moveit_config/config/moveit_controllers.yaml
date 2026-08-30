@@ -1,5 +1,16 @@
 moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
 
+# Defaults (1.2 scaling, 0.5s margin) computed "expected upper bound ~2.5s"
+# for a real move that turned out to need a bit more wall-clock time than
+# the planned model predicted — trajectory_execution_manager cancelled a
+# move that was still genuinely in progress, not stuck. Raised for more
+# slack; if executions are STILL timing out at these values, the arm isn't
+# just running a bit slow, something else is wrong (don't keep raising
+# this blindly).
+trajectory_execution:
+  allowed_execution_duration_scaling: 3.0
+  allowed_goal_duration_margin: 5.0
+
 moveit_simple_controller_manager:
   controller_names:
     - indomitus_arm_controller

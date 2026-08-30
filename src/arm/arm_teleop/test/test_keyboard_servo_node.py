@@ -9,15 +9,17 @@ genuine flakiness trap found while verifying this by hand: against a busy
 topic (e.g. a live sim publishing at 100Hz), rclpy.spin_once can starve
 this node's own publish timer indefinitely and report a false failure.
 """
+import contextlib
 import time
 
 import pytest
-import rclpy
 from geometry_msgs.msg import PoseStamped
+from moveit_msgs.msg import Constraints
 from rclpy.duration import Duration
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState, Joy
 
-from arm_tasks.keyboard_servo_node import (
+from arm_teleop.keyboard_servo_node import (
     GRIPPER_JOINT_NAME,
     HOME_POSE_JOINTS,
     GamepadInputLoop,
@@ -25,13 +27,6 @@ from arm_tasks.keyboard_servo_node import (
     ServoController,
     ecodes,
 )
-
-
-@pytest.fixture(scope='module', autouse=True)
-def ros_context():
-    rclpy.init()
-    yield
-    rclpy.shutdown()
 
 
 @pytest.fixture
@@ -423,6 +418,42 @@ def test_gamepad_safe_pose_stays_locked_on_failure(controller, monkeypatch):
     assert loop._teleop_locked is True
 
 
+# ── review-flagged: mode state must not change ahead of a successful move ──
+
+def test_gamepad_sampling_mode_not_committed_on_home_failure(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda **kwargs: False)
+    loop._handle_safe_pose('sampling')
+    assert loop._sampling_mode is False
+    assert controller._sampling_mode is False
+
+
+def test_gamepad_drill_mode_not_committed_on_home_failure(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda **kwargs: False)
+    loop._handle_safe_pose('drill')
+    assert loop._drill_mode is False
+    assert controller._drill_mode is False
+
+
+def test_gamepad_sampling_mode_committed_on_home_success(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda **kwargs: True)
+    monkeypatch.setattr(controller, 'start_servo', lambda: True)
+    loop._handle_safe_pose('sampling')
+    assert loop._sampling_mode is True
+    assert controller._sampling_mode is True
+
+
+def test_gamepad_drill_mode_committed_on_home_success(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    monkeypatch.setattr(controller, 'move_to_safe_pose', lambda **kwargs: True)
+    monkeypatch.setattr(controller, 'start_servo', lambda: True)
+    loop._handle_safe_pose('drill')
+    assert loop._drill_mode is True
+    assert controller._drill_mode is True
+
+
 def test_gamepad_joy_timeout_stops_the_arm(controller):
     loop = GamepadInputLoop(controller)
     controller.vx = 999.0
@@ -437,3 +468,121 @@ def test_gamepad_no_timeout_when_joy_recently_seen(controller):
     loop._last_joy_time = controller.get_clock().now()
     loop._check_joy_timeout()
     assert controller.vx == 999.0  # untouched: no timeout yet
+
+
+# ── move_to_safe_pose() must be collision-aware (review: not raw JTC) ──
+# _FakeFuture is the one defined near the top of this file.
+
+class _NeverResolvingFuture:
+    """Simulates a goal handle whose result callback never arrives."""
+
+    def add_done_callback(self, cb):
+        pass
+
+
+class _FakeGoalHandle:
+    def __init__(self, accepted=True):
+        self.accepted = accepted
+        self.cancel_calls = 0
+
+    def get_result_async(self):
+        return _NeverResolvingFuture()
+
+    def cancel_goal_async(self):
+        self.cancel_calls += 1
+        return _FakeFuture(None)
+
+
+def test_move_to_safe_pose_uses_collision_aware_planning(controller, monkeypatch):
+    monkeypatch.setattr(controller, 'stop_servo', lambda: True)
+    monkeypatch.setattr(controller, 'use_trajectory_controller', lambda: True)
+    # arm_motion_lock() now calls a real ROS service (arm_motion_lock_server)
+    # — no such server in this unit test, so bypass it like every other
+    # cross-node call in this file.
+    monkeypatch.setattr(
+        'arm_teleop.keyboard_servo_node.arm_motion_lock',
+        lambda *a, **kw: contextlib.nullcontext())
+    calls = []
+
+    def _fake_execute(constraints):
+        calls.append(constraints)
+        return True, ''
+    monkeypatch.setattr(controller, '_execute_move_group_constraints', _fake_execute)
+
+    target = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    assert controller.move_to_safe_pose(positions=target, name='test') is True
+    assert len(calls) == 1
+    got = {jc.joint_name: jc.position for jc in calls[0].joint_constraints}
+    assert got == dict(zip(HOME_POSE_JOINTS, target))
+    # The raw FollowJointTrajectory path this used to take is gone entirely.
+    assert not hasattr(controller, '_traj_client')
+
+
+def test_execute_move_group_constraints_cancels_goal_on_timeout(controller, monkeypatch):
+    controller.set_parameters([Parameter('safe_pose_timeout', value=0.05)])
+    gh = _FakeGoalHandle(accepted=True)
+    monkeypatch.setattr(controller._move_group_client, 'send_goal_async', lambda goal: _FakeFuture(gh))
+
+    ok, error = controller._execute_move_group_constraints(Constraints())
+
+    assert ok is False
+    assert 'timed out' in error
+    # Critical: leaving this goal running server-side after reporting
+    # failure would let the arm keep moving under it once the caller
+    # (believing the move failed) switches controllers/restarts Servo.
+    assert gh.cancel_calls == 1
+
+
+# ── poses.json entries must stay within joint limits (review: drill_home) ──
+
+def test_pose_limit_violation_detects_out_of_range_joint():
+    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _pose_limit_violation
+    pose = [0.0] * len(HOME_POSE_JOINTS)
+    pose[HOME_POSE_JOINTS.index('arm_forearm_wrist_1_joint')] = 7.0  # past ±2*pi
+    violation = _pose_limit_violation(pose)
+    assert 'arm_forearm_wrist_1_joint' in violation
+
+
+def test_pose_limit_violation_empty_for_in_range_pose():
+    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _pose_limit_violation
+    assert _pose_limit_violation([0.0] * len(HOME_POSE_JOINTS)) == ''
+
+
+def test_tool_home_pose_falls_back_when_json_entry_exceeds_limits(controller, monkeypatch):
+    bad_pose = [0.0, 0.0, 0.0, 7.0, 0.0, 0.0]  # past ±2*pi
+    monkeypatch.setattr(
+        'arm_teleop.keyboard_servo_node._load_home_pose_from_json', lambda name: bad_pose)
+    assert controller._load_tool_home_pose('drill_home') == controller._safe_pose
+
+
+# ── run_planned_activity() must keep the arm still for the full 5s ─────
+
+def test_set_velocity_forced_to_zero_during_activity_delay(controller):
+    controller._activity_delay_active = True
+    controller.set_velocity(vx=1.0, vy=1.0, vz=1.0, wx=1.0, wy=1.0, wz=1.0,
+                             view_vx=1.0, view_vy=1.0, view_vz=1.0)
+    assert (controller.vx, controller.vy, controller.vz) == (0.0, 0.0, 0.0)
+    assert (controller.wx, controller.wy, controller.wz) == (0.0, 0.0, 0.0)
+    assert (controller.view_vx, controller.view_vy, controller.view_vz) == (0.0, 0.0, 0.0)
+
+
+def test_set_gripper_velocity_forced_to_zero_during_activity_delay(controller):
+    controller._activity_delay_active = True
+    controller.set_gripper_velocity(1.0)
+    assert controller.gripper_vel == 0.0
+
+
+def test_run_planned_activity_holds_input_suppressed_for_the_whole_sleep(controller, monkeypatch):
+    monkeypatch.setattr(controller, '_signal_activity_indicator', lambda active: None)
+    seen_during_sleep = []
+
+    def _fake_sleep(seconds):
+        seen_during_sleep.append(controller._activity_delay_active)
+
+    monkeypatch.setattr(
+        'arm_teleop.keyboard_servo_node.time.sleep', _fake_sleep)
+
+    controller.run_planned_activity(lambda: True, 'test')
+
+    assert seen_during_sleep == [True]  # suppressed for the entire wait
+    assert controller._activity_delay_active is False  # cleared once action() runs

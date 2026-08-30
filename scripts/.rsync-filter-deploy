@@ -3,6 +3,7 @@
 # Unnecessary simulation and visualization packages
 - rover_viz/
 - rover_sim/
+- arm_tasks/
 - arm_viz/
 - arm_sim/
 - panel_sim/

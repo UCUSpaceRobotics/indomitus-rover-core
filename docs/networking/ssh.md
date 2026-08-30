@@ -24,7 +24,7 @@ SSH is a very useful tool to remotely access the Jetson on the rover, enter the 
 
 > **Note:** The current static IP for the Jetson hotspot is `10.42.0.1`
 
-1. Connect your laptop to the `IndomitusRover` Wi-Fi network with the password `12345678`.
+1. Connect your laptop to the `ERC_UCUSpaceRobotics_A` Wi-Fi network with the password `19283746`.
 
 2. Run one of the following commands to SSH into the Jetson:
 
@@ -35,7 +35,7 @@ SSH is a very useful tool to remotely access the Jetson on the rover, enter the 
 
    or automatic ip resolution:
    ```bash
-   ssh indomitus-rover@indomitus-rover.local
+   ssh indomitus-rover@indomitus-rover-computer.local
    ```
 
 
@@ -59,7 +59,7 @@ SSH is a very useful tool to remotely access the Jetson on the rover, enter the 
 3. Run the SSH command using the Jetson's local hostname:
 
   ```bash
-   ssh indomitus-rover@indomitus-rover.local
+   ssh indomitus-rover@indomitus-rover-computer.local
    ```
 
 
@@ -149,7 +149,7 @@ For convenience, you should set up passwordless SSH. Run these commands on your 
 2. Copy the public key to the Jetson (you will be prompted for the Jetson password one last time):
 
    ```bash
-   ssh-copy-id indomitus-rover@indomitus-rover.local
+   ssh-copy-id indomitus-rover@indomitus-rover-computer.local
    ```
 
 
@@ -188,7 +188,7 @@ To simplify the connection command and automatically enable key forwarding, conf
 
    ```text
    Host rover
-     HostName indomitus-rover.local
+     HostName indomitus-rover-computer.local
      User indomitus-rover
      ForwardAgent yes
    ```

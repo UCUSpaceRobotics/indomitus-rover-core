@@ -14,16 +14,17 @@
 # Confirmed against moveit_configs_utils' own bundled default
 # ompl_planning.yaml, which is flat the same way.
 #
-# AddTimeOptimalParameterization (TOTG) times the geometric path using
 # velocity/acceleration limits — already respects joint_limits.yaml on its
 # own. AddRuckigTrajectorySmoothing (jerk-limited reshaping on top of TOTG)
-# is dropped: confirmed live it fails on panel_align_node's short align
-# motions (moveit_trajectory_processing.ruckig_traj_smoothing: "Ruckig
-# error: -100" == ruckig::Result::ErrorInvalidInput), and MoveIt's failure
-# handling for that adapter leaves the trajectory with two leading points
-# both at time_from_start=0 — indomitus_arm_controller's FollowJointTrajectory
+# is dropped: confirmed live it fails both on the real arm and on
+# panel_align_node's short align motions (moveit_trajectory_processing.
+# ruckig_traj_smoothing: "Ruckig error: -100" ==
+# ruckig::Result::ErrorInvalidInput), and MoveIt's failure handling for that
+# adapter leaves the trajectory with two leading points both at
+# time_from_start=0 — indomitus_arm_controller's FollowJointTrajectory
 # action server then rejects the whole goal outright ("Time between points
-# 0 and 1 is not strictly increasing"). TOTG alone is standard and safe;
+# 0 and 1 is not strictly increasing"), or move_group just reports
+# "executed" while the arm never moves. TOTG alone is standard and safe;
 # only the jerk-limiting refinement is lost, not velocity/acceleration
 # safety margins.
 planning_plugin: ompl_interface/OMPLPlanner
