@@ -52,15 +52,27 @@ forms for the joystick's buttons:
 
 | Service | Type | Meaning |
 |---|---|---|
-| `/lights/spotlight` | `std_srvs/SetBool` | set the spotlight |
-| `/lights/spotlight/toggle` | `std_srvs/Trigger` | invert the spotlight |
-| `/lights/beautiful` | `std_srvs/SetBool` | set the decorative light |
-| `/lights/beautiful/toggle` | `std_srvs/Trigger` | invert the decorative light |
-| `/lights/traffic_light` | [`indomitus_interfaces/SetTrafficLight`](../indomitus_interfaces/srv/SetTrafficLight.srv) | set any subset of the four colours |
+| `/lights/spotlight` | `std_srvs/SetBool` | set both spotlight pins together |
+| `/lights/spotlight_left` | `std_srvs/SetBool` | set the left spotlight pin only |
+| `/lights/spotlight_right` | `std_srvs/SetBool` | set the right spotlight pin only |
+| `/lights/beautiful` | `std_srvs/SetBool` | set the decorative animation (all 4 pins) |
+| `/lights/beautiful_1` .. `/lights/beautiful_4` | `std_srvs/SetBool` | set one decorative pin, static |
+| `/lights/traffic_red` | `std_srvs/SetBool` | set the traffic-head red pin only |
+| `/lights/traffic_green` | `std_srvs/SetBool` | set the traffic-head green pin only |
+| `/lights/traffic_blue` | `std_srvs/SetBool` | set the traffic-head blue pin only |
+| `/lights/buzzer` | `std_srvs/SetBool` | set the buzzer |
+| `/lights/tower` | `std_srvs/SetBool` | set all three traffic-head pins together |
+| `/lights/traffic_light` | [`indomitus_interfaces/SetTrafficLight`](../indomitus_interfaces/srv/SetTrafficLight.srv) | set any subset of the traffic-head colours |
+
+Every `/lights/<name>` service above also has a matching
+`/lights/<name>/toggle` (`std_srvs/Trigger`) that inverts it. `/lights/beautiful_1`
+through `_4` fight the `/lights/beautiful` animation if it is running — that is
+a firmware quirk, not something this node papers over.
 
 `SetTrafficLight` is tri-state per colour: `KEEP=0`, `OFF=1`, `ON=2`. `KEEP`
 is zero so a request only ever changes the colours it names — an empty request
-is a no-op, and switching blue does not disturb red:
+is a no-op, and switching blue does not disturb red. The head is red/green/blue
+only; the firmware has no yellow LED.
 
 ```bash
 ros2 service call /lights/traffic_light indomitus_interfaces/srv/SetTrafficLight "{blue: 2}"

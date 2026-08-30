@@ -1,14 +1,14 @@
-# Set any subset of the traffic-light colours, leaving the rest alone.
+# Set any subset of the traffic-head colours, leaving the rest alone.
 #
 # KEEP is 0 so that a zero-initialised request is a no-op: switching one colour
-# must not disturb the other three. The node that serves this owns the full
-# state, so callers never have to track it.
+# must not disturb the others. The node that serves this owns the full state,
+# so callers never have to track it. The head is red/green/blue only — the
+# firmware has no yellow LED.
 int8 KEEP=0
 int8 OFF=1
 int8 ON=2
 
 int8 red
-int8 yellow
 int8 green
 int8 blue
 ---
