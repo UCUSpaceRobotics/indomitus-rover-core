@@ -35,12 +35,12 @@ The script accepts the following flags to override defaults depending on the sub
 | **`--ip`** | `rover` | Jetson target IP/hostname | `10.42.0.1` |
 | **`--eth`** | `rover` | Use Ethernet target and skip hotspot auto-connect | `off` |
 | **`--dir`** | `rover` | Remote deployment directory | `/home/indomitus-rover/indomitus-rover-core/` |
-| **`--ssid`** | `rover` | Wi-Fi SSID of the Jetson hotspot | `IndomitusRover` |
-| **`--pass`** | `rover` | Wi-Fi password for the hotspot | `12345678` |
+| **`--ssid`** | `rover` | Wi-Fi SSID of the Jetson hotspot | `ERC_UCUSpaceRobotics_A` |
+| **`--pass`** | `rover` | Wi-Fi password for the hotspot | `19283746` |
 | **`-h, --help`** | `local`, `rover` | Display help and exit | N/A |
 
 ## Notes
 
-- In rover mode, `--eth` sets the target to `indomitus-rover.local` and disables Wi-Fi auto-connect logic.
+- In rover mode, `--eth` sets the target to `indomitus-rover-computer.local` and disables Wi-Fi auto-connect logic.
 - In rover mode, `--ip` always sets the final target address based on argument order (the last assignment wins).
 - Both local and rover shells source ROS and workspace setup files before opening an interactive shell.

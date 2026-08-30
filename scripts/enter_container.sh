@@ -110,14 +110,14 @@ run_rover() {
   # Defaults
   local JETSON_USER="indomitus-rover"
   local JETSON_HOTSPOT_IP="10.42.0.1"
-  local JETSON_ETHERNET_IP="indomitus-rover.local"
+  local JETSON_ETHERNET_IP="indomitus-rover-computer.local"
   local JETSON_IP="${JETSON_HOTSPOT_IP}"
   local REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
   local CONTAINER_NAME="rover_prod"
   local COMPOSE_FILE="docker-compose.prod.yaml"
   local WORKSPACE_DIR="/opt/ws"
-  local WIFI_SSID="IndomitusRover"
-  local WIFI_PASS="12345678"
+  local WIFI_SSID="ERC_UCUSpaceRobotics_A"
+  local WIFI_PASS="19283746"
   local USE_ETH=false
 
   show_rover_help() {
