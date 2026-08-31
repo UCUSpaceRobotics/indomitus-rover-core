@@ -4,7 +4,7 @@ from ament_index_python.packages import (
 )
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, LogInfo
-# from launch.conditions import IfCondition
+from launch.conditions import IfCondition
 from launch.substitutions import (
     EnvironmentVariable, LaunchConfiguration, Command #, NotEqualsSubstitution
 )
@@ -46,6 +46,31 @@ def _gs_link_lamp():
     return include_launch('rover_comms', 'gs_link_lamp.launch.py')
 
 
+def _joy_teleop():
+    """Wired-into-the-rover gamepad, publishing cmd_vel_joy at the top
+    twist_mux priority (see rover_bringup/config/twist_mux.yaml) - a second,
+    independent stick plugged straight into the rover rather than the ground
+    station's, for bench driving or as a local override.
+
+    Included OUTSIDE this file's PushRosNamespace(namespace_val) group on
+    purpose: joy.launch.py pushes its own rover_namespace so it can be
+    launched standalone on the bench with the same topic names bringup uses.
+    Nesting it inside this file's own push would double-namespace everything
+    it touches to /rover/rover/... - the exact bug arm_bringup's
+    gamepad_servo_include comment (arm.launch.py) documents hitting and
+    fixing for the arm's equivalent split.
+
+    Off (use_joy:=false) by default: most bringups have nothing plugged into
+    /dev/input/js0, and game_controller_node would just respawn against it
+    forever, which is noise no run should have to see unless a gamepad is
+    actually there.
+    """
+    return include_launch('rover_teleop', 'joy.launch.py', {
+        'rover_namespace': LaunchConfiguration('rover_namespace'),
+        'joy_dev': LaunchConfiguration('joy_dev'),
+    }, condition=IfCondition(LaunchConfiguration('use_joy')))
+
+
 def generate_launch_description():
     rover_bringup_share = get_package_share_directory('rover_bringup')
     rover_description_share = get_package_share_directory('rover_description')
@@ -60,6 +85,18 @@ def generate_launch_description():
     interface_arg = DeclareLaunchArgument(
         'interface', default_value='can_rover',
         description='SocketCAN network interface name',
+    )
+
+    use_joy_arg = DeclareLaunchArgument(
+        'use_joy', default_value='false',
+        description='Wired gamepad plugged into the rover itself (cmd_vel_joy, '
+                    'top twist_mux priority) - separate from the ground '
+                    'station\'s own joystick on cmd_vel_gs',
+    )
+
+    joy_dev_arg = DeclareLaunchArgument(
+        'joy_dev', default_value='/dev/input/js0',
+        description='Device path for the rover-side gamepad; only used when use_joy:=true',
     )
 
     # zed2i_mode_arg = DeclareLaunchArgument(
@@ -82,7 +119,15 @@ def generate_launch_description():
     return LaunchDescription([
         namespace_arg,
         interface_arg,
+        use_joy_arg,
+        joy_dev_arg,
         # zed2i_mode_arg,
+
+        include_launch('rover_teleop', 'joy.launch.py', {
+        'rover_namespace': LaunchConfiguration('rover_namespace'),
+        'joy_dev': LaunchConfiguration('joy_dev'),
+    }, condition=IfCondition(LaunchConfiguration('use_joy'))),  # Outside the namespace group - see its own docstring.
+
         GroupAction([
             PushRosNamespace(namespace_val),
 
