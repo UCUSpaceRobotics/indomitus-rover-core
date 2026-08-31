@@ -35,6 +35,7 @@ sub-calls' response callbacks can interleave on different threads.
 
 import math
 import os
+import random
 import socket
 import threading
 import xml.etree.ElementTree as ET
@@ -45,8 +46,8 @@ from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose, PoseStamped
 from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import (
-    CollisionObject, Constraints, JointConstraint, MoveItErrorCodes,
-    PlanningOptions, PlanningScene, PlanningSceneWorld, PositionIKRequest,
+    BoundingVolume, CollisionObject, Constraints, JointConstraint, MoveItErrorCodes,
+    PlanningOptions, PlanningScene, PlanningSceneWorld, PositionConstraint, PositionIKRequest,
 )
 from controller_manager_msgs.srv import SwitchController
 from indomitus_interfaces.srv import AcquireArmMotionLock, ReleaseArmMotionLock
@@ -56,7 +57,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration as TfWaitDuration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from sensor_msgs.msg import CameraInfo
+from sensor_msgs.msg import CameraInfo, JointState
 from shape_msgs.msg import SolidPrimitive
 from std_srvs.srv import Trigger
 
@@ -159,6 +160,14 @@ def _joint_limit_margin(name: str, position: float) -> float:
     lower, upper = JOINT_LIMITS[name]
     return min(position - lower, upper - position) / (upper - lower)
 
+
+def _joint_space_distance(a: dict, b: dict) -> float:
+    """Euclidean distance between two {joint_name: position} dicts, over
+    JOINT_LIMITS' own joints only — used to pick the IK solution nearest
+    the arm's current state out of several valid candidates.
+    """
+    return math.sqrt(sum((a[name] - b[name]) ** 2 for name in JOINT_LIMITS))
+
 # Actually keeps OMPL's sampled path inside JOINT_LIMITS, unlike the
 # post-plan-only margin check below — the URDF itself allows +-2pi (real
 # hardware needs that), so without this OMPL freely wanders the full
@@ -222,6 +231,18 @@ class PanelAlignNode(Node):
         # entirely — same approach _align_to_remembered_locked already
         # uses successfully for replay.
         self.declare_parameter('live_align_ik_attempts', 8)
+        # 'm' must not swing the arm through a different elbow/wrist
+        # branch to reach an orientation-only target — review-flagged:
+        # picking the IK solution nearest the current joint state only
+        # bounds the ENDPOINT, not the path OMPL takes to get there. This
+        # is an actual planning-time constraint (a PositionConstraint
+        # path_constraint, not just a goal) that keeps TIP_LINK within
+        # this radius of its CURRENT position for every point along the
+        # whole trajectory, so "reorient in place" is enforced by the
+        # planner itself. Generous enough for the small excursion joint
+        # interpolation between two nearby joint-space solutions needs,
+        # tight enough to rule out routing through a distant branch.
+        self.declare_parameter('orient_gripper_path_position_radius', 0.05)
         # This 60s, summed with every other wait_for_service/server +
         # done.wait() in align_to_panel()'s sequence, must stay under
         # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
@@ -239,6 +260,12 @@ class PanelAlignNode(Node):
 
         self._latest_panel_pose: PoseStamped | None = None
         self._latest_camera_info: CameraInfo | None = None
+        # Used to seed /compute_ik's first attempt and to pick the
+        # closest-to-current solution among several valid ones (review-
+        # flagged: retries without this can't guarantee exploring
+        # different IK branches, and orient_gripper needs the NEAREST
+        # branch specifically to actually stay "in place").
+        self._latest_joint_positions: dict[str, float] = {}
         self._camera_to_tip = None  # cached at startup, see _try_cache_camera_to_tip
         self._last_status_message = ''
         # Session-scoped only (reset by restarting this node). None until
@@ -275,6 +302,9 @@ class PanelAlignNode(Node):
             callback_group=cb_group)
         self.create_subscription(
             CameraInfo, self._camera_info_topic, self._on_camera_info, 10,
+            callback_group=cb_group)
+        self.create_subscription(
+            JointState, 'joint_states', self._on_joint_state, 10,
             callback_group=cb_group)
 
         self._tf_buffer = tf2_ros.Buffer()
@@ -318,6 +348,11 @@ class PanelAlignNode(Node):
 
     def _on_camera_info(self, msg: CameraInfo) -> None:
         self._latest_camera_info = msg
+
+    def _on_joint_state(self, msg: JointState) -> None:
+        for name, position in zip(msg.name, msg.position):
+            if name in JOINT_LIMITS:
+                self._latest_joint_positions[name] = position
 
     def _try_cache_camera_to_tip(self) -> None:
         if self._camera_to_tip is not None:
@@ -461,7 +496,11 @@ class PanelAlignNode(Node):
             return self._fail('Could not insert panel CollisionObject into the planning scene.')
 
         # IK-then-joint-goal, not a Cartesian pose goal — same reason as
-        # _align_live_locked (see live_align_ik_attempts' comment).
+        # _align_live_locked (see live_align_ik_attempts' comment). IK's
+        # own closest-to-current preference picks a nearby branch, but
+        # only bounds the ENDPOINT — the path_constraint below is what
+        # actually keeps the WHOLE motion near the current position (see
+        # orient_gripper_path_position_radius's own comment).
         ik_solution = self._compute_ik_within_panel_limits(target_pose_msg)
         if ik_solution is None:
             return self._fail(
@@ -469,7 +508,18 @@ class PanelAlignNode(Node):
                 'orientation — aborting gripper orient.'
             )
         goal_constraints = self._build_joint_goal_constraints(ik_solution)
-        plan_result = self._request_plan(goal_constraints)
+        stay_near_current_position = PositionConstraint()
+        stay_near_current_position.header = target_pose_msg.header
+        stay_near_current_position.link_name = TIP_LINK
+        stay_near_current_position.constraint_region = BoundingVolume(
+            primitives=[SolidPrimitive(
+                type=SolidPrimitive.SPHERE,
+                dimensions=[self.get_parameter('orient_gripper_path_position_radius').value])],
+            primitive_poses=[target_pose_msg.pose],
+        )
+        stay_near_current_position.weight = 1.0
+        plan_result = self._request_plan(
+            goal_constraints, extra_position_constraints=[stay_near_current_position])
         if plan_result is None:
             return self._fail('MoveGroup planning request timed out or was rejected.')
         if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
@@ -761,19 +811,25 @@ class PanelAlignNode(Node):
         return bool(result.get('r') and result['r'].ok)
 
     def _compute_ik_within_panel_limits(self, target_pose: PoseStamped) -> dict | None:
-        """Call /compute_ik repeatedly until a solution clears
-        JOINT_LIMITS by joint_limit_margin_fraction, or attempts run out.
-        Each call gets its own random seed from KDL internally (no
-        seed_state set here), so repeat calls really do explore different
-        branches — this is what makes this reliable where OMPL's own
-        combined pose-goal + path-constraint sampling isn't (see
-        live_align_ik_attempts' comment).
+        """Call /compute_ik repeatedly, collect every solution that clears
+        JOINT_LIMITS by joint_limit_margin_fraction (the same margin
+        _check_joint_margins verifies after planning — accepting one that
+        only just clears the hard limit would still get rejected there),
+        and return whichever is closest (joint-space) to the arm's
+        current state — or the first valid one if the current state
+        isn't known yet (no /joint_states received).
 
-        Uses the SAME margin as _check_joint_margins (run after planning)
-        rather than a bare within-limits check — accepting a solution
-        that only just clears the hard limit would still get rejected
-        there, wasting a plan+collision-check cycle on a solution this
-        retry loop could have skipped past instead.
+        Each attempt seeds the search explicitly rather than relying on
+        undocumented internal KDL randomization to diversify branches
+        (review-flagged): the first attempt seeds from the CURRENT joint
+        state (the branch orient_gripper actually wants), every retry
+        seeds from a fresh random point inside JOINT_LIMITS so repeat
+        calls genuinely explore different branches instead of KDL
+        possibly reconverging on the same rejected one.
+
+        Rejects incomplete, mismatched, or non-finite solutions outright
+        — a solution missing an expected joint (or empty) must never
+        pass just because Python's ``all([])`` is vacuously True.
         """
         if not self._compute_ik_client.wait_for_service(timeout_sec=3.0):
             self.get_logger().error('/compute_ik service not available')
@@ -781,33 +837,79 @@ class PanelAlignNode(Node):
 
         margin_fraction = self.get_parameter('joint_limit_margin_fraction').value
         attempts = self.get_parameter('live_align_ik_attempts').value
-        for _ in range(attempts):
+        if attempts <= 0:
+            self.get_logger().error(
+                f'live_align_ik_attempts={attempts} — refusing to run a non-positive number of IK attempts.'
+            )
+            return None
+
+        current = dict(self._latest_joint_positions)
+        have_current = len(current) == len(JOINT_LIMITS)
+        valid_solutions = []
+
+        for attempt in range(attempts):
             req = GetPositionIK.Request()
             req.ik_request = PositionIKRequest(
                 group_name=GROUP_NAME, pose_stamped=target_pose, avoid_collisions=True)
             req.ik_request.timeout.sec = 0
             req.ik_request.timeout.nanosec = 200_000_000
+            seed = current if (attempt == 0 and have_current) else {
+                name: random.uniform(lo, hi) for name, (lo, hi) in JOINT_LIMITS.items()
+            }
+            req.ik_request.robot_state.joint_state.name = list(seed.keys())
+            req.ik_request.robot_state.joint_state.position = list(seed.values())
 
             done = threading.Event()
             result = {}
 
-            def _cb(fut):
-                result['r'] = fut.result()
+            def _cb(fut, result=result, done=done):
+                # Isolated per attempt via default-arg capture — a late
+                # callback from a timed-out earlier attempt must write
+                # into ITS OWN result/done, never a newer attempt's
+                # (review-flagged: closing over the loop variables by
+                # name, not by value, let a late arrival corrupt the
+                # attempt that had already moved on).
+                try:
+                    result['r'] = fut.result()
+                except Exception as exc:
+                    result['exc'] = exc
                 done.set()
 
             self._compute_ik_client.call_async(req).add_done_callback(_cb)
             if not done.wait(timeout=3.0):
                 continue
+            if 'exc' in result:
+                self.get_logger().warn(f'/compute_ik call raised: {result["exc"]!r}')
+                continue
             r = result.get('r')
             if r is None or r.error_code.val != MoveItErrorCodes.SUCCESS:
                 continue
 
-            solution = dict(zip(r.solution.joint_state.name, r.solution.joint_state.position))
-            solution = {name: solution[name] for name in JOINT_LIMITS if name in solution}
-            if all(_joint_limit_margin(name, pos) >= margin_fraction
-                   for name, pos in solution.items()):
-                return solution
-        return None
+            names = r.solution.joint_state.name
+            positions = r.solution.joint_state.position
+            if len(names) != len(positions):
+                self.get_logger().warn(
+                    f'/compute_ik returned mismatched name/position array lengths '
+                    f'({len(names)} vs {len(positions)}) — discarding.'
+                )
+                continue
+            solution = dict(zip(names, positions))
+            missing = [name for name in JOINT_LIMITS if name not in solution]
+            if missing:
+                self.get_logger().warn(f'/compute_ik solution missing joints {missing} — discarding.')
+                continue
+            solution = {name: solution[name] for name in JOINT_LIMITS}
+            if not all(math.isfinite(pos) for pos in solution.values()):
+                self.get_logger().warn(f'/compute_ik solution has a non-finite value — discarding: {solution}')
+                continue
+            if all(_joint_limit_margin(name, pos) >= margin_fraction for name, pos in solution.items()):
+                valid_solutions.append(solution)
+
+        if not valid_solutions:
+            return None
+        if not have_current:
+            return valid_solutions[0]
+        return min(valid_solutions, key=lambda sol: _joint_space_distance(sol, current))
 
     def _apply_panel_collision_object(self, panel_pose: PoseStamped) -> bool:
         if not self._apply_scene_client.wait_for_service(timeout_sec=3.0):
@@ -873,7 +975,7 @@ class PanelAlignNode(Node):
             jcs.append(jc)
         return Constraints(joint_constraints=jcs)
 
-    def _request_plan(self, goal_constraints: Constraints):
+    def _request_plan(self, goal_constraints: Constraints, extra_position_constraints=None):
         if not self._move_action_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('/move_action server not available')
             return None
@@ -900,7 +1002,13 @@ class PanelAlignNode(Node):
         req.goal_constraints = [goal_constraints]
         # Every plan this node ever requests is panel-related — safe to
         # apply unconditionally (see PANEL_JOINT_LIMIT_PATH_CONSTRAINTS).
-        req.path_constraints = PANEL_JOINT_LIMIT_PATH_CONSTRAINTS
+        # extra_position_constraints (orient_gripper's own "stay near the
+        # current position for the WHOLE path" bound, not just the goal)
+        # rides alongside it on the same path_constraints message.
+        req.path_constraints = Constraints(
+            joint_constraints=list(PANEL_JOINT_LIMIT_PATH_CONSTRAINTS.joint_constraints),
+            position_constraints=list(extra_position_constraints or []),
+        )
         goal.planning_options = PlanningOptions(plan_only=True)
 
         done = threading.Event()

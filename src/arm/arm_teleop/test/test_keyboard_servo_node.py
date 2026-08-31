@@ -10,6 +10,8 @@ topic (e.g. a live sim publishing at 100Hz), rclpy.spin_once can starve
 this node's own publish timer indefinitely and report a false failure.
 """
 import contextlib
+import json
+import pathlib
 import time
 
 import pytest
@@ -564,3 +566,28 @@ def test_run_planned_activity_holds_input_suppressed_for_the_whole_sleep(control
 
     assert seen_during_sleep == [True]  # suppressed for the entire wait
     assert controller._activity_delay_active is False  # cleared once action() runs
+
+
+# ── review: a taught pose must never carry a NaN/inf value onward ──────
+
+def test_load_home_pose_from_json_rejects_non_finite_values(monkeypatch):
+    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _load_home_pose_from_json
+    bad_pose = {name: 0.0 for name in HOME_POSE_JOINTS}
+    bad_pose[HOME_POSE_JOINTS[0]] = float('inf')  # e.g. a corrupted/malformed taught entry
+    contents = json.dumps({'home': bad_pose})
+
+    monkeypatch.setattr(pathlib.Path, 'is_file', lambda self: True)
+    monkeypatch.setattr(pathlib.Path, 'read_text', lambda self: contents)
+
+    assert _load_home_pose_from_json('home') is None
+
+
+def test_load_home_pose_from_json_accepts_finite_values(monkeypatch):
+    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _load_home_pose_from_json
+    good_pose = {name: 0.1 for name in HOME_POSE_JOINTS}
+    contents = json.dumps({'home': good_pose})
+
+    monkeypatch.setattr(pathlib.Path, 'is_file', lambda self: True)
+    monkeypatch.setattr(pathlib.Path, 'read_text', lambda self: contents)
+
+    assert _load_home_pose_from_json('home') == [0.1] * len(HOME_POSE_JOINTS)

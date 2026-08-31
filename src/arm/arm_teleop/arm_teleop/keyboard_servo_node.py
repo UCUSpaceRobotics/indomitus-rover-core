@@ -192,9 +192,12 @@ def _load_home_pose_from_json(pose_name='home'):
         try:
             data = json.loads(path.read_text())
             pose = data.get(pose_name) or {}
-            return [float(pose[name]) for name in HOME_POSE_JOINTS]
+            values = [float(pose[name]) for name in HOME_POSE_JOINTS]
         except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
             continue
+        if not all(math.isfinite(v) for v in values):
+            return None
+        return values
     return None
 
 
@@ -951,11 +954,6 @@ class ServoController(Node):
                 f'Another arm motion is already in progress — aborting {label}.'
             )
             return False
-        # Lease covers _execute_move_group_constraints' own timeout
-        # (self._safe_pose_timeout) plus margin for the planning/service-
-        # call overhead around it; <=0 there means "wait forever", so
-        # give the lease itself a long-but-finite cap instead of a lease
-        # too short to survive an intentionally unbounded wait.
         lease_sec = self._safe_pose_timeout + 15.0 if self._safe_pose_timeout > 0.0 else 600.0
         try:
             try:
@@ -1111,11 +1109,6 @@ class ServoController(Node):
                 'controller may be unresponsive '
                 '(raise the safe_pose_timeout parameter if the sim is just slow).'
             )
-            # Critical: not cancelling here would leave the goal running
-            # server-side after this returns "failed" — callers restart
-            # Servo right after any outcome, which would then race an
-            # execution still in flight. See panel_align_node.py's
-            # _execute() for the same pattern.
             gh = goal_handle_box.get('gh')
             if gh is not None:
                 cancel_done = threading.Event()
