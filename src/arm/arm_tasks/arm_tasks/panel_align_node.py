@@ -149,6 +149,16 @@ JOINT_LIMITS = {
     'arm_wrist_2_end_effector_joint': (-math.pi, math.pi),
 }
 
+
+def _joint_limit_margin(name: str, position: float) -> float:
+    """Fraction of name's own JOINT_LIMITS span that position clears from
+    the nearer bound — shared by _compute_ik_within_panel_limits (accept)
+    and _check_joint_margins (verify), so both apply the exact same
+    margin fraction instead of two independently-tuned thresholds.
+    """
+    lower, upper = JOINT_LIMITS[name]
+    return min(position - lower, upper - position) / (upper - lower)
+
 # Actually keeps OMPL's sampled path inside JOINT_LIMITS, unlike the
 # post-plan-only margin check below — the URDF itself allows +-2pi (real
 # hardware needs that), so without this OMPL freely wanders the full
@@ -201,26 +211,6 @@ class PanelAlignNode(Node):
         self.declare_parameter('allowed_planning_time', 5.0)
         self.declare_parameter('max_velocity_scaling_factor', 0.3)
         self.declare_parameter('max_acceleration_scaling_factor', 0.3)
-        # Loosened from an initial 0.005/0.05 (5mm / ~3deg) — confirmed
-        # live those were too tight for OMPL's goal-tree sampler to find
-        # any valid state at all ("Unable to sample any valid states for
-        # goal tree", 100% failure), most likely because
-        # arm_moveit_config/config/kinematics.yaml's KDL solver only gets
-        # a 5ms timeout per IK attempt (a pre-existing, separately-flagged
-        # tuning risk) — a wider target region needs far fewer solver
-        # iterations to land inside it. 2cm / ~11deg is still precise
-        # enough for "camera aimed at the panel".
-        self.declare_parameter('position_tolerance', 0.02)
-        self.declare_parameter('orientation_tolerance', 0.2)
-        # Tighter than orientation_tolerance above: that one's loose to
-        # keep live-align's IK convergent (see below); orient_gripper's
-        # position is already fixed, so precision matters more here.
-        self.declare_parameter('orient_gripper_orientation_tolerance', 0.03)
-        # position_tolerance (0.02) is sized for live-align's IK convergence;
-        # orient_gripper is meant to rotate IN PLACE, so it needs its own,
-        # much tighter region — 5mm — or a "rotation" could also drift the
-        # tip sideways within the shared 2cm sphere.
-        self.declare_parameter('orient_gripper_position_tolerance', 0.005)
         # OMPL's own goal-region sampler is unreliable once path_constraints
         # (JOINT_LIMITS) are combined with a Cartesian pose goal — confirmed
         # live: a target well within every joint's limit, comfortably
@@ -771,17 +761,25 @@ class PanelAlignNode(Node):
         return bool(result.get('r') and result['r'].ok)
 
     def _compute_ik_within_panel_limits(self, target_pose: PoseStamped) -> dict | None:
-        """Call /compute_ik repeatedly until a solution lands inside
-        JOINT_LIMITS, or attempts run out. Each call gets its own random
-        seed from KDL internally (no seed_state set here), so repeat
-        calls really do explore different branches — this is what makes
-        this reliable where OMPL's own combined pose-goal + path-
-        constraint sampling isn't (see live_align_ik_attempts' comment).
+        """Call /compute_ik repeatedly until a solution clears
+        JOINT_LIMITS by joint_limit_margin_fraction, or attempts run out.
+        Each call gets its own random seed from KDL internally (no
+        seed_state set here), so repeat calls really do explore different
+        branches — this is what makes this reliable where OMPL's own
+        combined pose-goal + path-constraint sampling isn't (see
+        live_align_ik_attempts' comment).
+
+        Uses the SAME margin as _check_joint_margins (run after planning)
+        rather than a bare within-limits check — accepting a solution
+        that only just clears the hard limit would still get rejected
+        there, wasting a plan+collision-check cycle on a solution this
+        retry loop could have skipped past instead.
         """
         if not self._compute_ik_client.wait_for_service(timeout_sec=3.0):
             self.get_logger().error('/compute_ik service not available')
             return None
 
+        margin_fraction = self.get_parameter('joint_limit_margin_fraction').value
         attempts = self.get_parameter('live_align_ik_attempts').value
         for _ in range(attempts):
             req = GetPositionIK.Request()
@@ -806,7 +804,7 @@ class PanelAlignNode(Node):
 
             solution = dict(zip(r.solution.joint_state.name, r.solution.joint_state.position))
             solution = {name: solution[name] for name in JOINT_LIMITS if name in solution}
-            if all(JOINT_LIMITS[name][0] <= pos <= JOINT_LIMITS[name][1]
+            if all(_joint_limit_margin(name, pos) >= margin_fraction
                    for name, pos in solution.items()):
                 return solution
         return None
@@ -853,15 +851,16 @@ class PanelAlignNode(Node):
         return bool(result.get('r') and result['r'].success)
 
     def _build_joint_goal_constraints(self, joint_positions: dict) -> Constraints:
-        """Exact joint-space goal — used for remembered-position replay.
+        """Exact joint-space goal — used by remembered-position replay and,
+        via _compute_ik_within_panel_limits' solution, by live align and
+        orient_gripper too.
 
         Unlike a Cartesian pose constraint (a tolerance REGION, which is
-        what lets OMPL land on a different joint solution every call —
-        the reason replay needed to exist as its own thing in the first
-        place), a joint constraint with a tight tolerance pins down
-        the exact final joint vector: whatever path gets planned there
-        (fresh and collision-checked against the CURRENT scene every
-        call), the arm always ends up at exactly the same pose.
+        what let OMPL land on a different joint solution every call), a
+        joint constraint with a tight tolerance pins down the exact final
+        joint vector: whatever path gets planned there (fresh and
+        collision-checked against the CURRENT scene every call), the arm
+        always ends up at exactly the same pose.
         """
         jcs = []
         for name, position in joint_positions.items():
@@ -935,9 +934,7 @@ class PanelAlignNode(Node):
         for name, position in zip(names, last.positions):
             if name not in JOINT_LIMITS:
                 continue
-            lower, upper = JOINT_LIMITS[name]
-            span = upper - lower
-            margin = min(position - lower, upper - position) / span
+            margin = _joint_limit_margin(name, position)
             if margin < worst_margin:
                 worst_joint, worst_margin = name, margin
 
