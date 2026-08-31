@@ -47,7 +47,7 @@ CAN RX (ESP32 -> PC):
 
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
@@ -445,6 +445,23 @@ class LightsCanNode(Node):
 
         return response
 
+    def turn_off_traffic_light(self):
+        """Best-effort: send TRAFFIC_LIGHT off on the way out.
+
+        Called from main()'s finally block, after the executor has already
+        stopped spinning - so this does not wait for an ACK the way
+        _on_traffic_request does, since nothing is left to deliver one on
+        _on_can_msg. A killed lights_can_node must not leave the tower lit
+        with whatever colour was last commanded; nothing else on the rover
+        clears it, and gs_link_lamp_node / drive_source_lamp_node only ever
+        change the lamp, they never turn it off on their own exit either.
+        """
+        with self._can_lock:
+            self._send_cmd(self._cmd_id, [self._cmd_traffic_light, 0])
+            self._commit(replace(
+                self._state,
+                traffic_red=False, traffic_green=False, traffic_blue=False))
+
     # =======================================================================
     # CAN helpers
     # =======================================================================
@@ -526,9 +543,14 @@ def main(args=None):
     executor.add_node(node)
     try:
         executor.spin()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # ExternalShutdownException is the normal path when the launch file or
+        # a supervisor stops us - 'ros2 launch' tearing down its children,
+        # 'systemctl stop rover', etc. Catching it keeps the exit clean; either
+        # way the finally block below still runs and turns the tower off.
         pass
     finally:
+        node.turn_off_traffic_light()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
