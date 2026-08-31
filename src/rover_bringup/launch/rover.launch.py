@@ -30,6 +30,22 @@ def _lora_fallback():
     return include_launch('rover_comms', 'lora.launch.py')
 
 
+def _gs_link_lamp():
+    """Include the tower's blue-LED-on-GS-connection watchdog, or skip it.
+
+    Lives in rover_comms alongside the LoRa fallback since both are about the
+    rover's link to the ground station. Same reasoning as _lora_fallback():
+    an unbuilt rover_comms must not take bringup down with it, it just means
+    the tower lamp stays whatever rover_lighting_node's default is.
+    """
+    try:
+        get_package_share_directory('rover_comms')
+    except PackageNotFoundError:
+        return LogInfo(msg='rover_comms is not built - the tower blue LED '
+                           'will not reflect the ground-station connection.')
+    return include_launch('rover_comms', 'gs_link_lamp.launch.py')
+
+
 def generate_launch_description():
     rover_bringup_share = get_package_share_directory('rover_bringup')
     rover_description_share = get_package_share_directory('rover_description')
@@ -107,6 +123,8 @@ def generate_launch_description():
             include_launch('rover_diagnostics', 'fault_logger.launch.py'),
 
             include_launch('rover_peripherals', 'lighting.launch.py'),
+
+            _gs_link_lamp(),  # Drives lights/traffic_blue off /gs/link/state.
 
             include_launch('rover_peripherals', 'power_monitor_node.launch.py'),
 
