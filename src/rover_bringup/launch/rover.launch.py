@@ -82,13 +82,13 @@ def generate_launch_description():
         joy_dev_arg,
         # zed2i_mode_arg,
 
-        include_launch('rover_teleop', 'joy.launch.py', {
-            'rover_namespace': LaunchConfiguration('rover_namespace'),
-            'joy_dev': LaunchConfiguration('joy_dev'),
-        }, condition=IfCondition(LaunchConfiguration('use_joy'))),
-
         GroupAction([
             PushRosNamespace(namespace_val),
+
+            include_launch('rover_teleop', 'joy.launch.py', {
+                'rover_namespace': LaunchConfiguration('rover_namespace'),
+                'joy_dev': LaunchConfiguration('joy_dev'),
+            }, condition=IfCondition(LaunchConfiguration('use_joy'))),
 
             include_launch('rover_bringup', 'can.launch.py', {
                 'interface': LaunchConfiguration('interface'),
@@ -129,6 +129,8 @@ def generate_launch_description():
             include_launch('rover_peripherals', 'lighting.launch.py'),
 
             include_launch('rover_comms', 'gs_link_lamp.launch.py'),  # Drives lights/traffic_blue off /gs/link/state.
+
+            include_launch('rover_teleop', 'drive_source_lamp.launch.py'),  # red=autonomous, green=manual, off=nothing driving.
 
             include_launch('rover_peripherals', 'power_monitor_node.launch.py'),
 
