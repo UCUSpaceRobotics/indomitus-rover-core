@@ -47,7 +47,7 @@ def generate_launch_description():
     )
 
     use_joy_arg = DeclareLaunchArgument(
-        'use_joy', default_value='false',
+        'use_joy', default_value='true',
         description='Wired gamepad plugged into the rover itself (cmd_vel_joy, '
                     'top twist_mux priority) - separate from the ground '
                     'station\'s own joystick on cmd_vel_gs',
