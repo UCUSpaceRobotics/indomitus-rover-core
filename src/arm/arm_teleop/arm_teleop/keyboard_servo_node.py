@@ -406,10 +406,6 @@ class ServoController(Node):
         self._sampling_mode = False
         self._drill_mode = False
         self._pitch_yaw_locked = False
-        # Set for the duration of run_planned_activity()'s 5s pre-delay —
-        # set_velocity()/set_gripper_velocity() force zero while this is
-        # True, regardless of what's requested, so held teleop input can't
-        # move the arm during the ERC-mandated stationary window.
         self._activity_delay_active = False
         self._joint_positions = {}
 
@@ -617,8 +613,6 @@ class ServoController(Node):
                 triples.
         """
         if self._activity_delay_active:
-            # ERC-mandated stationary window (see run_planned_activity) —
-            # every component forced to zero regardless of what's asked.
             vx = vy = vz = wx = wy = wz = view_vx = view_vy = view_vz = 0.0
         self.vx = vx
         self.vy = vy
@@ -831,7 +825,7 @@ class ServoController(Node):
         """
         self.get_logger().info(
             f'{label}: activity indicator on, holding {ACTIVITY_INDICATOR_PRE_DELAY_SEC:.0f}s '
-            f'before moving (ERC REQ-OPS-080/090/100)...'
+            f'before moving...'
         )
         self.stop()
         self._activity_delay_active = True
