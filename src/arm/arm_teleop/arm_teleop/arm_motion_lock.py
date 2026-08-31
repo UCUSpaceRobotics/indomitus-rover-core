@@ -1,7 +1,7 @@
 """Cross-host mutual exclusion for anything that submits a goal to
 ``indomitus_arm_controller`` (the JTC).
 
-``keyboard_servo_node.py``'s home move / remembered-position replay and
+``servo_controller.py``'s home move / remembered-position replay and
 ``panel_align_node.py``'s live (CV+MoveIt) align are separate PROCESSES —
 and, on the real rover, can run on separate HOSTS (operator control from
 the ground station, planning/execution served by the Jetson) — each

@@ -116,7 +116,7 @@ def generate_launch_description() -> LaunchDescription:
         "bring_up_gamepad",
         default_value="true",
         description=(
-            "Also bring up gamepad_servo_node (the rover-side half of "
+            "Also bring up gamepad_teleop_node (the rover-side half of "
             "gamepad teleop) here, so this one launch covers arm + on-rover "
             "gamepad control. The laptop-side half (joystick input) is "
             "still `arm_teleop/launch/gamepad_joy.launch.py`, run "
@@ -223,7 +223,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # Hosted here (Jetson, alongside controller_manager) rather than per-
-    # process: keyboard_servo_node and panel_align_node both run as GS
+    # process: keyboard_teleop_node/gamepad_teleop_node and panel_align_node both run as GS
     # clients of this same lock, over the network, for real cross-host
     # mutual exclusion — see arm_teleop/arm_motion_lock.py's own docstring.
     arm_motion_lock_server = Node(
@@ -296,11 +296,11 @@ def generate_launch_description() -> LaunchDescription:
     # game_controller_node) is launched separately via
     # arm_teleop/launch/gamepad_joy.launch.py on the other machine, same
     # split as rover_teleop's own joy.launch.py. Kept OUTSIDE arm_group on
-    # purpose: gamepad_servo.launch.py's own gamepad_servo_node Node already
+    # purpose: gamepad_servo.launch.py's own gamepad_teleop_node Node already
     # hardcodes namespace='arm' itself, and combining that with this file's
     # ambient PushRosNamespace('arm') double-nests everything it touches to
     # /arm/arm/... (confirmed live via `ros2 node list`/`ros2 topic list`
-    # showing /arm/arm/joy, /arm/arm/keyboard_servo_node, etc. — the exact
+    # showing /arm/arm/joy, /arm/arm/gamepad_teleop, etc. — the exact
     # same double-namespace bug this session already hit and fixed for
     # standalone RViz's "Move Group Namespace").
     gamepad_servo_include = IncludeLaunchDescription(

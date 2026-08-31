@@ -9,9 +9,9 @@ from launch_ros.actions import Node
 def generate_launch_description():
     end_effector = LaunchConfiguration('end_effector')
 
-    gamepad_servo_node = Node(
+    gamepad_teleop_node = Node(
         package='arm_teleop',
-        executable='gamepad_servo_node',
+        executable='gamepad_teleop_node',
         namespace='arm',
         output='screen',
         parameters=[{
@@ -26,10 +26,10 @@ def generate_launch_description():
             description=(
                 "Which tool is physically mounted right now: 'jaw', "
                 "'drill_sampling', or 'astrobio'. Gates the A/B/Y mode-jump "
-                'buttons in gamepad_servo_node — match this to what you '
+                'buttons in gamepad_teleop_node — match this to what you '
                 'actually launched the arm with (arm.launch.py '
                 'end_effector:=...).'
             ),
         ),
-        gamepad_servo_node,
+        gamepad_teleop_node,
     ])

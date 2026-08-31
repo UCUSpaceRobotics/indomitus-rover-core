@@ -73,7 +73,15 @@
       arm_base_shoulder_joint:         { trajectory: 0.25, goal: 0.08 }
       arm_shoulder_forearm_joint:      { trajectory: 0.25, goal: 0.08 }
       arm_forearm_wrist_1_joint:       { trajectory: 0.25, goal: 0.08 }
-      arm_wrist_1_wrist_2_joint:       { trajectory: 0.25, goal: 0.08 }
+      # trajectory raised from 0.25: aborted mid-move on a large swing
+      # (drill_home -> sampling_home, ~0.25 rad late) even within
+      # joint_limits.yaml's declared velocity/acceleration — see that
+      # file's own comment on this joint for the likely cause (raised
+      # max_acceleration there too) and the plan to re-tune/revert once
+      # motor 24 is physically checked. This is a small safety-margin
+      # widening, not a blanket loosening — goal tolerance (the value that
+      # actually matters at rest) is untouched.
+      arm_wrist_1_wrist_2_joint:       { trajectory: 0.35, goal: 0.08 }
       arm_wrist_2_end_effector_joint:  { trajectory: 0.25, goal: 0.08 }
 
 /**/indomitus_arm_forward_position_controller:

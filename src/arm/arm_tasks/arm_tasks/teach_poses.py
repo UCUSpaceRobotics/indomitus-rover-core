@@ -48,6 +48,7 @@ from pathlib import Path
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import JointState
 from control_msgs.action import FollowJointTrajectory
 from controller_manager_msgs.srv import ListControllers, SwitchController
@@ -56,7 +57,7 @@ from builtin_interfaces.msg import Duration
 
 
 def _resolve_poses_file():
-    """Find poses.json the same way keyboard_servo_node does: installed
+    """Find poses.json the same way servo_controller.py does: installed
     share copy, then the /opt/ws source tree, then relative to this script.
     Falls back to the last (source-tree) candidate if none exist yet.
     """
@@ -64,7 +65,7 @@ def _resolve_poses_file():
         Path("/opt/ws/src/arm/arm_teleop/poses.json"),
         # arm_teleop is a sibling package of arm_tasks under src/arm/ — this
         # script itself did not move, only poses.json did (to arm_teleop,
-        # alongside keyboard_servo_node.py, see arm_teleop/package.xml).
+        # alongside servo_controller.py, see arm_teleop/package.xml).
         Path(__file__).resolve().parents[2] / "arm_teleop" / "poses.json",
     ]
     try:
@@ -211,7 +212,11 @@ def main():
                         help="comma-separated joint names; default is the "
                              "gravity-aware order (wrists, elbow, shoulder, base)")
     sub.add_parser("list")
-    args = ap.parse_args()
+    # remove_ros_args() strips --ros-args ... (e.g. -r __ns:=/arm) before
+    # argparse ever sees them — rclpy.init() below only gets a chance to do
+    # this itself AFTER argparse has already run, so without this,
+    # `--ros-args -r __ns:=/arm` fails with "unrecognized arguments".
+    args = ap.parse_args(remove_ros_args(args=sys.argv)[1:])
 
     poses = json.loads(POSES_FILE.read_text()) if POSES_FILE.exists() else {}
 

@@ -182,7 +182,7 @@ Visualization tooling.
 - **`arm_peripherals`** (Python) — `end_effector_can_node`: bridges the end-effector tool's CAN traffic (`can_msgs/Frame` over `ros2_socketcan`) to `end_effector_controller/{command,state}`, same pattern as `rover_peripherals`'s lighting node.
 - **`arm_sim`** — simulation support for the arm (structure only; no launch/config files yet)
 - **`arm_tasks`** (Python) — `teach_poses`, `panel_align_node`, `collision_link_reporter`: pure ROS clients against the `/arm` stack, no direct hardware access. Excluded from the Jetson production image (see `docker/Dockerfile`'s `SIMULATION_PKGS`) — run from a dev/ground-station container instead.
-- **`arm_teleop`** (Python) — `keyboard_servo_node`/`gamepad_servo_node`: direct keyboard/gamepad control, mirrors rover_teleop's split from task nodes.
+- **`arm_teleop`** (Python) — `keyboard_teleop_node`/`gamepad_teleop_node` (shared logic in `servo_controller.py`, input drivers in `keyboard_input.py`/`gamepad_input.py`), plus `arm_motion_lock_server` (cross-host motion lock): direct keyboard/gamepad control, mirrors rover_teleop's split from task nodes.
 - **`arm_viz`** — RViz configs + launch files: bare `rviz.launch.py`, `urdf_preview.launch.py` (pure URDF/TF preview, no ros2_control/CAN), and `moveit_rviz.launch.py` (Motion Planning panel against an already-running `/arm` stack). Stripped from Jetson production builds (see `docker/Dockerfile`'s `SIMULATION_PKGS`).
 
 ---

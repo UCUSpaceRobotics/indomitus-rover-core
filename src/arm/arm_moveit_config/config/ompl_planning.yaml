@@ -37,9 +37,21 @@ request_adapters: >-
 start_state_max_bounds_error: 0.1
 
 planner_configs:
-  RRTConnectkConfigDefault:
-    type: geometric::RRTConnect
+  # BIT* (Batch Informed Trees) — RRTConnect is feasibility-only (first
+  # path found, no preference for a direct route, hence twisted large
+  # joint-space jumps like sampling_home -> drill_home). RRTstar fixes
+  # that in principle (asymptotically optimal) but converges slowly —
+  # random sampling, one point at a time — so within a fixed time budget
+  # it often hasn't straightened out much either. BIT* samples in
+  # heuristically-ordered batches from an informed set around the
+  # current best solution, so it converges toward a short/direct path
+  # much faster for the same allowed_planning_time (10s, set in
+  # _execute_move_group_constraints) — a meaningfully better use of that
+  # budget than RRTstar for this same 6-DOF joint-space problem.
+  # RRTConnect intentionally not listed here so its effect stays isolated.
+  BITstarkConfigDefault:
+    type: geometric::BITstar
 
 indomitus_arm:
   planner_configs:
-    - RRTConnectkConfigDefault
+    - BITstarkConfigDefault

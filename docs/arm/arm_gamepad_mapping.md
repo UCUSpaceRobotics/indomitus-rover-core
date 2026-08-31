@@ -1,7 +1,7 @@
 # Мапінг геймпада для керування рукою (arm gamepad teleop)
 
 > Для ground station: точний перелік осей/кнопок геймпада, які використовує
-> `gamepad_servo_node` (`src/arm/arm_teleop/arm_teleop/keyboard_servo_node.py`,
+> `gamepad_teleop_node` (`src/arm/arm_teleop/arm_teleop/gamepad_input.py`,
 > клас `GamepadInputLoop`) для ручного керування рукою. Запускається через
 > `src/arm/arm_teleop/launch/gamepad.launch.py`.
 >
@@ -54,7 +54,7 @@
 
 Кнопки 12/14 (D-Pad вниз/вправо) — електрозамок drill_sampling-інструмента (`EndEffectorClient.send('lock'/'unlock')`), незалежно від sampling/drill підрежиму. Порядок LOCK=12/UNLOCK=14 обрано довільно (просто дві сусідні вільні кнопки D-Pad) — легко поміняти місцями, якщо оператору зручніше навпаки.
 
-`GamepadInputLoop` більше не відкриває CAN-сокет напряму: `EndEffectorClient` (єдиний клієнт для обох інструментів) публікує одноразові команди в топік `end_effector_controller/command` (`std_msgs/String`) і читає стан з `end_effector_controller/state`. Реальний CAN-лінк живе окремо, в плейн-вузлі `arm_peripherals/end_effector_can_node.py` (той самий патерн, що й `rover_peripherals`'ів вузол освітлення), який і резолвить, що саме означає `open`/`close` для змонтованого інструмента (`jaw` чи `drill_sampling`) — тому `gamepad_servo_node` більше не має параметра `gripper_can_iface` і може працювати на іншій машині, ніж `arm_bringup/arm.launch.py`.
+`GamepadInputLoop` більше не відкриває CAN-сокет напряму: `EndEffectorClient` (єдиний клієнт для обох інструментів) публікує одноразові команди в топік `end_effector_controller/command` (`std_msgs/String`) і читає стан з `end_effector_controller/state`. Реальний CAN-лінк живе окремо, в плейн-вузлі `arm_peripherals/end_effector_can_node.py` (той самий патерн, що й `rover_peripherals`'ів вузол освітлення), який і резолвить, що саме означає `open`/`close` для змонтованого інструмента (`jaw` чи `drill_sampling`) — тому `gamepad_teleop_node` більше не має параметра `gripper_can_iface` і може працювати на іншій машині, ніж `arm_bringup/arm.launch.py`.
 
 ### Підсумок: які кнопки налаштовувати на ground station
 
@@ -127,11 +127,11 @@ R1/shift ігнорується в sampling і drill режимах.
 
 ## 5. Кінцевий інструмент (end effector) — окремий CAN-канал
 
-Кнопки 11/12/13/14 шлють одноразові команди на топік `end_effector_controller/command`, а не через сервоконтур руки. Спрацьовують по натисканню (не по утриманню). Сам CAN живе в окремому вузлі, `arm_peripherals/end_effector_can_node.py` (не в `keyboard_servo_node.py`), який транслює ці команди в проводовий протокол змонтованого інструмента:
+Кнопки 11/12/13/14 шлють одноразові команди на топік `end_effector_controller/command`, а не через сервоконтур руки. Спрацьовують по натисканню (не по утриманню). Сам CAN живе в окремому вузлі, `arm_peripherals/end_effector_can_node.py` (не в `gamepad_input.py`), який транслює ці команди в проводовий протокол змонтованого інструмента:
 
 - **jaw** (CAN `0x1A`): `SAFE_OPEN`/`SAFE_CLOSE`.
 - **drill_sampling** (CAN `0x1E`): `OPEN`(2)/`CLOSE`(1) для клешні, `UP`(5)/`DOWN`(4) для дриля, `LOCK`(7)/`UNLOCK`(8) для електрозамка.
 
 ## 6. Відомі розбіжності зі старою документацією
 
-`docs/arm/arm_teleop.md` описує **застарілий** мапінг: тільки базовий режим (без B/Y, без захвату, без push-boost, без level) і вказує дефолтний shift-button = 5, тоді як у коді дефолт — **10**. Цей документ (`arm_gamepad_mapping.md`) відображає поточний стан коду; при розбіжності орієнтуватись на нього і на клас `GamepadInputLoop` у `keyboard_servo_node.py`.
+`docs/arm/arm_teleop.md` описує **застарілий** мапінг: тільки базовий режим (без B/Y, без захвату, без push-boost, без level) і вказує дефолтний shift-button = 5, тоді як у коді дефолт — **10**. Цей документ (`arm_gamepad_mapping.md`) відображає поточний стан коду; при розбіжності орієнтуватись на нього і на клас `GamepadInputLoop` у `gamepad_input.py`.

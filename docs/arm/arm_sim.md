@@ -14,7 +14,7 @@ For **hardware + joystick teleop** (streaming Servo), see **[arm_teleop.md](arm_
 |---|---|---|
 | Standalone visualization | `arm_viz/urdf_preview.launch.py` | Quick URDF/mesh checks, manual joint testing via GUI |
 | MoveIt stack | `arm_bringup/arm.launch.py` | Planning, Execute, Servo node |
-| Cartesian teleop | `ros2 run arm_teleop keyboard_servo_node` | After demo; see [arm_teleop.md](arm_teleop.md) |
+| Cartesian teleop | `ros2 run arm_teleop keyboard_teleop_node --ros-args -r __ns:=/arm` | After demo; see [arm_teleop.md](arm_teleop.md) |
 
 ### Standalone Visualization
 
@@ -33,7 +33,7 @@ ros2 launch arm_bringup arm.launch.py use_fake_hardware:=true
 
 ```bash
 ros2 launch arm_bringup arm.launch.py          # fake hardware
-ros2 run arm_teleop keyboard_servo_node
+ros2 run arm_teleop keyboard_teleop_node --ros-args -r __ns:=/arm
 ```
 
 Runs headless by default — see [arm_teleop.md](arm_teleop.md) for visualization.

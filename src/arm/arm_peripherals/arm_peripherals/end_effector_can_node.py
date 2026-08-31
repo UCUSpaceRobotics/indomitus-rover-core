@@ -128,7 +128,7 @@ class EndEffectorCanNode(Node):
         elif command == 'unlock':
             self._send_cmd(DRILL_SAMPLING_CMD_ID, [DRILL_CMD_UNLOCK])
 
-    def _send_cmd(self, can_id: int, data: list):
+    def _send_cmd(self, can_id: int, data: list, log: bool = True):
         msg = Frame()
         msg.id = can_id
         msg.dlc = len(data)
@@ -137,7 +137,12 @@ class EndEffectorCanNode(Node):
         msg.is_rtr = False
         msg.is_error = False
         self._can_tx_pub.publish(msg)
-        self.get_logger().info(f"TX CAN 0x{can_id:03X}  data={[f'0x{b:02X}' for b in data]}")
+        # log=False for the load-sensor poll (_on_load_poll_timer) — it fires
+        # every load_poll_period_sec (10 Hz default) regardless of operator
+        # input, and would otherwise drown out real commands (open/close/
+        # lock/unlock/drill up/down) in the log.
+        if log:
+            self.get_logger().info(f"TX CAN 0x{can_id:03X}  data={[f'0x{b:02X}' for b in data]}")
 
     def _on_can_frame(self, msg: Frame):
         if self._end_effector != 'jaw':
@@ -157,7 +162,7 @@ class EndEffectorCanNode(Node):
         self._publish_state(self._last_right_g, self._last_left_g, connected=True)
 
     def _on_load_poll_timer(self):
-        self._send_cmd(JAW_CMD_ID, [JAW_CMD_READ_LOAD_SENSORS])
+        self._send_cmd(JAW_CMD_ID, [JAW_CMD_READ_LOAD_SENSORS], log=False)
         now = time.monotonic()
         stale = (
             self._last_reply_time is None

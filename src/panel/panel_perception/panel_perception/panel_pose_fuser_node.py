@@ -45,7 +45,7 @@ from panel_perception.panel_geometry import (
 )
 
 DEFAULT_ARUCO_DETECTIONS_TOPIC = '/aruco_detections'
-# Absolute on purpose, matching keyboard_servo_node.py's and
+# Absolute on purpose, matching servo_controller.py's and
 # panel_align_node.py's own DEFAULT_PANEL_POSE_TOPIC — this node isn't
 # launched under a namespace by anything in the repo today, so a relative
 # default happened to resolve to the same absolute topic either way, but

@@ -243,7 +243,7 @@ def generate_launch_description() -> LaunchDescription:
         condition=UnlessCondition(LaunchConfiguration("camera")),
     )
 
-    # Sim is single-host, but panel_align_node/keyboard_servo_node still
+    # Sim is single-host, but panel_align_node/keyboard_teleop_node still
     # run as separate processes here too — bring up the same lock server
     # the real GS/Jetson split needs (arm_bringup/arm.launch.py), so sim
     # actually exercises the real locking path instead of silently having

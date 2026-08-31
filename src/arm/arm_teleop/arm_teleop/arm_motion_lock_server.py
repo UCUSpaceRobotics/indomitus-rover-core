@@ -5,7 +5,7 @@ arm_motion_lock.py's mutual exclusion.
 Run once, on whichever host actually owns indomitus_arm_controller
 (Jetson, via arm_bringup/launch/arm.launch.py) — NOT per-process, unlike
 the old /tmp flock this replaces, which only worked when both callers
-happened to run on the same machine. keyboard_servo_node.py (often GS)
+happened to run on the same machine. servo_controller.py (often GS)
 and panel_align_node.py (GS) both submit goals to the same Jetson-hosted
 JTC action server; a plain file lock can't provide mutual exclusion
 across that host boundary, a ROS service can.

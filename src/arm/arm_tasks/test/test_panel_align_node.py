@@ -3,7 +3,7 @@ in review: hung execution + cancellation, cross-process motion exclusion,
 and collision-checked remembered-position replay.
 
 Internal methods are called/monkeypatched directly rather than round-tripped
-through real action servers, mirroring test_keyboard_servo_node.py's own
+through real action servers, mirroring test_servo_teleop.py's own
 rationale for the same choice.
 """
 import rclpy
@@ -137,11 +137,11 @@ def test_request_plan_bounds_ompl_to_panel_joint_limits(node, monkeypatch):
 
 def test_align_to_panel_fails_cleanly_when_arm_motion_busy(node, monkeypatch):
     def _raise_busy(*a, **kw):
-        raise ArmMotionBusy("arm motion lock held by 'gs-laptop/keyboard_servo_node/123'")
+        raise ArmMotionBusy("arm motion lock held by 'gs-laptop/keyboard_teleop/123'")
     monkeypatch.setattr('arm_tasks.panel_align_node.arm_motion_lock', _raise_busy)
 
     assert node.align_to_panel() is False
-    assert 'keyboard_servo_node' in node._last_status_message
+    assert 'keyboard_teleop' in node._last_status_message
     # The in-process lock must be released even when the cross-process
     # one raises, or a SECOND call would wrongly report "already in
     # progress" instead of the real busy reason.

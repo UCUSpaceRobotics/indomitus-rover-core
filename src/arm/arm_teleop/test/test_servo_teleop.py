@@ -18,15 +18,11 @@ from moveit_msgs.msg import Constraints
 from rclpy.duration import Duration
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState, Joy
+from evdev import ecodes
 
-from arm_teleop.keyboard_servo_node import (
-    GRIPPER_JOINT_NAME,
-    HOME_POSE_JOINTS,
-    GamepadInputLoop,
-    KeyboardInputLoop,
-    ServoController,
-    ecodes,
-)
+from arm_teleop.servo_controller import GRIPPER_JOINT_NAME, HOME_POSE_JOINTS, ServoController
+from arm_teleop.keyboard_input import KeyboardInputLoop
+from arm_teleop.gamepad_input import GamepadInputLoop
 
 
 @pytest.fixture
@@ -500,7 +496,7 @@ def test_move_to_safe_pose_uses_collision_aware_planning(controller, monkeypatch
     # — no such server in this unit test, so bypass it like every other
     # cross-node call in this file.
     monkeypatch.setattr(
-        'arm_teleop.keyboard_servo_node.arm_motion_lock',
+        'arm_teleop.servo_controller.arm_motion_lock',
         lambda *a, **kw: contextlib.nullcontext())
     calls = []
 
@@ -536,7 +532,7 @@ def test_execute_move_group_constraints_cancels_goal_on_timeout(controller, monk
 # ── poses.json entries must stay within joint limits (review: drill_home) ──
 
 def test_pose_limit_violation_detects_out_of_range_joint():
-    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _pose_limit_violation
+    from arm_teleop.servo_controller import HOME_POSE_JOINTS, _pose_limit_violation
     pose = [0.0] * len(HOME_POSE_JOINTS)
     pose[HOME_POSE_JOINTS.index('arm_forearm_wrist_1_joint')] = 7.0  # past ±2*pi
     violation = _pose_limit_violation(pose)
@@ -544,14 +540,14 @@ def test_pose_limit_violation_detects_out_of_range_joint():
 
 
 def test_pose_limit_violation_empty_for_in_range_pose():
-    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _pose_limit_violation
+    from arm_teleop.servo_controller import HOME_POSE_JOINTS, _pose_limit_violation
     assert _pose_limit_violation([0.0] * len(HOME_POSE_JOINTS)) == ''
 
 
 def test_tool_home_pose_falls_back_when_json_entry_exceeds_limits(controller, monkeypatch):
     bad_pose = [0.0, 0.0, 0.0, 7.0, 0.0, 0.0]  # past ±2*pi
     monkeypatch.setattr(
-        'arm_teleop.keyboard_servo_node._load_home_pose_from_json', lambda name: bad_pose)
+        'arm_teleop.servo_controller._load_home_pose_from_json', lambda name: bad_pose)
     assert controller._load_tool_home_pose('drill_home') == controller._safe_pose
 
 
@@ -580,7 +576,7 @@ def test_run_planned_activity_holds_input_suppressed_for_the_whole_sleep(control
         seen_during_sleep.append(controller._activity_delay_active)
 
     monkeypatch.setattr(
-        'arm_teleop.keyboard_servo_node.time.sleep', _fake_sleep)
+        'arm_teleop.servo_controller.time.sleep', _fake_sleep)
 
     controller.run_planned_activity(lambda: True, 'test')
 

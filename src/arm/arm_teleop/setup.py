@@ -25,8 +25,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'keyboard_servo_node = arm_teleop.keyboard_servo_node:main',
-            'gamepad_servo_node = arm_teleop.keyboard_servo_node:main_gamepad',
+            'keyboard_teleop_node = arm_teleop.keyboard_teleop_node:main',
+            'gamepad_teleop_node = arm_teleop.gamepad_teleop_node:main',
             'arm_motion_lock_server = arm_teleop.arm_motion_lock_server:main',
         ],
     },

@@ -13,7 +13,7 @@
 |---|---|---|
 | GUI-only RViz | `arm_viz/urdf_preview.launch.py` | Inspect URDF / joint sliders — **no** motors, **no** ros2_control |
 | MoveIt stack | `arm_bringup/arm.launch.py` | Plan&Execute + `servo_node` |
-| Cartesian teleop | `ros2 run arm_teleop keyboard_servo_node` | After demo is up; gamepad: `arm_teleop/gamepad.launch.py` |
+| Cartesian teleop | `ros2 run arm_teleop keyboard_teleop_node --ros-args -r __ns:=/arm` | After demo is up; gamepad: `arm_teleop/gamepad.launch.py` |
 
 On the host (for RViz):
 
@@ -57,7 +57,7 @@ here to avoid a second bridge colliding on the `socket_can_sender`/
 Terminal 2 — keyboard (wait until spawners / `servo_node` are up):
 
 ```bash
-ros2 run arm_teleop keyboard_servo_node
+ros2 run arm_teleop keyboard_teleop_node --ros-args -r __ns:=/arm
 ```
 
 Gamepad instead of keyboard:
@@ -134,14 +134,14 @@ If the shift button does nothing on your pad, the node logs the complete `/joy` 
 Press the physical R1 alone, read which index actually flips in the `buttons[...]` list (not just whatever this doc or the default says), and pass it:
 
 ```bash
-ros2 run arm_teleop gamepad_servo_node --ros-args -p gamepad_shift_button:=10
+ros2 run arm_teleop gamepad_teleop_node --ros-args -p gamepad_shift_button:=10
 ```
 
 **Rotation naming is from the camera's point of view, not the TCP axis letters.** TCP `+X` is the camera's left-right axis → **pitch** (`wx`), TCP `+Y` its vertical axis → **yaw** (`wy`), TCP `+Z` its line of sight → **roll** (`wz`).
 
 Unlike the keyboard, the gamepad has no mount-frame (absolute) translation — the operator is looking through the camera, so every stick axis follows it.
 
-Gamepad mapping stays in `gamepad_servo_node`, not `teleop_twist_joy`: that package publishes all six twist axes in **one** frame, which would break camera-XYZ + TCP-ω.
+Gamepad mapping stays in `GamepadInputLoop` (`gamepad_input.py`), not `teleop_twist_joy`: that package publishes all six twist axes in **one** frame, which would break camera-XYZ + TCP-ω.
 
 ### 4. Shutdown / releasing the arm
 
@@ -183,7 +183,7 @@ Before **Plan & Execute** in RViz: stop teleop (exit the input node) so JTC owns
 
 ```bash
 ros2 launch arm_bringup arm.launch.py use_fake_hardware:=true
-ros2 run arm_teleop keyboard_servo_node
+ros2 run arm_teleop keyboard_teleop_node --ros-args -r __ns:=/arm
 ```
 
 ## GUI-only (no control)

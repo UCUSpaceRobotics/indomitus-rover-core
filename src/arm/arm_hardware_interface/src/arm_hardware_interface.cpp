@@ -588,7 +588,7 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
             std::lock_guard<std::mutex> fb_lock(feedback_mutex_);
             torque_snapshot = last_torque_nm_;
         }
-        RCLCPP_INFO_THROTTLE(logger_, steady_clock, 1000,
+        RCLCPP_DEBUG_THROTTLE(logger_, steady_clock, 1000,
             "Torque (Nm): %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f",
             joint_names_[0].c_str(), torque_snapshot[0],
             joint_names_[1].c_str(), torque_snapshot[1],

@@ -42,7 +42,7 @@ from scipy.spatial.transform import Rotation
 # marker_id_top_left/top_right/bottom_left ROS parameters), not a
 # constant here. Duplicated from the xacro rather than parsed from it at
 # runtime — same tradeoff already accepted for DEFAULT_GRIPPER_STROKE in
-# keyboard_servo_node.py. Keep in sync by hand if the panel's physical
+# servo_controller.py. Keep in sync by hand if the panel's physical
 # mount positions ever change (not if just the ID assignment changes).
 TOP_LEFT_LOCAL_POSITION = (-0.135, -0.003, 0.415)
 TOP_RIGHT_LOCAL_POSITION = (0.135, -0.003, 0.415)
