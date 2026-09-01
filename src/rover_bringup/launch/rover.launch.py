@@ -4,7 +4,7 @@ from ament_index_python.packages import (
 )
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, LogInfo
-# from launch.conditions import IfCondition
+from launch.conditions import IfCondition
 from launch.substitutions import (
     EnvironmentVariable, LaunchConfiguration, Command #, NotEqualsSubstitution
 )
@@ -46,6 +46,18 @@ def generate_launch_description():
         description='SocketCAN network interface name',
     )
 
+    use_joy_arg = DeclareLaunchArgument(
+        'use_joy', default_value='true',
+        description='Wired gamepad plugged into the rover itself (cmd_vel_joy, '
+                    'top twist_mux priority) - separate from the ground '
+                    'station\'s own joystick on cmd_vel_gs',
+    )
+
+    joy_dev_arg = DeclareLaunchArgument(
+        'joy_dev', default_value='/dev/input/js0',
+        description='Device path for the rover-side gamepad; only used when use_joy:=true',
+    )
+
     # zed2i_mode_arg = DeclareLaunchArgument(
     #     'zed2i_mode', default_value='',
     #     description=(
@@ -66,7 +78,15 @@ def generate_launch_description():
     return LaunchDescription([
         namespace_arg,
         interface_arg,
+        use_joy_arg,
+        joy_dev_arg,
         # zed2i_mode_arg,
+
+        include_launch('rover_teleop', 'joy.launch.py', {
+            'rover_namespace': LaunchConfiguration('rover_namespace'),
+            'joy_dev': LaunchConfiguration('joy_dev'),
+        }, condition=IfCondition(LaunchConfiguration('use_joy'))),
+
         GroupAction([
             PushRosNamespace(namespace_val),
 
@@ -107,6 +127,10 @@ def generate_launch_description():
             include_launch('rover_diagnostics', 'fault_logger.launch.py'),
 
             include_launch('rover_peripherals', 'lighting.launch.py'),
+
+            include_launch('rover_comms', 'gs_link_lamp.launch.py'),  # Drives lights/traffic_blue off /gs/link/state.
+
+            include_launch('rover_teleop', 'drive_source_lamp.launch.py'),  # red=autonomous, green=manual, off=nothing driving.
 
             include_launch('rover_peripherals', 'power_monitor_node.launch.py'),
 

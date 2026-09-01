@@ -34,6 +34,7 @@ setup(
     entry_points={
         'console_scripts': [
             'lora_rover_node = rover_comms.lora_rover_node:main',
+            'gs_link_lamp_node = rover_comms.gs_link_lamp_node:main',
         ],
     },
 )

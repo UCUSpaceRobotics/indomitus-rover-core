@@ -13,6 +13,17 @@ the node is the part that talks to rclpy and the serial port. The rules:
   * Never fail to last-known-good.
   * Cap what is driven, here, rather than trusting the sender to have capped
     it. See lora_rover_node's docstring for wire scale vs cap.
+  * A failsafed link gets a short burst of zero publishes, then goes quiet -
+    same policy as JoyWatchdog (rover_teleop/teleop_state.py) and the same
+    reason: LoRa is twist_mux's lowest-priority input (see
+    rover_bringup/config/twist_mux.yaml), so there is nothing beneath it to
+    fall through to. Publishing zero forever would instead make LoRa look
+    like a live "someone is driving" source to anything watching twist_mux's
+    inputs - drive_source_lamp_node in particular, which would read a
+    permanently-fresh zero as manual control rather than nobody driving.
+    Going quiet is exactly as safe as JoyWatchdog going quiet: the swerve
+    controller's own cmd_vel_timeout_s stops the rover once twist_mux has no
+    fresh input left at all, whichever priority that was.
 
 The clock is injectable and defaults to time.monotonic, deliberately. A link
 watchdog measured on a wall clock can be defeated by an NTP step or a paused
@@ -39,7 +50,7 @@ class LinkState:
     """Thread-safe: the reader thread feeds it, the publish timer reads it."""
 
     def __init__(self, failsafe_timeout, max_linear, max_angular,
-                 limit_linear, limit_angular, clock=time.monotonic):
+                 limit_linear, limit_angular, zero_burst=3, clock=time.monotonic):
         self.failsafe_timeout = float(failsafe_timeout)
         # Wire scale: must match lora_gateway_node's. Not the speed limit.
         self.max_linear = float(max_linear)
@@ -53,6 +64,8 @@ class LinkState:
         self._command = lora_frame.Teleop()
         self._last_frame_at = None
         self._failsafe = True
+        self._zero_burst = max(0, int(zero_burst))
+        self._zeros_left = self._zero_burst
 
     @property
     def failsafe(self):
@@ -82,6 +95,9 @@ class LinkState:
             self._command = command
             self._last_frame_at = self._clock()
             self._failsafe = False
+            # Every live frame re-arms the burst, so the next disconnect gets
+            # a full stop of its own however brief the reconnect was.
+            self._zeros_left = self._zero_burst
         return recovered
 
     def on_link_lost(self):
@@ -109,6 +125,22 @@ class LinkState:
             self._failsafe = True
             self._command = lora_frame.Teleop(0, 0, 0, self._command.flags)
             return age
+
+    def should_publish(self) -> bool:
+        """Whether this publish tick should put anything on cmd_vel_lora.
+
+        Live commands publish every tick, unmetered. A failsafed link gets
+        only zero_burst more publishes of the zero it is already holding, then
+        this returns False forever until the next on_teleop re-arms it - see
+        the class docstring for why going quiet here is safe.
+        """
+        with self._lock:
+            if not self._failsafe:
+                return True
+            if self._zeros_left <= 0:
+                return False
+            self._zeros_left -= 1
+            return True
 
     def twist_components(self):
         """(vx, vy, wz) in m/s and rad/s, decoded at the wire scale then capped."""
