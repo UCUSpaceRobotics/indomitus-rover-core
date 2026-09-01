@@ -50,7 +50,7 @@ class PowerMonitorCanNode(Node):
         self._sub_cbg = MutuallyExclusiveCallbackGroup()
 
         self._can_sub = self.create_subscription(
-            Frame, "/from_can_bus", self._on_can_msg, 10,
+            Frame, "from_can_bus", self._on_can_msg, 10,
             callback_group=self._sub_cbg,
         )
 

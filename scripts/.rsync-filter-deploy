@@ -3,9 +3,16 @@
 # Unnecessary simulation and visualization packages
 - rover_viz/
 - rover_sim/
+- arm_tasks/
 - arm_viz/
 - arm_sim/
 - panel_sim/
+
+# Temporary ignored packages while we are using other Jetson
+- rover_localization/
+- rover_navigation/
+- rover_costmap_plugins/
+- rover_aruco/
 
 # Python & Linting Caches
 - __pycache__/

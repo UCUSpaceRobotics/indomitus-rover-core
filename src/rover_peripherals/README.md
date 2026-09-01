@@ -27,3 +27,76 @@ ros2 launch rover_bringup container.launch.py
 ### CAN interface
 
 Used IDs: [config/container_can.yaml](config/container_can.yaml)
+## Lights (ESP)
+
+### Launch file & prerequisites
+
+> ⚠️ Warning: This launch file assumes that ros2_socketcan is already running!
+
+```bash
+ros2 launch rover_peripherals lighting.launch.py
+```
+
+Included by `rover_bringup/launch/rover.launch.py`.
+
+### ROS2 Interface details
+
+`lights_can_node` **owns** the light state. Two operators command the same
+lights and they ask differently — the onboard joystick has momentary buttons,
+the ground station has latching switches — so neither keeps a copy of its own,
+and neither can drift out of step with the other. Both read the truth back off
+`/lights/state`.
+
+**Services** — absolute forms for the ground station's switches, `/toggle`
+forms for the joystick's buttons:
+
+| Service | Type | Meaning |
+|---|---|---|
+| `/lights/spotlight` | `std_srvs/SetBool` | set both spotlight pins together |
+| `/lights/spotlight_left` | `std_srvs/SetBool` | set the left spotlight pin only |
+| `/lights/spotlight_right` | `std_srvs/SetBool` | set the right spotlight pin only |
+| `/lights/beautiful` | `std_srvs/SetBool` | set the decorative animation (all 4 pins) |
+| `/lights/beautiful_1` .. `/lights/beautiful_4` | `std_srvs/SetBool` | set one decorative pin, static |
+| `/lights/traffic_red` | `std_srvs/SetBool` | set the traffic-head red pin only |
+| `/lights/traffic_green` | `std_srvs/SetBool` | set the traffic-head green pin only |
+| `/lights/traffic_blue` | `std_srvs/SetBool` | set the traffic-head blue pin only |
+| `/lights/buzzer` | `std_srvs/SetBool` | set the buzzer |
+| `/lights/tower` | `std_srvs/SetBool` | set all three traffic-head pins together |
+| `/lights/traffic_light` | [`indomitus_interfaces/SetTrafficLight`](../indomitus_interfaces/srv/SetTrafficLight.srv) | set any subset of the traffic-head colours |
+
+Every `/lights/<name>` service above also has a matching
+`/lights/<name>/toggle` (`std_srvs/Trigger`) that inverts it. `/lights/beautiful_1`
+through `_4` fight the `/lights/beautiful` animation if it is running — that is
+a firmware quirk, not something this node papers over.
+
+`SetTrafficLight` is tri-state per colour: `KEEP=0`, `OFF=1`, `ON=2`. `KEEP`
+is zero so a request only ever changes the colours it names — an empty request
+is a no-op, and switching blue does not disturb red. The head is red/green/blue
+only; the firmware has no yellow LED.
+
+```bash
+ros2 service call /lights/traffic_light indomitus_interfaces/srv/SetTrafficLight "{blue: 2}"
+ros2 service call /lights/traffic_light indomitus_interfaces/srv/SetTrafficLight "{red: 1}"
+```
+
+The traffic light is meant to signal the rover's own state, so nothing on the
+joystick or the ground station panel is bound to it. What drives it from rover
+state is not built yet — this is the interface it will use.
+
+**Topic**: `/lights/state` ([indomitus_interfaces/msg/LightsState](../indomitus_interfaces/msg/LightsState.msg))
+
+Latched (`TRANSIENT_LOCAL`, depth 1), published on change and rate limited to
+`state_pub_rate` (2 Hz) so it does not load the Wi-Fi link to the ground
+station. There is no periodic heartbeat, which is exactly why it is latched: a
+UI that connects late gets the current state immediately.
+
+```bash
+ros2 topic echo /lights/state
+```
+
+### CAN interface
+
+Used IDs: [config/lights.yaml](config/lights.yaml)
+
+Traffic-light bitmask is `R=bit0 Y=bit1 G=bit2 B=bit3`, computed in the node
+from its own state — the firmware protocol did not change.

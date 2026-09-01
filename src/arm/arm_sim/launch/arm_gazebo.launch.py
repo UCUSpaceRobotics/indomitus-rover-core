@@ -1,6 +1,7 @@
 import contextlib
 import os
 import random
+import sys
 
 import numpy as np
 import yaml
@@ -17,11 +18,23 @@ from launch.actions import (
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_move_group_launch
+
+
+def _arg_from_argv(name: str, default: str) -> str:
+    """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro
+    path — LaunchConfiguration ones desync across sub-launches. Same
+    helper/reasoning as arm_bringup/arm.launch.py's own.
+    """
+    prefix = f"{name}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return default
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -52,6 +65,8 @@ def generate_launch_description() -> LaunchDescription:
                 " sim:=true",
                 " camera:=",
                 LaunchConfiguration("camera"),
+                " end_effector:=",
+                LaunchConfiguration("end_effector"),
             ]
         ),
         value_type=str,
@@ -228,6 +243,17 @@ def generate_launch_description() -> LaunchDescription:
         condition=UnlessCondition(LaunchConfiguration("camera")),
     )
 
+    # Sim is single-host, but panel_align_node/keyboard_servo_node still
+    # run as separate processes here too — bring up the same lock server
+    # the real GS/Jetson split needs (arm_bringup/arm.launch.py), so sim
+    # actually exercises the real locking path instead of silently having
+    # none.
+    arm_motion_lock_server = Node(
+        package="arm_teleop",
+        executable="arm_motion_lock_server",
+        output="screen",
+    )
+
     controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -242,7 +268,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # Streaming teleop controller, spawned inactive — JTC owns the joints
-    # until arm_tasks switches controllers for Servo. Mirrors demo.launch.py;
+    # until arm_teleop switches controllers for Servo. Mirrors arm_bringup/arm.launch.py;
     # a separate spawner call because --inactive applies to the whole call.
     forward_spawner = Node(
         package="controller_manager",
@@ -296,6 +322,11 @@ def generate_launch_description() -> LaunchDescription:
                 LogInfo(msg=f"Controller activation failed (exit code {event.returncode})."),
                 Shutdown(reason="controller activation failed"),
             ]
+        # Jaw finger joints only exist when end_effector:=jaw.
+        if LaunchConfiguration("end_effector").perform(context) != "jaw":
+            return [LogInfo(
+                msg="end_effector != 'jaw' — skipping gripper_right/left_controller spawn."
+            )]
         return [gripper_spawner]
 
     delayed_gripper_spawner = RegisterEventHandler(
@@ -317,9 +348,13 @@ def generate_launch_description() -> LaunchDescription:
     # (CHOMP only accepts joint-space goals and rejects the rest outright
     # with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS); nothing in this repo
     # uses chomp or pilz, so there's no reason to load them at all.
+    # Without this mapping move_group/servo always assume 'jaw', so with a
+    # drill they wait forever for finger joints that never publish.
     moveit_config = MoveItConfigsBuilder(
         "indomitus_arm", package_name="arm_moveit_config"
-    ).planning_pipelines(pipelines=["ompl"]).to_moveit_configs()
+    ).robot_description(mappings={
+        "end_effector": _arg_from_argv("end_effector", "jaw"),
+    }).planning_pipelines(pipelines=["ompl"]).to_moveit_configs()
     move_group_launch = generate_move_group_launch(moveit_config)
 
     moveit_config_dir = get_package_share_directory("arm_moveit_config")
@@ -327,7 +362,7 @@ def generate_launch_description() -> LaunchDescription:
         servo_yaml = yaml.safe_load(f)
     servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
 
-    # Inverse Jacobian only — see demo.launch.py (KDL searchPositionIK
+    # Inverse Jacobian only — see arm_bringup/arm.launch.py (KDL searchPositionIK
     # from home makes +X teleop freeze while -X still works).
     servo_node = Node(
         package="moveit_servo",
@@ -361,12 +396,21 @@ def generate_launch_description() -> LaunchDescription:
         [
             DeclareLaunchArgument("camera", default_value="true"),
             DeclareLaunchArgument(
-                "spawn_panel", default_value="true",
-                description="Also spawn the switch panel task board, for panel_align_node/CV testing"),
+                "end_effector", default_value="jaw",
+                description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"),
+            DeclareLaunchArgument(
+                "spawn_panel",
+                # Defaults off for the drill build; still overridable.
+                default_value=PythonExpression([
+                    "'false' if '", LaunchConfiguration("end_effector"), "' == 'drill_sampling' else 'true'"
+                ]),
+                description="Also spawn the switch panel task board, for panel_align_node/CV testing "
+                            "(defaults to false when end_effector:=drill_sampling)"),
             SetParameter(name="use_sim_time", value=True),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
             delete_marker_layout_file,
+            arm_motion_lock_server,
             gz_sim,
             robot_state_publisher,
             spawn_entity,

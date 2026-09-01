@@ -16,7 +16,7 @@ cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repositor
 ROS_DISTRO="humble"
 JETSON_USER="indomitus-rover"
 JETSON_HOTSPOT_IP="10.42.0.1"
-JETSON_ETHERNET_IP="indomitus-rover.local"
+JETSON_ETHERNET_IP="indomitus-rover-computer.local"
 JETSON_IP="${JETSON_HOTSPOT_IP}"
 REMOTE_DIR=""
 IMAGE_NAME="ghcr.io/ucuspacerobotics/indomitus-rover-core"
@@ -25,8 +25,8 @@ IMAGE_COMMIT=""
 CONTAINER_NAME="rover_prod"
 DOCKERFILE="docker/Dockerfile"
 COMPOSE_FILE="docker/docker-compose.prod.yaml"
-WIFI_SSID="IndomitusRover"
-WIFI_PASS="12345678"
+WIFI_SSID="ERC_UCUSpaceRobotics_A"
+WIFI_PASS="19283746"
 
 # ACTION MODES
 REMOTE_BUILD_MODE=false

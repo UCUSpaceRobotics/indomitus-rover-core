@@ -42,6 +42,23 @@ ownership table below and the rationale in `rover.urdf.xacro`.
 | `zed2i_left_camera_frame -> zed2i_imu_link` | `zed_node` | `zed_wrapper` (`rover_sensors/launch/zed2i.launch.py`) | **Exception** to "`zed_node` owns no TF" below: `zed_description` never defines an IMU link. Enabled via `sensors.publish_imu_tf`. Published once as a static transform on startup. `tilt_broadcaster_node` depends on this edge. |
 | `world -> panel/panel_base_link -> *` (panel base + switch/breaker links) | `robot_state_publisher` | `panel_description` | Driven by `/joint_states` + `panel_standalone.urdf.xacro`; verified via `panel_bringup/panel_standalone.launch.py` (there, unprefixed: `world -> panel_base_link`, since standalone has no namespace to collide with). When spawned inside `rover_sim/sim_gz_full.launch.py` it runs under a `panel` namespace with `frame_prefix:='panel/'` set (so frame IDs are actually `panel/panel_base_link` etc., not just the topics) and `tf`/`tf_static` remapped back onto the global `/tf`/`/tf_static` topics, so the prefixed frames land on the one shared TF tree. The `world -> panel/panel_base_link` pose is generated from the same `panel_x`/`panel_y`/`panel_z`/`panel_yaw` launch args passed to the Gazebo spawn, so the two stay in sync -- **not yet verified end-to-end in Gazebo** (blocked on the Gazebo version issue in [`panel_sim.md`](https://www.google.com/search?q=../panel/panel_sim.md)), but the frame-naming and pose-sync code path is in place. |
 
+### The rover's own `rover` namespace
+
+All of the rover's nodes (everything above except the panel row) run under a
+pushed `rover` ROS namespace (see `rover_bringup/launch/rover.launch.py` and the
+other top-level entry points) -- but unlike the panel, **no `frame_prefix` is
+set anywhere on the rover side**, so every frame in the tree above stays
+exactly as named (`map`, `odom`, `base_footprint`, `base_link`, ...), and every
+TF-publishing node (`robot_state_publisher`, `ekf_filter_node`,
+`tilt_broadcaster_node`, `async_slam_toolbox_node`) explicitly remaps
+`tf`/`tf_static` back onto the global `/tf`/`/tf_static` topics. This is a
+deliberate choice: there is only one physical rover, so there is no frame
+collision to avoid by prefixing, and keeping frames global avoids touching
+every hardcoded `base_footprint`/`base_link` default and the nav2/EKF/
+slam_toolbox config files. Only topics/services/actions are namespaced (e.g.
+`odom` -> `/rover/odom`); `map`, `odom`, `base_footprint`, `base_link` and
+`/tf`/`/tf_static` remain global regardless.
+
 ## Non-owners (explicitly verified)
 
 * **`odometry_controller`** (`rover_controller`) — Publishes `nav_msgs/Odometry` on `/wheels/odom` only. It does **not** broadcast any TF transform — confirmed by inspecting `publish_odom()`: no `tf2_ros::TransformBroadcaster` exists in this controller. Its topic is consumed as the `odom0` input to `ekf_node` (used in both real and simulation configurations). This separation is intentional — do not add a TF broadcast here, since that would duplicate `ekf_node`'s ownership.

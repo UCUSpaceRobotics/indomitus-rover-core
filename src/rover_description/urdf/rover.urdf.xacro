@@ -43,6 +43,15 @@
     </inertial>
   </link>
 
+  <!-- Ground-projected frame -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 ${base_link_ground_height}" rpy="0 0 0"/>
+  </joint>
+
   <!-- ===================== SUSPENSION BASE AXII ===================== -->
   <link name="suspension_base_axii_link">
     <inertial>

@@ -12,16 +12,31 @@ class WatchdogTick(NamedTuple):
     #: The /joy stream just went stale on this tick — worth one log line.
     #: True on the live → stale edge only, never on subsequent polls.
     went_stale: bool
-    #: Publish a zero command now.
+    #: Publish a zero command now. True only for the first `zero_burst` ticks
+    #: of a stale patch — see JoyWatchdog.
     publish_zero: bool
 
 
 class JoyWatchdog:
-    """Tracks /joy freshness and says when to publish safe zero commands."""
+    """Tracks /joy freshness and says when to publish safe zero commands.
 
-    def __init__(self, timeout: float, timed_out: bool = True):
+    The zeros are a burst, not a stream. The joystick outranks every other
+    command source in twist_mux, so a node that keeps publishing zeros after
+    the gamepad is unplugged holds top priority forever and locks the ground
+    station out of a rover nobody is driving — an unplugged controller would
+    take the rover away from the only operator still able to move it.
+
+    A short burst stops the wheels deterministically; the silence that follows
+    lets twist_mux time cmd_vel_joy out and fall through to the next source.
+    Nothing is lost by going quiet: the swerve controller has its own
+    cmd_vel_timeout_s, so an unattended rover stops either way.
+    """
+
+    def __init__(self, timeout: float, timed_out: bool = True, zero_burst: int = 3):
         self._timeout = timeout
         self._timed_out = timed_out
+        self._zero_burst = max(0, zero_burst)
+        self._zeros_left = self._zero_burst
         # 0.0 means 'nothing has ever arrived', which counts as stale rather
         # than as a message at the epoch.
         self._last_message_time = 0.0
@@ -38,6 +53,9 @@ class JoyWatchdog:
         that dropped and came back has lost whatever colour it was wearing.
         """
         self._last_message_time = now
+        # Every live sample re-arms the burst, so the next disconnect gets a
+        # full stop of its own however brief the reconnect was.
+        self._zeros_left = self._zero_burst
         if not self._timed_out:
             return False
         self._timed_out = False
@@ -55,7 +73,15 @@ class JoyWatchdog:
 
         went_stale = not self._timed_out
         self._timed_out = True
-        return WatchdogTick(went_stale=went_stale, publish_zero=active)
+
+        # The burst is only spent on zeros actually published. Yielding to nav
+        # publishes none, so an operator who takes control back while still
+        # timed out still gets a full stop rather than an exhausted counter.
+        if not active or self._zeros_left <= 0:
+            return WatchdogTick(went_stale=went_stale, publish_zero=False)
+
+        self._zeros_left -= 1
+        return WatchdogTick(went_stale=went_stale, publish_zero=True)
 
 
 class GenerationGuard:

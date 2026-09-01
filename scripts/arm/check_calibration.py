@@ -16,7 +16,7 @@ Modes:
   ros                  Same, but also publish sensor_msgs/JointState on
                        /joint_states so RViz mirrors the hand-moved arm.
                        Run alongside:  ros2 launch arm_bringup
-                       arm_standalone.launch.py gui_only:=false use_fake_hardware:=true
+                       arm.launch.py use_fake_hardware:=true
                        is WRONG for this — instead run only robot_state_publisher
                        (or the launch with everything except a js source) and RViz.
                        Easiest: ros2 run robot_state_publisher robot_state_publisher

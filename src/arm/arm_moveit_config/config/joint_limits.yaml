@@ -10,6 +10,10 @@ default_acceleration_scaling_factor: 0.1
 # Joint limits can be turned off with
 # [has_velocity_limits, has_acceleration_limits, has_jerk_limits].
 # max_jerk is used by Ruckig smoothing (AddRuckigTrajectorySmoothing).
+#
+# No min/max_position override — planning uses arm_macro.xacro's URDF <limit>
+# directly, same as develop. Widening this past the URDF let OMPL pick
+# wound-up align solutions that panel_align_node then rejected.
 joint_limits:
   arm_base_shoulder_joint:
     has_velocity_limits: true

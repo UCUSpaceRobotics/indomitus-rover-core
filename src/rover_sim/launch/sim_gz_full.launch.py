@@ -9,8 +9,10 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch.substitutions import (
+    Command, EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution,
+)
+from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.parameter_descriptions import ParameterValue
 from rover_bringup.launch_utils import include_launch
 
@@ -166,6 +168,12 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('panel_y', default_value='0.0'),
         DeclareLaunchArgument('panel_z', default_value='0.5'),
         DeclareLaunchArgument('panel_yaw', default_value='3.14159'),
+        DeclareLaunchArgument(
+            'rover_namespace',
+            default_value=EnvironmentVariable('ROVER_NAMESPACE', default_value='rover'),
+            description='ROS namespace the rover (and, mounted here, the arm) is pushed '
+                        'under. The panel keeps its own separate `panel` namespace.',
+        ),
 
         SetEnvironmentVariable(name='GZ_SIM_RESOURCE_PATH', value=gz_resource_path),
 
@@ -176,35 +184,55 @@ def generate_launch_description() -> LaunchDescription:
         # stops the arm from registering its own (redundant) gz_ros2_control-system
         # plugin -- rover.xacro's own plugin (below, via controllers_yaml_path)
         # already loads every <ros2_control> block in the combined model.
-        include_launch('rover_description', 'robot_state_publisher.launch.py', {
-            'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
-            'xacro_args': [
-                'use_sim:=true ',
-                f'controllers_yaml_path:={controllers_yaml_path} ',
-                'mount_arm:=true sim:=true standalone_gz_plugin:=false ',
-                'camera:=', LaunchConfiguration('arm_camera'),
-            ],
-            'use_sim_time': 'true',
-        }),
+        #
+        # This merged model/controller_manager is the one place the arm's own
+        # controllers/topics also end up under the rover namespace below -
+        # it's a single physically-merged robot only in this sim demo, so
+        # there's no separate arm controller_manager to keep excluded here.
+        GroupAction([
+            PushRosNamespace(LaunchConfiguration('rover_namespace')),
 
-        OpaqueFunction(function=generate_rover_bridge_config, kwargs={'rover_sim_share': rover_sim_share}),
-        make_rover_spawn_node(),
+            include_launch('rover_description', 'robot_state_publisher.launch.py', {
+                'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
+                'xacro_args': [
+                    'use_sim:=true ',
+                    f'controllers_yaml_path:={controllers_yaml_path} ',
+                    'mount_arm:=true sim:=true standalone_gz_plugin:=false ',
+                    'camera:=', LaunchConfiguration('arm_camera'),
+                    ' rover_namespace:=', LaunchConfiguration('rover_namespace'),
+                ],
+                'use_sim_time': 'true',
+            }),
 
-        include_launch('rover_bringup', 'control.launch.py', {
-            'use_sim': 'true',
-            'controllers_yaml': controllers_yaml_path,
-            'controllers': (
-                'joint_state_broadcaster swerve_controller odometry_controller '
-                'diff_bar_effort_controller indomitus_arm_controller '
-                'gripper_right_controller gripper_left_controller'
-            ),
-        }),
+            OpaqueFunction(function=generate_rover_bridge_config, kwargs={'rover_sim_share': rover_sim_share}),
+            make_rover_spawn_node(),
 
-        include_launch('rover_localization', 'ekf.launch.py', {
-            'use_sim_time': 'true',
-        }),
-        include_launch('rover_bringup', 'twist_mux.launch.py'),
+            include_launch('rover_bringup', 'control.launch.py', {
+                'use_sim': 'true',
+                'controllers_yaml': controllers_yaml_path,
+                'controllers': (
+                    'joint_state_broadcaster swerve_controller odometry_controller '
+                    'diff_bar_effort_controller indomitus_arm_controller '
+                    'gripper_right_controller gripper_left_controller'
+                ),
+            }),
 
+            include_launch('rover_localization', 'ekf.launch.py', {
+                'use_sim_time': 'true',
+            }),
+            include_launch('rover_bringup', 'twist_mux.launch.py'),
+
+            # Serves the joystick's motor / compact / clear-errors buttons, and the
+            # same services the ground station calls.
+            include_launch('rover_teleop', 'drive_power.launch.py', {
+                'use_sim_time': 'true',
+                'controller_name': 'swerve_controller_test',
+            }),
+        ]),
+
+        # Kept outside the rover namespace push above - the panel is its own
+        # separate simulated entity with its own `panel` namespace, not part
+        # of the rover.
         GroupAction(
             actions=[
                 *make_panel_nodes(panel_description_share),

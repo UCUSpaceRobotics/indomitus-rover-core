@@ -1,0 +1,19 @@
+/**/drive_power:
+  ros__parameters:
+
+    # The swerve controller drive/power activates and deactivates. Must match
+    # the controller spawned by rover_bringup/control.launch.py, which starts
+    # it inactive on purpose — this node is what makes it active.
+    controller_name: swerve_controller_test
+
+    # ros2_control hardware component name from rover.xacro.
+    hardware_name: RoverHardware
+
+    # Sends the Damiao clear-error frame (FF..FB) to every drive motor.
+    # Motors come back inhibited — cycle drive/power to re-enable.
+    clear_errors_service: rover_hardware_node/clear_motor_errors
+
+    # drive/state is published on change, no faster than this. It crosses the
+    # Wi-Fi link to the ground station, and nothing downstream needs it quicker
+    # than the joystick repaints its light bar (also 2 Hz).
+    state_pub_rate: 2.0

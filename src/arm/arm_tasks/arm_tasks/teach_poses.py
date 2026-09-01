@@ -61,12 +61,15 @@ def _resolve_poses_file():
     Falls back to the last (source-tree) candidate if none exist yet.
     """
     candidates = [
-        Path("/opt/ws/src/arm/arm_tasks/poses.json"),
-        Path(__file__).resolve().parent.parent / "poses.json",
+        Path("/opt/ws/src/arm/arm_teleop/poses.json"),
+        # arm_teleop is a sibling package of arm_tasks under src/arm/ — this
+        # script itself did not move, only poses.json did (to arm_teleop,
+        # alongside keyboard_servo_node.py, see arm_teleop/package.xml).
+        Path(__file__).resolve().parents[2] / "arm_teleop" / "poses.json",
     ]
     try:
         from ament_index_python.packages import get_package_share_directory
-        candidates.insert(0, Path(get_package_share_directory("arm_tasks")) / "poses.json")
+        candidates.insert(0, Path(get_package_share_directory("arm_teleop")) / "poses.json")
     except Exception:
         pass
     for path in candidates:
@@ -76,7 +79,7 @@ def _resolve_poses_file():
 
 
 POSES_FILE = _resolve_poses_file()
-ACTION = "/indomitus_arm_controller/follow_joint_trajectory"
+ACTION = "indomitus_arm_controller/follow_joint_trajectory"
 JTC_CONTROLLER_NAME = "indomitus_arm_controller"
 FORWARD_CONTROLLER_NAME = "indomitus_arm_forward_position_controller"
 
@@ -100,7 +103,7 @@ class Teach(Node):
     def __init__(self):
         super().__init__("teach_poses")
         self._js = None
-        self.create_subscription(JointState, "/joint_states", self._on_js, 10)
+        self.create_subscription(JointState, "joint_states", self._on_js, 10)
 
     def _on_js(self, msg):
         self._js = msg

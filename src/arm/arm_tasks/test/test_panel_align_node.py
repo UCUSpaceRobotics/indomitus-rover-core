@@ -9,12 +9,12 @@ rationale for the same choice.
 import rclpy
 import pytest
 from geometry_msgs.msg import PoseStamped
-from moveit_msgs.msg import MoveItErrorCodes, RobotTrajectory
+from moveit_msgs.msg import Constraints, MoveItErrorCodes, RobotTrajectory
 from rclpy.parameter import Parameter
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from arm_tasks.arm_motion_lock import ArmMotionBusy
-from arm_tasks.panel_align_node import JOINT_LIMITS, PanelAlignNode
+from arm_teleop.arm_motion_lock import ArmMotionBusy
+from arm_tasks.panel_align_node import JOINT_LIMITS, PANEL_JOINT_LIMIT_PATH_CONSTRAINTS, PanelAlignNode
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -106,11 +106,38 @@ def test_execute_does_not_cancel_a_goal_that_was_never_accepted(node, monkeypatc
     assert gh.cancel_calls == 0  # nothing to cancel — rejected immediately
 
 
+# ── _request_plan() bounds OMPL's own search space, not just post-plan ──
+
+def test_request_plan_bounds_ompl_to_panel_joint_limits(node, monkeypatch):
+    monkeypatch.setattr(node._move_action_client, 'wait_for_server', lambda timeout_sec=0: True)
+    sent_goals = []
+
+    class _FakeResultWrapper:
+        result = _fake_plan_result(_valid_joint_positions())
+
+    def _fake_send_goal_async(goal):
+        sent_goals.append(goal)
+        gh = _FakeGoalHandle(accepted=True)
+        gh.get_result_async = lambda: _FakeFuture(_FakeResultWrapper())
+        return _FakeFuture(gh)
+
+    monkeypatch.setattr(node._move_action_client, 'send_goal_async', _fake_send_goal_async)
+
+    result = node._request_plan(Constraints())
+
+    assert result is not None
+    assert len(sent_goals) == 1
+    # Without this, OMPL samples the URDF's full +-2pi range and only
+    # gets rejected after the fact by _check_joint_margins — this is the
+    # actual fix for that wasted plan-then-reject cycle.
+    assert sent_goals[0].request.path_constraints == PANEL_JOINT_LIMIT_PATH_CONSTRAINTS
+
+
 # ── Issue 2: cross-process exclusion surfaces as a clean failure ────────
 
 def test_align_to_panel_fails_cleanly_when_arm_motion_busy(node, monkeypatch):
     def _raise_busy(*a, **kw):
-        raise ArmMotionBusy('busy')
+        raise ArmMotionBusy("arm motion lock held by 'gs-laptop/keyboard_servo_node/123'")
     monkeypatch.setattr('arm_tasks.panel_align_node.arm_motion_lock', _raise_busy)
 
     assert node.align_to_panel() is False
@@ -126,7 +153,7 @@ def test_align_to_panel_fails_cleanly_when_arm_motion_busy(node, monkeypatch):
 
 def test_dispatches_to_live_align_when_nothing_remembered(node, monkeypatch):
     called = []
-    monkeypatch.setattr('arm_tasks.panel_align_node.arm_motion_lock', lambda: _NullContext())
+    monkeypatch.setattr('arm_tasks.panel_align_node.arm_motion_lock', lambda *a, **kw: _NullContext())
     monkeypatch.setattr(node, '_align_live_locked', lambda: called.append('live') or True)
     monkeypatch.setattr(node, '_align_to_remembered_locked', lambda: called.append('remembered') or True)
 
@@ -136,7 +163,7 @@ def test_dispatches_to_live_align_when_nothing_remembered(node, monkeypatch):
 
 def test_dispatches_to_remembered_replay_once_learned(node, monkeypatch):
     node._remembered_target_joints = _valid_joint_positions()
-    monkeypatch.setattr('arm_tasks.panel_align_node.arm_motion_lock', lambda: _NullContext())
+    monkeypatch.setattr('arm_tasks.panel_align_node.arm_motion_lock', lambda *a, **kw: _NullContext())
     called = []
     monkeypatch.setattr(node, '_align_live_locked', lambda: called.append('live') or True)
     monkeypatch.setattr(node, '_align_to_remembered_locked', lambda: called.append('remembered') or True)
@@ -218,6 +245,117 @@ def test_remembered_replay_fails_on_joint_limit_margin(node, monkeypatch):
 
     assert node._align_to_remembered_locked() is False
     assert executed == []  # never even tried to move — rejected before execution
+
+
+# ── orient_gripper_to_remembered() ('m'): tighter tolerance, no replan ──
+
+def _fake_tf(x, y, z):
+    class _T:
+        transform = type('X', (), {'translation': type('V', (), {'x': x, 'y': y, 'z': z})()})()
+    return _T()
+
+
+def test_orient_gripper_fails_without_remembered_orientation(node, monkeypatch):
+    node._remembered_target_orientation = None
+    stop_calls = []
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: stop_calls.append(True) or True)
+
+    assert node._orient_gripper_to_remembered_locked() is False
+    assert stop_calls == []  # bailed out before touching the arm at all
+
+
+def test_orient_gripper_uses_tighter_tolerance_and_current_position(node, monkeypatch):
+    node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
+    monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(1.0, 2.0, 3.0))
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
+    monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+
+    plan_calls = []
+
+    def _fake_request_plan(goal_constraints):
+        plan_calls.append(goal_constraints)
+        return _fake_plan_result(_valid_joint_positions())
+    monkeypatch.setattr(node, '_request_plan', _fake_request_plan)
+    monkeypatch.setattr(node, '_execute', lambda traj: (True, ''))
+
+    assert node._orient_gripper_to_remembered_locked() is True
+    assert len(plan_calls) == 1
+    pc = plan_calls[0].position_constraints[0]
+    assert (pc.constraint_region.primitive_poses[0].position.x,
+            pc.constraint_region.primitive_poses[0].position.y,
+            pc.constraint_region.primitive_poses[0].position.z) == (1.0, 2.0, 3.0)
+    expected_pos_tol = node.get_parameter('orient_gripper_position_tolerance').value
+    assert pc.constraint_region.primitives[0].dimensions[0] == expected_pos_tol
+    assert expected_pos_tol < node.get_parameter('position_tolerance').value
+    oc = plan_calls[0].orientation_constraints[0]
+    expected = node.get_parameter('orient_gripper_orientation_tolerance').value
+    assert oc.absolute_x_axis_tolerance == expected
+    assert expected < node.get_parameter('orientation_tolerance').value
+
+
+def test_orient_gripper_applies_live_panel_collision_object_when_available(node, monkeypatch):
+    node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
+    node._remembered_panel_collision_pose = PoseStamped()
+    live_pose = PoseStamped()
+    monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(1.0, 2.0, 3.0))
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
+    monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+    monkeypatch.setattr(node, '_current_live_panel_collision_pose', lambda: live_pose)
+
+    collision_calls = []
+    monkeypatch.setattr(
+        node, '_apply_panel_collision_object', lambda pose: collision_calls.append(pose) or True)
+    monkeypatch.setattr(node, '_request_plan', lambda gc: _fake_plan_result(_valid_joint_positions()))
+    monkeypatch.setattr(node, '_execute', lambda traj: (True, ''))
+
+    assert node._orient_gripper_to_remembered_locked() is True
+    assert collision_calls == [live_pose]  # live pose preferred over the cached one
+
+
+def test_orient_gripper_falls_back_to_remembered_collision_pose(node, monkeypatch):
+    node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
+    node._remembered_panel_collision_pose = PoseStamped()
+    monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(1.0, 2.0, 3.0))
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
+    monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+    monkeypatch.setattr(node, '_current_live_panel_collision_pose', lambda: None)  # panel not visible now
+
+    collision_calls = []
+    monkeypatch.setattr(
+        node, '_apply_panel_collision_object', lambda pose: collision_calls.append(pose) or True)
+    monkeypatch.setattr(node, '_request_plan', lambda gc: _fake_plan_result(_valid_joint_positions()))
+    monkeypatch.setattr(node, '_execute', lambda traj: (True, ''))
+
+    assert node._orient_gripper_to_remembered_locked() is True
+    assert collision_calls == [node._remembered_panel_collision_pose]
+
+
+def test_orient_gripper_fails_cleanly_when_collision_object_apply_fails(node, monkeypatch):
+    node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
+    node._remembered_panel_collision_pose = PoseStamped()
+    monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(1.0, 2.0, 3.0))
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
+    monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+    monkeypatch.setattr(node, '_current_live_panel_collision_pose', lambda: None)
+    monkeypatch.setattr(node, '_apply_panel_collision_object', lambda pose: False)
+    planned = []
+    monkeypatch.setattr(node, '_request_plan', lambda gc: planned.append(True) or _fake_plan_result({}))
+
+    assert node._orient_gripper_to_remembered_locked() is False
+    assert planned == []  # never even tried to plan — rejected before that
+
+
+def test_orient_gripper_fails_cleanly_on_plan_failure(node, monkeypatch):
+    node._remembered_target_orientation = (0.0, 0.0, 0.0, 1.0)
+    monkeypatch.setattr(node._tf_buffer, 'lookup_transform', lambda *a, **kw: _fake_tf(0.0, 0.0, 0.0))
+    monkeypatch.setattr(node, '_call_stop_servo', lambda: True)
+    monkeypatch.setattr(node, '_use_trajectory_controller', lambda: True)
+    monkeypatch.setattr(node, '_request_plan', lambda gc: None)
+    executed = []
+    monkeypatch.setattr(node, '_execute', lambda traj: executed.append(True) or (True, ''))
+
+    assert node._orient_gripper_to_remembered_locked() is False
+    assert executed == []
 
 
 class _NullContext:

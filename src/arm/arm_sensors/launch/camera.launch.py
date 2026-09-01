@@ -80,7 +80,7 @@ not V4L2 controls.
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -106,8 +106,8 @@ def generate_launch_description() -> LaunchDescription:
     should_fix_focus = PythonExpression([is_usb, " and '", disable_autofocus, "' == 'true'"])
 
     # V4L2 controls are independent of whatever has the device open for
-    # streaming -- confirmed live, this applies fine whether gscam has
-    # already started or not, so no ordering dependency on camera_usb.
+    # streaming -- triggered off camera_usb's OnProcessStart below, so
+    # this also re-runs on every respawn, not just the first start.
     # Must be two SEPARATE v4l2-ctl invocations, not one call with both
     # -c flags: confirmed live that setting focus_automatic_continuous=0
     # and focus_absolute=N in the same ioctl batch fails ("Permission
@@ -187,6 +187,17 @@ def generate_launch_description() -> LaunchDescription:
             "use_gst_timestamps": False,
         }],
         condition=IfCondition(is_usb),
+        respawn=True,       # same as rplidar_s2/joy/gamepad: restarts on a
+        respawn_delay=5.0,  # dropped USB cam or a gstreamer pipeline crash.
+    )
+    # A USB re-enumeration (the case respawn is for) can reset focus/
+    # brightness to camera defaults -- re-run the fix on every restart,
+    # not just the first, to cover that.
+    refix_camera_settings_on_respawn = RegisterEventHandler(
+        OnProcessStart(
+            target_action=camera_usb,
+            on_start=[disable_autofocus_process, fix_brightness],
+        )
     )
 
     camera_csi = Node(
@@ -201,6 +212,8 @@ def generate_launch_description() -> LaunchDescription:
             "use_gst_timestamps": False,
         }],
         condition=IfCondition(is_csi),
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     unknown_backend_guard = Node(
@@ -275,9 +288,8 @@ def generate_launch_description() -> LaunchDescription:
             description="0-2. Default (1) was confirmed live to boost exposure on high-contrast "
                         "scenes, pushing bright light sources further into blown-out white instead "
                         "of helping -- 0 disables that."),
-        disable_autofocus_process,
         fix_focus,
-        fix_brightness,
+        refix_camera_settings_on_respawn,
         camera_usb,
         camera_csi,
         unknown_backend_guard,

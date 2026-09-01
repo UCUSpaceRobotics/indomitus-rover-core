@@ -23,7 +23,7 @@ void SlopeLayer::onInitialize()
   auto node = node_.lock();
 
   declareParameter("enabled", rclcpp::ParameterValue(true));
-  declareParameter("cloud_topic", rclcpp::ParameterValue(std::string("/zed2i/points")));
+  declareParameter("cloud_topic", rclcpp::ParameterValue(std::string("zed2i/points")));
   declareParameter("base_frame", rclcpp::ParameterValue(std::string("base_footprint")));
   declareParameter("grid_resolution", rclcpp::ParameterValue(0.25));
   declareParameter("grid_range", rclcpp::ParameterValue(4.0));

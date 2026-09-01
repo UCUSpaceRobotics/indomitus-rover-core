@@ -162,11 +162,9 @@ const std::array<LinkMass, NUM_JOINTS> kLinkMass = {{
     /*2 arm_forearm_link                                 */ { 0.630, {-0.00865,0.15, 0.0    } },
     /*3 arm_wrist_1_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
     /*4 arm_wrist_2_link                                 */ { 0.100, {0.01615, 0.0, -0.0175 } },
-    // Tuned on the arm, not weighed: this entry absorbs the end effector, jaw
-    // gripper, camera, fasteners and cabling, and compensates for the midpoint
-    // COM approximation used on the links above. Replacing it with the true
-    // gripper mass alone will under-compensate and make the arm sag again.
-    /*5 arm_end_effector_link + everything mounted on it */ { 0.400, {0.0,     0.0,  0.06   } },
+    // Index 5 is documentation only — compute_gravity_feedforward() always uses
+    // ee_tool_mass_kg_/ee_tool_com_{x,y,z}_ instead. Edit the header initializer, not this line.
+    /*5 arm_end_effector_link + everything mounted on it (DEFAULT, see above) */ { 0.400, {0.0, 0.0, 0.06} },
 }};
 
 // kMotorMass[i] — the motor that drives joint i, pinned at joint i's own axis
@@ -229,6 +227,10 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
     gravity_ff_enabled_    = param_bool(info.hardware_parameters, "gravity_ff_enabled", gravity_ff_enabled_);
     gravity_ff_max_nm_sw_  = param_or(info.hardware_parameters, "gravity_ff_max_nm_steadywin", gravity_ff_max_nm_sw_);
     gravity_ff_max_nm_dm_  = param_or(info.hardware_parameters, "gravity_ff_max_nm_damiao", gravity_ff_max_nm_dm_);
+    ee_tool_mass_kg_       = param_or(info.hardware_parameters, "ee_tool_mass_kg", ee_tool_mass_kg_);
+    ee_tool_com_x_         = param_or(info.hardware_parameters, "ee_tool_com_x", ee_tool_com_x_);
+    ee_tool_com_y_         = param_or(info.hardware_parameters, "ee_tool_com_y", ee_tool_com_y_);
+    ee_tool_com_z_         = param_or(info.hardware_parameters, "ee_tool_com_z", ee_tool_com_z_);
 
     // ---- Per-joint parameters: direction, offset, kp, kd, motor_id ----
     // These live in arm_macro.xacro so recalibration never requires recompiling.
@@ -276,6 +278,8 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
     RCLCPP_INFO(logger_, "Gravity feed-forward: %s (max %.2f Nm Steadywin, %.2f Nm Damiao)",
                 gravity_ff_enabled_ ? "ENABLED" : "disabled",
                 gravity_ff_max_nm_sw_, gravity_ff_max_nm_dm_);
+    RCLCPP_INFO(logger_, "End-effector payload: %.3f kg @ (%.4f, %.4f, %.4f) m",
+                ee_tool_mass_kg_, ee_tool_com_x_, ee_tool_com_y_, ee_tool_com_z_);
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -309,9 +313,16 @@ std::array<float, NUM_JOINTS> ArmCanSystem::compute_gravity_feedforward() const
         const Mat3 R_theta  = jg.axis_is_z ? rot_local_z(theta) : rot_local_x(theta);
         const Mat3 R_link   = mat_mul(R_pre, R_theta);          // child link's orientation, base frame
 
+        // Index NUM_JOINTS-1 (arm_end_effector_link) uses the runtime
+        // end-effector payload override instead of kLinkMass's compile-time
+        // entry — see ee_tool_mass_kg_ / ee_tool_com_{x,y,z}_ in the header.
+        const Vec3 link_com_local = (i == NUM_JOINTS - 1)
+            ? Vec3{ee_tool_com_x_, ee_tool_com_y_, ee_tool_com_z_}
+            : kLinkMass[i].com_local;
+
         joint_pos[i]  = p_joint;
         joint_axis[i] = z_i;
-        link_com[i]   = vec_add(p_joint, mat_vec(R_link, kLinkMass[i].com_local));
+        link_com[i]   = vec_add(p_joint, mat_vec(R_link, link_com_local));
         // Motor i is pinned to its own joint's position; com_local is a small
         // offset expressed on the housing/stator side (R_pre, not R_link) —
         // see the assumption noted on PointMass above.
@@ -330,7 +341,7 @@ std::array<float, NUM_JOINTS> ArmCanSystem::compute_gravity_feedforward() const
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
         Vec3 sum{0.0, 0.0, 0.0};
         for (std::size_t k = i; k < NUM_JOINTS; ++k) {
-            const double m_link  = kLinkMass[k].mass_kg;
+            const double m_link  = (k == NUM_JOINTS - 1) ? ee_tool_mass_kg_ : kLinkMass[k].mass_kg;
             if (m_link > 0.0) {
                 const Vec3 r       = vec_sub(link_com[k], joint_pos[i]);
                 const Vec3 contrib = vec_cross(joint_axis[i], r);
@@ -567,6 +578,26 @@ hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const r
     const std::array<float, NUM_JOINTS> gravity_tff =
         gravity_ff_enabled_ ? compute_gravity_feedforward() : std::array<float, NUM_JOINTS>{};
 
+    {
+        // One combined snapshot of all 6 joints together, instead of each
+        // motor logging independently as its own CAN frame happens to
+        // arrive (staggered, arbitrary order) — much easier to read live.
+        static rclcpp::Clock steady_clock(RCL_STEADY_TIME);
+        std::array<float, NUM_JOINTS> torque_snapshot;
+        {
+            std::lock_guard<std::mutex> fb_lock(feedback_mutex_);
+            torque_snapshot = last_torque_nm_;
+        }
+        RCLCPP_INFO_THROTTLE(logger_, steady_clock, 1000,
+            "Torque (Nm): %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f  %s=%.2f",
+            joint_names_[0].c_str(), torque_snapshot[0],
+            joint_names_[1].c_str(), torque_snapshot[1],
+            joint_names_[2].c_str(), torque_snapshot[2],
+            joint_names_[3].c_str(), torque_snapshot[3],
+            joint_names_[4].c_str(), torque_snapshot[4],
+            joint_names_[5].c_str(), torque_snapshot[5]);
+    }
+
     std::lock_guard<std::mutex> lock(can_tx_mutex_);
 
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
@@ -782,6 +813,7 @@ void ArmCanSystem::rx_thread_fn()
                 hw_position_states_[sw_idx] = motor_to_urdf(sw_idx, fb.pos_rad);
                 hw_velocity_states_[sw_idx] = fb.vel_rps * joint_directions_[sw_idx];
                 feedback_seen_[sw_idx] = true;
+                last_torque_nm_[sw_idx] = fb.torque_nm;
             }
             continue;
         }
@@ -824,6 +856,7 @@ void ArmCanSystem::rx_thread_fn()
         hw_position_states_[dm_idx] = motor_to_urdf(dm_idx, fb.pos_rad);
         hw_velocity_states_[dm_idx] = fb.vel_rps * joint_directions_[dm_idx];
         feedback_seen_[dm_idx] = true;
+        last_torque_nm_[dm_idx] = fb.torque_nm;
     }
 }
 

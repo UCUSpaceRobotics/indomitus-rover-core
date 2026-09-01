@@ -9,7 +9,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml', 'poses.json']),
+        ('share/' + package_name, ['package.xml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -21,8 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'teach_poses = arm_tasks.teach_poses:main',
-            'keyboard_servo_node = arm_tasks.keyboard_servo_node:main',
-            'gamepad_servo_node = arm_tasks.keyboard_servo_node:main_gamepad',
+            'collision_link_reporter = arm_tasks.collision_link_reporter:main',
             'panel_align_node = arm_tasks.panel_align_node:main',
         ],
     },

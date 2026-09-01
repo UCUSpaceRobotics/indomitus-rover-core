@@ -14,7 +14,7 @@ Follow these steps to power on and operate the rover:
 
 1. **Power on the rover:** Rotate the blue switch on the back of the rover clockwise, then press the blue button. When the rover is powered on, the CAN interface is automatically set up, the Docker container starts, and the Wi-Fi hotspot is turned on (**note that it takes ~1 minute for the network to appear**).
 
-2. **Connect to the hotspot:** Connect your computer to the Jetson's Wi-Fi hotspot (`IndomitusRover`) using the password `12345678`.
+2. **Connect to the hotspot:** Connect your computer to the Jetson's Wi-Fi hotspot (`ERC_UCUSpaceRobotics_A`) using the password `19283746`.
 
 3. **Enter the container on the rover:** Use the following command to enter the container's terminal on the rover:
    ```bash
@@ -49,7 +49,7 @@ Follow these steps to power on and operate the rover:
 
 8. **Start the container:** Run the following command to start the container on the laptop:
    ```bash
-   IMAGE_TAG=develop-dev ROS_DOMAIN_ID=42 docker compose up -d
+   IMAGE_TAG=develop-dev ROS_DOMAIN_ID=90 docker compose up -d
    ```
 
 9. **Enter the container terminal:** Run the following command to enter the container terminal on the laptop:
@@ -75,6 +75,8 @@ Follow these steps to power on and operate the rover:
 
 
 ## Turning Off the Rover
+
+> **Warning:** Before cutting power, it is highly recommended to shut down the Jetson first by SSHing into it and running `sudo poweroff`. Wait about a minute, until the Jetson's fan and LED turn off, before cutting power. Cutting power without doing this can corrupt the Jetson's file system.
 
 To power down the rover, perform **one** of the following actions:
 

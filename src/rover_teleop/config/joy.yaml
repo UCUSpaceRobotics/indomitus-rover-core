@@ -1,4 +1,4 @@
-joystick_interpreter:
+/**/joystick_interpreter:
   ros__parameters:
     axis_linear:
       x: 1 # Left stick vertical (forward/backward)
@@ -40,8 +40,8 @@ joystick_interpreter:
     # below the controller's park_speed (0.001)
     angle_probe_speed: 0.00001
 
-    controller_name: swerve_controller_test
-
+    # --- DRIVE MODE (local to this node: it only shapes our own twist) ---
+    raw_twist_mode_button: 3
 
     # --- GRANNY MODE ---
     granny_speed_scale: 0.1
@@ -51,7 +51,10 @@ joystick_interpreter:
     vy_enabled_default: false
     vy_toggle_button: 4   # Share button
 
-    # --- MOTORS / COMPACT MODE ---
+    # --- DRIVE POWER / COMPACT MODE ---
+    # Both are hardware state owned by drive_power_node — these buttons only
+    # ask it to invert what it holds, so the ground station can command the
+    # same things from its switches without the two drifting apart.
     motor_toggle_button: 6   # Options button
     compact_mode_button: 1
 
@@ -60,9 +63,10 @@ joystick_interpreter:
 
     # --- CLEAR MOTOR ERRORS ---
     # Sends the Damiao clear-error frame (FF..FB) to every drive motor.
-    # Motors come back disabled — cycle motor_toggle_button to re-enable.
-    clear_errors_button: 20
-    clear_errors_service: /rover_hardware_node/clear_motor_errors
+    # Motors come back inhibited (magenta light bar) — cycle motor_toggle_button
+    # to re-enable. On the D-pad, away from anything used while driving: this
+    # is a recovery action and a stray press costs the operator a power cycle.
+    clear_errors_button: 13   # ↑
 
     # --- TIMEOUT / PUBLISH RATE ---
     cmd_timeout: 0.2
@@ -70,12 +74,13 @@ joystick_interpreter:
     initial_timed_out: true
     cmd_pub_rate: 20.0
 
+    # Zero twists published when /joy goes stale, before this node goes quiet
+    # and lets twist_mux fall through to the ground station. Not a stream:
+    # cmd_vel_joy has the highest priority in the mux, so holding it with zeros
+    # would mean an unplugged gamepad locks out the only operator left.
+    timeout_zero_burst: 3
+
     # --- LIGHTS ---
+    # State lives in lights_can_node; these ask it to invert a light.
     spotlight_button: 9   # L1
     beautiful_button: 10   # R1
-
-    # --- TRAFFIC LIGHT ---
-    traffic_red_button: 11      # ←
-    traffic_yellow_button: 12   # →
-    traffic_green_button: 13    # ↑
-    traffic_blue_button: 14     # ↓
