@@ -38,15 +38,15 @@ The script is pre-configured with default values matching the standard repositor
 * `--eth` : Use a wired Ethernet connection instead of the Wi-Fi hotspot.
 * `--ip IP` : The Jetson IP address. (Default: `10.42.0.1`)
 * `--user USER` : The Jetson SSH username. (Default: `indomitus-rover`)
-* `--dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/indomitus-rover/indomitus-rover-core/`)
+* `--dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/${JETSON_USER}/indomitus-rover-core/`)
 * `--image-name NAME` : The base Docker image name. (Default: `ghcr.io/ucuspacerobotics/indomitus-rover-core`)
 * `--tag TAG` : The Docker image tag (e.g., `develop-prod`, `feature-shared-branch-prod`). The script automatically derives the GitHub branch and exact commit from this tag.
 * `--commit SHA` : Git commit SHA (7+ hex characters) to pull. Overrides `--tag` in `pull` mode.
 * `--container-name NAME`: The name of the Docker container on the Jetson. (Default: `rover_prod`)
 * `--dockerfile FILE` : Path to the local Dockerfile. (Default: `docker/Dockerfile`)
 * `--compose FILE` : Path to the Production Compose file. (Default: `docker/docker-compose.prod.yaml`)
-* `--ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `IndomitusRover`)
-* `--pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `12345678`)
+* `--ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `ERC_UCUSpaceRobotics_A`)
+* `--pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `19283746`)
 * `-h, --help` : Display the help message and exit.
 
 

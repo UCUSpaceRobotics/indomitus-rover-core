@@ -115,6 +115,8 @@ Follow these steps to power on and operate the rover using a laptop:
 
 ### Turning Off the Rover
 
+> **Warning:** Before cutting power, it is highly recommended to shut down the Jetson first by SSHing into it and running `sudo poweroff`. Wait about a minute, until the Jetson's fan and LED turn off, before cutting power. Cutting power without doing this can corrupt the Jetson's file system.
+
 To power down the rover, perform **one** of the following actions:
 
 * **Use the power switch:** Rotate the blue switch on the back of the rover counterclockwise.
@@ -128,11 +130,12 @@ To power down the rover, perform **one** of the following actions:
 | Property | Value |
 | --- | --- |
 | **Jetson Username** | `indomitus-rover` |
+| **Jetson Computer Name** | `indomitus-rover-computer` |
 | **Jetson Password** | `1` |
-| **Wi-Fi Hotspot Name (SSID)** | `IndomitusRover` |
-| **Wi-Fi Password** | `12345678` |
+| **Wi-Fi Hotspot Name (SSID)** | `ERC_UCUSpaceRobotics_A` |
+| **Wi-Fi Password** | `19283746` |
 | **Jetson Static IP for Hotspot** | `10.42.0.1` |
-| **Jetson Container ROS_DOMAIN_ID** | `42` |
+| **Jetson Container ROS_DOMAIN_ID** | `90` |
 
 
 ### SSH Access to the Jetson
@@ -197,7 +200,7 @@ echo $ROS_DOMAIN_ID
 
 2. Start the container with the new ID. You can pass the variable directly into the start command:
    ```bash
-   ROS_DOMAIN_ID=132 docker compose up -d
+   ROS_DOMAIN_ID=90 docker compose up -d
    ```
 
 *(Alternatively, you can permanently change the `ROS_DOMAIN_ID` value inside your `docker-compose.yml` file before running the standard `docker compose up -d` command).*

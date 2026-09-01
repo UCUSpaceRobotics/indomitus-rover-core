@@ -61,6 +61,14 @@ def generate_launch_description():
         description='rad/s ceiling on the LoRa path. Lower than Wi-Fi on purpose'
     )
 
+    # Publishes of cmd_vel_lora on the way into failsafe before it goes quiet -
+    # see link_state.LinkState's docstring for why going quiet is safe here.
+    zero_burst_arg = DeclareLaunchArgument(
+        'zero_burst',
+        default_value='3',
+        description='Zero cmd_vel_lora publishes on link loss before going silent'
+    )
+
     return LaunchDescription([
         port_arg,
         baud_arg,
@@ -69,6 +77,7 @@ def generate_launch_description():
         max_angular_arg,
         limit_linear_arg,
         limit_angular_arg,
+        zero_burst_arg,
         Node(
             package='rover_comms',
             executable='lora_rover_node',
@@ -82,6 +91,7 @@ def generate_launch_description():
                 'max_angular': LaunchConfiguration('max_angular'),
                 'limit_linear': LaunchConfiguration('limit_linear'),
                 'limit_angular': LaunchConfiguration('limit_angular'),
+                'zero_burst': LaunchConfiguration('zero_burst'),
             }],
         ),
     ])

@@ -228,3 +228,59 @@ def test_defaults_to_a_monotonic_clock():
         failsafe_timeout=1.0, max_linear=0.5, max_angular=1.0,
         limit_linear=0.3, limit_angular=0.6)
     assert state._clock is time.monotonic
+
+
+# -- should_publish: burst then quiet ---------------------------------------
+
+def test_live_commands_publish_unmetered():
+    state = make_state(zero_burst=3)
+    state.on_teleop(teleop(vx=100))
+    for _ in range(10):
+        assert state.should_publish() is True
+
+
+def test_failsafed_link_gets_only_a_short_burst_then_goes_quiet():
+    # A failsafed LinkState must not hold cmd_vel_lora open forever: LoRa is
+    # twist_mux's lowest priority, so there is nothing beneath it for that to
+    # protect, and a permanently-fresh zero misreads as "someone is driving"
+    # to anything watching twist_mux's inputs.
+    state = make_state(zero_burst=3)
+    assert state.should_publish() is True
+    assert state.should_publish() is True
+    assert state.should_publish() is True
+    assert state.should_publish() is False
+    assert state.should_publish() is False
+
+
+def test_zero_burst_of_zero_publishes_nothing():
+    state = make_state(zero_burst=0)
+    assert state.should_publish() is False
+
+
+def test_a_reconnect_re_arms_the_burst():
+    clock = FakeClock()
+    state = make_state(clock, zero_burst=2)
+    state.should_publish()
+    state.should_publish()
+    assert state.should_publish() is False   # burst spent
+
+    state.on_teleop(teleop(vx=50))
+    assert state.should_publish() is True    # live, unmetered
+
+    clock.advance(2.0)
+    state.check_timeout()
+    assert state.should_publish() is True    # burst re-armed by the reconnect
+    assert state.should_publish() is True
+    assert state.should_publish() is False
+
+
+def test_serial_loss_does_not_grant_a_fresh_burst_on_top_of_an_exhausted_one():
+    # on_link_lost() is idempotent once already failsafed - it must not hand
+    # back publishes that check_timeout() already spent.
+    state = make_state(zero_burst=1)
+    state.on_teleop(teleop(vx=50))
+    state.on_link_lost()
+    assert state.should_publish() is True    # the one burst publish
+    assert state.should_publish() is False
+    state.on_link_lost()                     # idempotent, no-op
+    assert state.should_publish() is False

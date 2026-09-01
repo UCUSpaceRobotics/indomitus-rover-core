@@ -63,7 +63,7 @@ RoverSwerveController::on_configure(const rclcpp_lifecycle::State & /*previous_s
     for (auto & lim : limiters_) { lim.reset(0.0); }
 
     cmd_vel_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
-        "/cmd_vel",
+        "cmd_vel",
         rclcpp::SystemDefaultsQoS(),
         [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
             last_cmd_vel_time_ = get_node()->get_clock()->now();
@@ -313,9 +313,9 @@ void RoverSwerveController::declare_parameters()
         }
     };
 
-    declare_param("wheelbase",             1.20);
-    declare_param("track_width",           0.80);
-    declare_param("wheel_radius",          0.15);
+    declare_param("wheelbase",             0.797);
+    declare_param("track_width",           0.644);
+    declare_param("wheel_radius",          0.156);
     declare_param("max_steer_deg",         90.0);
     declare_param("max_steer_rate_deg",    45.0);
     declare_param("max_linear_speed",      0.50);

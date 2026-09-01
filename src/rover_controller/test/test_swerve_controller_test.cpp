@@ -301,7 +301,7 @@ protected:
         if (helper_node_) { return; }
         helper_node_ = std::make_shared<rclcpp::Node>("swerve_test_helper");
         cmd_vel_pub_ = helper_node_->create_publisher<geometry_msgs::msg::Twist>(
-            "/cmd_vel", rclcpp::SystemDefaultsQoS());
+            "cmd_vel", rclcpp::SystemDefaultsQoS());
         compact_client_ = helper_node_->create_client<std_srvs::srv::SetBool>(
             std::string("/") + kControllerName + "/set_compact_mode");
     }

@@ -22,7 +22,7 @@ def generate_launch_description():
     output_odom_topic_val = LaunchConfiguration('output_odom_topic')
     output_odom_topic_arg = DeclareLaunchArgument(
         'output_odom_topic',
-        default_value='/odom',
+        default_value='odom',
         description='Topic to which EKF node will publish filtered odometry'
     )
 
@@ -45,6 +45,39 @@ def generate_launch_description():
                 config_file,
                 {'use_sim_time': use_sim_time_val},
             ],
-            remappings=[('odometry/filtered', output_odom_topic_val)],
+            remappings=[
+                ('odometry/filtered', output_odom_topic_val),
+                # Namespacing this node must not fragment the shared TF tree -
+                # tf/tf_static stay global, matching the panel precedent in
+                # rover_sim/launch/sim_gz_full.launch.py.
+                ('tf', '/tf'),
+                ('tf_static', '/tf_static'),
+            ],
+        ),
+
+        Node(
+            package='rover_localization',
+            executable='tilt_broadcaster_node',
+            name='tilt_broadcaster_node',
+            output='screen',
+            parameters=[
+                {'imu_topic': 'zed2i/imu/data'},
+                {'parent_frame': 'base_footprint'},
+                {'child_frame': 'base_link'},
+
+                # Height of base_link above base_footprint/ground -- must match
+                # base_link_ground_height in rover_description/urdf/properties.xacro.
+                {'ground_height': 0.4597},
+
+                # Age at which the IMU stops being trusted and the tilt
+                # transform is no longer sent.
+                {'imu_timeout': 0.5},
+
+                {'use_sim_time': use_sim_time_val},
+            ],
+            remappings=[
+                ('tf', '/tf'),
+                ('tf_static', '/tf_static'),
+            ],
         ),
     ])

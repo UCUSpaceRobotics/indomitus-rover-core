@@ -28,5 +28,11 @@ def generate_launch_description():
                 'publish_frequency': LaunchConfiguration('publish_frequency'),
             }],
             arguments=["--ros-args", "--log-level", LaunchConfiguration('log_level')],
+            remappings=[
+                # tf/tf_static stay global regardless of the pushed rover
+                # namespace - see docs/software/tf_ownership.md.
+                ('tf', '/tf'),
+                ('tf_static', '/tf_static'),
+            ],
         ),
     ])

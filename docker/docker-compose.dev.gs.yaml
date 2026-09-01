@@ -1,0 +1,76 @@
+# Runs this repo's container ON THE GROUND STATION laptop, not on the rover.
+
+services:
+  rover_dev:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: dev
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-ros:humble-ros-base}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
+        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
+        INSTALL_SIM_TOOLS: "false"
+
+    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
+    pull_policy: never
+    # Same name and service as the other templates on purpose: they are
+    # alternatives, one per device, and `docker compose up` on whichever one is
+    # copied to the root simply replaces the container.
+    container_name: rover_dev
+    # A missing profile does not stop Fast DDS - it falls back to multicast,
+    # which cannot reach a rover behind the mast Pi, and every symptom then
+    # points at the network. Check it here instead, while the cause is obvious.
+    command: >
+      bash -c 'test -f "$$FASTRTPS_DEFAULT_PROFILES_FILE" || {
+      echo "error: no DDS profile at $$FASTRTPS_DEFAULT_PROFILES_FILE" >&2;
+      echo "       start the ground-station container once to generate it, or set GS_REPO" >&2;
+      exit 1; }; exec tail -f /dev/null'
+    network_mode: host
+    # The profile whitelists a host interface, so the container has to see the
+    # host's real interfaces. Host IPC puts this container and the ground
+    # station's on one /dev/shm, without which they discover each other and
+    # then exchange no data.
+    ipc: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    stdin_open: true
+    tty: true
+
+    environment:
+      # Must match the rover.
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
+      - ROS_LOCALHOST_ONLY=0
+      # The profile is Fast DDS-specific and silently ignored under Cyclone.
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      # Whitelists the mast-link interface and adds unicast discovery peers for
+      # the rover. Not a file in this repo on purpose: it names one machine's
+      # link address and is regenerated on every ground-station container start,
+      # so a copy here would rot silently. Mounted from the GS checkout below.
+      - FASTRTPS_DEFAULT_PROFILES_FILE=${FASTDDS_PROFILE:-/opt/dds/fastdds_rover_link.xml}
+      - SDL_VIDEODRIVER=dummy
+      - SDL_AUDIODRIVER=dummy
+
+    volumes:
+      # The generated Fast DDS profile lives in the ground-station checkout,
+      # which is the only thing that knows how to produce it. Point GS_REPO
+      # elsewhere if yours is not a sibling of this one.
+      - ${GS_REPO:-../indomitus-ground-station}/docker:/opt/dds:ro
+      - ./:/work:rw
+      - ./src:/opt/ws/src:rw
+      - /dev:/dev:rw
+      - /run/udev:/run/udev:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+    healthcheck:
+      # ROS_DISTRO, not TARGET_ROS_DISTRO: the latter is a build arg and is not
+      # in the container's environment, so the copied-around spelling of this
+      # check expands to /opt/ros//setup.bash and reports unhealthy forever.
+      test: ["CMD-SHELL", "bash -c 'source /opt/ros/$$ROS_DISTRO/setup.bash && ros2 pkg list > /dev/null'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

@@ -1,4 +1,4 @@
-controller_manager:
+/**/controller_manager:
   ros__parameters:
     # Keep >= 100 Hz: the Damiao comm-loss watchdog disables the motor if
     # MIT frames stop arriving; the hardware interface sends one frame per
@@ -24,7 +24,7 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-indomitus_arm_controller:
+/**/indomitus_arm_controller:
   ros__parameters:
     joints:
       - arm_mount_base_joint
@@ -76,7 +76,7 @@ indomitus_arm_controller:
       arm_wrist_1_wrist_2_joint:       { trajectory: 0.25, goal: 0.08 }
       arm_wrist_2_end_effector_joint:  { trajectory: 0.25, goal: 0.08 }
 
-indomitus_arm_forward_position_controller:
+/**/indomitus_arm_forward_position_controller:
   ros__parameters:
     joints:
       - arm_mount_base_joint
@@ -86,13 +86,13 @@ indomitus_arm_forward_position_controller:
       - arm_wrist_1_wrist_2_joint
       - arm_wrist_2_end_effector_joint
 
-gripper_right_controller:
+/**/gripper_right_controller:
   ros__parameters:
     joints:
       - arm_jaw_gripper_finger_right_joint
     interface_name: position
 
-gripper_left_controller:
+/**/gripper_left_controller:
   ros__parameters:
     joints:
       - arm_jaw_gripper_finger_left_joint

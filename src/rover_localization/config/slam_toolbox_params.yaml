@@ -1,13 +1,13 @@
 # rover_localization/config/slam_toolbox_params.yaml
 
-slam_toolbox:
+/**/slam_toolbox:
   ros__parameters:
     use_sim_time: true
 
     odom_frame: odom
     map_frame: map
     base_frame: base_footprint
-    scan_topic: /rplidar/scan_filtered
+    scan_topic: rplidar/scan_filtered
 
     mode: mapping
     solver_plugin: solver_plugins::CeresSolver

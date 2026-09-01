@@ -1,0 +1,163 @@
+/**
+ * @brief Deterministic 3D Tilt Broadcaster
+ *
+ * This node replaces a 3D EKF for calculating rover body tilt. It subscribes to
+ * the IMU orientation, dynamically removes any static mounting rotation (e.g., camera
+ * tilt) via TF, extracts the pure roll and pitch of the base, and forcefully locks
+ * yaw to exactly 0.0. It then broadcasts the base_footprint -> base_link transform,
+ * guaranteeing a perfectly flat navigation footprint without kinematic yaw drift.
+ */
+
+#include <mutex>
+
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/exceptions.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
+
+#include "rover_localization/tilt_math.hpp"
+
+class TiltBroadcasterNode : public rclcpp::Node
+{
+public:
+  TiltBroadcasterNode()
+  : Node("tilt_broadcaster_node")
+  {
+    declare_parameter("imu_topic", std::string("zed2i/imu/data"));
+    declare_parameter("parent_frame", std::string("base_footprint"));
+    declare_parameter("child_frame", std::string("base_link"));
+    // Height of base_link above base_footprint/ground -- must match
+    // base_link_ground_height in rover_description/urdf/properties.xacro.
+    declare_parameter("ground_height", 0.0);
+    declare_parameter("tf_tolerance", 0.1);
+    // Age at which the IMU stops being trusted. A frozen reading stamped at
+    // now() would look live while carrying wrong roll and pitch.
+    declare_parameter("imu_timeout", 0.5);
+
+    parent_frame_ = get_parameter("parent_frame").as_string();
+    child_frame_ = get_parameter("child_frame").as_string();
+    ground_height_ = get_parameter("ground_height").as_double();
+    tf_tolerance_ = get_parameter("tf_tolerance").as_double();
+    imu_timeout_ = get_parameter("imu_timeout").as_double();
+
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+    broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
+
+    sub_ = create_subscription<sensor_msgs::msg::Imu>(
+      get_parameter("imu_topic").as_string(), rclcpp::SensorDataQoS(),
+      std::bind(&TiltBroadcasterNode::callback, this, std::placeholders::_1));
+
+    // A steady timer, not the IMU rate, keeps the transform fresh when the
+    // IMU stutters. Consumers otherwise fail to extrapolate.
+    const double rate_hz = 50.0;
+    timer_ = rclcpp::create_timer(
+      this, get_clock(), rclcpp::Duration::from_seconds(1.0 / rate_hz),
+      std::bind(&TiltBroadcasterNode::publishTilt, this));
+  }
+
+private:
+  void callback(const sensor_msgs::msg::Imu::SharedPtr msg)
+  {
+    // The reading includes how the IMU is mounted. Read that from TF so it
+    // holds wherever the URDF puts the sensor.
+    tf2::Quaternion q_mount(0.0, 0.0, 0.0, 1.0);
+    try {
+      const geometry_msgs::msg::TransformStamped mount_tf = tf_buffer_->lookupTransform(
+        child_frame_, msg->header.frame_id, msg->header.stamp,
+        rclcpp::Duration::from_seconds(tf_tolerance_));
+      const auto & r = mount_tf.transform.rotation;
+      q_mount = tf2::Quaternion(r.x, r.y, r.z, r.w);
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "tilt_broadcaster_node: TF lookup for IMU mount (%s -> %s) failed: %s",
+        child_frame_.c_str(), msg->header.frame_id.c_str(), ex.what());
+      return;
+    }
+
+    const tf2::Quaternion q_imu_raw(
+      msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
+
+    const tf2::Quaternion q_tilt =
+      rover_localization::tilt_math::tiltFromImu(q_imu_raw, q_mount);
+
+    std::lock_guard<std::mutex> lock(tilt_mutex_);
+    q_tilt_ = q_tilt;
+    last_imu_time_ = get_clock()->now();
+    have_tilt_ = true;
+  }
+
+  void publishTilt()
+  {
+    tf2::Quaternion q_tilt;
+    double age = 0.0;
+    {
+      std::lock_guard<std::mutex> lock(tilt_mutex_);
+      if (!have_tilt_) {return;}  // nothing to publish until the first IMU msg
+      q_tilt = q_tilt_;
+      age = (get_clock()->now() - last_imu_time_).seconds();
+    }
+
+    // Holding the transform makes lookups fail loudly, instead of everyone
+    // trusting a frozen tilt.
+    if (rover_localization::tilt_math::isStale(age, imu_timeout_)) {
+      if (!imu_stale_) {
+        imu_stale_ = true;
+        RCLCPP_ERROR(
+          get_logger(),
+          "tilt_broadcaster_node: IMU stale (%.2f s > %.2f s) -- stopped publishing %s -> %s.",
+          age, imu_timeout_, parent_frame_.c_str(), child_frame_.c_str());
+      }
+      return;
+    }
+    if (imu_stale_) {
+      imu_stale_ = false;
+      RCLCPP_INFO(get_logger(), "tilt_broadcaster_node: IMU restored, resuming broadcast.");
+    }
+
+    geometry_msgs::msg::TransformStamped tf_msg;
+    // Tilt changes slowly, so stamping the latest reading at now() is fine
+    // and keeps the transform usable.
+    tf_msg.header.stamp = get_clock()->now();
+    tf_msg.header.frame_id = parent_frame_;
+    tf_msg.child_frame_id = child_frame_;
+    tf_msg.transform.translation.x = 0.0;
+    tf_msg.transform.translation.y = 0.0;
+    tf_msg.transform.translation.z = ground_height_;
+    tf_msg.transform.rotation.x = q_tilt.x();
+    tf_msg.transform.rotation.y = q_tilt.y();
+    tf_msg.transform.rotation.z = q_tilt.z();
+    tf_msg.transform.rotation.w = q_tilt.w();
+
+    broadcaster_->sendTransform(tf_msg);
+  }
+
+  std::string parent_frame_, child_frame_;
+  double ground_height_;
+  double tf_tolerance_;
+  double imu_timeout_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_;
+  std::shared_ptr<tf2_ros::TransformBroadcaster> broadcaster_;
+  rclcpp::TimerBase::SharedPtr timer_;
+  std::mutex tilt_mutex_;
+  tf2::Quaternion q_tilt_{0.0, 0.0, 0.0, 1.0};
+  rclcpp::Time last_imu_time_;
+  bool have_tilt_ = false;
+  bool imu_stale_ = false;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<TiltBroadcasterNode>());
+  rclcpp::shutdown();
+  return 0;
+}

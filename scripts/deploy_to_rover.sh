@@ -18,15 +18,15 @@ JETSON_USER="indomitus-rover"
 JETSON_HOTSPOT_IP="10.42.0.1"
 JETSON_ETHERNET_IP="indomitus-rover-computer.local"
 JETSON_IP="${JETSON_HOTSPOT_IP}"
-REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
+REMOTE_DIR=""
 IMAGE_NAME="ghcr.io/ucuspacerobotics/indomitus-rover-core"
 IMAGE_TAG=""
 IMAGE_COMMIT=""
 CONTAINER_NAME="rover_prod"
 DOCKERFILE="docker/Dockerfile"
 COMPOSE_FILE="docker/docker-compose.prod.yaml"
-WIFI_SSID="IndomitusRover"
-WIFI_PASS="12345678"
+WIFI_SSID="ERC_UCUSpaceRobotics_A"
+WIFI_PASS="19283746"
 
 # ACTION MODES
 REMOTE_BUILD_MODE=false
@@ -57,7 +57,7 @@ Options:
     --eth                       Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
     --ip IP                     Jetson IP address (Default: ${JETSON_IP})
     --user USER                 Jetson SSH username (Default: ${JETSON_USER})
-    --dir DIR                   Remote deployment directory on the Jetson. (Default: ${REMOTE_DIR})
+    --dir DIR                   Remote deployment directory on the Jetson. (Default: /home/\${JETSON_USER}/indomitus-rover-core/)
     --image-name NAME           Docker image name (Default: ${IMAGE_NAME})
     --tag TAG                   Docker image tag (e.g., develop-prod, feature-branch-prod).
     --commit SHA                Git commit SHA (7+ hex chars) to pull. Overrides --tag in pull mode.
@@ -112,6 +112,8 @@ while [[ "$#" -gt 0 ]]; do
         *) error "Unknown command or option: $1\nRun '$0 --help' for usage." ;;
     esac
 done
+
+REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core/}"
 
 
 # ==========================================
@@ -181,7 +183,7 @@ CLEANUP_FILES+=("${ARCHIVE_NAME}")
 connect_to_jetson() {
     step "Verifying Jetson Connection..."
     ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
-    wait_for_ssh "$TARGET" 30
+    wait_for_ssh "$TARGET" 30 "$USE_ETH"
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "mkdir -p -- \"${REMOTE_DIR}\""
 }
 
@@ -337,7 +339,6 @@ run_pull_mode() {
     resolve_pull_target
 
     step "Pulling ${IMAGE_NAME}:${PULL_IMAGE_TAG} (linux/arm64) from GHCR..."
-    docker rmi -f "${IMAGE_NAME}:${PULL_IMAGE_TAG}" >/dev/null 2>&1 || true
 
     local PYTHON_SCRIPT="
 import sys, json
@@ -359,8 +360,17 @@ Make sure a CI run completed successfully for this tag."
     ARM64_DIGEST=$(echo "$MANIFEST_JSON" | python3 -c "$PYTHON_SCRIPT" 2>/dev/null)
     [ -z "$ARM64_DIGEST" ] && error "Image '${IMAGE_NAME}:${PULL_IMAGE_TAG}' exists in GHCR but has no linux/arm64 manifest."
 
+    local OLD_IMAGE_ID
+    OLD_IMAGE_ID=$(docker images -q "${IMAGE_NAME}:${PULL_IMAGE_TAG}" 2>/dev/null)
+
     docker pull "${IMAGE_NAME}@${ARM64_DIGEST}" || error "Docker pull failed."
     docker tag "${IMAGE_NAME}@${ARM64_DIGEST}" "${IMAGE_NAME}:${PULL_IMAGE_TAG}"
+
+    local NEW_IMAGE_ID
+    NEW_IMAGE_ID=$(docker images -q "${IMAGE_NAME}:${PULL_IMAGE_TAG}" 2>/dev/null)
+    if [ -n "$OLD_IMAGE_ID" ] && [ "$OLD_IMAGE_ID" != "$NEW_IMAGE_ID" ]; then
+        docker rmi -f "$OLD_IMAGE_ID" >/dev/null 2>&1 || true
+    fi
 
     if [ -z "$PULL_GIT_REF" ]; then
         step "Extracting Git Commit SHA from Docker image metadata..."

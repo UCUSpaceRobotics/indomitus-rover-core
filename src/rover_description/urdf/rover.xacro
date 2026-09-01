@@ -5,12 +5,22 @@
   <xacro:arg name="use_sim" default="false"/>
   <xacro:arg name="can_interface" default="can0"/>
   <xacro:arg name="controllers_yaml_path" default=""/>
-  
+  <!-- gz_ros2_control-system is loaded by Gazebo itself (via this plugin
+       tag), not by `ros2 launch` - it never sees a launch-file
+       PushRosNamespace, so its own controller_manager node's namespace has
+       to be set explicitly here to match wherever the rest of the rover
+       (robot_state_publisher in particular, whose parameter service it
+       depends on) is namespaced. -->
+  <xacro:arg name="rover_namespace" default="rover"/>
+
   <!-- Sensor Simulation Arguments -->
   <xacro:arg name="lidar_simulate_scan" default="false"/>
   <xacro:arg name="stereo_camera_simulate_rgb" default="false"/>
   <xacro:arg name="stereo_camera_simulate_depth" default="false"/>
-  <xacro:arg name="stereo_camera_simulate_imu" default="false"/>
+  <xacro:arg name="stereo_camera_simulate_imu" default="true"/>
+
+  <!-- mount_arm:=true bolts the indomitus_arm onto main_body_link.-->
+  <xacro:arg name="mount_arm" default="false"/>
 
   <!-- Main robot description -->
   <xacro:include filename="$(find rover_description)/urdf/rover.urdf.xacro"/>
@@ -24,6 +34,9 @@
       <plugin filename="gz_ros2_control-system"
               name="gz_ros2_control::GazeboSimROS2ControlPlugin">
         <parameters>$(arg controllers_yaml_path)</parameters>
+        <ros>
+          <namespace>$(arg rover_namespace)</namespace>
+        </ros>
       </plugin>
     </gazebo>
 

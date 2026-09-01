@@ -175,9 +175,9 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
 
     // ── Status / diagnostics publishers ───────────────────────────────────────
     chassis_status_pub_ = node->create_publisher<indomitus_interfaces::msg::ChassisStatus>(
-        "/chassis/motor_states", 10);
+        "chassis/motor_states", 10);
     diagnostics_pub_ = node->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-        "/diagnostics", 10);
+        "diagnostics", 10);
 
     // Transient-local so a logger or operator GUI that starts late — or
     // reconnects after a comms drop — immediately receives recent fault
@@ -187,7 +187,7 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
         rclcpp::QoS qos(rclcpp::KeepLast(20));
         qos.reliable().transient_local();
         fault_event_pub_ =
-            node->create_publisher<indomitus_interfaces::msg::FaultEvent>("/fault_events", qos);
+            node->create_publisher<indomitus_interfaces::msg::FaultEvent>("fault_events", qos);
     }
 
     // ── Services ───────────────────────────────────────────────────────────────

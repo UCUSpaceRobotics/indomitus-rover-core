@@ -1,7 +1,7 @@
 from launch import LaunchDescription
-from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node, PushRosNamespace
+from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from ament_index_python.packages import get_package_share_directory
 import os
 import yaml
@@ -33,28 +33,36 @@ def generate_launch_description():
     )
 
     camera_topic = LaunchConfiguration("camera_topic")
-    
+    namespace_val = LaunchConfiguration("rover_namespace")
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "rover_namespace",
+            default_value=EnvironmentVariable("ROVER_NAMESPACE", default_value="rover"),
+            description="ROS namespace all rover nodes/topics are pushed under (arm excluded).",
+        ),
         DeclareLaunchArgument(
             "camera_topic",
             description="Camera image topic used by the ArUco tracker",
             default_value=get_parameter_from_yaml(
-                aruco_params, 
-                "aruco_tracker", 
+                aruco_params,
+                "aruco_tracker",
                 "cam_base_topic"
             ),
         ),
-        Node(
-            package="aruco_opencv",
-            executable="aruco_tracker_autostart",
-            name="aruco_tracker",
-            output="screen",
-            parameters=[
-                aruco_params,
-                {
-                    "cam_base_topic": camera_topic,
-                },
-            ],
-        ),
+        GroupAction([
+            PushRosNamespace(namespace_val),
+            Node(
+                package="aruco_opencv",
+                executable="aruco_tracker_autostart",
+                name="aruco_tracker",
+                output="screen",
+                parameters=[
+                    aruco_params,
+                    {
+                        "cam_base_topic": camera_topic,
+                    },
+                ],
+            ),
+        ]),
     ])

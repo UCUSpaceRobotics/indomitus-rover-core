@@ -32,7 +32,7 @@ which link it's using.
 - **Subnet:** `10.42.0.0/24`
 - **Jetson:** `10.42.0.1` — static, runs the AP itself (`hostapd`)
 - **Laptop / any client:** DHCP-assigned, `10.42.0.50`–`10.42.0.150`
-- SSID `IndomitusRover`, 5 GHz only
+- SSID `ERC_UCUSpaceRobotics_A`, 5 GHz only
 - `ssh indomitus-rover@10.42.0.1`
 
 ## 2. Laptop ↔ Jetson, direct ethernet (ETH0)

@@ -11,17 +11,17 @@ moveit_servo:
 
     planning_frame: arm_mount_link
 
-    cartesian_command_in_topic: /servo_node/delta_twist_cmds
+    cartesian_command_in_topic: servo_node/delta_twist_cmds
 
-    joint_command_in_topic: /servo_node/delta_joint_cmds
+    joint_command_in_topic: servo_node/delta_joint_cmds
 
-    joint_topic: /joint_states
+    joint_topic: joint_states
 
-    status_topic: /servo_node/status
+    status_topic: servo_node/status
 
     # Stream joint position setpoints (not short JointTrajectory goals).
     # Avoids JTC preempt/restart every publish_period — the main teleop jerk source.
-    command_out_topic: /indomitus_arm_forward_position_controller/commands
+    command_out_topic: indomitus_arm_forward_position_controller/commands
 
     # speed_units: this multiplies the teleop twist. 0.2 made W's per-cycle
     # joint step (~0.0006 rad) sit on the MIT position deadband (0.0005 rad),
@@ -39,9 +39,13 @@ moveit_servo:
 
     command_in_type: speed_units
     command_out_type: std_msgs/Float64MultiArray
-    # Step per cycle ≈ joint_vel * publish_period. 33 Hz keeps ~0.02 rad/cycle
-    # at 0.7 rad/s so +X (W) still overcomes MIT stiction.
-    publish_period: 0.03
+    # Step per cycle ≈ joint_vel * publish_period. Lower rate -> bigger step
+    # per cycle -> more MIT position error -> more static torque authority
+    # (see arm_hardware_interface's write(): it always sends one CAN frame
+    # per controller_manager cycle regardless of this rate, so lowering it
+    # does NOT affect the Damiao comm-loss watchdog — that's tied to
+    # update_rate in ros2_controllers.yaml instead, left untouched).
+    publish_period: 0.01
 
     publish_joint_positions: true
     # Float64MultiArray streaming is position-only (JointGroupPositionController).
@@ -53,14 +57,21 @@ moveit_servo:
     halt_all_joints_in_joint_mode: true
     halt_all_joints_in_cartesian_mode: true
 
-    # Must be false at process start. ros2 param set does not stop Servo's
-    # collision thread. From home, that thread zeros +X (W) after ~80 ms
-    # while -X (S) still moves. Plan/Execute in move_group still checks
-    # collisions. Rebuild + restart demo for this to take effect.
-    check_collisions: false
+    # check_collisions is a start-time-only param — `ros2 param set` will NOT
+    # toggle a running servo_node, a rebuild + fresh arm_bringup/arm.launch.py
+    # restart is required to apply any change here.
+    check_collisions: true
     collision_check_rate: 10.0
-    self_collision_proximity_threshold: 0.01
-    scene_collision_proximity_threshold: 0.02
+    # Deceleration ramps from full speed at this distance down to 0 exactly
+    # AT contact (distance=0) — that floor is inherent to how Servo scales
+    # velocity, not something this threshold controls, so literal 0.0 here
+    # wouldn't "catch collisions at 0 instead of 3mm": it would just delete
+    # the ramp itself, going from full speed to a dead stop with no warning
+    # in the ~100ms between collision_check_rate ticks. Set to the smallest
+    # value that keeps a real ramp: 0.001 (1mm). Watch
+    # /servo_node/collision_velocity_scale live to retune (1.0 = full speed).
+    self_collision_proximity_threshold: 0.001
+    scene_collision_proximity_threshold: 0.001
 
     # Home wrist is near 0; default 17/30 scaled +X to a halt. Same idea as
     # NHWA SpaceMouse teleop: do not decelerate for Jacobian condition number.
@@ -71,4 +82,4 @@ moveit_servo:
     joint_limit_margin: 0.1
 
     is_primary_planning_scene_monitor: false
-    monitored_planning_scene_topic: /monitored_planning_scene
+    monitored_planning_scene_topic: monitored_planning_scene

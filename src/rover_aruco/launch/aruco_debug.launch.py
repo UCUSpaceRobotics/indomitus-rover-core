@@ -1,7 +1,7 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
+from launch_ros.actions import Node, PushRosNamespace
 from ament_index_python.packages import get_package_share_directory
 import os
 import yaml
@@ -55,6 +55,7 @@ def generate_launch_description():
     )
 
     camera_topic = LaunchConfiguration("camera_topic")
+    namespace_val = LaunchConfiguration("rover_namespace")
 
     usb_cam_node = Node(
         package="usb_cam",
@@ -86,6 +87,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
+            "rover_namespace",
+            default_value=EnvironmentVariable("ROVER_NAMESPACE", default_value="rover"),
+            description="ROS namespace all rover nodes/topics are pushed under (arm excluded).",
+        ),
+        DeclareLaunchArgument(
             "video_device",
             description="Webcam device used by usb_cam_node",
             default_value=default_video_device
@@ -99,6 +105,9 @@ def generate_launch_description():
                 "cam_base_topic"
             ),
         ),
-        usb_cam_node,
-        aruco_node,
+        GroupAction([
+            PushRosNamespace(namespace_val),
+            usb_cam_node,
+            aruco_node,
+        ]),
     ])

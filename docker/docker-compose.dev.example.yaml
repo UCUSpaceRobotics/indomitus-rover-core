@@ -6,13 +6,13 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
       args:
-        BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-stereolabs/zed:5.4-devel-cuda12.8-ubuntu22.04}
-        BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04}
+        BASE_IMAGE: ${BASE_IMAGE:-ros:humble-ros-base}
         UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
         INSTALL_SIM_TOOLS: "false"
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
+    pull_policy: never
     container_name: rover_dev
     command: tail -f /dev/null # command: autolaunch
     network_mode: host
@@ -36,6 +36,7 @@ services:
       - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
       - ROS_LOCALHOST_ONLY=0
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
       - SDL_VIDEODRIVER=dummy
       - SDL_AUDIODRIVER=dummy
     volumes:
@@ -44,12 +45,14 @@ services:
       - /dev:/dev:rw
       - /run/udev:/run/udev:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
-      - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      # - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
+      # - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
+
+    # Uncomment block below if you have NVIDIA GPU and you want it to be available in the container (e.g. for simulation/visualization).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]

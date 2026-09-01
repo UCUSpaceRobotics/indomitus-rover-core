@@ -1,13 +1,81 @@
 # rover_sensors/config/scan_filter.yaml
 
+# TODO: VERIFY ALL VALUES (ANGLES AND DISTANCES) WHEN THE PHYSICAL ROVER IS FULLY ASSEMBLED AND LIDAR IS MOUNTED
 /**/laser_filter_node:
   ros__parameters:
+
+    # This filter filters out inadequate values and points over the rover itself
     filter1:
       name: range_filter
       type: laser_filters/LaserScanRangeFilter
       params:
         use_message_range_limits: false
-        lower_threshold: 0.45
+        lower_threshold: 0.25
         upper_threshold: 18.0
         lower_replacement_value: .nan
         upper_replacement_value: .nan
+
+    # This is a temporary filter until a new mounting for the Stereo Camera is developed
+    # This filter filters out Stereo Camera and its mounting
+    # Filtered out points are replaced with range_max + 1.0 (NaN replacement is not available for this filter)
+    filter2:
+      name: self_filter_stereo_camera
+      type: laser_filters/LaserScanSectorFilter
+      params:
+        angle_min: -0.262   # ~-15 deg
+        angle_max: 0.262    # ~15 deg
+        range_min: 0.3
+        range_max: 0.5
+        clear_inside: true
+        invert: false
+
+    # This filter filters out left tower light
+    # Filtered out points are replaced with range_max + 1.0 (NaN replacement is not available for this filter)
+    filter3:
+      name: self_filter_towerlight_left
+      type: laser_filters/LaserScanSectorFilter
+      params:
+        angle_min: 2.199   # ~126 deg
+        angle_max: 2.583   # ~148 deg
+        range_min: 0.20
+        range_max: 0.35
+        clear_inside: true
+        invert: false
+
+    # This filter filters out right tower light
+    # Filtered out points are replaced with range_max + 1.0 (NaN replacement is not available for this filter)
+    filter4:
+      name: self_filter_towerlight_right
+      type: laser_filters/LaserScanSectorFilter
+      params:
+        angle_min: -2.583  # ~-148 deg
+        angle_max: -2.199  # ~-126 deg
+        range_min: 0.20
+        range_max: 0.35
+        clear_inside: true
+        invert: false
+
+    # This filter filters out rear mast
+    # Filtered out points are replaced with range_max + 1.0 (NaN replacement is not available for this filter)
+    filter5:
+      name: self_filter_rear_mast
+      type: laser_filters/LaserScanSectorFilter
+      params:
+        angle_min: 2.932  # ~168 deg
+        angle_max: -2.932  # ~-168 deg
+        range_min: 0.15
+        range_max: 0.30
+        clear_inside: true
+        invert: false
+
+    # Temporarily disabled until real tests are conducted
+    # This filter filters out lidar noise
+    # Filtered out points are replaced with NaN (default behaviour of the filter)
+    # filter6:
+    #   name: speckle_filter
+    #   type: laser_filters/LaserScanSpeckleFilter
+    #   params:
+    #     filter_type: 1   # 0 = Distance, 1 = RadiusOutlier
+    #     max_range: 18.0
+    #     max_range_difference: 0.1
+    #     filter_window: 2

@@ -82,9 +82,14 @@ ensure_wifi_connection() {
 wait_for_ssh() {
   local target="$1"
   local max_retries="${2:-30}" # Defaults to 30 retries if not provided
+  local use_eth="${3:-false}"
   local retry_count=0
 
-  echo -n "Waiting for SSH to ${target} (connect to Wi-Fi manually if needed)... "
+  if [ "$use_eth" = "true" ]; then
+    echo -n "Waiting for SSH to ${target} over Ethernet... "
+  else
+    echo -n "Waiting for SSH to ${target} (connect to Wi-Fi manually if needed)... "
+  fi
 
   # Loop until SSH succeeds or we hit the retry limit
   while ! ssh -q -o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=accept-new "${target}" "echo ok" > /dev/null 2>&1; do

@@ -24,11 +24,14 @@ in test/test_link_state.py:
     if both ends talk at once the frames collide and both are lost. The mast
     polls; this answers, immediately, inside the same read that consumed the
     poll. Nothing here is on a timer.
-  * It publishes zero and keeps publishing zero when the polls stop. Failing to
-    stopped, never to last-known-good, and it starts in that state rather than
-    waiting for a first timeout. A serial error zeroes the command immediately
-    rather than waiting out failsafe_timeout: the port is known dead at that
-    point, and the timeout only exists for the case where it is not.
+  * It publishes zero - a burst of zero_burst publishes, then goes quiet -
+    when the polls stop. Failing to stopped, never to last-known-good, and it
+    starts in that state rather than waiting for a first timeout. A serial
+    error zeroes the command immediately rather than waiting out
+    failsafe_timeout: the port is known dead at that point, and the timeout
+    only exists for the case where it is not. Going quiet after the burst is
+    safe, not a compromise: LoRa is twist_mux's lowest-priority input, so
+    there is nothing beneath it for the topic to protect by staying open.
   * It clamps what it drives, at this end, to limit_linear/limit_angular. The
     crawl-home cap is enforced by the machine with the motors, not asked for
     politely of whoever is transmitting.
@@ -111,6 +114,10 @@ class LoraRoverNode(Node):
         self.declare_parameter("limit_linear", 0.3)
         self.declare_parameter("limit_angular", 0.6)
         self.declare_parameter("publish_rate_hz", 10.0)
+        # Publishes of cmd_vel_lora on the way into failsafe before this goes
+        # quiet - see LinkState's docstring. Matches JoyWatchdog's
+        # timeout_zero_burst default.
+        self.declare_parameter("zero_burst", 3)
 
         self.port_name = self.get_parameter("port").value
         self.baud = int(self.get_parameter("baud").value)
@@ -133,6 +140,7 @@ class LoraRoverNode(Node):
             max_angular=float(self.get_parameter("max_angular").value),
             limit_linear=float(self.get_parameter("limit_linear").value),
             limit_angular=float(self.get_parameter("limit_angular").value),
+            zero_burst=int(self.get_parameter("zero_burst").value),
         )
 
         self.pub_cmd = self.create_publisher(Twist, "cmd_vel_lora", 10)
@@ -259,14 +267,17 @@ class LoraRoverNode(Node):
             self.get_logger().warn(
                 f"no valid teleop frame for {age:.1f}s - command zeroed")
 
-        twist = Twist()
-        # Zero while failsafed, and a failsafed node keeps publishing them
-        # rather than going silent. Once twist_mux has this input selected,
-        # going quiet would let it fall through to a lower priority instead of
-        # commanding a stop.
-        twist.linear.x, twist.linear.y, twist.angular.z = \
-            self.state.twist_components()
-        self.pub_cmd.publish(twist)
+        # Zero while failsafed, and only a short burst of those - then quiet.
+        # See LinkState's docstring for why: LoRa is twist_mux's lowest
+        # priority, so there is nothing to protect by holding the topic open,
+        # and a permanently-fresh zero reads to anything watching twist_mux's
+        # inputs (drive_source_lamp_node) as "someone is driving" when nobody
+        # is.
+        if self.state.should_publish():
+            twist = Twist()
+            twist.linear.x, twist.linear.y, twist.angular.z = \
+                self.state.twist_components()
+            self.pub_cmd.publish(twist)
 
         self.pub_state.publish(
             String(data="FAILSAFE" if self.state.failsafe else "LINKED"))

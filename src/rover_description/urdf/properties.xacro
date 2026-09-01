@@ -6,8 +6,8 @@
   <xacro:property name="M_PI_2" value="${pi / 2.0}"/>
 
   <!-- ===================== CHASSIS LAYOUT ===================== -->
-  <xacro:property name="wheelbase" value="0.842"/>     <!-- front-to-rear axle distance -->
-  <xacro:property name="track_width" value="0.682"/>   <!-- left-to-right rocker pivot distance -->
+  <xacro:property name="wheelbase" value="0.797"/>     <!-- front-to-rear axle distance -->
+  <xacro:property name="track_width" value="0.644"/>   <!-- left-to-right rocker pivot distance -->
 
   <!-- ===================== MAIN BODY ===================== -->
   <xacro:property name="body_length" value="0.603"/>   <!-- X -->
@@ -54,12 +54,23 @@
 
   <!-- ===================== WHEEL ===================== -->
   <!-- Geometry -->
-  <xacro:property name="wheel_radius" value="0.16"/>
+  <xacro:property name="wheel_radius" value="0.156"/>
   <xacro:property name="wheel_width" value="0.12"/>
   <xacro:property name="wheel_mass" value="0.5"/>
 
   <!-- Mesh alignment: centers wheel.stl on the wheel link's own origin -->
   <xacro:property name="wheel_hub_offset" value="0.151"/>
+
+  <!-- ===================== BASE GROUND CLEARANCE ===================== -->
+  <!-- Height of base_link above ground level (base_footprint), derived from the
+       suspension/wheel stack-up at the nominal rest pose (rocker angle = 0,
+       steering angle = 0): rocker pivot -> wheel-mount hub (-rocker_hub_z),
+       wheel-mount hub -> axle (wheel_mount_drop), axle -> ground (wheel_radius).
+       Not consumed anywhere in this xacro tree; it's the source of truth for
+       the `ground_height` parameter passed to tilt_broadcaster_node in
+       rover_localization/launch/ekf.launch.py; update that parameter to match
+       if this value changes. -->
+  <xacro:property name="base_link_ground_height" value="${wheel_radius - rocker_hub_z + wheel_mount_drop}"/>
 
   <!-- ===================== JOINT LIMITS ===================== -->
   <xacro:property name="steering_limit" value="${3.0 * pi / 2.0}"/>  <!-- +/-270 deg -->

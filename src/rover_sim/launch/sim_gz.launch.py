@@ -7,6 +7,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     OpaqueFunction,
     AppendEnvironmentVariable,
     IncludeLaunchDescription,
@@ -16,12 +17,13 @@ from launch.actions import (
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
+    EnvironmentVariable,
     LaunchConfiguration,
     PathJoinSubstitution,
     IfElseSubstitution,
     NotEqualsSubstitution,
 )
-from launch_ros.actions import Node
+from launch_ros.actions import Node, PushRosNamespace
 from rover_bringup.launch_utils import include_launch
 
 BASE_CONTROLLERS = [
@@ -153,7 +155,11 @@ def generate_bridge_and_rsp(context, rover_sim_share: str, rover_description_sha
         output="screen",
     )
 
-    xacro_args = f"use_sim:=true controllers_yaml_path:={controllers_yaml_path} {extra_xacro_args}"
+    rover_namespace = LaunchConfiguration("rover_namespace").perform(context)
+    xacro_args = (
+        f"use_sim:=true controllers_yaml_path:={controllers_yaml_path} "
+        f"rover_namespace:={rover_namespace} {extra_xacro_args}"
+    )
 
     rsp_launch = include_launch("rover_description", "robot_state_publisher.launch.py", {
         "xacro_file": os.path.join(rover_description_share, "urdf", "rover.xacro"),
@@ -345,6 +351,11 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("spawn_x", default_value=f"{DEFAULT_SPAWN_X}", description="Initial X coordinate (in meters)."),
         DeclareLaunchArgument("spawn_y", default_value=f"{DEFAULT_SPAWN_Y}", description="Initial Y coordinate (in meters)."),
         DeclareLaunchArgument("spawn_z", default_value=f"{DEFAULT_SPAWN_Z}", description="Initial Z coordinate (in meters)."),
+        DeclareLaunchArgument(
+            "rover_namespace",
+            default_value=EnvironmentVariable("ROVER_NAMESPACE", default_value="rover"),
+            description="ROS namespace all rover nodes/topics are pushed under (arm excluded).",
+        ),
 
         # 1. Support modern Gazebo (Harmonic/Ionic)
         AppendEnvironmentVariable(
@@ -371,34 +382,50 @@ def generate_launch_description() -> LaunchDescription:
 
         make_gazebo_launch(rover_sim_share, world_name_sub),
 
-        OpaqueFunction(
-            function=generate_bridge_and_rsp,
-            kwargs={
-                "rover_sim_share": rover_sim_share,
-                "rover_description_share": rover_description_share,
-                "controllers_yaml_path": controllers_yaml_path,
-                "launch_tmp_dir": LAUNCH_TMP_DIR,
-                "world_name_sub": world_name_sub,
-                "model_name_sub": model_name_sub,
-                "extra_xacro_args_sub": extra_xacro_args_sub
-            }
-        ),
+        GroupAction([
+            PushRosNamespace(LaunchConfiguration("rover_namespace")),
 
-        TimerAction(
-            period=LaunchConfiguration("spawn_delay"),
-            actions=[make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub)]
-        ),
+            OpaqueFunction(
+                function=generate_bridge_and_rsp,
+                kwargs={
+                    "rover_sim_share": rover_sim_share,
+                    "rover_description_share": rover_description_share,
+                    "controllers_yaml_path": controllers_yaml_path,
+                    "launch_tmp_dir": LAUNCH_TMP_DIR,
+                    "world_name_sub": world_name_sub,
+                    "model_name_sub": model_name_sub,
+                    "extra_xacro_args_sub": extra_xacro_args_sub
+                }
+            ),
 
-        include_launch("rover_localization", "ekf.launch.py", {
-            "use_sim_time": "true",
-        }),
+            # A GroupAction's pushed namespace is popped as soon as its own
+            # action list has been visited - since TimerAction only visits
+            # its own actions later, once the timer actually fires, the push
+            # above is long gone by then unless it's re-applied here too.
+            TimerAction(
+                period=LaunchConfiguration("spawn_delay"),
+                actions=[GroupAction([
+                    PushRosNamespace(LaunchConfiguration("rover_namespace")),
+                    make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub),
+                ])]
+            ),
 
-        OpaqueFunction(function=make_control_launch,
-                       kwargs={"controllers_yaml_path": controllers_yaml_path}),
+            include_launch("rover_localization", "ekf.launch.py", {
+                "use_sim_time": "true",
+            }),
 
-        include_launch("rover_bringup", "twist_mux.launch.py", {
-            "use_sim_time": "true",
-        }),
+            OpaqueFunction(function=make_control_launch,
+                           kwargs={"controllers_yaml_path": controllers_yaml_path}),
+
+            include_launch("rover_bringup", "twist_mux.launch.py", {
+                "use_sim_time": "true",
+            }),
+
+            include_launch("rover_teleop", "drive_power.launch.py", {
+                "use_sim_time": "true",
+                "controller_name": LaunchConfiguration("swerve_controller"),
+            }),
+        ]),
 
         # Trigger folder cleanup safely upon launch termination
         cleanup_handler,

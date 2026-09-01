@@ -42,5 +42,9 @@ def generate_launch_description():
             name="slam_toolbox",
             output="screen",
             parameters=[config_file, {"use_sim_time": use_sim_time_val}],
+            remappings=[
+                ("tf", "/tf"),
+                ("tf_static", "/tf_static"),
+            ],
         ),
     ])

@@ -211,10 +211,10 @@ void RoverOdometryController::declare_parameters()
         catch (const std::exception &) { /* already declared */ }
     };
 
-    decl("wheelbase", 0.842);
-    decl("track_width", 0.682);
-    decl("wheel_radius", 0.16);
-    decl("odom_topic", std::string("/wheels/odom"));
+    decl("wheelbase", 0.797);
+    decl("track_width", 0.644);
+    decl("wheel_radius", 0.156);
+    decl("odom_topic", std::string("wheels/odom"));
 
     decl("steer_joint_names",
         std::vector<std::string>{

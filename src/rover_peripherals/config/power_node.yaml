@@ -1,4 +1,4 @@
-power_node:
+/**/power_node:
   ros__parameters:
     topic_prefix: "power_monitor"
 

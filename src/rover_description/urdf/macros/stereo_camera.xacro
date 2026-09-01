@@ -81,6 +81,11 @@
           <update_rate>100.0</update_rate>
           <topic>/zed2i/imu/data</topic>
           <gz_frame_id>zed2i_left_camera_frame</gz_frame_id>
+          <imu>
+            <orientation_reference_frame>
+              <localization>ENU</localization>
+            </orientation_reference_frame>
+          </imu>
         </sensor>
       </gazebo>
     </xacro:if>

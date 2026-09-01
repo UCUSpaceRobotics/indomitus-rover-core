@@ -41,18 +41,19 @@ arm_gazebo.launch.py + config/gz_bridge.yaml) -- aruco_tracker,
 panel_pose_fuser_node, and everything else downstream in the CV pipeline
 need no changes to run against this real driver instead of the sim one.
 
-No camera_info_url is set by default (empty = uncalibrated, all-zero
-distortion/intrinsics) -- fine for initial bringup/eyeballing the image,
-but NOT for anything that trusts the camera's pose output: ArUco/panel
-pose estimation needs real intrinsics, and uncalibrated (all-zero
-distortion) numbers will silently produce wrong poses, not an obvious
-error. Run a real checkerboard calibration (ros2 run camera_calibration
-cameracalibrator) once the camera is mounted on the arm AT THE
-RESOLUTION THAT WILL ACTUALLY BE USED IN PRODUCTION, then pass the
-resulting yaml's file:// URI via the camera_info_url launch argument.
-Not done as part of this package (yet) on purpose -- calibration only
-means something done in the camera's final mounted position, and that
-hasn't happened.
+camera_info_url defaults to this package's own checked-in calibration
+(config/ov5693_usb.yaml, done with the wrist camera mounted on the arm)
+-- if a DIFFERENT physical camera unit or mounting
+ever replaces this one, that calibration is no longer valid and needs
+redoing: run a real checkerboard calibration (ros2 run camera_calibration
+cameracalibrator) with the camera mounted on the arm AT THE RESOLUTION
+THAT WILL ACTUALLY BE USED IN PRODUCTION, then either overwrite that
+file or pass a different yaml's file:// URI via the camera_info_url
+launch argument. Pass camera_info_url:="" to go back to uncalibrated
+(all-zero distortion/intrinsics) for quick bringup/eyeballing the image
+-- NOT fine for anything that trusts the camera's pose output: ArUco/
+panel pose estimation needs real intrinsics, and uncalibrated numbers
+will silently produce wrong poses, not an obvious error.
 
 USB backend has a `disable_autofocus` argument to disable continuous
 autofocus and pin a fixed `focus_absolute` instead (confirmed live:
@@ -79,9 +80,10 @@ not V4L2 controls.
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessExit
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.event_handlers import OnProcessExit, OnProcessStart
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -104,8 +106,8 @@ def generate_launch_description() -> LaunchDescription:
     should_fix_focus = PythonExpression([is_usb, " and '", disable_autofocus, "' == 'true'"])
 
     # V4L2 controls are independent of whatever has the device open for
-    # streaming -- confirmed live, this applies fine whether gscam has
-    # already started or not, so no ordering dependency on camera_usb.
+    # streaming -- triggered off camera_usb's OnProcessStart below, so
+    # this also re-runs on every respawn, not just the first start.
     # Must be two SEPARATE v4l2-ctl invocations, not one call with both
     # -c flags: confirmed live that setting focus_automatic_continuous=0
     # and focus_absolute=N in the same ioctl batch fails ("Permission
@@ -185,6 +187,17 @@ def generate_launch_description() -> LaunchDescription:
             "use_gst_timestamps": False,
         }],
         condition=IfCondition(is_usb),
+        respawn=True,       # same as rplidar_s2/joy/gamepad: restarts on a
+        respawn_delay=5.0,  # dropped USB cam or a gstreamer pipeline crash.
+    )
+    # A USB re-enumeration (the case respawn is for) can reset focus/
+    # brightness to camera defaults -- re-run the fix on every restart,
+    # not just the first, to cover that.
+    refix_camera_settings_on_respawn = RegisterEventHandler(
+        OnProcessStart(
+            target_action=camera_usb,
+            on_start=[disable_autofocus_process, fix_brightness],
+        )
     )
 
     camera_csi = Node(
@@ -199,6 +212,8 @@ def generate_launch_description() -> LaunchDescription:
             "use_gst_timestamps": False,
         }],
         condition=IfCondition(is_csi),
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     unknown_backend_guard = Node(
@@ -240,7 +255,17 @@ def generate_launch_description() -> LaunchDescription:
                         "Jetson hardware."),
         DeclareLaunchArgument("csi_height", default_value="720"),
         DeclareLaunchArgument("frame_id", default_value="arm_camera_optical_frame"),
-        DeclareLaunchArgument("camera_info_url", default_value=""),
+        DeclareLaunchArgument(
+            "camera_info_url",
+            # Resolved via the ROS package index at launch time (this
+            # package's own installed config/, not a path into the repo
+            # checkout) -- works regardless of where/how the workspace is
+            # mounted, unlike a literal filesystem path baked in here.
+            default_value=[
+                "file://",
+                PathJoinSubstitution([FindPackageShare("arm_sensors"), "config", "ov5693_usb.yaml"]),
+            ],
+            description="Set to \"\" for uncalibrated (all-zero intrinsics) bringup"),
         DeclareLaunchArgument(
             "disable_autofocus", default_value="false",
             description="USB backend only: disable continuous autofocus hunting and pin focus_absolute "
@@ -263,9 +288,8 @@ def generate_launch_description() -> LaunchDescription:
             description="0-2. Default (1) was confirmed live to boost exposure on high-contrast "
                         "scenes, pushing bright light sources further into blown-out white instead "
                         "of helping -- 0 disables that."),
-        disable_autofocus_process,
         fix_focus,
-        fix_brightness,
+        refix_camera_settings_on_respawn,
         camera_usb,
         camera_csi,
         unknown_backend_guard,

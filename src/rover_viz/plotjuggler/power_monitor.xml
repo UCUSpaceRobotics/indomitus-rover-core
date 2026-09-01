@@ -8,14 +8,14 @@
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
        <range bottom="0.000000" left="2.070302" right="32.007772" top="5.738323"/>
        <limitY min="0"/>
-       <curve color="#d62728" name="/power_monitor/sensor_rover/current"/>
+       <curve color="#d62728" name="/rover/power_monitor/sensor_rover/current"/>
       </plot>
      </DockArea>
      <DockArea name="Voltage">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
        <range bottom="40.000000" left="2.070302" right="32.007772" top="60.000000"/>
        <limitY max="60" min="40"/>
-       <curve color="#1f77b4" name="/power_monitor/sensor_rover/voltage"/>
+       <curve color="#1f77b4" name="/rover/power_monitor/sensor_rover/voltage"/>
       </plot>
      </DockArea>
     </DockSplitter>
@@ -28,14 +28,14 @@
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
        <range bottom="0.000000" left="0.000000" right="0.000000" top="2.000000"/>
        <limitY max="2" min="0"/>
-       <curve color="#1f77b4" name="/power_monitor/sensor_arm/current"/>
+       <curve color="#1f77b4" name="/rover/power_monitor/sensor_arm/current"/>
       </plot>
      </DockArea>
      <DockArea name="Voltage">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
        <range bottom="40.000000" left="0.000000" right="0.000000" top="60.000000"/>
        <limitY max="60" min="40"/>
-       <curve color="#d62728" name="/power_monitor/sensor_arm/voltage"/>
+       <curve color="#d62728" name="/rover/power_monitor/sensor_arm/voltage"/>
       </plot>
      </DockArea>
     </DockSplitter>
@@ -77,7 +77,7 @@
    <max_array_size value="100"/>
    <boolean_strings_to_number value="true"/>
    <remove_suffix_from_strings value="true"/>
-   <selected_topics value="/power_monitor/sensor_arm;/power_monitor/sensor_rover"/>
+   <selected_topics value="/rover/power_monitor/sensor_arm;/rover/power_monitor/sensor_rover"/>
   </plugin>
   <plugin ID="UDP Server"/>
   <plugin ID="WebSocket Server"/>

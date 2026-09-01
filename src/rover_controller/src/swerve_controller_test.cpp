@@ -67,7 +67,7 @@ RoverSwerveControllerTest::on_configure(const rclcpp_lifecycle::State & /*previo
     });
 
     cmd_vel_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
-        "/cmd_vel",
+        "cmd_vel",
         rclcpp::SystemDefaultsQoS(),
         [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
             if (!std::isfinite(msg->linear.x) ||
@@ -429,9 +429,9 @@ void RoverSwerveControllerTest::declare_parameters()
         }
     };
 
-    declare_param("wheelbase",             1.20);
-    declare_param("track_width",           0.80);
-    declare_param("wheel_radius",          0.15);
+    declare_param("wheelbase",             0.797);
+    declare_param("track_width",           0.644);
+    declare_param("wheel_radius",          0.156);
     declare_param("max_steer_deg",         90.0);
     declare_param("max_steer_rate_deg",    45.0);
     declare_param("max_joint_angle_deg",   270.0);
