@@ -103,20 +103,3 @@ The reply ID carries every reply kind for that tool (ACKs and READ_* data) with 
 cansend can0 01A#03
 cansend can0 01A#04
 ```
-
-### Helper
-
-Set motors to 0:
-```bash
-# Set origin for Motor ID 11 (0x0B)      
-cansend can0 00B#B1
-
-# Set origin for Motor ID 13 (0x0D)
-cansend can0 00D#B1
-
-# Set origin for Motor ID 15 (0x0F)
-cansend can0 00F#B1
-
-# Set origin for Motor ID 17 (0x11)
-cansend can0 011#B1
-```
