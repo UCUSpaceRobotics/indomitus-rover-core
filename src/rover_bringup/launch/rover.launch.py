@@ -82,13 +82,13 @@ def generate_launch_description():
         joy_dev_arg,
         # zed2i_mode_arg,
 
-        include_launch('rover_teleop', 'joy.launch.py', {
-            'rover_namespace': LaunchConfiguration('rover_namespace'),
-            'joy_dev': LaunchConfiguration('joy_dev'),
-        }, condition=IfCondition(LaunchConfiguration('use_joy'))),
-
         GroupAction([
             PushRosNamespace(namespace_val),
+
+            include_launch('rover_teleop', 'joy.launch.py', {
+                'rover_namespace': LaunchConfiguration('rover_namespace'),
+                'joy_dev': LaunchConfiguration('joy_dev'),
+            }, condition=IfCondition(LaunchConfiguration('use_joy'))),
 
             include_launch('rover_bringup', 'can.launch.py', {
                 'interface': LaunchConfiguration('interface'),
