@@ -113,7 +113,7 @@ run_rover() {
   local JETSON_HOTSPOT_IP="10.42.0.1"
   local JETSON_ETHERNET_IP="indomitus-rover.local"
   local JETSON_IP="${JETSON_HOTSPOT_IP}"
-  local REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
+  local REMOTE_DIR=""
   local CONTAINER_NAME="rover_prod"
   local COMPOSE_FILE="docker-compose.prod.yaml"
   local WORKSPACE_DIR="/opt/ws"
@@ -133,7 +133,7 @@ Options:
   --eth                 Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
   --user USER           Jetson SSH username (Default: ${JETSON_USER})
   --ip IP               Jetson IP address (Default: ${JETSON_IP})
-  --dir DIR             Remote deployment directory (Default: ${REMOTE_DIR})
+  --dir DIR             Remote deployment directory (Default: /home/\${JETSON_USER}/indomitus-rover-core/)
   --name NAME           Docker container name (Default: ${CONTAINER_NAME})
   --compose FILE        Path to Compose file (Default: ${COMPOSE_FILE})
   --workspace DIR       ROS 2 workspace path inside container (Default: ${WORKSPACE_DIR})
@@ -158,6 +158,8 @@ EOF
       *) error "Unknown option: $1\nRun '$0 rover --help' for usage." ;;
     esac
   done
+
+  REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core/}"
 
   local TARGET="${JETSON_USER}@${JETSON_IP}"
   local REMOTE_COMPOSE_FILE="$(basename "${COMPOSE_FILE}")"

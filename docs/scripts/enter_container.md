@@ -34,7 +34,7 @@ The script accepts the following flags to override defaults depending on the sub
 | **`--user`** | `rover` | Jetson SSH username | `indomitus-rover` |
 | **`--ip`** | `rover` | Jetson target IP/hostname | `10.42.0.1` |
 | **`--eth`** | `rover` | Use Ethernet target and skip hotspot auto-connect | `off` |
-| **`--dir`** | `rover` | Remote deployment directory | `/home/indomitus-rover/indomitus-rover-core/` |
+| **`--dir`** | `rover` | Remote deployment directory | `/home/${JETSON_USER}/indomitus-rover-core/` |
 | **`--ssid`** | `rover` | Wi-Fi SSID of the Jetson hotspot | `IndomitusRover` |
 | **`--pass`** | `rover` | Wi-Fi password for the hotspot | `12345678` |
 | **`-h, --help`** | `local`, `rover` | Display help and exit | N/A |
