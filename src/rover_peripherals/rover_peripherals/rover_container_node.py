@@ -20,7 +20,6 @@ CAN RX (ESP32 -> PC):
   ID lid_resp_id    byte 0 = echo cmd, byte 1 = status
     status: 0x00 ACK | 0x01 IN_PROGRESS | 0x02 DONE | 0x03 ERROR
   ID weight_resp_id bytes 0-3 = float32 weight little-endian
-  hello
 """
 
 import struct
