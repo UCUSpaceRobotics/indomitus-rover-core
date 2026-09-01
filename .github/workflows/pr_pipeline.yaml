@@ -18,6 +18,7 @@ jobs:
     outputs:
       docker_changed: ${{ steps.filter.outputs.docker }}
       dependencies_changed: ${{ steps.filter.outputs.dependencies }}
+      functional_changed: ${{ steps.filter.outputs.functional }}
       image_tag: ${{ steps.set-tag.outputs.tag }}
       image_name: ${{ steps.lowercase-repo.outputs.name }}
 
@@ -41,6 +42,11 @@ jobs:
               - 'docker/entrypoint.bash'
             dependencies:
               - 'src/**/package.xml'
+            functional:
+              - 'src/**'
+              - 'docker/Dockerfile'
+              - 'docker/entrypoint.bash'
+              - '.github/workflows/pr_pipeline.yaml'
 
       - name: Determine Image Tag
         id: set-tag
@@ -178,7 +184,7 @@ jobs:
 
   run-tests:
     needs: [detect-changes, build-temp-image]
-    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.detect-changes.outputs.functional_changed == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
