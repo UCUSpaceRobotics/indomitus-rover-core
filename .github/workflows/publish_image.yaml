@@ -212,5 +212,8 @@ jobs:
           body: |
             ```bash
             docker pull ghcr.io/${{ steps.lowercase-repo.outputs.name }}:${{ needs.tag.outputs.new_tag }}-prod
+            ```
+
+            ```bash
             docker pull ghcr.io/${{ steps.lowercase-repo.outputs.name }}:${{ needs.tag.outputs.new_tag }}-dev
             ```
