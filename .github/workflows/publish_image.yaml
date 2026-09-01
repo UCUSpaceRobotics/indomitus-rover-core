@@ -9,7 +9,7 @@ on:
       - 'docker/**'
       - 'src/**'
       - '.github/workflows/publish_image.yaml'
-  workflow_dispatch: 
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,7 +20,39 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Bumps and pushes a version tag for this exact commit before anything is
+  # built, so the build jobs below can tag the one image they produce with it
+  # directly — no separate rebuild, no re-tagging step, no risk of the
+  # versioned tag drifting from the branch tag it was built alongside.
+  #
+  # main gets a real release (minor bump, no pre-release marker); develop gets
+  # a pre-release train off the last real release (patch bump once, then a
+  # `-dev.N` counter per commit) — see the note in the release job below on
+  # why a plain patch bump on develop isn't used instead.
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: anothrNick/github-tag-action@1.71.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: false
+          DEFAULT_BUMP: ${{ github.ref == 'refs/heads/main' && 'minor' || 'patch' }}
+          PRERELEASE: ${{ github.ref == 'refs/heads/develop' }}
+          PRERELEASE_SUFFIX: dev
+
   build-and-push-prod-arm64:
+    needs: tag
     runs-on: ubuntu-22.04-arm
     timeout-minutes: 90
     permissions:
@@ -59,6 +91,7 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha
+            type=raw,value=${{ needs.tag.outputs.new_tag }}
           labels: |
             org.opencontainers.image.description=Production Image (ARM64) for Indomitus Rover
 
@@ -77,7 +110,7 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
-          target: prod 
+          target: prod
           platforms: linux/arm64
           push: true
           build-args: |
@@ -88,6 +121,7 @@ jobs:
           cache-to: type=registry,mode=min,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
 
   build-and-push-dev-amd64:
+    needs: tag
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     permissions:
@@ -125,6 +159,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha
+            type=raw,value=${{ needs.tag.outputs.new_tag }}
           labels: |
             org.opencontainers.image.description=Development Image (AMD64) for Indomitus Rover with Simulation Tools
 
@@ -153,3 +188,32 @@ jobs:
           labels: ${{ steps.meta-dev.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
           cache-to: type=registry,mode=min,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
+
+  # Body is package links only, on purpose — no auto-generated changelog text.
+  release:
+    needs: [tag, build-and-push-prod-arm64, build-and-push-dev-amd64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Lowercase Repository Name
+        id: lowercase-repo
+        run: |
+          REPO="${{ github.repository }}"
+          echo "name=${REPO,,}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.tag.outputs.new_tag }}
+          name: ${{ github.ref == 'refs/heads/main' && format('Release {0}', needs.tag.outputs.new_tag) || format('Develop build {0}', needs.tag.outputs.new_tag) }}
+          prerelease: ${{ github.ref == 'refs/heads/develop' }}
+          generate_release_notes: false
+          body: |
+            ```bash
+            docker pull ghcr.io/${{ steps.lowercase-repo.outputs.name }}:${{ needs.tag.outputs.new_tag }}-prod
+            ```
+
+            ```bash
+            docker pull ghcr.io/${{ steps.lowercase-repo.outputs.name }}:${{ needs.tag.outputs.new_tag }}-dev
+            ```
