@@ -1,4 +1,4 @@
-# Connection to Jetson over hotspot network
+# Hotspot Setup
 
 
 ## Prerequisites
@@ -14,22 +14,6 @@
 > - The hotspot must run in the 5 GHz low band (5150–5725 MHz), on a channel width of 20 or 40 MHz (40 MHz max without prior organizer approval), at or below 1 W EIRP.
 > - The channel itself is assigned by judges just before competition and does **not** stay fixed at channel 36 — see the note in step 6 below.
 > - Any mismatch between the declared RF Form and the actual running configuration can cost up to −20 points per violation, so keep this document in sync with whatever is actually running on the Jetson.
-
-
-## Connect over ssh
-
-1. Connect to `ERC_UCUSpaceRobotics_A` Wi-Fi network with password `19283746`
-
-2. Run the command to ssh into the Jetson
-   ```bash
-ssh <username>@10.42.0.1
-   ```
-
-   Change username to appropriate username on Jetson, currently the username is `indomitus-rover` and the actual command is
-
-   ```bash
-ssh indomitus-rover@10.42.0.1
-   ```
 
 
 ## Jetson hotspot setup
