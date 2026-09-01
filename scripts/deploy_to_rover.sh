@@ -18,7 +18,7 @@ JETSON_USER="indomitus-rover"
 JETSON_HOTSPOT_IP="10.42.0.1"
 JETSON_ETHERNET_IP="indomitus-rover-computer.local"
 JETSON_IP="${JETSON_HOTSPOT_IP}"
-REMOTE_DIR="/home/indomitus-rover/indomitus-rover-core/"
+REMOTE_DIR=""
 IMAGE_NAME="ghcr.io/ucuspacerobotics/indomitus-rover-core"
 IMAGE_TAG=""
 IMAGE_COMMIT=""
@@ -57,7 +57,7 @@ Options:
     --eth                       Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
     --ip IP                     Jetson IP address (Default: ${JETSON_IP})
     --user USER                 Jetson SSH username (Default: ${JETSON_USER})
-    --dir DIR                   Remote deployment directory on the Jetson. (Default: ${REMOTE_DIR})
+    --dir DIR                   Remote deployment directory on the Jetson. (Default: /home/\${JETSON_USER}/indomitus-rover-core/)
     --image-name NAME           Docker image name (Default: ${IMAGE_NAME})
     --tag TAG                   Docker image tag (e.g., develop-prod, feature-branch-prod).
     --commit SHA                Git commit SHA (7+ hex chars) to pull. Overrides --tag in pull mode.
@@ -112,6 +112,8 @@ while [[ "$#" -gt 0 ]]; do
         *) error "Unknown command or option: $1\nRun '$0 --help' for usage." ;;
     esac
 done
+
+REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core/}"
 
 
 # ==========================================
