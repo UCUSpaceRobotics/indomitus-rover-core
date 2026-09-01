@@ -1,0 +1,135 @@
+name: Publish Release Images
+
+# Builds and pushes the prod (arm64) and dev (amd64) images for one exact
+# version tag, so a GitHub Release can point at an image that will never move
+# again — unlike the branch/sha tags publish_image.yaml produces, `<version>-prod`
+# and `<version>-dev` are only ever written once, by this workflow, for this tag.
+#
+# Called from tag_on_main.yaml and tag_on_develop.yaml right after they push a
+# new version tag. It is a reusable workflow (workflow_call) rather than a
+# tag-push trigger on its own: a tag pushed with the default GITHUB_TOKEN does
+# not fire other workflows' `on.push.tags` triggers, so a separate trigger
+# would silently never run.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-and-push-prod-arm64:
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Lowercase Repository Name
+        id: lowercase-repo
+        run: |
+          REPO="${{ github.repository }}"
+          echo "name=${REPO,,}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push PROD Image (ARM64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: prod
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            BASE_IMAGE=ros:humble-ros-base
+          tags: ${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}:${{ inputs.version }}-prod
+          labels: org.opencontainers.image.description=Production Image (ARM64) for Indomitus Rover
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
+          cache-to: type=registry,mode=min,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:prod-arm64
+
+  build-and-push-dev-amd64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Lowercase Repository Name
+        id: lowercase-repo
+        run: |
+          REPO="${{ github.repository }}"
+          echo "name=${REPO,,}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push DEV Image (AMD64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: dev
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            INSTALL_SIM_TOOLS=true
+            BASE_IMAGE=ros:humble-ros-base
+          tags: ${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}:${{ inputs.version }}-dev
+          labels: org.opencontainers.image.description=Development Image (AMD64) for Indomitus Rover with Simulation Tools
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
+          cache-to: type=registry,mode=min,ref=${{ env.REGISTRY }}/${{ steps.lowercase-repo.outputs.name }}-cache:dev-amd64
