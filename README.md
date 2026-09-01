@@ -115,6 +115,8 @@ Follow these steps to power on and operate the rover using a laptop:
 
 ### Turning Off the Rover
 
+> **Warning:** Before cutting power, it is highly recommended to shut down the Jetson first by SSHing into it and running `sudo poweroff`. Wait about a minute, until the Jetson's fan and LED turn off, before cutting power. Cutting power without doing this can corrupt the Jetson's file system.
+
 To power down the rover, perform **one** of the following actions:
 
 * **Use the power switch:** Rotate the blue switch on the back of the rover counterclockwise.
