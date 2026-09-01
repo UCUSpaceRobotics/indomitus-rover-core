@@ -210,5 +210,7 @@ jobs:
           prerelease: ${{ github.ref == 'refs/heads/develop' }}
           generate_release_notes: false
           body: |
-            [ghcr.io/${{ steps.lowercase-repo.outputs.name }}:${{ needs.tag.outputs.new_tag }}-prod](https://github.com/${{ github.repository }}/pkgs/container/${{ github.event.repository.name }})
-            [ghcr.io/${{ steps.lowercase-repo.outputs.name }}:${{ needs.tag.outputs.new_tag }}-dev](https://github.com/${{ github.repository }}/pkgs/container/${{ github.event.repository.name }})
+            ```bash
+            docker pull ghcr.io/${{ steps.lowercase-repo.outputs.name }}:${{ needs.tag.outputs.new_tag }}-prod
+            docker pull ghcr.io/${{ steps.lowercase-repo.outputs.name }}:${{ needs.tag.outputs.new_tag }}-dev
+            ```

@@ -1,6 +1,8 @@
 # ERC-UCU
 Mars Rover project by the UCU Space Robotics Team for ERC competitions
 
+![main](https://img.shields.io/github/v/release/UCUSpaceRobotics/indomitus-rover-core?label=main)
+![develop](https://img.shields.io/github/v/release/UCUSpaceRobotics/indomitus-rover-core?include_prereleases&label=develop)
 
 ---
 
