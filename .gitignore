@@ -245,3 +245,8 @@ AMENT_IGNORE
 
 #test change
 .vscode/
+
+# Generated per machine by docker/gen-dds-profile.sh on every container start.
+# In the field this is written to /opt/dds inside the image, not here; this
+# entry catches a manual run in the checkout.
+docker/fastdds_rover_link.xml

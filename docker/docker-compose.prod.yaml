@@ -34,6 +34,50 @@ services:
     environment:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
       - ROS_LOCALHOST_ONLY=0
+
+      # --- discovery across the mast link ---------------------------------
+      # The mast Pi is an L3 router between the rover's 10.42.0.0/24 and the
+      # ground station's 10.44.0.0/24, and routers do not forward multicast, so
+      # SPDP alone finds nothing. The profile whitelists this end's link
+      # address and adds explicit unicast discovery peers for the GS.
+      #
+      # This is the mirror of the ground station's own configuration - the same
+      # script, with the two knobs swapped. See docker/gen-dds-profile.sh, and
+      # mast/README.md in indomitus-ground-station for the topology.
+      #
+      # Without it the rover half-works: it can *answer* a GS that probes it,
+      # because an SPDP announcement carries the sender's own locators, but it
+      # can never speak first - so a node restarting here is not seen until the
+      # GS's next announcement round. It also advertises locators for every
+      # interface it has, including the wired lifeline and docker bridges,
+      # which the GS tries and fails before falling back to the routable one.
+      #
+      # The profile is Fast DDS-specific and silently ignored under Cyclone, so
+      # the RMW is pinned rather than left to the distro default.
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/dds/fastdds_rover_link.xml
+      # Setting this is what arms generation in the entrypoint. It writes into
+      # the image's /opt/dds because prod bind-mounts only src/: there is no
+      # checkout here to write into, and none to read the script from either
+      # (it ships in the image). docker-compose.dev.gs.yaml deliberately leaves
+      # this unset - that one borrows the GS's profile over a read-only mount.
+      - DDS_PROFILE_OUT=/opt/dds/fastdds_rover_link.xml
+      # "Rover link" names the path, not the far-end machine: the prefix is
+      # this rover's own address on it, the peer is the ground station.
+      - ROVER_LINK_PREFIX=${ROVER_LINK_PREFIX:-10.42.0.}
+      - ROVER_PEER=${ROVER_PEER:-10.44.0.10}
+      # Must exceed the number of participants at the GS (one per node, plus
+      # the ros2 CLI and daemon, which take IDs of their own). A participant
+      # beyond this range is invisible with no fallback; headroom costs only
+      # file size.
+      - ROVER_PEER_RANGE=${ROVER_PEER_RANGE:-50}
+      # This container is restart: unless-stopped and comes back on boot,
+      # racing rover-ap.service, which is what puts 10.42.0.1 on wlan0.
+      # Deciding immediately would usually decide "no link", come up with an
+      # empty peer list, and need a manual restart to recover.
+      - LINK_WAIT_SECS=${LINK_WAIT_SECS:-60}
+      # ---------------------------------------------------------------------
+
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - SDL_VIDEODRIVER=dummy

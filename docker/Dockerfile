@@ -65,7 +65,12 @@ RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then source /opt/
 
 COPY docker/entrypoint.bash /entrypoint.bash
 COPY docker/.bash_aliases /root/.bash_aliases
-RUN chmod +x /entrypoint.bash
+# Baked into the image, not read from a bind mount, because the rover mounts
+# only src/ (docker-compose.prod.yaml) — there is no checkout in the field for
+# the entrypoint to run this from. /opt/dds is its output directory for the
+# same reason: nothing writable of ours is mounted.
+COPY docker/gen-dds-profile.sh /usr/local/bin/gen-dds-profile.sh
+RUN chmod +x /entrypoint.bash /usr/local/bin/gen-dds-profile.sh && mkdir -p /opt/dds
 ENTRYPOINT ["/entrypoint.bash"]
 
 
