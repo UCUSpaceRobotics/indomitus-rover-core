@@ -8,17 +8,9 @@
 </p>
 
 <p align="center">
-  One ROS 2 workspace covering drive and steering, the manipulator, the science
-  panel, autonomous navigation, localization and perception, telemetry and the
-  LoRa fallback link &mdash; plus the Docker images, simulation and deployment
-  tooling used to put it on the rover.
-</p>
-
-<p align="center">
   <a href="https://docs.ros.org/en/humble/"><img alt="ROS 2 Humble" src="https://img.shields.io/badge/ROS%202-Humble-22314E?logo=ros&logoColor=white"></a>
   <a href="https://releases.ubuntu.com/22.04/"><img alt="Ubuntu 22.04" src="https://img.shields.io/badge/Ubuntu-22.04-E95420?logo=ubuntu&logoColor=white"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-amd64%20%7C%20arm64-informational">
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/UCUSpaceRobotics/indomitus-rover-core?color=blue"></a>
 </p>
 
 <p align="center">
@@ -26,7 +18,6 @@
   <a href="https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml?query=branch%3Adevelop"><img alt="develop build" src="https://img.shields.io/github/actions/workflow/status/UCUSpaceRobotics/indomitus-rover-core/publish_image.yaml?branch=develop&label=develop%20build&logo=github"></a>
   <a href="https://github.com/UCUSpaceRobotics/indomitus-rover-core/releases/latest"><img alt="main release" src="https://img.shields.io/github/v/release/UCUSpaceRobotics/indomitus-rover-core?label=main&color=green"></a>
   <a href="https://github.com/UCUSpaceRobotics/indomitus-rover-core/releases"><img alt="develop release" src="https://img.shields.io/github/v/release/UCUSpaceRobotics/indomitus-rover-core?include_prereleases&label=develop"></a>
-  <a href="https://github.com/UCUSpaceRobotics/indomitus-rover-core/pkgs/container/indomitus-rover-core"><img alt="GHCR image" src="https://img.shields.io/badge/ghcr.io-indomitus--rover--core-2496ED?logo=docker&logoColor=white"></a>
 </p>
 
 ---
