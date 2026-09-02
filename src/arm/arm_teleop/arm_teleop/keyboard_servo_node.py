@@ -173,30 +173,6 @@ HOME_POSE_JOINTS = [
     'arm_wrist_1_wrist_2_joint',
     'arm_wrist_2_end_effector_joint',
 ]
-# Same values as arm_macro.xacro's <limit> tags — duplicated (like
-# panel_align_node.py's own JOINT_LIMITS) so a bad poses.json entry can
-# be caught here, before it's ever sent as a home/mode-engage target.
-HOME_POSE_JOINT_LIMITS = {
-    'arm_mount_base_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_base_shoulder_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_shoulder_forearm_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_forearm_wrist_1_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_wrist_1_wrist_2_joint': (-2 * math.pi, 2 * math.pi),
-    'arm_wrist_2_end_effector_joint': (-2 * math.pi, 2 * math.pi),
-}
-
-
-def _pose_limit_violation(pose: list) -> str:
-    """Empty string if every joint in ``pose`` (HOME_POSE_JOINTS order) is
-    within HOME_POSE_JOINT_LIMITS, else a description of the first one
-    that isn't."""
-    for name, value in zip(HOME_POSE_JOINTS, pose):
-        lo, hi = HOME_POSE_JOINT_LIMITS[name]
-        if not (lo <= value <= hi):
-            return f'{name}={value:.4f} outside [{lo:.4f}, {hi:.4f}]'
-    return ''
-
-
 def _load_home_pose_from_json(pose_name='home'):
     """Return ``pose_name`` joint positions from poses.json, or None if unavailable."""
     candidates = [
@@ -216,9 +192,12 @@ def _load_home_pose_from_json(pose_name='home'):
         try:
             data = json.loads(path.read_text())
             pose = data.get(pose_name) or {}
-            return [float(pose[name]) for name in HOME_POSE_JOINTS]
+            values = [float(pose[name]) for name in HOME_POSE_JOINTS]
         except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
             continue
+        if not all(math.isfinite(v) for v in values):
+            return None
+        return values
     return None
 
 
@@ -387,13 +366,6 @@ class ServoController(Node):
         # Prefer poses.json home unless the caller overrode safe_pose explicitly.
         pose_from_param = list(self.get_parameter('safe_pose').value)
         pose_from_json = _load_home_pose_from_json(self._home_pose_name)
-        if pose_from_json is not None:
-            violation = _pose_limit_violation(pose_from_json)
-            if violation:
-                self.get_logger().error(
-                    f'poses.json["{self._home_pose_name}"] {violation} — ignoring it.'
-                )
-                pose_from_json = None
         if pose_from_param == list(DEFAULT_HOME_POSE) and pose_from_json is not None:
             self._safe_pose = pose_from_json
             pose_source = f'poses.json["{self._home_pose_name}"]'
@@ -437,10 +409,6 @@ class ServoController(Node):
         self._sampling_mode = False
         self._drill_mode = False
         self._pitch_yaw_locked = False
-        # Set for the duration of run_planned_activity()'s 5s pre-delay —
-        # set_velocity()/set_gripper_velocity() force zero while this is
-        # True, regardless of what's requested, so held teleop input can't
-        # move the arm during the ERC-mandated stationary window.
         self._activity_delay_active = False
         self._joint_positions = {}
 
@@ -589,15 +557,6 @@ class ServoController(Node):
         """Load poses.json[pose_name], falling back to the jaw safe pose with a warning."""
         pose = _load_home_pose_from_json(pose_name)
         if pose is not None:
-            violation = _pose_limit_violation(pose)
-            if violation:
-                self.get_logger().error(
-                    f'poses.json["{pose_name}"] {violation} — refusing to use it '
-                    'as a home/mode-engage target; re-teach it. Falling back to '
-                    'the jaw home pose until then.'
-                )
-                pose = None
-        if pose is not None:
             return pose
         self.get_logger().warn(
             f'No valid "{pose_name}" entry in poses.json — its mode\'s A/R '
@@ -657,8 +616,6 @@ class ServoController(Node):
                 triples.
         """
         if self._activity_delay_active:
-            # ERC-mandated stationary window (see run_planned_activity) —
-            # every component forced to zero regardless of what's asked.
             vx = vy = vz = wx = wy = wz = view_vx = view_vy = view_vz = 0.0
         self.vx = vx
         self.vy = vy
@@ -871,7 +828,7 @@ class ServoController(Node):
         """
         self.get_logger().info(
             f'{label}: activity indicator on, holding {ACTIVITY_INDICATOR_PRE_DELAY_SEC:.0f}s '
-            f'before moving (ERC REQ-OPS-080/090/100)...'
+            f'before moving...'
         )
         self.stop()
         self._activity_delay_active = True
@@ -997,11 +954,6 @@ class ServoController(Node):
                 f'Another arm motion is already in progress — aborting {label}.'
             )
             return False
-        # Lease covers _execute_move_group_constraints' own timeout
-        # (self._safe_pose_timeout) plus margin for the planning/service-
-        # call overhead around it; <=0 there means "wait forever", so
-        # give the lease itself a long-but-finite cap instead of a lease
-        # too short to survive an intentionally unbounded wait.
         lease_sec = self._safe_pose_timeout + 15.0 if self._safe_pose_timeout > 0.0 else 600.0
         try:
             try:
@@ -1157,11 +1109,6 @@ class ServoController(Node):
                 'controller may be unresponsive '
                 '(raise the safe_pose_timeout parameter if the sim is just slow).'
             )
-            # Critical: not cancelling here would leave the goal running
-            # server-side after this returns "failed" — callers restart
-            # Servo right after any outcome, which would then race an
-            # execution still in flight. See panel_align_node.py's
-            # _execute() for the same pattern.
             gh = goal_handle_box.get('gh')
             if gh is not None:
                 cancel_done = threading.Event()
