@@ -337,7 +337,10 @@ class ServoController(Node):
         self.declare_parameter('view_frame',    DEFAULT_VIEW_FRAME)
         # A / R move to this joint vector (defaults to poses.json "home").
         self.declare_parameter('safe_pose',     DEFAULT_HOME_POSE)
-        self.declare_parameter('home_pose_name', 'home')
+        # Empty (default): auto-pick '{end_effector}_home' if poses.json has
+        # it (e.g. 'jaw_home'), else fall back to 'home'. Set explicitly to
+        # pin a name regardless of end_effector.
+        self.declare_parameter('home_pose_name', '')
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
         self.declare_parameter('gamepad_shift_button', DEFAULT_GAMEPAD_SHIFT_BUTTON)
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
@@ -362,7 +365,19 @@ class ServoController(Node):
             self._linear_frame = DEFAULT_LINEAR_FRAME
         self._ee_frame      = self.get_parameter('ee_frame').value
         self._view_frame    = self.get_parameter('view_frame').value
-        self._home_pose_name = self.get_parameter('home_pose_name').value
+        # Read before home_pose_name resolution below, which derives its
+        # auto-pick from it.
+        self._end_effector = self.get_parameter('end_effector').value
+        home_pose_name_param = self.get_parameter('home_pose_name').value
+        if home_pose_name_param:
+            self._home_pose_name = home_pose_name_param
+        else:
+            auto_home_pose_name = f'{self._end_effector}_home'
+            self._home_pose_name = (
+                auto_home_pose_name
+                if _load_home_pose_from_json(auto_home_pose_name) is not None
+                else 'home'
+            )
         # Prefer poses.json home unless the caller overrode safe_pose explicitly.
         pose_from_param = list(self.get_parameter('safe_pose').value)
         pose_from_json = _load_home_pose_from_json(self._home_pose_name)
@@ -383,7 +398,6 @@ class ServoController(Node):
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
         self._gripper_speed        = self.get_parameter('gripper_speed').value
         self._gripper_stroke       = self.get_parameter('gripper_stroke').value
-        self._end_effector         = self.get_parameter('end_effector').value
         self._panel_pose_topic          = self.get_parameter('panel_pose_topic').value
         self._panel_visible_max_age_sec = self.get_parameter('panel_visible_max_age_sec').value
         self._panel_align_timeout       = self.get_parameter('panel_align_timeout').value
@@ -2078,7 +2092,7 @@ class EndEffectorClient:
 
     _VALID_COMMANDS = frozenset({
         'open', 'close', 'drill_up', 'drill_down',
-        'stop_step', 'stop_drill', 'lock', 'unlock',
+        'stop_step', 'stop_drill', 'lock', 'unlock', 'read_ph',
     })
 
     def __init__(self, node):
@@ -2472,6 +2486,9 @@ class GamepadInputLoop:
                 else:
                     self._ee_client.send('open')
                     self._controller.get_logger().info('Claw: OPEN sent.')
+            elif end_effector == 'astrobio':
+                self._ee_client.send('open')
+                self._controller.get_logger().info('Astrobio: SUCK ON sent.')
             else:
                 self._ee_client.send('open')
                 self._controller.set_gripper_target(self._controller.gripper_stroke)
@@ -2485,6 +2502,9 @@ class GamepadInputLoop:
                 else:
                     self._ee_client.send('close')
                     self._controller.get_logger().info('Claw: CLOSE sent.')
+            elif end_effector == 'astrobio':
+                self._ee_client.send('close')
+                self._controller.get_logger().info('Astrobio: SUCK OFF sent.')
             else:
                 self._ee_client.send('close')
                 self._controller.set_gripper_target(0.0)
@@ -2493,6 +2513,9 @@ class GamepadInputLoop:
         if lock_pressed and end_effector == 'drill_sampling':
             self._ee_client.send('lock')
             self._controller.get_logger().info('Claw/drill: LOCK sent.')
+        elif lock_pressed and end_effector == 'astrobio':
+            self._ee_client.send('read_ph')
+            self._controller.get_logger().info('Astrobio: READ PH sent.')
 
         if unlock_pressed and end_effector == 'drill_sampling':
             self._ee_client.send('unlock')

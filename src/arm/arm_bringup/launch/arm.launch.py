@@ -124,6 +124,18 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    declare_home_pose_name_cmd = DeclareLaunchArgument(
+        "home_pose_name",
+        default_value="",
+        description=(
+            "poses.json key that gamepad A drives to when not in sampling/"
+            "drill mode. Leave empty (default) to auto-pick "
+            "'{end_effector}_home' (e.g. 'jaw_home' for end_effector:=jaw) "
+            "when that key exists in poses.json, else fall back to 'home'. "
+            "Set explicitly only to override that auto-pick."
+        ),
+    )
+
     # Runtime (LaunchConfiguration) form, for the IfCondition/UnlessCondition
     # gripper-spawner split below — separate from the plain-string
     # _arg_from_argv() value passed into robot_description(mappings=...),
@@ -308,7 +320,10 @@ def generate_launch_description() -> LaunchDescription:
             os.path.join(get_package_share_directory("arm_teleop"),
                          "launch", "gamepad_servo.launch.py")
         ),
-        launch_arguments={"end_effector": end_effector}.items(),
+        launch_arguments={
+            "end_effector": end_effector,
+            "home_pose_name": LaunchConfiguration("home_pose_name"),
+        }.items(),
         condition=IfCondition(LaunchConfiguration("bring_up_gamepad")),
     )
 
@@ -342,6 +357,7 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(declare_bring_up_can_bridge_cmd)
     ld.add_action(declare_report_collisions_cmd)
     ld.add_action(declare_bring_up_gamepad_cmd)
+    ld.add_action(declare_home_pose_name_cmd)
     ld.add_action(arm_group)
     ld.add_action(gamepad_servo_include)
 

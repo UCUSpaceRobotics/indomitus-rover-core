@@ -65,5 +65,23 @@
     "arm_forearm_wrist_1_joint": 3.3275749386823072,
     "arm_wrist_1_wrist_2_joint": 1.5632565044262812,
     "arm_wrist_2_end_effector_joint": 2.1061237149665963
+  },
+  "jaw_home": {
+    "arm_jaw_gripper_finger_right_joint": 0.0,
+    "arm_jaw_gripper_finger_left_joint": 0.0,
+    "arm_mount_base_joint": -1.6386280059814453,
+    "arm_base_shoulder_joint": 1.0339899063110352,
+    "arm_shoulder_forearm_joint": 1.0362787246704102,
+    "arm_wrist_1_wrist_2_joint": 0.033379554748535156,
+    "arm_forearm_wrist_1_joint": -1.0065231323242188,
+    "arm_wrist_2_end_effector_joint": -1.0191116333007812
+  },
+  "astrobio_home": {
+    "arm_mount_base_joint": -1.6386280059814453,
+    "arm_base_shoulder_joint": 1.0339899063110352,
+    "arm_shoulder_forearm_joint": 1.0362787246704102,
+    "arm_wrist_1_wrist_2_joint": 0.033379554748535156,
+    "arm_forearm_wrist_1_joint": -1.0065231323242188,
+    "arm_wrist_2_end_effector_joint": -1.0191116333007812
   }
 }
