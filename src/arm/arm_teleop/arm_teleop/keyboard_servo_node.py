@@ -393,6 +393,15 @@ class ServoController(Node):
         self._sampling_home_pose = self._load_tool_home_pose(self._sampling_home_pose_name)
         self._drill_home_pose_name = 'drill_home'
         self._drill_home_pose = self._load_tool_home_pose(self._drill_home_pose_name)
+        # drill_sampling's B (sampling_home -> sampling_to_drill -> drill_home)
+        # and Y (container detour, target depends on which mode is currently
+        # active) — see GamepadInputLoop._handle_safe_pose/_on_joy.
+        self._sampling_to_drill_pose_name = 'sampling_to_drill'
+        self._sampling_to_drill_pose = self._load_tool_home_pose(self._sampling_to_drill_pose_name)
+        self._sampling_container_pose_name = 'sampling_container'
+        self._sampling_container_pose = self._load_tool_home_pose(self._sampling_container_pose_name)
+        self._drill_container_pose_name = 'drill_container'
+        self._drill_container_pose = self._load_tool_home_pose(self._drill_container_pose_name)
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._gamepad_shift_button = int(self.get_parameter('gamepad_shift_button').value)
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
@@ -561,6 +570,36 @@ class ServoController(Node):
     def drill_home_pose_name(self) -> str:
         """Return the poses.json key drill_home_pose came from (for logging)."""
         return self._drill_home_pose_name
+
+    @property
+    def sampling_to_drill_pose(self):
+        """Return the joint targets B's first leg drives to (drill_sampling)."""
+        return self._sampling_to_drill_pose
+
+    @property
+    def sampling_to_drill_pose_name(self) -> str:
+        """Return the poses.json key sampling_to_drill_pose came from (for logging)."""
+        return self._sampling_to_drill_pose_name
+
+    @property
+    def sampling_container_pose(self):
+        """Return the joint targets Y drives to while sampling mode is armed."""
+        return self._sampling_container_pose
+
+    @property
+    def sampling_container_pose_name(self) -> str:
+        """Return the poses.json key sampling_container_pose came from (for logging)."""
+        return self._sampling_container_pose_name
+
+    @property
+    def drill_container_pose(self):
+        """Return the joint targets Y drives to while drill mode is armed."""
+        return self._drill_container_pose
+
+    @property
+    def drill_container_pose_name(self) -> str:
+        """Return the poses.json key drill_container_pose came from (for logging)."""
+        return self._drill_container_pose_name
 
     @property
     def end_effector(self) -> str:
@@ -931,6 +970,53 @@ class ServoController(Node):
         if success:
             self._pitch_yaw_locked = False
         return success
+
+    def move_sampling_to_drill(self) -> bool:
+        """Two-leg move for drill_sampling's B: sampling_to_drill waypoint,
+        then — only if that leg actually succeeds — drill_home.
+
+        Same stop/stop_servo/trajectory-controller setup as
+        ``move_to_safe_pose``, done once up front for both legs (JTC stays
+        claimed the whole time, no need to re-switch controllers between
+        them). Each leg is its own collision-checked ``_move_to_joint_positions``
+        call/lock acquisition — if the first leg is rejected or aborts, the
+        second is never attempted and the arm is left holding wherever the
+        first leg's plan stopped, not silently warped to drill_home.
+
+        Returns:
+            bool: True only if BOTH legs completed successfully (see
+            ``move_to_safe_pose``'s own return-value contract for the exact
+            failure modes each leg can hit).
+        """
+        self.stop()
+
+        if not self.stop_servo():
+            self.get_logger().error(
+                'Could not confirm Servo stopped — aborting sampling_to_drill sequence.'
+            )
+            return False
+
+        if not self.use_trajectory_controller():
+            self.get_logger().error(
+                'Could not activate trajectory controller — aborting sampling_to_drill sequence.'
+            )
+            return False
+
+        waypoint_ok = self._move_to_joint_positions(
+            list(self._sampling_to_drill_pose), f'{self._sampling_to_drill_pose_name} (waypoint)'
+        )
+        if not waypoint_ok:
+            self.get_logger().error(
+                f'{self._sampling_to_drill_pose_name} failed — aborting before the drill_home leg.'
+            )
+            return False
+
+        final_ok = self._move_to_joint_positions(
+            list(self._drill_home_pose), f'home ({self._drill_home_pose_name})'
+        )
+        if final_ok:
+            self._pitch_yaw_locked = False
+        return final_ok
 
     def _move_to_joint_positions(self, target_positions, label: str) -> bool:
         """Plan (OMPL, collision-checked) and execute a move from the
@@ -2193,14 +2279,26 @@ class GamepadInputLoop:
     AXIS_L2 = 4         # unmapped; used only for trigger rest calibration
     AXIS_R2 = 5
 
-    BUTTON_SAFE_POSE = 0   # 'A' — move to home + start servo
-    # 'B' — force sampling mode on and go straight to sampling_home.
-    # One-shot, not a toggle — there is no button that turns it back off
-    # short of restarting with a different end_effector.
+    # 'A' — jaw/astrobio: move to home + start servo. drill_sampling: always
+    # goes to sampling_home instead (also how you get back to it from
+    # sampling_container after Y — see BUTTON_DRILL_HOME below).
+    BUTTON_SAFE_POSE = 0
+    # 'B' — jaw/astrobio: locked out (no drill/sampling tool mounted).
+    # drill_sampling: goes to drill_home — via the sampling_to_drill
+    # transition waypoint first if drill mode isn't already armed (see
+    # ServoController.move_sampling_to_drill), straight there otherwise
+    # (already in the drill zone, e.g. returning from drill_container — see
+    # _on_joy). One-shot, not a toggle — there is no button that turns
+    # sampling/drill mode back off short of restarting with a different
+    # end_effector.
     BUTTON_SAMPLING_HOME = 1
     BUTTON_EXIT = 2        # 'X' — exit
-    # 'Y' — force drill mode on and go straight to drill_home. One-shot,
-    # mirrors BUTTON_SAMPLING_HOME above.
+    # 'Y' — jaw/astrobio: locked out. drill_sampling: container detour,
+    # target depends on whichever mode is CURRENTLY armed (not fixed) —
+    # sampling_container while sampling_mode is active, drill_container
+    # while drill_mode is active (see _on_joy) — armed by A/B above, not by
+    # this button itself. One-shot per press, does not change which mode
+    # is armed.
     BUTTON_DRILL_HOME = 3
     BUTTON_LB = 4          # unmapped (settle check only)
     # LEFTSHOULDER/L1. Held to scale up commanded velocity — raises the
@@ -2521,11 +2619,29 @@ class GamepadInputLoop:
             self._ee_client.send('unlock')
             self._controller.get_logger().info('Claw/drill: UNLOCK sent.')
 
+        # drill_sampling's own A/B/Y sequence (button labels below match the
+        # physical buttons, not the old sampling/drill "home" naming):
+        #   A -> sampling_home (always; also how you get back to it from
+        #        sampling_container).
+        #   B -> drill_home, routed by whichever mode is currently active:
+        #        via the sampling_to_drill transition waypoint first if NOT
+        #        already in drill mode (see
+        #        ServoController.move_sampling_to_drill), or straight there
+        #        if drill mode is already armed (e.g. returning from
+        #        drill_container — no need to detour back through the
+        #        sampling-side waypoint just to reach a pose you're already
+        #        near).
+        #   Y -> container detour, routed by whichever mode is currently
+        #        active: sampling_container while sampling_mode is armed,
+        #        drill_container while drill_mode is armed. Does not change
+        #        which mode is armed (see _handle_safe_pose's docstring).
         if safe_pose_pressed and end_effector == 'drill_sampling':
-            self._controller.get_logger().warn(
-                "A (home) is locked out with end_effector='drill_sampling' — "
-                'use B (sampling_home) or Y (drill_home) instead.'
+            self._controller.get_logger().info(
+                'A pressed (drill_sampling) — going straight to sampling_home.'
             )
+            threading.Thread(
+                target=self._handle_safe_pose, args=('sampling',), daemon=True
+            ).start()
         elif safe_pose_pressed:
             threading.Thread(target=self._handle_safe_pose, daemon=True).start()
 
@@ -2538,6 +2654,25 @@ class GamepadInputLoop:
                 f"B (sampling_home) is locked out with end_effector='{end_effector}' "
                 '— no drill/sampling tool mounted.'
             )
+        elif sampling_home_pressed and end_effector == 'drill_sampling':
+            if self._drill_mode:
+                # Already in drill mode (e.g. sitting at drill_container via
+                # Y) — go straight back to drill_home, no need to route
+                # through the sampling-side transition waypoint again.
+                self._controller.get_logger().info(
+                    'B pressed (drill_sampling, already drill mode) — '
+                    'going straight to drill_home.'
+                )
+                threading.Thread(
+                    target=self._handle_safe_pose, args=('drill',), daemon=True
+                ).start()
+            else:
+                self._controller.get_logger().info(
+                    'B pressed (drill_sampling) — going to sampling_to_drill, then drill_home.'
+                )
+                threading.Thread(
+                    target=self._handle_safe_pose, args=('sampling_to_drill',), daemon=True
+                ).start()
         elif sampling_home_pressed:
             # Mode is NOT flipped here — only once the home move actually
             # succeeds (see _handle_safe_pose's target_mode handling).
@@ -2561,6 +2696,25 @@ class GamepadInputLoop:
                 f"Y (drill_home) is locked out with end_effector='{end_effector}' "
                 '— no drill/sampling tool mounted.'
             )
+        elif drill_home_pressed and end_effector == 'drill_sampling':
+            if self._drill_mode:
+                container_target = 'drill_container'
+            elif self._sampling_mode:
+                container_target = 'sampling_container'
+            else:
+                container_target = None
+            if container_target is None:
+                self._controller.get_logger().warn(
+                    'Y pressed but neither sampling_home nor drill_home has '
+                    'been reached yet — press A first.'
+                )
+            else:
+                self._controller.get_logger().info(
+                    f'Y pressed (drill_sampling) — going to {container_target}.'
+                )
+                threading.Thread(
+                    target=self._handle_safe_pose, args=(container_target,), daemon=True
+                ).start()
         elif drill_home_pressed:
             # See sampling_home_pressed's comment above — same deferred-
             # mode-switch reasoning applies here.
@@ -2686,8 +2840,11 @@ class GamepadInputLoop:
             view_vz = right_x * linear_speed       # inverted
             wz = -left_x * angular_speed           # roll — pitch/yaw locked level
         elif self._drill_mode:
-            view_vx = -right_x * linear_speed
-            view_vy = -right_y * linear_speed
+            # Right stick axes swapped vs the naive mapping on purpose (by
+            # request): vertical stick drives forward/back, horizontal
+            # stick drives left/right — opposite of every other mode here.
+            view_vx = -right_y * linear_speed
+            view_vy = -right_x * linear_speed
             view_vz = left_y * linear_speed
         elif shift:
             view_vy = left_x * linear_speed
@@ -2756,11 +2913,18 @@ class GamepadInputLoop:
         """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
 
         Args:
-            target_mode: ``'sampling'``/``'drill'`` if this move was
-                triggered by B/Y (mode-engage), or ``None`` for plain A
-                (jaw/astrobio home). Only decides which pose to target
-                and which mode to commit AFTER a successful move — see
-                below.
+            target_mode: ``None`` for plain A (jaw/astrobio home).
+                drill_sampling's own A/B/Y sequence (see ``_on_joy``):
+                ``'sampling'`` (A, sampling_home), ``'sampling_to_drill'``
+                (B, two-leg move ending at drill_home — see
+                ``ServoController.move_sampling_to_drill``),
+                ``'sampling_container'``/``'drill_container'`` (Y, routed
+                by whichever mode is currently active — side detour, does
+                NOT change ``_sampling_mode``/``_drill_mode`` below).
+                ``'drill'`` is kept only for callers that want to jump
+                straight to drill_home without the sampling_to_drill leg.
+                Only decides which pose(s) to target and which mode to
+                commit AFTER a successful move — see below.
 
         Guarded by a non-blocking lock so a second button press while a
         move is already in progress is ignored instead of racing a
@@ -2799,6 +2963,20 @@ class GamepadInputLoop:
                     positions=self._controller.drill_home_pose,
                     name=self._controller.drill_home_pose_name,
                 )
+            elif target_mode == 'sampling_to_drill':
+                action = self._controller.move_sampling_to_drill
+            elif target_mode == 'sampling_container':
+                action = functools.partial(
+                    self._controller.move_to_safe_pose,
+                    positions=self._controller.sampling_container_pose,
+                    name=self._controller.sampling_container_pose_name,
+                )
+            elif target_mode == 'drill_container':
+                action = functools.partial(
+                    self._controller.move_to_safe_pose,
+                    positions=self._controller.drill_container_pose,
+                    name=self._controller.drill_container_pose_name,
+                )
             else:
                 action = self._controller.move_to_safe_pose
             home_ok = self._controller.run_planned_activity(action, 'move_to_safe_pose')
@@ -2807,10 +2985,12 @@ class GamepadInputLoop:
                     self._sampling_mode = True
                     self._drill_mode = False
                     self._controller.set_sampling_mode(True)
-                elif target_mode == 'drill':
+                elif target_mode in ('drill', 'sampling_to_drill'):
                     self._drill_mode = True
                     self._sampling_mode = False
                     self._controller.set_drill_mode(True)
+                # sampling_container/drill_container: side detour, current
+                # mode is left exactly as it was (see docstring above).
                 print('Starting servo...')
                 if self._controller.start_servo():
                     self._teleop_locked = False
