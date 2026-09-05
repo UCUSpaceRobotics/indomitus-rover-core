@@ -107,5 +107,15 @@
     "arm_wrist_1_wrist_2_joint": -0.08335208892822266,
     "arm_forearm_wrist_1_joint": 0.8508815765380859,
     "arm_wrist_2_end_effector_joint": 1.0626001358032227
+  },
+  "jaw_probing_home": {
+    "arm_jaw_gripper_finger_right_joint": 0.0,
+    "arm_jaw_gripper_finger_left_joint": 0.0,
+    "arm_mount_base_joint": 0.043297767639160156,
+    "arm_base_shoulder_joint": 0.5994892120361328,
+    "arm_shoulder_forearm_joint": 0.7372016906738281,
+    "arm_wrist_1_wrist_2_joint": 0.02002716064453125,
+    "arm_forearm_wrist_1_joint": 1.0366601943969727,
+    "arm_wrist_2_end_effector_joint": -1.0847253799438477
   }
 }
