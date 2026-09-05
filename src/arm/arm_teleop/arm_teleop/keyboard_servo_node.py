@@ -425,13 +425,10 @@ class ServoController(Node):
         # instead of drill_sampling. B enters it (see _on_joy), A exits.
         self._jaw_probing_home_pose_name = 'jaw_probing_home'
         self._jaw_probing_home_pose = self._load_tool_home_pose(self._jaw_probing_home_pose_name)
-<<<<<<< HEAD
         # jaw's own Y — two-leg move via jaw_probing_home, then (only on
         # success) jaw_probing_container — see move_jaw_probing_to_container.
         self._jaw_probing_container_pose_name = 'jaw_probing_container'
         self._jaw_probing_container_pose = self._load_tool_home_pose(self._jaw_probing_container_pose_name)
-=======
->>>>>>> origin/develop
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._gamepad_shift_button = int(self.get_parameter('gamepad_shift_button').value)
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
@@ -647,7 +644,6 @@ class ServoController(Node):
         return self._jaw_probing_home_pose_name
 
     @property
-<<<<<<< HEAD
     def jaw_probing_container_pose(self):
         """Return the joint targets Y's second leg drives to (jaw probing)."""
         return self._jaw_probing_container_pose
@@ -658,8 +654,6 @@ class ServoController(Node):
         return self._jaw_probing_container_pose_name
 
     @property
-=======
->>>>>>> origin/develop
     def end_effector(self) -> str:
         """Return the 'end_effector' parameter (which tool is mounted)."""
         return self._end_effector
@@ -3093,15 +3087,11 @@ class GamepadInputLoop:
                 straight to drill_home without the sampling_to_drill leg.
                 ``'probing'`` is jaw's own B — jaw_probing_home + continuous
                 point-down hold (see ``PROBING_POINT_AXIS``), the jaw
-<<<<<<< HEAD
                 equivalent of ``'sampling'``. ``'jaw_probing_container'`` is
                 jaw's own Y — two-leg move via jaw_probing_home then (only
                 on success) jaw_probing_container, see
                 ``ServoController.move_jaw_probing_to_container`` — the jaw
                 equivalent of ``'sampling_to_drill'``.
-=======
-                equivalent of ``'sampling'``.
->>>>>>> origin/develop
                 Only decides which pose(s) to target and which mode to
                 commit AFTER a successful move — see below.
 
@@ -3162,11 +3152,8 @@ class GamepadInputLoop:
                     positions=self._controller.jaw_probing_home_pose,
                     name=self._controller.jaw_probing_home_pose_name,
                 )
-<<<<<<< HEAD
             elif target_mode == 'jaw_probing_container':
                 action = self._controller.move_jaw_probing_to_container
-=======
->>>>>>> origin/develop
             else:
                 action = self._controller.move_to_safe_pose
             home_ok = self._controller.run_planned_activity(action, 'move_to_safe_pose')
@@ -3179,11 +3166,7 @@ class GamepadInputLoop:
                     self._drill_mode = True
                     self._sampling_mode = False
                     self._controller.set_drill_mode(True)
-<<<<<<< HEAD
                 elif target_mode in ('probing', 'jaw_probing_container'):
-=======
-                elif target_mode == 'probing':
->>>>>>> origin/develop
                     self._probing_mode = True
                     self._controller.set_probing_mode(True)
                 elif target_mode is None:
