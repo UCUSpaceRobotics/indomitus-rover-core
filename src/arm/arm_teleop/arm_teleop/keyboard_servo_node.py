@@ -425,6 +425,10 @@ class ServoController(Node):
         # instead of drill_sampling. B enters it (see _on_joy), A exits.
         self._jaw_probing_home_pose_name = 'jaw_probing_home'
         self._jaw_probing_home_pose = self._load_tool_home_pose(self._jaw_probing_home_pose_name)
+        # jaw's own Y — two-leg move via jaw_probing_home, then (only on
+        # success) jaw_probing_container — see move_jaw_probing_to_container.
+        self._jaw_probing_container_pose_name = 'jaw_probing_container'
+        self._jaw_probing_container_pose = self._load_tool_home_pose(self._jaw_probing_container_pose_name)
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._gamepad_shift_button = int(self.get_parameter('gamepad_shift_button').value)
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
@@ -638,6 +642,16 @@ class ServoController(Node):
     def jaw_probing_home_pose_name(self) -> str:
         """Return the poses.json key jaw_probing_home_pose came from (for logging)."""
         return self._jaw_probing_home_pose_name
+
+    @property
+    def jaw_probing_container_pose(self):
+        """Return the joint targets Y's second leg drives to (jaw probing)."""
+        return self._jaw_probing_container_pose
+
+    @property
+    def jaw_probing_container_pose_name(self) -> str:
+        """Return the poses.json key jaw_probing_container_pose came from (for logging)."""
+        return self._jaw_probing_container_pose_name
 
     @property
     def end_effector(self) -> str:
@@ -1068,6 +1082,49 @@ class ServoController(Node):
 
         final_ok = self._move_to_joint_positions(
             list(self._drill_home_pose), f'home ({self._drill_home_pose_name})'
+        )
+        if final_ok:
+            self._pitch_yaw_locked = False
+        return final_ok
+
+    def move_jaw_probing_to_container(self) -> bool:
+        """Two-leg move for jaw's Y: jaw_probing_home waypoint, then — only
+        if that leg actually succeeds — jaw_probing_container.
+
+        Mirrors ``move_sampling_to_drill``'s own structure exactly (same
+        stop/stop_servo/trajectory-controller setup done once for both legs,
+        same abort-before-second-leg-on-failure behavior) — see its
+        docstring for the full reasoning, it applies here unchanged.
+
+        Returns:
+            bool: True only if BOTH legs completed successfully.
+        """
+        self.stop()
+
+        if not self.stop_servo():
+            self.get_logger().error(
+                'Could not confirm Servo stopped — aborting jaw_probing_container sequence.'
+            )
+            return False
+
+        if not self.use_trajectory_controller():
+            self.get_logger().error(
+                'Could not activate trajectory controller — aborting jaw_probing_container sequence.'
+            )
+            return False
+
+        waypoint_ok = self._move_to_joint_positions(
+            list(self._jaw_probing_home_pose), f'{self._jaw_probing_home_pose_name} (waypoint)'
+        )
+        if not waypoint_ok:
+            self.get_logger().error(
+                f'{self._jaw_probing_home_pose_name} failed — aborting before the '
+                f'{self._jaw_probing_container_pose_name} leg.'
+            )
+            return False
+
+        final_ok = self._move_to_joint_positions(
+            list(self._jaw_probing_container_pose), f'home ({self._jaw_probing_container_pose_name})'
         )
         if final_ok:
             self._pitch_yaw_locked = False
@@ -2353,12 +2410,15 @@ class GamepadInputLoop:
     # with a different end_effector.
     BUTTON_SAMPLING_HOME = 1
     BUTTON_EXIT = 2        # 'X' — exit
-    # 'Y' — jaw/astrobio: locked out. drill_sampling: container detour,
-    # target depends on whichever mode is CURRENTLY armed (not fixed) —
+    # 'Y' — astrobio: locked out. drill_sampling: container detour, target
+    # depends on whichever mode is CURRENTLY armed (not fixed) —
     # sampling_container while sampling_mode is active, drill_container
     # while drill_mode is active (see _on_joy) — armed by A/B above, not by
-    # this button itself. One-shot per press, does not change which mode
-    # is armed.
+    # this button itself; one-shot per press, does not change which mode is
+    # armed. jaw: two-leg move instead — jaw_probing_home waypoint, then
+    # (only on success) jaw_probing_container (see
+    # ServoController.move_jaw_probing_to_container) — arms probing mode on
+    # success, unlike drill_sampling's own Y.
     BUTTON_DRILL_HOME = 3
     BUTTON_LB = 4          # unmapped (settle check only)
     # LEFTSHOULDER/L1. Held to scale up commanded velocity — raises the
@@ -2698,12 +2758,17 @@ class GamepadInputLoop:
         #        _level_hold mechanism as sampling mode — see
         #        PROBING_POINT_AXIS) — jaw has no drill/sampling tool, so
         #        this button was otherwise unused for it.
-        #   Y -> container detour, routed by whichever mode is currently
-        #        active: sampling_container while sampling_mode is armed,
-        #        drill_container while drill_mode is armed. Does not change
-        #        which mode is armed (see _handle_safe_pose's docstring).
-        #        Still locked out for jaw — no container pose defined for
-        #        probing mode.
+        #   Y -> drill_sampling: container detour, routed by whichever mode
+        #        is currently active: sampling_container while sampling_mode
+        #        is armed, drill_container while drill_mode is armed. Does
+        #        not change which mode is armed (see _handle_safe_pose's
+        #        docstring). jaw: two-leg move instead — jaw_probing_home
+        #        waypoint, then (only on success) jaw_probing_container (see
+        #        ServoController.move_jaw_probing_to_container), arming
+        #        probing mode on success — jaw's own equivalent of B's
+        #        sampling_to_drill chain, just on Y instead since jaw
+        #        already uses B to arm probing mode via jaw_probing_home
+        #        alone.
         if safe_pose_pressed and end_effector == 'drill_sampling':
             self._controller.get_logger().info(
                 'A pressed (drill_sampling) — going straight to sampling_home.'
@@ -2767,11 +2832,18 @@ class GamepadInputLoop:
             self._controller.get_logger().warn(
                 'Drill home is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
             )
-        elif drill_home_pressed and end_effector in ('jaw', 'astrobio'):
+        elif drill_home_pressed and end_effector == 'astrobio':
             self._controller.get_logger().warn(
                 f"Y (drill_home) is locked out with end_effector='{end_effector}' "
                 '— no drill/sampling tool mounted.'
             )
+        elif drill_home_pressed and end_effector == 'jaw':
+            self._controller.get_logger().info(
+                'Y pressed (jaw) — going to jaw_probing_home, then jaw_probing_container.'
+            )
+            threading.Thread(
+                target=self._handle_safe_pose, args=('jaw_probing_container',), daemon=True
+            ).start()
         elif drill_home_pressed and end_effector == 'drill_sampling':
             if self._drill_mode:
                 container_target = 'drill_container'
@@ -3015,7 +3087,11 @@ class GamepadInputLoop:
                 straight to drill_home without the sampling_to_drill leg.
                 ``'probing'`` is jaw's own B — jaw_probing_home + continuous
                 point-down hold (see ``PROBING_POINT_AXIS``), the jaw
-                equivalent of ``'sampling'``.
+                equivalent of ``'sampling'``. ``'jaw_probing_container'`` is
+                jaw's own Y — two-leg move via jaw_probing_home then (only
+                on success) jaw_probing_container, see
+                ``ServoController.move_jaw_probing_to_container`` — the jaw
+                equivalent of ``'sampling_to_drill'``.
                 Only decides which pose(s) to target and which mode to
                 commit AFTER a successful move — see below.
 
@@ -3076,6 +3152,8 @@ class GamepadInputLoop:
                     positions=self._controller.jaw_probing_home_pose,
                     name=self._controller.jaw_probing_home_pose_name,
                 )
+            elif target_mode == 'jaw_probing_container':
+                action = self._controller.move_jaw_probing_to_container
             else:
                 action = self._controller.move_to_safe_pose
             home_ok = self._controller.run_planned_activity(action, 'move_to_safe_pose')
@@ -3088,7 +3166,7 @@ class GamepadInputLoop:
                     self._drill_mode = True
                     self._sampling_mode = False
                     self._controller.set_drill_mode(True)
-                elif target_mode == 'probing':
+                elif target_mode in ('probing', 'jaw_probing_container'):
                     self._probing_mode = True
                     self._controller.set_probing_mode(True)
                 elif target_mode is None:
