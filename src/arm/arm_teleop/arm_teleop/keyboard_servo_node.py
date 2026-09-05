@@ -162,7 +162,13 @@ DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
 DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC = 3.0
 DEFAULT_PANEL_ALIGN_TIMEOUT = 120.0
 
-ACTIVITY_INDICATOR_PRE_DELAY_SEC = 5.0
+# ERC 2026 Rules, Appendix 3, REQ-OPS-090 mandates this be >= 5.0s during
+# actual competition — see run_planned_activity()'s own docstring. Exposed
+# as the 'activity_indicator_pre_delay_sec' ROS param specifically so it can
+# (and, at competition, MUST) be set back to ERC_REQUIRED_... via launch
+# argument; the default below is 0.0 for bench testing only.
+ERC_REQUIRED_ACTIVITY_INDICATOR_PRE_DELAY_SEC = 5.0
+DEFAULT_ACTIVITY_INDICATOR_PRE_DELAY_SEC = 0.0
 DEFAULT_ACTIVITY_INDICATOR_TOPIC = 'activity_indicator'
 ACTIVITY_INDICATOR_COLOR_ACTIVE = (0.0, 0.0, 1.0, 1.0)  # blue, a=1 (lit)
 ACTIVITY_INDICATOR_COLOR_IDLE = (0.0, 0.0, 0.0, 0.0)    # off
@@ -357,6 +363,10 @@ class ServoController(Node):
         self.declare_parameter('panel_visible_max_age_sec', DEFAULT_PANEL_VISIBLE_MAX_AGE_SEC)
         self.declare_parameter('panel_align_timeout', DEFAULT_PANEL_ALIGN_TIMEOUT)
         self.declare_parameter('activity_indicator_topic', DEFAULT_ACTIVITY_INDICATOR_TOPIC)
+        # ERC-mandated at competition (see the constant's own comment) —
+        # defaults to 0.0 (no wait) for bench testing, set explicitly to
+        # ERC_REQUIRED_ACTIVITY_INDICATOR_PRE_DELAY_SEC (5.0) for real runs.
+        self.declare_parameter('activity_indicator_pre_delay_sec', DEFAULT_ACTIVITY_INDICATOR_PRE_DELAY_SEC)
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -424,6 +434,7 @@ class ServoController(Node):
         self._panel_visible_max_age_sec = self.get_parameter('panel_visible_max_age_sec').value
         self._panel_align_timeout       = self.get_parameter('panel_align_timeout').value
         self._activity_indicator_topic  = self.get_parameter('activity_indicator_topic').value
+        self._activity_indicator_pre_delay_sec = self.get_parameter('activity_indicator_pre_delay_sec').value
 
         self.vx = 0.0
         self.vy = 0.0
@@ -505,7 +516,7 @@ class ServoController(Node):
         self._panel_pose_sub = self.create_subscription(
             PoseStamped, self._panel_pose_topic, self._on_panel_pose, 10
         )
-        # See ACTIVITY_INDICATOR_PRE_DELAY_SEC's comment (REQ-OPS-080/090/100)
+        # See run_planned_activity's own docstring (REQ-OPS-080/090/100)
         # — publishes activity-indicator INTENT; nothing in this repo drives
         # a physical lamp off it yet.
         self._activity_indicator_pub = self.create_publisher(
@@ -894,33 +905,44 @@ class ServoController(Node):
         level/orient call through, so REQ-OPS-080/090/100 are satisfied
         exactly once instead of separately at each call site.
 
+        The wait duration is the ``activity_indicator_pre_delay_sec``
+        parameter, NOT a hardcoded constant — REQ-OPS-090 requires >= 5.0s
+        at actual competition (see ERC_REQUIRED_ACTIVITY_INDICATOR_PRE_DELAY_SEC),
+        but the parameter defaults to 0.0 (no wait at all) for bench
+        testing. Set it explicitly back to 5.0 (or higher) via launch
+        argument / --ros-args -p before any competition run — nothing
+        enforces that automatically.
+
         Sequence:
           1. stop() plus _activity_delay_active=True — set_velocity() and
              set_gripper_velocity() force zero while this is set, so held
              stick/key input during the wait can't sneak a command through
              (review-flagged: the sleep alone did not guarantee this).
           2. Publish the indicator ON (blue).
-          3. Sleep ACTIVITY_INDICATOR_PRE_DELAY_SEC (5s) — REQ-OPS-090.
+          3. Sleep activity_indicator_pre_delay_sec — REQ-OPS-090 at
+             competition; skipped entirely when it's 0.0.
           4. Clear _activity_delay_active, then call ``action()`` —
-             REQ-OPS-100's "at least 5s after the command was issued" —
-             and return whatever it returns.
+             REQ-OPS-100's "at least 5s after the command was issued" (at
+             competition, where the parameter is actually >= 5.0) — and
+             return whatever it returns.
           5. Publish the indicator OFF once ``action()`` returns, success or
              failure alike (``finally``) — REQ-OPS-080's "continue to emit
              ... until all rover activities are finished".
 
         Callers are already running this on their own background thread
         (spawned from ``_read_loop``/``_on_joy``'s button dispatch), so the
-        5s sleep here does not stall keyboard/joy event processing.
+        sleep here does not stall keyboard/joy event processing regardless
+        of how long it's configured to be.
         """
+        delay = self._activity_indicator_pre_delay_sec
         self.get_logger().info(
-            f'{label}: activity indicator on, holding {ACTIVITY_INDICATOR_PRE_DELAY_SEC:.0f}s '
-            f'before moving...'
+            f'{label}: activity indicator on, holding {delay:.1f}s before moving...'
         )
         self.stop()
         self._activity_delay_active = True
         self._signal_activity_indicator(True)
         try:
-            time.sleep(ACTIVITY_INDICATOR_PRE_DELAY_SEC)
+            time.sleep(delay)  # no-op for delay <= 0.0 (bench-testing default)
             self._activity_delay_active = False
             return action()
         finally:
@@ -2347,7 +2369,7 @@ class GamepadInputLoop:
     # interface rate-limits actual motion to that many rad/s regardless
     # of what Servo asks for, so beyond a certain multiplier this stops
     # helping and max_cmd_speed_rad_s becomes the real ceiling instead.
-    PUSH_BOOST_MULTIPLIER = 3.0
+    PUSH_BOOST_MULTIPLIER = 2.0
     # Shift button has no class constant — parameterized (DEFAULT_GAMEPAD_SHIFT_BUTTON),
     # read via self._shift_button, in case a pad's SDL mapping is ever wrong.
 
