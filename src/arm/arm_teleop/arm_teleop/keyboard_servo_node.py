@@ -152,6 +152,16 @@ DEFAULT_HOME_POSE     = [-1.552, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
 DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
 DEFAULT_GAMEPAD_SHIFT_BUTTON = 10
 DEFAULT_SAFE_POSE_TIMEOUT = 60.0
+# Scaling passed on every move_group goal in _execute_move_group_constraints
+# (A/B/Y home moves, level_tool) — fraction of each joint's own max_velocity/
+# max_acceleration (arm_moveit_config/config/joint_limits.yaml), which
+# itself already has a conservative default_velocity/acceleration_scaling_
+# factor of 0.1 ("for beginners"). 0.15 here felt slow/jerky in practice —
+# low acceleration in particular reads as jerkiness, not just slowness,
+# since the arm can't ramp torque smoothly. Raise further if still too slow,
+# lower again if it overshoots/oscillates or feels unsafe near people.
+DEFAULT_PLAN_EXECUTE_VELOCITY_SCALING = 1.0
+DEFAULT_PLAN_EXECUTE_ACCELERATION_SCALING = 1.0
 
 DEFAULT_GRIPPER_SPEED = 0.006   # m/s
 DEFAULT_GRIPPER_STROKE = 0.012  # m — matches finger_stroke in arm_macro.xacro
@@ -356,6 +366,8 @@ class ServoController(Node):
         self.declare_parameter('keyboard_device_path', DEFAULT_KEYBOARD_DEVICE_PATH)
         self.declare_parameter('gamepad_shift_button', DEFAULT_GAMEPAD_SHIFT_BUTTON)
         self.declare_parameter('safe_pose_timeout', DEFAULT_SAFE_POSE_TIMEOUT)
+        self.declare_parameter('plan_execute_velocity_scaling', DEFAULT_PLAN_EXECUTE_VELOCITY_SCALING)
+        self.declare_parameter('plan_execute_acceleration_scaling', DEFAULT_PLAN_EXECUTE_ACCELERATION_SCALING)
         self.declare_parameter('gripper_speed', DEFAULT_GRIPPER_SPEED)
         self.declare_parameter('gripper_stroke', DEFAULT_GRIPPER_STROKE)
         self.declare_parameter('end_effector', 'jaw')
@@ -432,6 +444,8 @@ class ServoController(Node):
         self._keyboard_device_path = self.get_parameter('keyboard_device_path').value
         self._gamepad_shift_button = int(self.get_parameter('gamepad_shift_button').value)
         self._safe_pose_timeout    = self.get_parameter('safe_pose_timeout').value
+        self._plan_execute_velocity_scaling = self.get_parameter('plan_execute_velocity_scaling').value
+        self._plan_execute_acceleration_scaling = self.get_parameter('plan_execute_acceleration_scaling').value
         self._gripper_speed        = self.get_parameter('gripper_speed').value
         self._gripper_stroke       = self.get_parameter('gripper_stroke').value
         self._panel_pose_topic          = self.get_parameter('panel_pose_topic').value
@@ -1261,6 +1275,13 @@ class ServoController(Node):
         ``(success, error)`` — ``error`` is empty on success, otherwise a
         short description (goal rejected, no result within the timeout, or
         the MoveIt status/error code on failure).
+
+        Speed comes from the ``plan_execute_velocity_scaling``/
+        ``plan_execute_acceleration_scaling`` params (fraction of each
+        joint's own max_velocity/max_acceleration in joint_limits.yaml) —
+        raise them if A/B/Y home moves feel slow or jerky (low acceleration
+        in particular reads as jerkiness), lower them again if a move
+        overshoots/oscillates or feels unsafe near people.
         """
         goal = MoveGroup.Goal()
         goal.request.group_name = MOVEIT_GROUP_NAME
@@ -1269,8 +1290,8 @@ class ServoController(Node):
         goal.request.num_planning_attempts = 5
         goal.request.allowed_planning_time = 10.0
 
-        goal.request.max_velocity_scaling_factor = 0.15
-        goal.request.max_acceleration_scaling_factor = 0.15
+        goal.request.max_velocity_scaling_factor = self._plan_execute_velocity_scaling
+        goal.request.max_acceleration_scaling_factor = self._plan_execute_acceleration_scaling
         goal.planning_options.plan_only = False  # plan then execute in one goal
         goal.planning_options.replan = True
         goal.planning_options.replan_attempts = 5
@@ -2429,7 +2450,7 @@ class GamepadInputLoop:
     # interface rate-limits actual motion to that many rad/s regardless
     # of what Servo asks for, so beyond a certain multiplier this stops
     # helping and max_cmd_speed_rad_s becomes the real ceiling instead.
-    PUSH_BOOST_MULTIPLIER = 2.0
+    PUSH_BOOST_MULTIPLIER = 3.0
     # Shift button has no class constant — parameterized (DEFAULT_GAMEPAD_SHIFT_BUTTON),
     # read via self._shift_button, in case a pad's SDL mapping is ever wrong.
 
