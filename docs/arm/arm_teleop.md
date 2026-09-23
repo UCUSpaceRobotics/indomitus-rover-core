@@ -46,13 +46,11 @@ Runs **headless by default** (works on the Jetson, no display). To watch live, o
 ros2 launch arm_viz moveit_rviz.launch.py
 ```
 
-`arm.launch.py` also brings up its own `ros2_socketcan` bridge for the
-end-effector tool's CAN traffic by default (`bring_up_can_bridge:=true`,
-see `arm_peripherals/end_effector_can_node.py`). If the arm is mounted on
-the rover and `rover.launch.py` is already running, it already brought up a
-bridge on this same physical CAN interface — pass `bring_up_can_bridge:=false`
-here to avoid a second bridge colliding on the `socket_can_sender`/
-`socket_can_receiver` node names.
+`arm.launch.py` also always brings up its own `ros2_socketcan` bridge under
+the `/arm` namespace (`/arm/socket_can_sender`, `/arm/socket_can_receiver`,
+topics `/arm/to_can_bus` / `/arm/from_can_bus`) for the end-effector tool's
+CAN traffic (see `arm_peripherals/end_effector_can_node.py`), independent of
+any bridge `rover.launch.py` runs.
 
 Terminal 2 — keyboard (wait until spawners / `servo_node` are up):
 

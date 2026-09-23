@@ -6,7 +6,7 @@ Topics:
   Sub  end_effector_controller/command  (std_msgs/String): open, close,
        drill_up, drill_down, stop_step, stop_drill, lock, unlock, read_ph
   Pub  end_effector_controller/state    (indomitus_interfaces/EndEffectorState)
-  Pub  /to_can_bus, Sub /from_can_bus   (can_msgs/Frame)
+  Pub  /arm/to_can_bus, Sub /arm/from_can_bus   (can_msgs/Frame)
 
 CAN IDs (docs/hardware/can_bus.md): jaw 0x1A/0x1B, astrobio 0x1C/0x1D,
 drill_sampling 0x1E/0x1F. astrobio command bytes (open=suck on, close=suck
@@ -62,9 +62,9 @@ class EndEffectorCanNode(Node):
         self._declare_parameters()
         self._load_parameters()
 
-        self._can_tx_pub = self.create_publisher(Frame, '/to_can_bus', 10)
+        self._can_tx_pub = self.create_publisher(Frame, '/arm/to_can_bus', 10)
         self._can_rx_sub = self.create_subscription(
-            Frame, '/from_can_bus', self._on_can_frame, 10)
+            Frame, '/arm/from_can_bus', self._on_can_frame, 10)
 
         self._cmd_sub = self.create_subscription(
             String, 'end_effector_controller/command', self._on_command, 10)
