@@ -84,13 +84,6 @@ def generate_launch_description() -> LaunchDescription:
         description="SocketCAN interface for joints + end-effector; unset uses each component's own default.",
     )
 
-    declare_bring_up_can_bridge_cmd = DeclareLaunchArgument(
-        "bring_up_can_bridge",
-        default_value="true",
-        description="Bring up our own ros2_socketcan bridge; set false if rover.launch.py already did.",
-    )
-    bring_up_can_bridge = LaunchConfiguration("bring_up_can_bridge")
-
     # Default false: collision_link_reporter lives in arm_tasks, which is
     # excluded from the Jetson production image (see docker/Dockerfile's
     # SIMULATION_PKGS — arm_tasks's remaining nodes are pure network clients
@@ -368,7 +361,6 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(declare_use_fake_hardware_cmd)
     ld.add_action(declare_end_effector_cmd)
     ld.add_action(declare_can_interface_cmd)
-    ld.add_action(declare_bring_up_can_bridge_cmd)
     ld.add_action(declare_report_collisions_cmd)
     ld.add_action(declare_bring_up_gamepad_cmd)
     ld.add_action(declare_home_pose_name_cmd)
@@ -387,14 +379,11 @@ def generate_launch_description() -> LaunchDescription:
 
     # reuses rover_bringup's ros2_socketcan bridge; filter covers only
     # jaw/astrobio/drill_sampling cmd/ack pairs (0x1A-0x1F), not joint IDs.
-    # Pushed under /arm (unlike the rest of arm_group) since
-    # end_effector_can_node talks on the absolute /arm/to_can_bus and
-    # /arm/from_can_bus topics — only correct when this launch brings up its
-    # own bridge (bring_up_can_bridge:=true); if rover.launch.py already
-    # brought one up (bring_up_can_bridge:=false) it stays unnamespaced and
-    # won't match.
+    # Always pushed under /arm: end_effector_can_node talks on the absolute
+    # /arm/to_can_bus and /arm/from_can_bus topics, independent of rover's
+    # own unnamespaced bridge.
     can_bridge_condition = IfCondition(PythonExpression([
-        "'", bring_up_can_bridge, "' == 'true' and '", use_fake_hardware, "' != 'true'"
+        "'", use_fake_hardware, "' != 'true'"
     ]))
 
     can_bridge_launch_arguments = {"receiver_filters": "1A:7FE,1C:7FE,1E:7FE"}
