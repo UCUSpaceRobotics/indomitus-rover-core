@@ -57,7 +57,7 @@
       <child link="arm_base_link"/>
       <origin xyz="0.06 0 0.021" rpy="0 0 ${-pi/2}"/>
       <axis xyz="0 0 1"/>
-      <limit lower="${-pi/2}" upper="${pi/2}" effort="100.0" velocity="1.0"/>
+      <limit lower="${-pi}" upper="${0}" effort="100.0" velocity="1.0"/>
     </joint>
 
     <link name="arm_base_link">
