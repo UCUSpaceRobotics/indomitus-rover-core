@@ -387,7 +387,12 @@ def generate_launch_description() -> LaunchDescription:
 
     # reuses rover_bringup's ros2_socketcan bridge; filter covers only
     # jaw/astrobio/drill_sampling cmd/ack pairs (0x1A-0x1F), not joint IDs.
-    # Kept unnamespaced — see arm_group's own comment above.
+    # Pushed under /arm (unlike the rest of arm_group) since
+    # end_effector_can_node talks on the absolute /arm/to_can_bus and
+    # /arm/from_can_bus topics — only correct when this launch brings up its
+    # own bridge (bring_up_can_bridge:=true); if rover.launch.py already
+    # brought one up (bring_up_can_bridge:=false) it stays unnamespaced and
+    # won't match.
     can_bridge_condition = IfCondition(PythonExpression([
         "'", bring_up_can_bridge, "' == 'true' and '", use_fake_hardware, "' != 'true'"
     ]))
@@ -405,6 +410,9 @@ def generate_launch_description() -> LaunchDescription:
         condition=can_bridge_condition,
     )
 
-    ld.add_action(can_bridge_include)
+    ld.add_action(GroupAction([
+        PushRosNamespace("arm"),
+        can_bridge_include,
+    ]))
 
     return ld
