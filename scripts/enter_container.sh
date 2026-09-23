@@ -119,6 +119,7 @@ run_rover() {
   local WIFI_SSID="ERC_UCUSpaceRobotics_A"
   local WIFI_PASS="19283746"
   local USE_ETH=false
+  local NO_WIFI=false
 
   show_rover_help() {
     cat << EOF
@@ -129,6 +130,8 @@ and opens an interactive terminal inside the remote container.
 
 Options:
   --eth                 Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
+  --no-wifi, -n          Skip the Wi-Fi auto-connect and ssh straight to the Jetson
+                         (already on the network, or connected some other way).
   --user USER           Jetson SSH username (Default: ${JETSON_USER})
   --ip IP               Jetson IP address (Default: ${JETSON_IP})
   --dir DIR             Remote deployment directory (Default: /home/\${JETSON_USER}/indomitus-rover-core/)
@@ -144,6 +147,7 @@ EOF
   while [[ "$#" -gt 0 ]]; do
     case $1 in
       --eth) USE_ETH=true; JETSON_IP="${JETSON_ETHERNET_IP}"; shift 1;;
+      --no-wifi|-n) NO_WIFI=true; shift 1;;
       --user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
       --ip) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
       --dir) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; REMOTE_DIR="$2"; shift 2;;
@@ -166,8 +170,12 @@ EOF
   if ! command -v ssh >/dev/null 2>&1; then error "SSH client is not installed."; fi
 
   step "Verifying Network Connection..."
-  ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
-  wait_for_ssh "$TARGET" 30
+  if [ "$NO_WIFI" = true ]; then
+    echo "--no-wifi: skipping Wi-Fi auto-connect, ssh'ing directly"
+  else
+    ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
+  fi
+  wait_for_ssh "$TARGET" 30 "$USE_ETH"
 
   step "Starting Docker Container on rover computer..."
   ssh -q "${TARGET}" \

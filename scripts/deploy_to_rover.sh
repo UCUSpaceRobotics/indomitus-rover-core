@@ -36,6 +36,7 @@ PULL_MODE=false
 LOCAL_BUILD_MODE=false
 
 USE_ETH=false
+NO_WIFI=false
 
 show_help() {
     cat << EOF
@@ -66,6 +67,8 @@ Options:
     --compose FILE              Path to the Production Compose file (Default: ${COMPOSE_FILE})
     --ssid SSID                 Wi-Fi SSID of the Jetson hotspot (Default: ${WIFI_SSID})
     --pass PASS                 Wi-Fi password for the Jetson hotspot (Default: ${WIFI_PASS})
+    --no-wifi, -n                Skip the Wi-Fi auto-connect and ssh straight to the Jetson
+                                    (already on the network, or connected some other way).
     -h, --help                  Display this help message and exit
 EOF
 }
@@ -108,6 +111,7 @@ while [[ "$#" -gt 0 ]]; do
         --compose) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
         --ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
         --pass) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
+        --no-wifi|-n) NO_WIFI=true; shift 1;;
         -h|--help) show_help; exit 0;;
         *) error "Unknown command or option: $1\nRun '$0 --help' for usage." ;;
     esac
@@ -182,7 +186,11 @@ CLEANUP_FILES+=("${ARCHIVE_NAME}")
 
 connect_to_jetson() {
     step "Verifying Jetson Connection..."
-    ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
+    if [ "$NO_WIFI" = true ]; then
+        echo "--no-wifi: skipping Wi-Fi auto-connect, ssh'ing directly"
+    else
+        ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "$USE_ETH"
+    fi
     wait_for_ssh "$TARGET" 30 "$USE_ETH"
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "mkdir -p -- \"${REMOTE_DIR}\""
 }

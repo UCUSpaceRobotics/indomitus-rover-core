@@ -15,6 +15,7 @@ JETSON_USER="indomitus-rover"
 JETSON_IP="10.42.0.1"
 WIFI_SSID="ERC_UCUSpaceRobotics_A"
 WIFI_PASS="19283746"
+NO_WIFI=false
 TARGET_MODE=""   # Must be set via positional arg: rover|local
 
 # Flags to forward to setup.sh
@@ -45,6 +46,8 @@ Options:
     -u, --user USER   Jetson SSH username (Default: ${JETSON_USER})
     -w, --ssid SSID   Wi-Fi SSID (Default: ${WIFI_SSID})
     -p, --pass PASS   Wi-Fi password (Default: ${WIFI_PASS})
+    --no-wifi, -n     Skip the Wi-Fi auto-connect and ssh straight to the Jetson
+                      (already on the network, or connected some other way).
     -h, --help        Display this help message and exit
 
 Examples:
@@ -67,6 +70,7 @@ while [[ "$#" -gt 0 ]]; do
         -u|--user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
         -w|--ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
         -p|--pass) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
+        --no-wifi|-n) NO_WIFI=true; shift 1;;
         -h|--help) show_help; exit 0;;
         *) show_help; exit 1;;
     esac
@@ -112,7 +116,11 @@ TARGET="${JETSON_USER}@${JETSON_IP}"
 
 # Connection Hook
 step "Connecting to Jetson..."
-ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "false"
+if [ "$NO_WIFI" = true ]; then
+    echo "--no-wifi: skipping Wi-Fi auto-connect, ssh'ing directly"
+else
+    ensure_wifi_connection "$WIFI_SSID" "$WIFI_PASS" "false"
+fi
 wait_for_ssh "$TARGET" 30
 
 # Copy everything from system/ directory to a temp folder

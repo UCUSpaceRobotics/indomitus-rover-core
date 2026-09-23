@@ -47,6 +47,7 @@ The script is pre-configured with default values matching the standard repositor
 * `--compose FILE` : Path to the Production Compose file. (Default: `docker/docker-compose.prod.yaml`)
 * `--ssid SSID` : Wi-Fi SSID of the Jetson hotspot to automatically connect to. (Default: `ERC_UCUSpaceRobotics_A`)
 * `--pass PASS` : Wi-Fi password for the Jetson hotspot. (Default: `19283746`)
+* `--no-wifi, -n` : Skip the Wi-Fi auto-connect and ssh straight to the Jetson (already on the network, or connected some other way).
 * `-h, --help` : Display the help message and exit.
 
 

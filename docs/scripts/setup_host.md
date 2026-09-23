@@ -21,6 +21,7 @@ Deploys system config (`system/`) to the Jetson rover or to the local machine.
 |---|---|
 | `--can` | Deploy/configure CAN rules only |
 | `--service` | Deploy/configure rover systemd service only |
+| `--no-wifi, -n` | Skip the Wi-Fi auto-connect and ssh straight to the Jetson (`rover` target only; already on the network, or connected some other way) |
 | `-h, --help` | Show help |
 
 For other flags use `-h` flag.
