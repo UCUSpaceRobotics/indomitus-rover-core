@@ -24,6 +24,7 @@ from std_srvs.srv import Trigger
 from indomitus_interfaces.msg import DriveState
 
 from rover_teleop.controller_led import LED_NODE_DOWN, ControllerLed, led_colour
+from rover_teleop.dataset_trigger import DatasetTrigger
 from rover_teleop.drive_kinematics import (
     DriveModes,
     JoyInput,
@@ -130,6 +131,14 @@ class JoystickInterpreterNode(Node):
             )
         }
 
+        # Dataset capture: the camera servers own the saving and the recording
+        # state, so these two buttons only ask — see dataset_trigger.
+        self._dataset = DatasetTrigger(
+            host=str(declare_and_get('dataset_host', '127.0.0.1')),
+            ports=[int(p) for p in declare_and_get('dataset_camera_ports', list(range(8090, 8098)))],
+            log=self._dataset_log,
+        )
+
         self._led = ControllerLed(self.get_logger())
         # Recomputes the colour each tick, so this also carries state changes
         # that no button press announces.
@@ -156,6 +165,10 @@ class JoystickInterpreterNode(Node):
             ButtonToggle(declare_and_get('active_toggle_button', 2), self._on_active_toggle_pressed),
             ButtonToggle(declare_and_get('clear_errors_button', 20),
                          lambda: self._request('drive/clear_errors')),
+            ButtonToggle(declare_and_get('dataset_capture_button', 14),
+                         lambda: self._dataset_press('capture', self._dataset.capture)),
+            ButtonToggle(declare_and_get('dataset_record_button', 15),
+                         lambda: self._dataset_press('record', self._dataset.toggle_record)),
         ]
 
         self.get_logger().info(
@@ -273,6 +286,19 @@ class JoystickInterpreterNode(Node):
 
         level = self.get_logger().info if result.success else self.get_logger().warn
         level(f'{name}: {result.message}')
+
+    def _dataset_press(self, what: str, start):
+        if not start():
+            self.get_logger().warn(f'dataset {what}: previous request still in flight')
+
+    def _dataset_log(self, level: str, message: str):
+        # Called from DatasetTrigger's worker thread; rclpy loggers are
+        # thread-safe. Two separate call sites on purpose: rclpy pins a
+        # severity to each one and raises if the same line logs at another.
+        if level == 'warn':
+            self.get_logger().warn(message)
+        else:
+            self.get_logger().info(message)
 
     def _on_vy_toggle_pressed(self):
         self._vy_enabled = not self._vy_enabled
