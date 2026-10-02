@@ -271,8 +271,11 @@ class JoystickInterpreterNode(Node):
             self.get_logger().error(f'{name} call failed: {exc!r}')
             return
 
-        level = self.get_logger().info if result.success else self.get_logger().warn
-        level(f'{name}: {result.message}')
+        # Separate call sites: rclpy pins a severity to each line (see _dataset_log).
+        if result.success:
+            self.get_logger().info(f'{name}: {result.message}')
+        else:
+            self.get_logger().warn(f'{name}: {result.message}')
 
     def _on_vy_toggle_pressed(self):
         self._vy_enabled = not self._vy_enabled
