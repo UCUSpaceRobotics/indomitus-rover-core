@@ -142,7 +142,7 @@ DEFAULT_PANEL_CENTER_Z_OFFSET = 0.225  # PANEL_HEIGHT / 2 -- vertical center
 # both the post-plan margin check (step 7) and as OMPL path constraints
 # (see PANEL_JOINT_LIMIT_PATH_CONSTRAINTS below).
 JOINT_LIMITS = {
-    'arm_mount_base_joint': (-math.pi, math.pi),
+    'arm_mount_base_joint': (-math.pi / 2, math.pi / 2),
     'arm_base_shoulder_joint': (-math.pi, math.pi),
     'arm_shoulder_forearm_joint': (-math.pi / 2, math.pi / 2),
     'arm_forearm_wrist_1_joint': (-20 * math.pi / 18, 20 * math.pi / 18),

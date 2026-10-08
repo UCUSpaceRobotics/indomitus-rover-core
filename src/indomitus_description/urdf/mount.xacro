@@ -5,10 +5,9 @@
        indomitus_gz.urdf.xacro (Gazebo model) mount the arm through this
        macro, so TF and physics always agree. -->
 
-  <!-- TODO: placeholder carried over from the old mount_arm block. The real
-       pose must come from CAD (MR_ARM_ATT); this one sits inside the
-       main body box. -->
-  <xacro:property name="arm_mount_xyz" value="0.2 0 0.1"/>
+  <!-- Checked by eye against the real rover; the base sitting inside the
+       main body box is expected. -->
+  <xacro:property name="arm_mount_xyz" value="0.17 0 0.12"/>
   <xacro:property name="arm_mount_rpy" value="0 0 0"/>
 
   <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>

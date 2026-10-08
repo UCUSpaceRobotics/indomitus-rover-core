@@ -62,12 +62,12 @@ about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
 
 Usage (stack in one terminal, input in another):
         ros2 launch arm_bringup arm.launch.py use_fake_hardware:=false
-        ros2 run arm_teleop keyboard_servo_node
-        # optional: pin a device — ros2 run ... --ros-args -p keyboard_device_path:=/dev/input/event19
+        ros2 launch arm_teleop keyboard_servo.launch.py
+        # optional: pin a device — ros2 run arm_teleop keyboard_servo_node --ros-args
+        #   -r __ns:=/arm -p keyboard_device_path:=/dev/input/event19
 
-    Gazebo sim (sim clock + faster speeds, see arm_sim/config/keyboard_servo_sim.yaml):
-        ros2 run arm_teleop keyboard_servo_node --ros-args \\
-            --params-file $(ros2 pkg prefix arm_sim)/share/arm_sim/config/keyboard_servo_sim.yaml
+    Gazebo sim (sim clock):
+        ros2 launch arm_teleop keyboard_servo.launch.py use_sim_time:=true
 
     Gamepad only:
         ros2 launch arm_teleop gamepad.launch.py
@@ -77,6 +77,7 @@ import sys
 import os
 import fcntl
 import functools
+import signal
 import threading
 import termios
 import time
@@ -86,6 +87,8 @@ import select
 from pathlib import Path
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.signals import SignalHandlerOptions
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.qos import qos_profile_sensor_data
@@ -147,7 +150,7 @@ DEFAULT_EE_FRAME      = 'arm_tcp_link'
 
 DEFAULT_VIEW_FRAME    = 'arm_camera_link'
 # Fallback if poses.json "home" cannot be loaded (matches SRDF group_state home).
-DEFAULT_HOME_POSE     = [-1.552, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
+DEFAULT_HOME_POSE     = [0.0188, 0.5057, 1.1731, 0.717, 0.0093, -1.536]
 # 'auto' picks a USB/external keyboard (Keychron, etc.) over the laptop's
 # built-in AT Translated Set 2 device — the usual failure mode in Docker.
 DEFAULT_KEYBOARD_DEVICE_PATH = 'auto'
@@ -3289,7 +3292,9 @@ def _run_teleop(controller: 'ServoController', input_loop) -> None:
     condition, leave the controller stopped), so the ROS lifecycle
     around them doesn't need to be duplicated per input source.
     """
-    spin_thread = threading.Thread(target=rclpy.spin, args=(controller,), daemon=True)
+    executor = SingleThreadedExecutor()
+    executor.add_node(controller)
+    spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
 
     try:
@@ -3297,14 +3302,36 @@ def _run_teleop(controller: 'ServoController', input_loop) -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        # The ROS context is still alive here (see _init_ros), so Servo can be
+        # paused and the joints handed back to the trajectory controller.
         controller.stop()
         if not controller.stop_servo():
             controller.get_logger().warn(
                 'Could not confirm Servo stopped before shutdown — '
                 'it may still be active.'
             )
+        executor.shutdown(timeout_sec=2.0)
+        spin_thread.join(timeout=2.0)
         controller.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
+
+
+def _raise_keyboard_interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
+def _init_ros() -> None:
+    """Init rclpy without its signal handlers.
+
+    rclpy's own SIGINT handler shuts the context down immediately, so the
+    cleanup in ``_run_teleop`` could no longer reach Servo or the controller
+    manager. Ctrl+C (and the SIGTERM ``ros2 launch`` escalates to) instead
+    raise KeyboardInterrupt in the main thread and go through that cleanup.
+    """
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    # Explicit: a process started in the background inherits SIGINT ignored.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
 
 
 def main():
@@ -3312,7 +3339,7 @@ def main():
 
     See ``_run_teleop`` for the shared spin/cleanup lifecycle.
     """
-    rclpy.init()
+    _init_ros()
     controller = ServoController()
     _run_teleop(controller, KeyboardInputLoop(controller))
 
@@ -3323,7 +3350,7 @@ def main_gamepad():
     Requires a running ``joy`` publisher — see ``arm_teleop/launch/gamepad.launch.py``.
     See ``_run_teleop`` for the shared spin/cleanup lifecycle.
     """
-    rclpy.init()
+    _init_ros()
     controller = ServoController()
     _run_teleop(controller, GamepadInputLoop(controller))
 

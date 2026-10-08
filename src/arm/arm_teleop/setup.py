@@ -14,6 +14,7 @@ setup(
             'launch/gamepad.launch.py',
             'launch/gamepad_joy.launch.py',
             'launch/gamepad_servo.launch.py',
+            'launch/keyboard_servo.launch.py',
         ]),
     ],
     install_requires=['setuptools'],

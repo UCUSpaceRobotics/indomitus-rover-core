@@ -13,7 +13,7 @@
 |---|---|---|
 | GUI-only RViz | `arm_viz/urdf_preview.launch.py` | Inspect URDF / joint sliders — **no** motors, **no** ros2_control |
 | MoveIt stack | `arm_bringup/arm.launch.py` | Plan&Execute + `servo_node` |
-| Cartesian teleop | `ros2 run arm_teleop keyboard_servo_node` | After demo is up; gamepad: `arm_teleop/gamepad.launch.py` |
+| Cartesian teleop | `ros2 launch arm_teleop keyboard_servo.launch.py` | After demo is up; gamepad: `arm_teleop/gamepad.launch.py` |
 
 On the host (for RViz):
 
@@ -55,7 +55,7 @@ any bridge `rover.launch.py` runs.
 Terminal 2 — keyboard (wait until spawners / `servo_node` are up):
 
 ```bash
-ros2 run arm_teleop keyboard_servo_node
+ros2 launch arm_teleop keyboard_servo.launch.py
 ```
 
 Gamepad instead of keyboard:
@@ -181,7 +181,7 @@ Before **Plan & Execute** in RViz: stop teleop (exit the input node) so JTC owns
 
 ```bash
 ros2 launch arm_bringup arm.launch.py use_fake_hardware:=true
-ros2 run arm_teleop keyboard_servo_node
+ros2 launch arm_teleop keyboard_servo.launch.py
 ```
 
 ## GUI-only (no control)
