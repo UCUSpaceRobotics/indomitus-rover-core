@@ -37,7 +37,7 @@ on the panel itself.
 ## Gazebo simulation (not yet verified)
 
 `panel_sim/panel_gazebo.launch.py` (panel alone) and
-`rover_sim/sim_gz_full.launch.py` (rover + arm + panel together) exist in
+`indomitus_bringup/sim_rover_arm.launch.py spawn_panel:=true` (rover + arm + panel together) exist in
 the codebase for physics testing, but neither has been confirmed working
 end-to-end yet: every attempt so far in this environment has hit spawn
 failures caused by an outdated Gazebo install (server reports **Ignition

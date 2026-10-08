@@ -82,20 +82,13 @@ All world/map/model/spawn arguments below are forwarded as-is to `sim_gz.launch.
 ros2 launch rover_sim sim_gz_nav2.launch.py
 ```
 
-## `sim_gz_full.launch.py`
+## Rover with the arm
 
-Launches a combined rover + arm robot in Gazebo (single `robot_description`, arm-aware bridge/controllers), and optionally spawns the switch panel task board.
-
-| Argument | Default | Description |
-|---|---|---|
-| `world_name` | `world_demo` | World to load. |
-| `model_name` | `indomitus_rover` | Name the robot model is spawned under. |
-| `arm_camera` | `true` | Enable the arm wrist camera render/bridge. |
-| `spawn_panel` | `true` | Also spawn the switch panel task board. |
-| `panel_x` / `panel_y` / `panel_z` / `panel_yaw` | `2.0` / `0.0` / `0.5` / `3.14159` | Panel spawn pose. |
-
-**Example:**
+The combined rover + arm sim lives outside this package, so that the rover
+never depends on the arm:
 
 ```bash
-ros2 launch rover_sim sim_gz_full.launch.py spawn_panel:=false
+ros2 launch indomitus_bringup sim_rover_arm.launch.py            # spawn_panel:=true adds the switch panel
 ```
+
+See `docs/software/tf_ownership.md` ("Rover + arm: entry points and rules").

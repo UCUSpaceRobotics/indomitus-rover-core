@@ -1,7 +1,7 @@
 # ${world} is substituted at launch time (string.Template) with the actual
 # Gazebo world name -- "panel_sim_world" when spawned standalone
-# (panel_gazebo.launch.py), or the shared world (e.g. "world_demo") when
-# spawned by rover_sim/sim_gz_full.launch.py alongside the rover+arm.
+# (panel_gazebo.launch.py), or the shared world (e.g. "mars_yard") when
+# spawned by indomitus_bringup/sim_rover_arm.launch.py alongside the rover+arm.
 - ros_topic_name: "/clock"
   gz_topic_name: "/clock"
   ros_type_name: "rosgraph_msgs/msg/Clock"

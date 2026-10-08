@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<robot name="indomitus_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- URDF for the /arm robot_state_publisher (and MoveIt) when the arm is
+       mounted on the rover. main_body_link is left empty here: the /rover
+       robot_state_publisher owns it, and the main_body_link -> arm_* edges
+       published from this file join the rover's TF tree. Carries only the
+       arm's own <ros2_control> block (from the macro). -->
+  <xacro:arg name="end_effector" default="jaw"/>
+
+  <xacro:include filename="$(find indomitus_description)/urdf/mount.xacro"/>
+
+  <link name="main_body_link"/>
+
+  <xacro:indomitus_arm_on_rover/>
+</robot>

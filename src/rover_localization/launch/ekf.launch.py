@@ -48,8 +48,7 @@ def generate_launch_description():
             remappings=[
                 ('odometry/filtered', output_odom_topic_val),
                 # Namespacing this node must not fragment the shared TF tree -
-                # tf/tf_static stay global, matching the panel precedent in
-                # rover_sim/launch/sim_gz_full.launch.py.
+                # tf/tf_static stay global - see docs/software/tf_ownership.md.
                 ('tf', '/tf'),
                 ('tf_static', '/tf_static'),
             ],

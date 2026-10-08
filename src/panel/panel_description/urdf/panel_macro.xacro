@@ -756,7 +756,7 @@
     <xacro:if value="$(arg sim)">
       <!-- panel_base_link only: no gravity, so the board itself neither
            falls nor tips over on sloped terrain and just sits exactly at
-           its spawn pose (see panel_x/y/z/yaw in sim_gz_full.launch.py).
+           its spawn pose (see panel_x/y/z/yaw in indomitus_bringup/sim_rover_arm.launch.py).
            This means that pose must now match the real terrain height by
            hand: there is no physics settling to correct a wrong z.
            Switch/breaker links below are untouched, so the arm can still

@@ -1,4 +1,4 @@
-# OMPL planning pipeline for indomitus_arm (MoveIt 2 Humble).
+# OMPL planning pipeline for indomitus_arm (MoveIt 2 Jazzy).
 #
 # No top-level "ompl:" wrapper — moveit_configs_utils' MoveItConfigsBuilder
 # already scopes this whole file's content under the pipeline's own name
@@ -27,13 +27,21 @@
 # "executed" while the arm never moves. TOTG alone is standard and safe;
 # only the jerk-limiting refinement is lost, not velocity/acceleration
 # safety margins.
-planning_plugin: ompl_interface/OMPLPlanner
-request_adapters: >-
-  default_planner_request_adapters/ResolveConstraintFrames
-  default_planner_request_adapters/FixWorkspaceBounds
-  default_planner_request_adapters/FixStartStateBounds
-  default_planner_request_adapters/FixStartStateCollision
-  default_planner_request_adapters/AddTimeOptimalParameterization
+#
+# Jazzy format: plugin/adapters are string arrays (Humble's single strings
+# crash move_group with "expected [string_array] got [string]"), and
+# TOTG moved from the request to the response adapters.
+planning_plugins:
+  - ompl_interface/OMPLPlanner
+request_adapters:
+  - default_planning_request_adapters/ResolveConstraintFrames
+  - default_planning_request_adapters/ValidateWorkspaceBounds
+  - default_planning_request_adapters/CheckStartStateBounds
+  - default_planning_request_adapters/CheckStartStateCollision
+response_adapters:
+  - default_planning_response_adapters/AddTimeOptimalParameterization
+  - default_planning_response_adapters/ValidateSolution
+  - default_planning_response_adapters/DisplayMotionPath
 start_state_max_bounds_error: 0.1
 
 planner_configs:

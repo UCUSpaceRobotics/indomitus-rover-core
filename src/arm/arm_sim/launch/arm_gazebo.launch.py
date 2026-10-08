@@ -1,7 +1,13 @@
+"""
+Arm-only Gazebo sim: world, bridges, the arm_standalone model and the
+optional switch panel. The arm's ROS stack (robot_state_publisher,
+controllers, move_group, servo) comes from arm_stack_sim.launch.py and runs
+under /arm, the same as arm hardware.
+"""
+
 import contextlib
 import os
 import random
-import sys
 
 import numpy as np
 import yaml
@@ -9,32 +15,19 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     IncludeLaunchDescription,
     LogInfo,
     RegisterEventHandler,
     SetEnvironmentVariable,
     Shutdown,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
-from moveit_configs_utils import MoveItConfigsBuilder
-from moveit_configs_utils.launches import generate_move_group_launch
-
-
-def _arg_from_argv(name: str, default: str) -> str:
-    """Plain-str mappings force MoveItConfigsBuilder's single-eval xacro
-    path — LaunchConfiguration ones desync across sub-launches. Same
-    helper/reasoning as arm_bringup/arm.launch.py's own.
-    """
-    prefix = f"{name}:="
-    for arg in sys.argv:
-        if arg.startswith(prefix):
-            return arg[len(prefix):]
-    return default
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -47,7 +40,6 @@ def generate_launch_description() -> LaunchDescription:
     panel_xacro_file = os.path.join(panel_description_dir, "urdf", "panel_standalone.urdf.xacro")
     world_file = os.path.join(arm_sim_dir, "worlds", "empty.sdf")
     bridge_config = os.path.join(arm_sim_dir, "config", "gz_bridge.yaml")
-    bridge_config_no_camera = os.path.join(arm_sim_dir, "config", "gz_bridge_no_camera.yaml")
 
     resource_path_root = os.path.dirname(arm_description_dir)
     existing_gz_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
@@ -57,20 +49,14 @@ def generate_launch_description() -> LaunchDescription:
     ign_resource_path = os.pathsep.join(filter(
         None, [resource_path_root, os.path.dirname(panel_description_dir), existing_ign_path]))
 
-    robot_description_content = ParameterValue(
-        Command(
-            [
-                "xacro ",
-                xacro_file,
-                " sim:=true",
-                " camera:=",
-                LaunchConfiguration("camera"),
-                " end_effector:=",
-                LaunchConfiguration("end_effector"),
-            ]
-        ),
-        value_type=str,
-    )
+    # Spawned from a string, not from a robot_state_publisher topic: the
+    # only arm robot_state_publisher is /arm's, in arm_stack_sim.launch.py.
+    spawn_description_content = Command([
+        "xacro ", xacro_file,
+        " sim:=true",
+        " camera:=", LaunchConfiguration("camera"),
+        " end_effector:=", LaunchConfiguration("end_effector"),
+    ])
 
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -79,20 +65,27 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={"gz_args": f"-r {world_file}"}.items(),
     )
 
-    robot_state_publisher = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        output="screen",
-        parameters=[{"robot_description": robot_description_content, "use_sim_time": True}],
-    )
-
-
     spawn_entity = Node(
         package="ros_gz_sim",
         executable="create",
-        arguments=["-topic", "robot_description", "-name", "indomitus_arm", "-z", "0.3"],
+        arguments=["-string", spawn_description_content, "-name", "indomitus_arm", "-z", "0.3"],
         output="screen",
     )
+
+    # Wrapped in its own group so its launch_arguments don't leak into the
+    # rest of this file.
+    arm_stack = GroupAction([
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(arm_sim_dir, "launch", "arm_stack_sim.launch.py")
+            ),
+            launch_arguments={
+                "description_file": xacro_file,
+                "camera": LaunchConfiguration("camera"),
+                "end_effector": LaunchConfiguration("end_effector"),
+            }.items(),
+        ),
+    ])
 
     # Panel placement, found via a real reachability SEARCH rather than
     # hand-eyeballed vector math (which repeatedly produced unreachable
@@ -227,168 +220,36 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration("spawn_panel")),
     )
 
-    ros_gz_bridge = Node(
+    clock_bridge = Node(
         package="ros_gz_bridge",
+        name="clock_bridge",
+        executable="parameter_bridge",
+        arguments=["/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"],
+        parameters=[{"use_sim_time": True}],
+        output="screen",
+    )
+
+    camera_bridge = Node(
+        package="ros_gz_bridge",
+        name="arm_camera_bridge",
         executable="parameter_bridge",
         parameters=[{"config_file": bridge_config, "use_sim_time": True}],
         output="screen",
         condition=IfCondition(LaunchConfiguration("camera")),
     )
 
-    ros_gz_bridge_no_camera = Node(
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        parameters=[{"config_file": bridge_config_no_camera, "use_sim_time": True}],
-        output="screen",
-        condition=UnlessCondition(LaunchConfiguration("camera")),
-    )
-
-    # Sim is single-host, but panel_align_node/keyboard_servo_node still
-    # run as separate processes here too — bring up the same lock server
-    # the real GS/Jetson split needs (arm_bringup/arm.launch.py), so sim
-    # actually exercises the real locking path instead of silently having
-    # none.
-    arm_motion_lock_server = Node(
-        package="arm_teleop",
-        executable="arm_motion_lock_server",
-        output="screen",
-    )
-
-    controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "joint_state_broadcaster",
-            "indomitus_arm_controller",
-            "--controller-manager-timeout", "60",
-            "--switch-timeout", "60",
-            "--service-call-timeout", "70",
-        ],
-        output="screen",
-    )
-
-    # Streaming teleop controller, spawned inactive — JTC owns the joints
-    # until arm_teleop switches controllers for Servo. Mirrors arm_bringup/arm.launch.py;
-    # a separate spawner call because --inactive applies to the whole call.
-    forward_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["indomitus_arm_forward_position_controller", "--inactive"],
-        output="screen",
-    )
-
-    # Each startup stage runs only if the previous one exited with code 0;
-    # otherwise the whole launch shuts down instead of starting nodes
-    # against a broken stack.
     def _after_spawn(event, context):
         if event.returncode != 0:
             return [
                 LogInfo(msg=f"Entity spawn failed (exit code {event.returncode})."),
                 Shutdown(reason="entity spawn failed"),
             ]
-        return [controller_spawner, forward_spawner]
+        return None
 
-    delayed_controller_spawners = RegisterEventHandler(
+    spawn_failure_handler = RegisterEventHandler(
         OnProcessExit(
             target_action=spawn_entity,
             on_exit=_after_spawn,
-        )
-    )
-
-    # Spawned only after indomitus_arm_controller is confirmed loaded and
-    # active (chained off controller_spawner's own exit, not run alongside
-    # it). This ordering was originally added to test a startup-race
-    # hypothesis for the gripper reliability bug; that hypothesis was
-    # disproven (the real cause was gz_ros2_control 0.7.20 dropping writes
-    # at a joint's own command_interface bound, fixed via
-    # finger_limit_margin in arm_macro.xacro). Kept anyway since it's a
-    # harmless, slightly cleaner startup order.
-    gripper_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "gripper_right_controller",
-            "gripper_left_controller",
-            "--controller-manager-timeout", "60",
-            "--switch-timeout", "60",
-            "--service-call-timeout", "70",
-        ],
-        output="screen",
-    )
-
-    def _after_arm_controller(event, context):
-        if event.returncode != 0:
-            return [
-                LogInfo(msg=f"Controller activation failed (exit code {event.returncode})."),
-                Shutdown(reason="controller activation failed"),
-            ]
-        # Jaw finger joints only exist when end_effector:=jaw.
-        if LaunchConfiguration("end_effector").perform(context) != "jaw":
-            return [LogInfo(
-                msg="end_effector != 'jaw' — skipping gripper_right/left_controller spawn."
-            )]
-        return [gripper_spawner]
-
-    delayed_gripper_spawner = RegisterEventHandler(
-        OnProcessExit(
-            target_action=controller_spawner,
-            on_exit=_after_arm_controller,
-        )
-    )
-
-    # planning_pipelines restricted to ompl on purpose: with none of the
-    # config yaml files it discovers for chomp/pilz_industrial_motion_planner
-    # actually present in this package (only ompl_planning.yaml exists),
-    # letting MoveItConfigsBuilder auto-load its bundled default configs
-    # for all three still left move_group picking an ambiguous
-    # "planning_plugin" between them ("Multiple planning plugins
-    # available... Using 'chomp_interface/CHOMPPlanner' for now" — even
-    # when the request explicitly asked for the 'ompl' pipeline_id).
-    # panel_align_node's Cartesian pose-constraint goals need real OMPL
-    # (CHOMP only accepts joint-space goals and rejects the rest outright
-    # with MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS); nothing in this repo
-    # uses chomp or pilz, so there's no reason to load them at all.
-    # Without this mapping move_group/servo always assume 'jaw', so with a
-    # drill they wait forever for finger joints that never publish.
-    moveit_config = MoveItConfigsBuilder(
-        "indomitus_arm", package_name="arm_moveit_config"
-    ).robot_description(mappings={
-        "end_effector": _arg_from_argv("end_effector", "jaw"),
-    }).planning_pipelines(pipelines=["ompl"]).to_moveit_configs()
-    move_group_launch = generate_move_group_launch(moveit_config)
-
-    moveit_config_dir = get_package_share_directory("arm_moveit_config")
-    with open(os.path.join(moveit_config_dir, "config", "servo.yaml")) as f:
-        servo_yaml = yaml.safe_load(f)
-    servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
-
-    # Inverse Jacobian only — see arm_bringup/arm.launch.py (KDL searchPositionIK
-    # from home makes +X teleop freeze while -X still works).
-    servo_node = Node(
-        package="moveit_servo",
-        executable="servo_node_main",
-        name="servo_node",
-        output="screen",
-        parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-            moveit_config.joint_limits,
-            servo_params,
-        ],
-    )
-
-    def _after_controllers(event, context):
-        if event.returncode != 0:
-            return [
-                LogInfo(msg=f"Controller activation failed (exit code {event.returncode})."),
-                Shutdown(reason="controller activation failed"),
-            ]
-        return list(move_group_launch.entities) + [servo_node]
-
-    delayed_move_group = RegisterEventHandler(
-        OnProcessExit(
-            target_action=controller_spawner,
-            on_exit=_after_controllers,
         )
     )
 
@@ -410,18 +271,15 @@ def generate_launch_description() -> LaunchDescription:
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
             delete_marker_layout_file,
-            arm_motion_lock_server,
             gz_sim,
-            robot_state_publisher,
+            clock_bridge,
+            camera_bridge,
+            arm_stack,
             spawn_entity,
+            spawn_failure_handler,
             panel_state_publisher,
             panel_world_connector,
             panel_spawn,
-            ros_gz_bridge,
-            ros_gz_bridge_no_camera,
-            delayed_controller_spawners,
-            delayed_move_group,
-            delayed_gripper_spawner,
         ]
     )
 

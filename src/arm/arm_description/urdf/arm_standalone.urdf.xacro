@@ -1,7 +1,8 @@
 <?xml version="1.0"?>
 <robot name="indomitus_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Arm-only assembly. The world root fixes the model in Gazebo. -->
   <xacro:arg name="end_effector" default="jaw"/>
-  
+
   <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>
 
   <link name="world"/>
@@ -9,5 +10,18 @@
   <xacro:indomitus_arm parent_link="world">
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </xacro:indomitus_arm>
+
+  <!-- Its controller_manager lives under /arm, same as on hardware, and
+       reads robot_description from /arm/robot_state_publisher. -->
+  <xacro:if value="$(arg sim)">
+    <gazebo>
+      <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <ros>
+          <namespace>/arm</namespace>
+        </ros>
+        <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
+      </plugin>
+    </gazebo>
+  </xacro:if>
 
 </robot>

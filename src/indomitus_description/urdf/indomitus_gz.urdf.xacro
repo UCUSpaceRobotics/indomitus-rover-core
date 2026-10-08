@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<robot name="indomitus" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- The only model spawned into Gazebo for the combined rover + arm sim.
+       It has every link, joint and sensor, plus one gz_ros2_control plugin
+       per subsystem, but no <ros2_control> blocks: each controller_manager
+       reads those from its own namespace's robot_description
+       (/rover/robot_state_publisher with rover.xacro, /arm/robot_state_publisher
+       with arm_on_rover.urdf.xacro). Never run a robot_state_publisher on
+       this file - it would duplicate their TF edges. -->
+
+  <!-- Read by rover.urdf.xacro; same defaults as rover.xacro, except use_sim. -->
+  <xacro:arg name="use_sim" default="true"/>
+  <xacro:arg name="lidar_simulate_scan" default="false"/>
+  <xacro:arg name="stereo_camera_simulate_rgb" default="false"/>
+  <xacro:arg name="stereo_camera_simulate_depth" default="false"/>
+  <xacro:arg name="stereo_camera_simulate_imu" default="true"/>
+
+  <!-- Read by arm_macro.xacro (also declares sim and camera); the arm's
+       Gazebo tags need sim:=true. -->
+  <xacro:arg name="end_effector" default="jaw"/>
+  <xacro:arg name="sim" default="true"/>
+
+  <xacro:include filename="$(find rover_description)/urdf/rover.urdf.xacro"/>
+  <xacro:include filename="$(find indomitus_description)/urdf/mount.xacro"/>
+
+  <xacro:indomitus_arm_on_rover/>
+
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <ros>
+        <namespace>/rover</namespace>
+      </ros>
+      <parameters>$(find rover_sim)/config/controllers.yaml</parameters>
+    </plugin>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <ros>
+        <namespace>/arm</namespace>
+      </ros>
+      <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <!-- rover.xacro's gz JointStatePublisher system is left out on purpose:
+       no bridge config forwards its topic (joint states come from each
+       controller_manager's joint_state_broadcaster). -->
+</robot>

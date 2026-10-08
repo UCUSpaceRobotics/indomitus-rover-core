@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Single source of the arm mount pose on the rover. Both
+       arm_on_rover.urdf.xacro (/arm robot_state_publisher) and
+       indomitus_gz.urdf.xacro (Gazebo model) mount the arm through this
+       macro, so TF and physics always agree. -->
+
+  <!-- TODO: placeholder carried over from the old mount_arm block. The real
+       pose must come from CAD (MR_ARM_ATT); this one sits inside the
+       main body box. -->
+  <xacro:property name="arm_mount_xyz" value="0.2 0 0.1"/>
+  <xacro:property name="arm_mount_rpy" value="0 0 0"/>
+
+  <xacro:include filename="$(find arm_description)/urdf/arm_macro.xacro"/>
+
+  <xacro:macro name="indomitus_arm_on_rover">
+    <xacro:indomitus_arm parent_link="main_body_link">
+      <origin xyz="${arm_mount_xyz}" rpy="${arm_mount_rpy}"/>
+    </xacro:indomitus_arm>
+  </xacro:macro>
+</robot>

@@ -187,7 +187,7 @@ def generate_launch_description() -> LaunchDescription:
     # symmetric in ±X. move_group still gets KDL for Plan&Execute.
     servo_node = Node(
         package="moveit_servo",
-        executable="servo_node_main",
+        executable="servo_node",
         name="servo_node",
         namespace="arm",
         output="screen",

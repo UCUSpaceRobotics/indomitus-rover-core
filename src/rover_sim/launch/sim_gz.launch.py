@@ -3,7 +3,7 @@ import shutil
 import tempfile
 from string import Template
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -99,6 +99,15 @@ def check_git_lfs(rover_sim_share: str) -> None:
         "=" * 70,
     ]
     raise RuntimeError("\n".join(lines))
+
+
+def package_available(package: str) -> bool:
+    """rover_localization is currently COLCON_IGNOREd; skip what depends on it instead of crashing."""
+    try:
+        get_package_share_directory(package)
+    except PackageNotFoundError:
+        return False
+    return True
 
 
 def setup_environment() -> list:
@@ -398,21 +407,18 @@ def generate_launch_description() -> LaunchDescription:
                 }
             ),
 
-            # A GroupAction's pushed namespace is popped as soon as its own
-            # action list has been visited - since TimerAction only visits
-            # its own actions later, once the timer actually fires, the push
-            # above is long gone by then unless it's re-applied here too.
+            # On Jazzy TimerAction keeps the namespace pushed above (re-pushing
+            # it here spawned from /rover/rover/robot_description).
             TimerAction(
                 period=LaunchConfiguration("spawn_delay"),
-                actions=[GroupAction([
-                    PushRosNamespace(LaunchConfiguration("rover_namespace")),
-                    make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub),
-                ])]
+                actions=[make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub)],
             ),
 
-            include_launch("rover_localization", "ekf.launch.py", {
+            # Without the EKF + tilt broadcaster there is no
+            # odom -> base_footprint -> base_link in sim; the TF root is base_link.
+            *([include_launch("rover_localization", "ekf.launch.py", {
                 "use_sim_time": "true",
-            }),
+            })] if package_available("rover_localization") else []),
 
             OpaqueFunction(function=make_control_launch,
                            kwargs={"controllers_yaml_path": controllers_yaml_path}),

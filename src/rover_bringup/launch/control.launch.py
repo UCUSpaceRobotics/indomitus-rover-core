@@ -11,12 +11,14 @@ def make_controller_spawners(context):
     yaml_path = LaunchConfiguration('controllers_yaml').perform(context)
     controllers = LaunchConfiguration('controllers').perform(context).split()
     inactive = set(LaunchConfiguration('inactive_controllers').perform(context).split())
+    extra_args = LaunchConfiguration('spawner_args').perform(context).split()
 
     spawners = []
     for name in controllers:
         args = [name, '--param-file', yaml_path]
         if name in inactive:
             args.append('--inactive')
+        args += extra_args
         spawners.append(Node(
             package='controller_manager',
             executable='spawner',
@@ -35,6 +37,8 @@ def generate_launch_description():
                                description='space-separated controller names to spawn'),
         DeclareLaunchArgument('inactive_controllers', default_value='',
                                description='space-separated subset of controllers to spawn inactive'),
+        DeclareLaunchArgument('spawner_args', default_value='',
+                               description='extra arguments for every spawner, e.g. "--switch-timeout 60"'),
 
         Node(
             package='controller_manager',

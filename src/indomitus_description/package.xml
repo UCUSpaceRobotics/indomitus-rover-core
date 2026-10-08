@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>indomitus_description</name>
+  <version>0.0.0</version>
+  <description>
+    Whole-robot assembly of the Indomitus rover with the arm mounted:
+    the arm mount pose, the arm-on-rover URDF for the /arm
+    robot_state_publisher, and the combined model spawned into Gazebo.
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>rover_description</exec_depend>
+  <exec_depend>arm_description</exec_depend>
+
+  <!-- indomitus_gz.urdf.xacro points each gz_ros2_control plugin at its
+       subsystem's controller yaml. -->
+  <exec_depend>rover_sim</exec_depend>
+  <exec_depend>arm_sim</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
