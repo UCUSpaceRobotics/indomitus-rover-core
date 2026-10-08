@@ -3,8 +3,8 @@
 Separate node from ``keyboard_servo_node.py`` on purpose: MoveIt planning
 is a new, heavier dependency this codebase hasn't used before, and
 shouldn't be mixed into the input-handling module. Exposes one
-``std_srvs/srv/Trigger`` service (``align``), the same idiom already used
-for ``servo_node/start_servo``/``stop_servo``.
+``std_srvs/srv/Trigger`` service (``align``), the same idiom
+keyboard_servo_node.py already uses for ``panel_align/*``.
 
 ``align_to_panel()`` mirrors ``ServoController.move_to_safe_pose()``'s
 contract: returns ``bool``, never raises, logs a distinguishing message
@@ -59,7 +59,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, JointState
 from shape_msgs.msg import SolidPrimitive
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 
 from arm_teleop.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 from arm_tasks.camera_target_math import (
@@ -321,7 +321,7 @@ class PanelAlignNode(Node):
         self._compute_ik_client = self.create_client(
             GetPositionIK, 'compute_ik', callback_group=cb_group)
         self._stop_servo_client = self.create_client(
-            Trigger, 'servo_node/stop_servo', callback_group=cb_group)
+            SetBool, 'servo_node/pause_servo', callback_group=cb_group)
         self._switch_controller_client = self.create_client(
             SwitchController, 'controller_manager/switch_controller', callback_group=cb_group)
         self._acquire_lock_client = self.create_client(
@@ -761,7 +761,7 @@ class PanelAlignNode(Node):
 
     def _call_stop_servo(self) -> bool:
         if not self._stop_servo_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().warn('servo_node/stop_servo not available')
+            self.get_logger().warn('servo_node/pause_servo not available')
             return False
         done = threading.Event()
         result = {}
@@ -770,7 +770,7 @@ class PanelAlignNode(Node):
             result['r'] = fut.result()
             done.set()
 
-        self._stop_servo_client.call_async(Trigger.Request()).add_done_callback(_cb)
+        self._stop_servo_client.call_async(SetBool.Request(data=True)).add_done_callback(_cb)
         if not done.wait(timeout=3.0):
             return False
         return bool(result.get('r') and result['r'].success)

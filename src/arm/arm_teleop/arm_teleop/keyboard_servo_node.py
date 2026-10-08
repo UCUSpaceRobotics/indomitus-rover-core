@@ -91,13 +91,14 @@ from rclpy.action import ActionClient
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped, Quaternion, TwistStamped
 from sensor_msgs.msg import JointState, Joy
-from std_msgs.msg import Int8, Float64MultiArray, ColorRGBA, String
-from std_srvs.srv import Trigger
+from std_msgs.msg import Float64MultiArray, ColorRGBA, String
+from std_srvs.srv import SetBool, Trigger
 from action_msgs.msg import GoalStatus
 from controller_manager_msgs.srv import ListControllers, SwitchController
 from builtin_interfaces.msg import Duration
 from moveit_msgs.action import MoveGroup
-from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes
+from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes, ServoStatus
+from moveit_msgs.srv import ServoCommandType
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import TransformException
 from indomitus_interfaces.msg import EndEffectorState
@@ -307,14 +308,15 @@ def _resolve_keyboard_device_path(requested: str) -> str | None:
 
 # Must mirror moveit_servo::StatusCode (status_codes.h) exactly — a prior
 # version of this table was off by one, mislabeling JOINT_BOUND as HALT_FOR_COLLISION.
-SERVO_STATUS_INVALID                              = -1
-SERVO_STATUS_OK                                    = 0
-SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY = 1
-SERVO_STATUS_HALT_FOR_SINGULARITY                  = 2
-SERVO_STATUS_DECELERATE_FOR_COLLISION              = 3
-SERVO_STATUS_HALT_FOR_COLLISION                    = 4
-SERVO_STATUS_JOINT_BOUND                           = 5
-SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY    = 6
+# moveit_msgs/ServoStatus codes (Jazzy numbering — differs from Humble's).
+SERVO_STATUS_INVALID                               = ServoStatus.INVALID
+SERVO_STATUS_OK                                    = ServoStatus.NO_WARNING
+SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY = ServoStatus.DECELERATE_FOR_APPROACHING_SINGULARITY
+SERVO_STATUS_HALT_FOR_SINGULARITY                  = ServoStatus.HALT_FOR_SINGULARITY
+SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY    = ServoStatus.DECELERATE_FOR_LEAVING_SINGULARITY
+SERVO_STATUS_DECELERATE_FOR_COLLISION              = ServoStatus.DECELERATE_FOR_COLLISION
+SERVO_STATUS_HALT_FOR_COLLISION                    = ServoStatus.HALT_FOR_COLLISION
+SERVO_STATUS_JOINT_BOUND                           = ServoStatus.JOINT_BOUND
 
 SERVO_STATUS_NAMES = {
     SERVO_STATUS_INVALID: 'INVALID',
@@ -492,6 +494,12 @@ class ServoController(Node):
         self._panel_align_succeeded_once = False
         self._last_panel_visible_time = None
         self._motion_lock = threading.Lock()
+        # Shared by every MoveIt plan&execute action (r/f/p/m and their
+        # gamepad buttons): move_group handles one execution at a time — a
+        # second goal mid-execution is rejected ("Cannot push a new
+        # trajectory while another is being executed") and on Jazzy has
+        # crashed move_group outright.
+        self.planned_activity_lock = threading.Lock()
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -506,8 +514,11 @@ class ServoController(Node):
         self._gripper_left_pub = self.create_publisher(
             Float64MultiArray, 'gripper_left_controller/commands', 10
         )
-        self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
-        self._stop_client  = self.create_client(Trigger, 'servo_node/stop_servo')
+        # Jazzy Servo has no start/stop: it is paused/unpaused, and only
+        # accepts commands once a command type has been selected.
+        self._pause_client = self.create_client(SetBool, 'servo_node/pause_servo')
+        self._command_type_client = self.create_client(
+            ServoCommandType, 'servo_node/switch_command_type')
         self._panel_align_client = self.create_client(Trigger, 'panel_align/align')
         self._orient_gripper_client = self.create_client(Trigger, 'panel_align/orient_gripper')
         self._switch_client = self.create_client(
@@ -543,8 +554,11 @@ class ServoController(Node):
         self._timer = self.create_timer(1.0 / self._publish_rate, self._publish)
 
         self._servo_status = SERVO_STATUS_OK
+        # Twists are only streamed while Servo is running: Jazzy Servo warns
+        # on every command it gets before a command type is set / while paused.
+        self._servo_running = False
         self._status_sub = self.create_subscription(
-            Int8,
+            ServoStatus,
             'servo_node/status',
             self._on_servo_status,
             10
@@ -715,8 +729,8 @@ class ServoController(Node):
             Linear velocities are in ``linear_frame`` (default
             ``arm_mount_link``). Angular velocities are specified in
             ``ee_frame`` (default ``arm_tcp_link``) and rotated into
-            ``linear_frame`` before publish. Servo's
-            ``robot_link_command_frame`` must match ``linear_frame``.
+            ``linear_frame`` before publish, which is also the
+            TwistStamped header frame Servo applies the twist in.
 
             The ``view_*`` components are an independent translation set in
             ``view_frame`` (default ``arm_camera_link``); they are rotated
@@ -977,8 +991,46 @@ class ServoController(Node):
             self._activity_delay_active = False
             self._signal_activity_indicator(False)
 
+    def _call_servo_service(self, client, request, what: str, timeout: float) -> bool:
+        """Call a Servo service and wait for its ``success`` field.
+
+        Returns:
+            bool: True if the service answered within ``timeout`` with
+            success; False otherwise (logged).
+        """
+        if not client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn(f'Servo {what} service not available')
+            return False
+
+        done_event = threading.Event()
+        outcome = {'ok': False}
+
+        def _cb(future):
+            """Record the service result and wake the waiting caller."""
+            try:
+                outcome['ok'] = bool(future.result().success)
+                if not outcome['ok']:
+                    self.get_logger().warn(f'Servo {what} failed')
+            except Exception as e:
+                self.get_logger().error(f'Servo {what} error: {e}')
+            finally:
+                done_event.set()
+
+        client.call_async(request).add_done_callback(_cb)
+
+        if not done_event.wait(timeout=timeout):
+            self.get_logger().warn(f'Servo {what} timed out')
+            return False
+        return outcome['ok']
+
+    def _pause_servo(self, pause: bool, timeout: float = 10.0) -> bool:
+        """Pause (``True``) or resume (``False``) MoveIt Servo."""
+        return self._call_servo_service(
+            self._pause_client, SetBool.Request(data=pause),
+            'pause' if pause else 'resume', timeout)
+
     def stop_servo(self) -> bool:
-        """Call the Servo ``stop_servo`` service and wait for confirmation.
+        """Pause MoveIt Servo and wait for confirmation.
 
         Waits up to 2 seconds for the service to become available and up to
         10 seconds for the asynchronous call to complete. After Servo stops,
@@ -988,21 +1040,8 @@ class ServoController(Node):
             bool: True if Servo stopped AND the trajectory controller took
             over; False otherwise.
         """
-        if not self._stop_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().warn('Servo stop service not available')
-            return False
-
-        done_event = threading.Event()
-
-        def _cb(future):
-            """Mark the stop-servo call as complete (service response callback)."""
-            done_event.set()
-
-        future = self._stop_client.call_async(Trigger.Request())
-        future.add_done_callback(_cb)
-
-        if not done_event.wait(timeout=10.0):
-            self.get_logger().warn('Servo stop timed out')
+        self._servo_running = False
+        if not self._pause_servo(True):
             return False
 
         # Prefer JTC when teleop is idle so Plan&Execute / home work.
@@ -1466,10 +1505,10 @@ class ServoController(Node):
     def start_servo(self) -> bool:
         """Switch to streaming controller, then start MoveIt Servo.
 
-        Waits up to 2 seconds for the service to become available and up to
-        20 seconds for the call to complete. Falls back to the trajectory
-        controller on any failure, so the joints are never left claimed by
-        the streaming controller with Servo not actually running.
+        Selects TWIST commands and unpauses Servo, waiting up to 2 seconds
+        for each service and up to 20 seconds for each call. Falls back to
+        the trajectory controller on any failure, so the joints are never
+        left claimed by the streaming controller with Servo not running.
 
         Returns:
             bool: True if Servo confirmed it started.
@@ -1479,45 +1518,29 @@ class ServoController(Node):
                 'Could not activate forward position controller — Servo not started.'
             )
             return False
-        if not self._start_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().error('Servo start service not available')
-            self.use_trajectory_controller()
-            return False
 
-        done_event = threading.Event()
-        outcome = {'ok': False}
+        ok = (
+            self._call_servo_service(
+                self._command_type_client,
+                ServoCommandType.Request(command_type=ServoCommandType.Request.TWIST),
+                'command type switch', 20.0)
+            and self._pause_servo(False, timeout=20.0)
+        )
 
-        def _cb(future):
-            try:
-                result = future.result()
-                outcome['ok'] = bool(result.success)
-                if not result.success:
-                    self.get_logger().warn(f'Servo start failed: {result.message}')
-            except Exception as e:
-                self.get_logger().error(f'Servo start error: {e}')
-            finally:
-                done_event.set()
-
-        future = self._start_client.call_async(Trigger.Request())
-        future.add_done_callback(_cb)
-
-        if not done_event.wait(timeout=20.0):
-            self.get_logger().error('Servo start timed out')
-            self.use_trajectory_controller()
-            return False
-
-        if outcome['ok']:
+        self._servo_running = ok
+        if ok:
             self.get_logger().info('Servo started successfully')
         else:
+            self.get_logger().error('Servo start failed')
             self.use_trajectory_controller()
-        return outcome['ok']
+        return ok
 
-    def _on_servo_status(self, msg: Int8):
+    def _on_servo_status(self, msg: ServoStatus):
         """Handle incoming Servo status updates.
 
         Automatically restarts Servo only when the status transitions into
         SERVO_STATUS_HALT_FOR_SINGULARITY, since that halt is typically
-        recoverable by re-issuing start_servo (Servo re-attempts the motion
+        recoverable by re-issuing start_servo() (Servo re-attempts the motion
         away from the singular configuration). Other halt states — e.g.
         SERVO_STATUS_HALT_FOR_COLLISION — are intentionally NOT
         auto-recovered: they represent conditions where continuing motion
@@ -1526,7 +1549,7 @@ class ServoController(Node):
         workspace/collision object review) rather than being silently
         retried.
         """
-        code = msg.data
+        code = msg.code
         if code != self._servo_status:
             name = SERVO_STATUS_NAMES.get(code, f'UNKNOWN({code})')
             if code in (SERVO_STATUS_OK, SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY,
@@ -1700,12 +1723,14 @@ class ServoController(Node):
 
         Mount XYZ as-is, view-frame XYZ and EEF ω rotated in via TF.
 
-        Servo ``robot_link_command_frame`` must equal ``linear_frame``.
+        Stamped with ``linear_frame``, the frame Servo applies the twist in.
         Publishing Cartesian velocity in the TCP frame was observed to
         produce almost no joint motion for mount-aligned X; mount-frame
         twists move the EEF correctly. The view-relative keys therefore
         resolve to mount here instead of switching the published frame.
         """
+        if not self._servo_running:
+            return
         vx, vy, vz = self._linear_in_command_frame()
         wx, wy, wz = self._angular_in_command_frame()
         if self._sampling_mode:
@@ -1854,10 +1879,11 @@ class KeyboardInputLoop:
         self._devices = []
         self._read_thread = None
         self._servo_started = False
-        self._safe_pose_running = threading.Lock()
-        self._level_running = threading.Lock()
-        self._panel_align_running = threading.Lock()
-        self._orient_gripper_running = threading.Lock()
+        # One lock for all planned moves — see ServoController.planned_activity_lock.
+        self._safe_pose_running = controller.planned_activity_lock
+        self._level_running = controller.planned_activity_lock
+        self._panel_align_running = controller.planned_activity_lock
+        self._orient_gripper_running = controller.planned_activity_lock
 
         self._panel_was_visible = False
         self._panel_prompt_pending = False
@@ -2015,6 +2041,7 @@ class KeyboardInputLoop:
         direction/gripper keys do.
         """
         if not self._panel_align_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
             return
         try:
             print('Aligning to panel...')
@@ -2030,6 +2057,7 @@ class KeyboardInputLoop:
     def _handle_orient_gripper(self):
         """Rotate the gripper in place to face the remembered panel direction."""
         if not self._orient_gripper_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
             return
         try:
             print('Orienting gripper toward panel...')
@@ -2056,6 +2084,7 @@ class KeyboardInputLoop:
         keyboard event processing.
         """
         if not self._safe_pose_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
             return
         try:
             with self._lock:
@@ -2087,6 +2116,7 @@ class KeyboardInputLoop:
         mid-trajectory" risk to guard against.
         """
         if not self._level_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
             return
         try:
             print('Leveling tool...')
@@ -2504,12 +2534,13 @@ class GamepadInputLoop:
         self._probing_mode = False
         self._exit_event = threading.Event()
         self._prev_buttons = None
-        self._safe_pose_running = threading.Lock()
-        self._panel_align_running = threading.Lock()
+        # One lock for all planned moves — see ServoController.planned_activity_lock.
+        self._safe_pose_running = controller.planned_activity_lock
+        self._panel_align_running = controller.planned_activity_lock
         self._safe_pose_active = False
-        self._level_running = threading.Lock()
+        self._level_running = controller.planned_activity_lock
         self._level_active = False
-        self._orient_gripper_running = threading.Lock()
+        self._orient_gripper_running = controller.planned_activity_lock
         self._orient_gripper_active = False
         self._prev_cmd = (0.0,) * 6
 
@@ -3059,6 +3090,7 @@ class GamepadInputLoop:
         and for why this is guarded by a non-blocking lock.
         """
         if not self._panel_align_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
             return
         try:
             print('Aligning to panel...')
@@ -3075,6 +3107,7 @@ class GamepadInputLoop:
         """Rotate the gripper in place to face the remembered panel direction
         (mirrors KeyboardInputLoop._handle_orient_gripper)."""
         if not self._orient_gripper_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
             return
         self._orient_gripper_active = True
         try:
@@ -3136,6 +3169,7 @@ class GamepadInputLoop:
         configuration while teleop already assumed the new one.
         """
         if not self._safe_pose_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
             return
         self._safe_pose_active = True
         try:
@@ -3221,6 +3255,7 @@ class GamepadInputLoop:
         same reasoning as that flag's own declaration.
         """
         if not self._level_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
             return
         self._level_active = True
         try:

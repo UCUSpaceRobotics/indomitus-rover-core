@@ -178,13 +178,11 @@ def generate_launch_description() -> LaunchDescription:
     # kp, the arm overshoots then waits — stop-go buzz at the Servo rate.
     smoothing_params = {"butterworth_filter_coeff": 2.0}
 
-    # Do NOT pass robot_description_kinematics into servo_node.
-    # Humble Servo prefers the KDL plugin (searchPositionIK, 5 ms timeout)
-    # over the inverse Jacobian. From home, +X (W) often fails that IK so
-    # cartesianServoCalcs() returns false and the last joint command is
-    # republished (frozen commands, status still 0). -X (S) succeeds, so
-    # teleop looks one-sided. Without a solver, Servo uses J^# which is
-    # symmetric in ±X. move_group still gets KDL for Plan&Execute.
+    # Jazzy Servo needs robot_description_kinematics: it takes the planning
+    # and end-effector frames from the group's IK solver and rejects every
+    # command without one ("No IK solver for planning group"). Humble's
+    # one-sided +X freeze from KDL searchPositionIK (why this used to be left
+    # out) did not reproduce in sim: ±X/±Y/±Z all move from home.
     servo_node = Node(
         package="moveit_servo",
         executable="servo_node",
@@ -194,6 +192,7 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
             # Without this, joint_limits.yaml (per-joint max_velocity/
             # max_acceleration/position bounds) never reaches Servo's robot
             # model — it falls back to the bare URDF <limit> tags only, so

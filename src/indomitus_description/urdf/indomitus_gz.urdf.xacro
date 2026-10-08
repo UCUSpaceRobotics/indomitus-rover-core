@@ -37,6 +37,8 @@
         <namespace>/arm</namespace>
       </ros>
       <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
+      <!-- See arm_standalone.urdf.xacro. -->
+      <position_proportional_gain>1.0</position_proportional_gain>
     </plugin>
   </gazebo>
 
