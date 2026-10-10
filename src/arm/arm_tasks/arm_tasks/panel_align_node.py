@@ -198,7 +198,7 @@ class PanelAlignNode(Node):
         # 1.15 fit the panel in frame with barely any margin; 1.4 fit it
         # comfortably but pushed arm_mount_base_joint to only 3.4% clear of
         # its limit (need 8%, see _check_joint_margins) — confirmed live at
-        # the current panel placement (arm_gazebo.launch.py's PANEL_X/Y/Z/YAW).
+        # the current panel placement (arm_gz.launch.py's PANEL_X/Y/Z/YAW).
         # 1.3 is the compromise: more framing margin than 1.15, still clear
         # of the joint-limit rejection 1.4 hit.
         self.declare_parameter('standoff_margin_multiplier', 1.3)

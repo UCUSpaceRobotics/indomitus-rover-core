@@ -1,5 +1,5 @@
 # Arm wrist camera only. /clock is bridged by whichever entry point owns
-# Gazebo (arm_gazebo.launch.py, or indomitus_bringup's sim_rover_arm via the
+# Gazebo (arm_gz.launch.py, or indomitus_bringup's sim_rover_arm via the
 # rover bridge), so this file can be reused by both without a second /clock.
 - ros_topic_name: "/camera/image_raw"
   gz_topic_name: "/arm_camera/image_raw"

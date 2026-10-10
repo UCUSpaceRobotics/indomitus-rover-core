@@ -26,6 +26,8 @@
   <!-- Internal packages -->
   <exec_depend>arm_description</exec_depend>
   <exec_depend>arm_moveit_config</exec_depend>
+  <!-- arm_bringup.launch_utils: MoveIt config + Servo shared with the real arm. -->
+  <exec_depend>arm_bringup</exec_depend>
   <!-- arm_motion_lock_server — single-host stand-in here for the real
        GS/Jetson split (see arm_bringup/arm.launch.py's own copy). -->
   <exec_depend>arm_teleop</exec_depend>

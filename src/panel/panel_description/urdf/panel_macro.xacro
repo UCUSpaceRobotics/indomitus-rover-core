@@ -13,7 +13,7 @@
        this is a launch-time choice, not a fixed constant. Defaults below
        are just one valid arrangement (15 unused) — override via
        `marker_id_top_left:=13` etc. when building for a real/competition
-       panel layout, or see arm_gazebo.launch.py for randomizing this
+       panel layout, or see arm_gz.launch.py for randomizing this
        choice on every sim launch. Must stay in sync with
        panel_perception's matching `marker_id_top_left`/
        `marker_id_top_right`/`marker_id_bottom_left` ROS parameters on

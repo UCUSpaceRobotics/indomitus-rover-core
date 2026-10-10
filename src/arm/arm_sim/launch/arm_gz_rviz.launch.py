@@ -26,7 +26,7 @@ def _arg_from_argv(name: str, default: str) -> str:
 def generate_launch_description() -> LaunchDescription:
     """Gazebo sim plus RViz in one launch.
 
-    Thin wrapper: includes arm_gazebo.launch.py unchanged (Gazebo,
+    Thin wrapper: includes arm_gz.launch.py unchanged (Gazebo,
     ros2_control, move_group, servo) and adds the same RViz setup that
     arm_moveit_config's moveit_rviz.launch.py provides. Use this instead
     of running arm_bringup/arm.launch.py next to Gazebo — arm.launch.py starts its
@@ -37,7 +37,7 @@ def generate_launch_description() -> LaunchDescription:
 
     gazebo_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(arm_sim_dir, "launch", "arm_gazebo.launch.py")
+            os.path.join(arm_sim_dir, "launch", "arm_gz.launch.py")
         ),
         launch_arguments={
             "camera": LaunchConfiguration("camera"),

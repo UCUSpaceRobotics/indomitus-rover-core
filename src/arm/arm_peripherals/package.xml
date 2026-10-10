@@ -7,7 +7,7 @@
     Nodes that control the arm's end-effector tool (gripper/claw/drill/lock)
     via CAN bus. Talks to the ESP32 tool firmware over can_msgs/Frame on
     /to_can_bus and /from_can_bus (see ros2_socketcan, brought up by
-    rover_bringup/can.launch.py) rather than opening SocketCAN itself —
+    arm_bringup/can.launch.py) rather than opening SocketCAN itself —
     same pattern rover_peripherals already uses for the rover's lights/
     power-monitor ESP32 peripherals.
   </description>

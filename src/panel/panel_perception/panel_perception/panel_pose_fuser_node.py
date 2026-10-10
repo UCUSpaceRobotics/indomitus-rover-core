@@ -85,7 +85,7 @@ DEFAULT_MAX_ORIENTATION_DISAGREEMENT = math.radians(5)
 FALLBACK_MARKER_ID_TOP_LEFT = 11
 FALLBACK_MARKER_ID_TOP_RIGHT = 13
 FALLBACK_MARKER_ID_BOTTOM_LEFT = 14
-# Written fresh by arm_sim/launch/arm_gazebo.launch.py on every sim
+# Written fresh by arm_sim/launch/arm_gz.launch.py on every sim
 # launch (see its own matching logic) with that run's randomized
 # marker_id_top_left/top_right/bottom_left — lets `ros2 run
 # panel_perception panel_pose_fuser_node` just work in sim with no
@@ -99,7 +99,7 @@ FALLBACK_MARKER_ID_BOTTOM_LEFT = 14
 # on the same host with different domain IDs would otherwise clobber
 # each other's layout file. _load_sim_marker_layout also ignores this
 # file if it's older than SIM_MARKER_LAYOUT_MAX_AGE_SEC, as a backstop
-# against a crashed sim run's leftover file (arm_gazebo.launch.py
+# against a crashed sim run's leftover file (arm_gz.launch.py
 # deletes it on a clean exit, but can't on a crash) being picked up by a
 # later, unrelated run.
 PANEL_MARKER_LAYOUT_SIM_FILE = f'/tmp/panel_marker_layout_domain{os.environ.get("ROS_DOMAIN_ID", "0")}.yaml'
@@ -127,7 +127,7 @@ def _load_sim_marker_layout(logger) -> dict:
         logger.warn(
             f'{PANEL_MARKER_LAYOUT_SIM_FILE} is {age_sec:.0f}s old (max '
             f'{SIM_MARKER_LAYOUT_MAX_AGE_SEC:.0f}s) — likely a leftover from a crashed '
-            'sim run, ignoring it. Restart arm_gazebo.launch.py to write a fresh one.'
+            'sim run, ignoring it. Restart arm_gz.launch.py to write a fresh one.'
         )
         return {}
     try:

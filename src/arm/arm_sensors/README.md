@@ -17,7 +17,7 @@ argument:
 
 Both publish to `/camera/image_raw` + `/camera/camera_info` with
 `frame_id=arm_camera_optical_frame` — the same topics/frame the
-simulated wrist camera uses (`arm_sim`'s `arm_gazebo.launch.py`), so
+simulated wrist camera uses (`arm_sim`'s `arm_gz.launch.py`), so
 `aruco_tracker`, `panel_pose_fuser_node`, and anything else downstream
 in the CV pipeline need no changes to run against this real driver
 instead of the sim one. **This also means the two are interchangeable,
@@ -133,7 +133,7 @@ different effective intrinsics).
 ## Real camera vs. simulation
 
 **Do not launch this at the same time as the simulated wrist camera**
-(`arm_sim`'s `arm_gazebo.launch.py`, `camera:=true`, the default). Both
+(`arm_sim`'s `arm_gz.launch.py`, `camera:=true`, the default). Both
 intentionally publish to the exact same topics —
 `/camera/image_raw` + `/camera/camera_info` — precisely so downstream
 consumers (`aruco_tracker`, `panel_pose_fuser_node`, ...) don't need any

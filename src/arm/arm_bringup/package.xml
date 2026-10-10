@@ -12,6 +12,7 @@
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
@@ -33,9 +34,11 @@
        anywhere in this package; those live only in arm_viz. -->
   <exec_depend>arm_moveit_config</exec_depend>
   <exec_depend>moveit_configs_utils</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <exec_depend>moveit_servo</exec_depend>
   <exec_depend>arm_peripherals</exec_depend>
-  <exec_depend>rover_bringup</exec_depend>
+  <exec_depend>ros2_socketcan</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>arm_teleop</exec_depend>
   <!-- collision_link_reporter (report_collisions:=true) only — arm_tasks is
        excluded from the Jetson production image (docker/Dockerfile's

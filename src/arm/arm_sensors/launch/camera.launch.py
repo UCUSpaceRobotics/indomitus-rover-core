@@ -37,7 +37,7 @@ GStreamer pipelines selected by the "backend" launch argument:
 Publishes to /camera/image_raw + /camera/camera_info with
 frame_id=arm_camera_optical_frame by default, matching exactly what the
 simulated wrist camera already publishes (see arm_sim's
-arm_gazebo.launch.py + config/gz_bridge.yaml) -- aruco_tracker,
+arm_gz.launch.py + config/gz_bridge.yaml) -- aruco_tracker,
 panel_pose_fuser_node, and everything else downstream in the CV pipeline
 need no changes to run against this real driver instead of the sim one.
 
@@ -116,7 +116,7 @@ def generate_launch_description() -> LaunchDescription:
     # ExecuteProcess actions chained via OnProcessExit (rather than one
     # ExecuteProcess running "bash -c 'cmd1 && cmd2'") makes that
     # required order an explicit launch-graph dependency instead of
-    # shell interpolation -- the same pattern arm_gazebo.launch.py
+    # shell interpolation -- the same pattern arm_gz.launch.py
     # already uses for delayed_controller_spawners/delayed_move_group.
     disable_autofocus_process = ExecuteProcess(
         cmd=["v4l2-ctl", "-d", video_device, "-c", "focus_automatic_continuous=0"],

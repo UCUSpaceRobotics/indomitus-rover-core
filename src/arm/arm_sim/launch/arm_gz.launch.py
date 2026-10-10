@@ -253,34 +253,30 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
-    ld = LaunchDescription(
-        [
-            DeclareLaunchArgument("camera", default_value="true"),
-            DeclareLaunchArgument(
-                "end_effector", default_value="jaw",
-                description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"),
-            DeclareLaunchArgument(
-                "spawn_panel",
-                # Defaults off for the drill build; still overridable.
-                default_value=PythonExpression([
-                    "'false' if '", LaunchConfiguration("end_effector"), "' == 'drill_sampling' else 'true'"
-                ]),
-                description="Also spawn the switch panel task board, for panel_align_node/CV testing "
-                            "(defaults to false when end_effector:=drill_sampling)"),
-            SetParameter(name="use_sim_time", value=True),
-            SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
-            SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
-            delete_marker_layout_file,
-            gz_sim,
-            clock_bridge,
-            camera_bridge,
-            arm_stack,
-            spawn_entity,
-            spawn_failure_handler,
-            panel_state_publisher,
-            panel_world_connector,
-            panel_spawn,
-        ]
-    )
-
-    return ld
+    return LaunchDescription([
+        DeclareLaunchArgument("camera", default_value="true"),
+        DeclareLaunchArgument(
+            "end_effector", default_value="jaw",
+            description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"),
+        DeclareLaunchArgument(
+            "spawn_panel",
+            # Defaults off for the drill build; still overridable.
+            default_value=PythonExpression([
+                "'false' if '", LaunchConfiguration("end_effector"), "' == 'drill_sampling' else 'true'"
+            ]),
+            description="Also spawn the switch panel task board, for panel_align_node/CV testing "
+                        "(defaults to false when end_effector:=drill_sampling)"),
+        SetParameter(name="use_sim_time", value=True),
+        SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", gz_resource_path),
+        SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", ign_resource_path),
+        delete_marker_layout_file,
+        gz_sim,
+        clock_bridge,
+        camera_bridge,
+        arm_stack,
+        spawn_entity,
+        spawn_failure_handler,
+        panel_state_publisher,
+        panel_world_connector,
+        panel_spawn,
+    ])

@@ -4,8 +4,8 @@
   <xacro:include filename="$(find panel_description)/urdf/panel_macro.xacro"/>
 
   <!-- panel_x/y/z/yaw are declared for callers that pass them (e.g.
-       arm_gazebo.launch.py's Command(...) invocation), but must NOT also
-       be applied here: arm_gazebo.launch.py's ros_gz_sim spawn already
+       arm_gz.launch.py's Command(...) invocation), but must NOT also
+       be applied here: arm_gz.launch.py's ros_gz_sim spawn already
        places this model's root ("world" link) at that exact pose in
        Gazebo. Reapplying the same offset to panel_mount_joint here would
        place panel_base_link there A SECOND TIME, relative to the

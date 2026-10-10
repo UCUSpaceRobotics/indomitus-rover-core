@@ -3,7 +3,7 @@ The simulated arm's ROS stack, all under /arm: robot_state_publisher,
 controller spawners, move_group, servo and the motion lock server.
 
 Starts no Gazebo and spawns nothing — the entry point does that:
-  - arm_gazebo.launch.py (arm-only): description_file:=arm_standalone.urdf.xacro
+  - arm_gz.launch.py (arm-only): description_file:=arm_standalone.urdf.xacro
   - the combined sim, arm mounted on the rover: description_file:= the
     whole-robot package's arm_on_rover.urdf.xacro (root main_body_link)
 
@@ -15,7 +15,6 @@ its root link (world arm-only, main_body_link mounted) exists in TF.
 
 import os
 
-import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
@@ -29,14 +28,11 @@ from launch.actions import (
 from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node, PushRosNamespace, SetParameter
 from launch.substitutions import LaunchConfiguration
-from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_move_group_launch
 
-ARM_NAMESPACE = "arm"
+from arm_bringup.launch_utils import END_EFFECTORS, build_moveit_config, servo_node
 
-# MoveIt differs between Humble and Jazzy (OMPL pipeline format, servo
-# executable, servo kinematics) — see arm_bringup/arm.launch.py.
-IS_HUMBLE = os.environ.get("ROS_DISTRO") == "humble"
+ARM_NAMESPACE = "arm"
 
 
 def _in_arm_namespace(*actions):
@@ -54,36 +50,13 @@ def _launch_setup(context):
     end_effector = LaunchConfiguration("end_effector").perform(context)
     camera = LaunchConfiguration("camera").perform(context)
 
-    # Plain-str mappings force MoveItConfigsBuilder's single-eval xacro path
-    # (see arm_bringup/arm.launch.py); performing the launch configurations
-    # here keeps that true when this file is included from another launch.
-    #
-    # planning_pipelines restricted to ompl on purpose: with
-    # chomp/pilz_industrial_motion_planner also auto-loaded, move_group picks
-    # an ambiguous "planning_plugin" between them and falls back to CHOMP
-    # even when a request asks for pipeline_id='ompl'. panel_align_node's
-    # Cartesian pose-constraint goals need real OMPL (CHOMP rejects them with
-    # INVALID_GOAL_CONSTRAINTS); nothing in this repo uses chomp or pilz.
     # Without the end_effector mapping move_group/servo always assume 'jaw',
     # so with a drill they wait forever for finger joints that never publish.
-    moveit_config = (
-        MoveItConfigsBuilder("indomitus_arm", package_name="arm_moveit_config")
-        .robot_description(file_path=description_file, mappings={
-            "sim": "true",
-            "camera": camera,
-            "end_effector": end_effector,
-        })
-        .planning_pipelines(pipelines=["ompl"])
-        .to_moveit_configs()
-    )
-    moveit_config_dir = get_package_share_directory("arm_moveit_config")
-    if IS_HUMBLE:
-        # ompl_planning.yaml is in Jazzy format, see ompl_planning_humble.yaml.
-        ompl = moveit_config.planning_pipelines["ompl"]
-        for key in ("planning_plugins", "request_adapters", "response_adapters"):
-            ompl.pop(key, None)
-        with open(os.path.join(moveit_config_dir, "config", "ompl_planning_humble.yaml")) as f:
-            ompl.update(yaml.safe_load(f))
+    moveit_config = build_moveit_config(description_file, {
+        "sim": "true",
+        "camera": camera,
+        "end_effector": end_effector,
+    })
 
     robot_state_publisher = Node(
         package="robot_state_publisher",
@@ -150,28 +123,7 @@ def _launch_setup(context):
     )
 
     move_group_launch = generate_move_group_launch(moveit_config)
-
-    with open(os.path.join(moveit_config_dir, "config", "servo.yaml")) as f:
-        servo_yaml = yaml.safe_load(f)
-    servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
-
-    # Jazzy Servo needs the group's IK solver (it takes the planning and
-    # end-effector frames from it, and rejects every command without one);
-    # Humble Servo must not get it — see arm_bringup/arm.launch.py.
-    servo_kinematics = [] if IS_HUMBLE else [moveit_config.robot_description_kinematics]
-    servo_node = Node(
-        package="moveit_servo",
-        executable="servo_node_main" if IS_HUMBLE else "servo_node",
-        name="servo_node",
-        output="screen",
-        parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-            *servo_kinematics,
-            moveit_config.joint_limits,
-            servo_params,
-        ],
-    )
+    servo = servo_node(moveit_config)
 
     # Each startup stage runs only if the previous one exited with code 0;
     # otherwise the whole launch shuts down instead of starting nodes
@@ -182,7 +134,7 @@ def _launch_setup(context):
                 LogInfo(msg=f"Controller activation failed (exit code {event.returncode})."),
                 Shutdown(reason="controller activation failed"),
             ]
-        actions = [*move_group_launch.entities, servo_node]
+        actions = [*move_group_launch.entities, servo]
         # Jaw finger joints only exist when end_effector:=jaw.
         if end_effector == "jaw":
             actions.append(gripper_spawner)
@@ -215,8 +167,8 @@ def generate_launch_description() -> LaunchDescription:
                         "(arm_standalone.urdf.xacro, or arm_on_rover.urdf.xacro when mounted)"),
         DeclareLaunchArgument("camera", default_value="true"),
         DeclareLaunchArgument(
-            "end_effector", default_value="jaw",
-            description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"),
+            "end_effector", default_value="jaw", choices=END_EFFECTORS,
+            description="Tool mounted on the arm - see arm_macro.xacro"),
         # The only namespace push for the arm stack. Nodes below use relative
         # names; gamepad_servo.launch.py hardcodes namespace='arm' itself, so
         # it must never be included inside this group (/arm/arm/...).
