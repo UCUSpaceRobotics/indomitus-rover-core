@@ -10,6 +10,7 @@
 
   <!-- Read by rover.urdf.xacro; same defaults as rover.xacro, except use_sim. -->
   <xacro:arg name="use_sim" default="true"/>
+  <xacro:arg name="use_stereo_camera" default="true"/>
   <xacro:arg name="lidar_simulate_scan" default="false"/>
   <xacro:arg name="stereo_camera_simulate_rgb" default="false"/>
   <xacro:arg name="stereo_camera_simulate_depth" default="false"/>
