@@ -34,6 +34,10 @@ from moveit_configs_utils.launches import generate_move_group_launch
 
 ARM_NAMESPACE = "arm"
 
+# MoveIt differs between Humble and Jazzy (OMPL pipeline format, servo
+# executable, servo kinematics) — see arm_bringup/arm.launch.py.
+IS_HUMBLE = os.environ.get("ROS_DISTRO") == "humble"
+
 
 def _in_arm_namespace(*actions):
     # Actions started later from an event handler run after this file's
@@ -72,6 +76,14 @@ def _launch_setup(context):
         .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
+    moveit_config_dir = get_package_share_directory("arm_moveit_config")
+    if IS_HUMBLE:
+        # ompl_planning.yaml is in Jazzy format, see ompl_planning_humble.yaml.
+        ompl = moveit_config.planning_pipelines["ompl"]
+        for key in ("planning_plugins", "request_adapters", "response_adapters"):
+            ompl.pop(key, None)
+        with open(os.path.join(moveit_config_dir, "config", "ompl_planning_humble.yaml")) as f:
+            ompl.update(yaml.safe_load(f))
 
     robot_state_publisher = Node(
         package="robot_state_publisher",
@@ -139,23 +151,23 @@ def _launch_setup(context):
 
     move_group_launch = generate_move_group_launch(moveit_config)
 
-    moveit_config_dir = get_package_share_directory("arm_moveit_config")
     with open(os.path.join(moveit_config_dir, "config", "servo.yaml")) as f:
         servo_yaml = yaml.safe_load(f)
     servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
 
     # Jazzy Servo needs the group's IK solver (it takes the planning and
-    # end-effector frames from it, and rejects every command without one) —
-    # see arm_bringup/arm.launch.py.
+    # end-effector frames from it, and rejects every command without one);
+    # Humble Servo must not get it — see arm_bringup/arm.launch.py.
+    servo_kinematics = [] if IS_HUMBLE else [moveit_config.robot_description_kinematics]
     servo_node = Node(
         package="moveit_servo",
-        executable="servo_node",
+        executable="servo_node_main" if IS_HUMBLE else "servo_node",
         name="servo_node",
         output="screen",
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
+            *servo_kinematics,
             moveit_config.joint_limits,
             servo_params,
         ],

@@ -61,6 +61,12 @@ from sensor_msgs.msg import CameraInfo, JointState
 from shape_msgs.msg import SolidPrimitive
 from std_srvs.srv import SetBool, Trigger
 
+try:  # Jazzy Servo is paused (SetBool); Humble Servo is stopped (Trigger).
+    from moveit_msgs.srv import ServoCommandType  # noqa: F401  (distro probe)
+    SERVO_API_JAZZY = True
+except ImportError:
+    SERVO_API_JAZZY = False
+
 from arm_teleop.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 from arm_tasks.camera_target_math import (
     StandoffResult, compose_transforms, compute_standoff_distance, compute_target_tip_pose,
@@ -320,8 +326,12 @@ class PanelAlignNode(Node):
             ApplyPlanningScene, 'apply_planning_scene', callback_group=cb_group)
         self._compute_ik_client = self.create_client(
             GetPositionIK, 'compute_ik', callback_group=cb_group)
-        self._stop_servo_client = self.create_client(
-            SetBool, 'servo_node/pause_servo', callback_group=cb_group)
+        if SERVO_API_JAZZY:
+            self._stop_servo_client = self.create_client(
+                SetBool, 'servo_node/pause_servo', callback_group=cb_group)
+        else:
+            self._stop_servo_client = self.create_client(
+                Trigger, 'servo_node/stop_servo', callback_group=cb_group)
         self._switch_controller_client = self.create_client(
             SwitchController, 'controller_manager/switch_controller', callback_group=cb_group)
         self._acquire_lock_client = self.create_client(
@@ -761,7 +771,7 @@ class PanelAlignNode(Node):
 
     def _call_stop_servo(self) -> bool:
         if not self._stop_servo_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().warn('servo_node/pause_servo not available')
+            self.get_logger().warn(f'{self._stop_servo_client.srv_name} not available')
             return False
         done = threading.Event()
         result = {}
@@ -770,7 +780,8 @@ class PanelAlignNode(Node):
             result['r'] = fut.result()
             done.set()
 
-        self._stop_servo_client.call_async(SetBool.Request(data=True)).add_done_callback(_cb)
+        request = SetBool.Request(data=True) if SERVO_API_JAZZY else Trigger.Request()
+        self._stop_servo_client.call_async(request).add_done_callback(_cb)
         if not done.wait(timeout=3.0):
             return False
         return bool(result.get('r') and result['r'].success)

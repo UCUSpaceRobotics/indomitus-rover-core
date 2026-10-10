@@ -107,8 +107,21 @@ from moveit_msgs.action import MoveGroup
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from moveit_msgs.srv import GetStateValidity
-from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes, RobotState, ServoStatus
-from moveit_msgs.srv import ServoCommandType
+from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes, RobotState
+# MoveIt Servo's ROS API differs between distros (the rover's Jetson runs
+# Humble, dev/sim runs Jazzy):
+#   Jazzy:  ~/pause_servo (SetBool) + ~/switch_command_type, status is
+#           moveit_msgs/ServoStatus (field ``code``).
+#   Humble: ~/start_servo / ~/stop_servo (Trigger), status is std_msgs/Int8
+#           (field ``data``) with a different code numbering.
+try:
+    from moveit_msgs.msg import ServoStatus
+    from moveit_msgs.srv import ServoCommandType
+    SERVO_API_JAZZY = True
+except ImportError:
+    from std_msgs.msg import Int8 as ServoStatus
+    ServoCommandType = None
+    SERVO_API_JAZZY = False
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import TransformException
 from indomitus_interfaces.msg import EndEffectorState
@@ -361,15 +374,26 @@ def _resolve_keyboard_device_path(requested: str) -> str | None:
 
 # Must mirror moveit_servo::StatusCode (status_codes.h) exactly — a prior
 # version of this table was off by one, mislabeling JOINT_BOUND as HALT_FOR_COLLISION.
-# moveit_msgs/ServoStatus codes (Jazzy numbering — differs from Humble's).
-SERVO_STATUS_INVALID                               = ServoStatus.INVALID
-SERVO_STATUS_OK                                    = ServoStatus.NO_WARNING
-SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY = ServoStatus.DECELERATE_FOR_APPROACHING_SINGULARITY
-SERVO_STATUS_HALT_FOR_SINGULARITY                  = ServoStatus.HALT_FOR_SINGULARITY
-SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY    = ServoStatus.DECELERATE_FOR_LEAVING_SINGULARITY
-SERVO_STATUS_DECELERATE_FOR_COLLISION              = ServoStatus.DECELERATE_FOR_COLLISION
-SERVO_STATUS_HALT_FOR_COLLISION                    = ServoStatus.HALT_FOR_COLLISION
-SERVO_STATUS_JOINT_BOUND                           = ServoStatus.JOINT_BOUND
+if SERVO_API_JAZZY:
+    # moveit_msgs/ServoStatus codes (Jazzy numbering).
+    SERVO_STATUS_INVALID                               = ServoStatus.INVALID
+    SERVO_STATUS_OK                                    = ServoStatus.NO_WARNING
+    SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY = ServoStatus.DECELERATE_FOR_APPROACHING_SINGULARITY
+    SERVO_STATUS_HALT_FOR_SINGULARITY                  = ServoStatus.HALT_FOR_SINGULARITY
+    SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY    = ServoStatus.DECELERATE_FOR_LEAVING_SINGULARITY
+    SERVO_STATUS_DECELERATE_FOR_COLLISION              = ServoStatus.DECELERATE_FOR_COLLISION
+    SERVO_STATUS_HALT_FOR_COLLISION                    = ServoStatus.HALT_FOR_COLLISION
+    SERVO_STATUS_JOINT_BOUND                           = ServoStatus.JOINT_BOUND
+else:
+    # Humble moveit_servo::StatusCode (status_codes.h), published as Int8.
+    SERVO_STATUS_INVALID                               = -1
+    SERVO_STATUS_OK                                    = 0
+    SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY = 1
+    SERVO_STATUS_HALT_FOR_SINGULARITY                  = 2
+    SERVO_STATUS_DECELERATE_FOR_COLLISION              = 3
+    SERVO_STATUS_HALT_FOR_COLLISION                    = 4
+    SERVO_STATUS_JOINT_BOUND                           = 5
+    SERVO_STATUS_DECELERATE_FOR_LEAVING_SINGULARITY    = 6
 
 SERVO_STATUS_NAMES = {
     SERVO_STATUS_INVALID: 'INVALID',
@@ -576,11 +600,15 @@ class ServoController(Node):
         self._gripper_left_pub = self.create_publisher(
             Float64MultiArray, 'gripper_left_controller/commands', 10
         )
-        # Jazzy Servo has no start/stop: it is paused/unpaused, and only
-        # accepts commands once a command type has been selected.
-        self._pause_client = self.create_client(SetBool, 'servo_node/pause_servo')
-        self._command_type_client = self.create_client(
-            ServoCommandType, 'servo_node/switch_command_type')
+        if SERVO_API_JAZZY:
+            # Jazzy Servo has no start/stop: it is paused/unpaused, and only
+            # accepts commands once a command type has been selected.
+            self._pause_client = self.create_client(SetBool, 'servo_node/pause_servo')
+            self._command_type_client = self.create_client(
+                ServoCommandType, 'servo_node/switch_command_type')
+        else:
+            self._start_client = self.create_client(Trigger, 'servo_node/start_servo')
+            self._stop_client = self.create_client(Trigger, 'servo_node/stop_servo')
         self._panel_align_client = self.create_client(Trigger, 'panel_align/align')
         self._orient_gripper_client = self.create_client(Trigger, 'panel_align/orient_gripper')
         self._switch_client = self.create_client(
@@ -1097,7 +1125,7 @@ class ServoController(Node):
             'pause' if pause else 'resume', timeout)
 
     def stop_servo(self) -> bool:
-        """Pause MoveIt Servo and wait for confirmation.
+        """Stop (Humble) / pause (Jazzy) MoveIt Servo and wait for confirmation.
 
         Waits up to 2 seconds for the service to become available and up to
         10 seconds for the asynchronous call to complete. After Servo stops,
@@ -1108,7 +1136,12 @@ class ServoController(Node):
             over; False otherwise.
         """
         self._servo_running = False
-        if not self._pause_servo(True):
+        if SERVO_API_JAZZY:
+            stopped = self._pause_servo(True)
+        else:
+            stopped = self._call_servo_service(
+                self._stop_client, Trigger.Request(), 'stop', 10.0)
+        if not stopped:
             return False
 
         # Prefer JTC when teleop is idle so Plan&Execute / home work.
@@ -1772,8 +1805,9 @@ class ServoController(Node):
     def start_servo(self) -> bool:
         """Switch to streaming controller, then start MoveIt Servo.
 
-        Selects TWIST commands and unpauses Servo, waiting up to 2 seconds
-        for each service and up to 20 seconds for each call. Falls back to
+        Jazzy: selects TWIST commands and unpauses Servo; Humble: calls
+        ``start_servo``. Waits up to 2 seconds for each service and up to
+        20 seconds for each call. Falls back to
         the trajectory controller on any failure, so the joints are never
         left claimed by the streaming controller with Servo not running.
 
@@ -1786,13 +1820,17 @@ class ServoController(Node):
             )
             return False
 
-        ok = (
-            self._call_servo_service(
-                self._command_type_client,
-                ServoCommandType.Request(command_type=ServoCommandType.Request.TWIST),
-                'command type switch', 20.0)
-            and self._pause_servo(False, timeout=20.0)
-        )
+        if SERVO_API_JAZZY:
+            ok = (
+                self._call_servo_service(
+                    self._command_type_client,
+                    ServoCommandType.Request(command_type=ServoCommandType.Request.TWIST),
+                    'command type switch', 20.0)
+                and self._pause_servo(False, timeout=20.0)
+            )
+        else:
+            ok = self._call_servo_service(
+                self._start_client, Trigger.Request(), 'start', 20.0)
 
         self._servo_running = ok
         if ok:
@@ -1816,7 +1854,7 @@ class ServoController(Node):
         workspace/collision object review) rather than being silently
         retried.
         """
-        code = msg.code
+        code = msg.code if SERVO_API_JAZZY else msg.data
         if code != self._servo_status:
             name = SERVO_STATUS_NAMES.get(code, f'UNKNOWN({code})')
             if code in (SERVO_STATUS_OK, SERVO_STATUS_DECELERATE_FOR_APPROACHING_SINGULARITY,

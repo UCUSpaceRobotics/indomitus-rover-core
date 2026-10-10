@@ -38,6 +38,12 @@ from moveit_configs_utils.launches import generate_demo_launch
 ARM_CONTROLLER_NAME = "indomitus_arm_controller"
 FORWARD_CONTROLLER_NAME = "indomitus_arm_forward_position_controller"
 
+# The rover's Jetson runs Humble, dev/sim runs Jazzy; moveit_servo differs
+# (executable name, kinematics). The OMPL pipeline format differs too, but
+# move_group comes from arm_moveit_config/launch/move_group.launch.py (via
+# generate_demo_launch), which handles that itself.
+IS_HUMBLE = os.environ.get("ROS_DISTRO") == "humble"
+
 
 def load_yaml(package_name: str, relative_path: str):
     package_path = get_package_share_directory(package_name)
@@ -180,19 +186,24 @@ def generate_launch_description() -> LaunchDescription:
 
     # Jazzy Servo needs robot_description_kinematics: it takes the planning
     # and end-effector frames from the group's IK solver and rejects every
-    # command without one ("No IK solver for planning group"). Humble's
-    # one-sided +X freeze from KDL searchPositionIK (why this used to be left
-    # out) did not reproduce in sim: ±X/±Y/±Z all move from home.
+    # command without one ("No IK solver for planning group").
+    # Humble must NOT get it: Humble Servo then prefers the KDL plugin
+    # (searchPositionIK, 5 ms timeout) over the inverse Jacobian. From home,
+    # +X (W) often fails that IK so cartesianServoCalcs() returns false and
+    # the last joint command is republished (frozen commands, status still
+    # 0) while -X succeeds — teleop looks one-sided. Without a solver Humble
+    # Servo uses J^# which is symmetric in ±X.
+    servo_kinematics = [] if IS_HUMBLE else [moveit_config.robot_description_kinematics]
     servo_node = Node(
         package="moveit_servo",
-        executable="servo_node",
+        executable="servo_node_main" if IS_HUMBLE else "servo_node",
         name="servo_node",
         namespace="arm",
         output="screen",
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
+            *servo_kinematics,
             # Without this, joint_limits.yaml (per-joint max_velocity/
             # max_acceleration/position bounds) never reaches Servo's robot
             # model — it falls back to the bare URDF <limit> tags only, so

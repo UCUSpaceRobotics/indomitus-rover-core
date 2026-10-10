@@ -2,11 +2,17 @@ moveit_servo:
   ros__parameters:
     move_group_name: indomitus_arm
 
-    # Jazzy Servo has no command/ee/planning frame parameters: a twist is
-    # applied in its TwistStamped header frame (teleop stamps arm_mount_link,
-    # so stick XYZ moves the EEF in mount axes; teleop rotates EEF
-    # roll/pitch/yaw into that frame before publish), and the end effector
-    # is the move group's tip (arm_tcp_link, see indomitus_arm.srdf).
+    # This file serves both Humble and Jazzy Servo; each ignores the other's
+    # parameters. Humble-only below are marked [humble], Jazzy-only [jazzy].
+    #
+    # Twist is applied in the mount frame so stick XYZ moves the EEF in mount
+    # axes (teleop rotates EEF roll/pitch/yaw into this frame before
+    # publish). Jazzy has no frame parameters: it uses the TwistStamped
+    # header frame (teleop stamps arm_mount_link) and the move group's tip
+    # (arm_tcp_link, see indomitus_arm.srdf).
+    robot_link_command_frame: arm_mount_link  # [humble]
+    ee_frame_name: arm_tcp_link               # [humble]
+    planning_frame: arm_mount_link            # [humble]
 
     cartesian_command_in_topic: servo_node/delta_twist_cmds
 
@@ -50,6 +56,7 @@ moveit_servo:
     publish_joint_accelerations: false
 
     incoming_command_timeout: 0.1
+    num_outgoing_halt_msgs_to_publish: 4  # [humble]
     halt_all_joints_in_joint_mode: true
     halt_all_joints_in_cartesian_mode: true
 
@@ -75,8 +82,9 @@ moveit_servo:
     hard_stop_singularity_threshold: 100000.0
     leaving_singularity_threshold_multiplier: 2.0
 
+    joint_limit_margin: 0.1  # [humble]
     # One value per indomitus_arm joint.
-    joint_limit_margins: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+    joint_limit_margins: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]  # [jazzy]
 
     is_primary_planning_scene_monitor: false
     monitored_planning_scene_topic: monitored_planning_scene

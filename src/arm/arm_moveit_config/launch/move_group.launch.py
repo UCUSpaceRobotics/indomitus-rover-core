@@ -1,5 +1,8 @@
+import os
 import sys
 
+import yaml
+from ament_index_python.packages import get_package_share_directory
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_move_group_launch
 
@@ -27,4 +30,12 @@ def generate_launch_description():
         .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
+    if os.environ.get("ROS_DISTRO") == "humble":
+        # ompl_planning.yaml is in Jazzy format, see ompl_planning_humble.yaml.
+        ompl = moveit_config.planning_pipelines["ompl"]
+        for key in ("planning_plugins", "request_adapters", "response_adapters"):
+            ompl.pop(key, None)
+        config_dir = os.path.join(get_package_share_directory("arm_moveit_config"), "config")
+        with open(os.path.join(config_dir, "ompl_planning_humble.yaml")) as f:
+            ompl.update(yaml.safe_load(f))
     return generate_move_group_launch(moveit_config)

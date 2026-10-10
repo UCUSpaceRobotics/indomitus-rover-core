@@ -1,0 +1,16 @@
+# Humble overrides for ompl_planning.yaml (which is in Jazzy format).
+#
+# On ROS_DISTRO=humble, arm_moveit_config/launch/move_group.launch.py (used
+# by arm_bringup/arm.launch.py) and arm_sim/arm_stack_sim.launch.py drop planning_plugins/request_adapters/
+# response_adapters from the loaded ompl pipeline and put these keys in
+# their place; planner_configs etc. stay shared. Humble wants single
+# strings here (Jazzy wants string arrays) and TOTG is a request adapter.
+# The file name deliberately doesn't end in "_planning.yaml", so
+# MoveItConfigsBuilder never picks it up as a pipeline of its own.
+planning_plugin: ompl_interface/OMPLPlanner
+request_adapters: >-
+  default_planner_request_adapters/ResolveConstraintFrames
+  default_planner_request_adapters/FixWorkspaceBounds
+  default_planner_request_adapters/FixStartStateBounds
+  default_planner_request_adapters/FixStartStateCollision
+  default_planner_request_adapters/AddTimeOptimalParameterization

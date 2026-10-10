@@ -1,4 +1,5 @@
-# OMPL planning pipeline for indomitus_arm (MoveIt 2 Jazzy).
+# OMPL planning pipeline for indomitus_arm (MoveIt 2 Jazzy format; Humble
+# swaps in ompl_planning_humble.yaml, see there).
 #
 # No top-level "ompl:" wrapper — moveit_configs_utils' MoveItConfigsBuilder
 # already scopes this whole file's content under the pipeline's own name
