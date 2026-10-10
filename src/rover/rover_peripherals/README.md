@@ -12,7 +12,7 @@ ros2 launch rover_bringup container.launch.py
 
 ### ROS2 Interface details
 
-**Action**:  /container/lid  ([indomitus_interfaces/action/ContainerLid](../indomitus_interfaces/action/ContainerLid.action))
+**Action**:  /container/lid  ([indomitus_interfaces/action/ContainerLid](../../indomitus/indomitus_interfaces/action/ContainerLid.action))
 
   goal.open = True  -> open lid   (CAN cmd_id, byte 0 = cmd_open)  
   goal.open = False -> close lid  (CAN cmd_id, byte 0 = cmd_close)  
@@ -20,7 +20,7 @@ ros2 launch rover_bringup container.launch.py
   result.success    -> True if ESP32 finished OK within timeout  
   result.message    -> human-readable status  
 
-**Service**: /container/weight  ([indomitus_interfaces/srv/GetWeight](../indomitus_interfaces/srv/GetWeight.srv))
+**Service**: /container/weight  ([indomitus_interfaces/srv/GetWeight](../../indomitus/indomitus_interfaces/srv/GetWeight.srv))
   request:  (empty)
   response: float32 weight, bool success, string message
 
@@ -62,7 +62,7 @@ forms for the joystick's buttons:
 | `/lights/traffic_blue` | `std_srvs/SetBool` | set the traffic-head blue pin only |
 | `/lights/buzzer` | `std_srvs/SetBool` | set the buzzer |
 | `/lights/tower` | `std_srvs/SetBool` | set all three traffic-head pins together |
-| `/lights/traffic_light` | [`indomitus_interfaces/SetTrafficLight`](../indomitus_interfaces/srv/SetTrafficLight.srv) | set any subset of the traffic-head colours |
+| `/lights/traffic_light` | [`indomitus_interfaces/SetTrafficLight`](../../indomitus/indomitus_interfaces/srv/SetTrafficLight.srv) | set any subset of the traffic-head colours |
 
 Every `/lights/<name>` service above also has a matching
 `/lights/<name>/toggle` (`std_srvs/Trigger`) that inverts it. `/lights/beautiful_1`
@@ -83,7 +83,7 @@ The traffic light is meant to signal the rover's own state, so nothing on the
 joystick or the ground station panel is bound to it. What drives it from rover
 state is not built yet — this is the interface it will use.
 
-**Topic**: `/lights/state` ([indomitus_interfaces/msg/LightsState](../indomitus_interfaces/msg/LightsState.msg))
+**Topic**: `/lights/state` ([indomitus_interfaces/msg/LightsState](../../indomitus/indomitus_interfaces/msg/LightsState.msg))
 
 Latched (`TRANSIENT_LOCAL`, depth 1), published on change and rate limited to
 `state_pub_rate` (2 Hz) so it does not load the Wi-Fi link to the ground

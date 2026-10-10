@@ -95,7 +95,7 @@ def check_git_lfs(rover_sim_share: str) -> None:
         "  git lfs install",
         "  git lfs pull",
         "",
-        "See the 'Git LFS' section in src/rover_sim/README.md for details.",
+        "See the 'Git LFS' section in src/rover/rover_sim/README.md for details.",
         "=" * 70,
     ]
     raise RuntimeError("\n".join(lines))
