@@ -127,5 +127,9 @@
     "arm_wrist_1_wrist_2_joint": 0.053597450256347656,
     "arm_forearm_wrist_1_joint": 0.9458684921264648,
     "arm_wrist_2_end_effector_joint": 0.5075531005859375
+  },
+  "unstow": {
+    "arm_base_shoulder_joint": -0.25,
+    "arm_shoulder_forearm_joint": 1.0
   }
 }

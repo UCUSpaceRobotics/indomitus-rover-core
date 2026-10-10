@@ -37,6 +37,9 @@ Controls:
              replay that exact position instead of re-planning
     f      — level tool (collision-checked; locks pitch/yaw after — 'r'
              unlocks)
+    n      — unstow: slowly lift shoulder/elbow off the body/base (no
+             planner; only lifts), then resume Servo. 'r' does this
+             automatically when the arm starts in collision.
     m      — rotate the gripper in place to face the remembered panel
              direction, current position kept (needs 'p' once first)
     ESC/x  — exit
@@ -58,6 +61,7 @@ about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
     A                — move to home + start servo
     Button 7         — align to detected panel (see keyboard 'p' above)
     Button 8         — reorient gripper only (see keyboard 'm' above)
+    Button 4 (BACK)  — unstow (see keyboard 'n' above)
     X                — exit
 
 Usage (stack in one terminal, input in another):
@@ -100,7 +104,10 @@ from action_msgs.msg import GoalStatus
 from controller_manager_msgs.srv import ListControllers, SwitchController
 from builtin_interfaces.msg import Duration
 from moveit_msgs.action import MoveGroup
-from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes, ServoStatus
+from control_msgs.action import FollowJointTrajectory
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from moveit_msgs.srv import GetStateValidity
+from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes, RobotState, ServoStatus
 from moveit_msgs.srv import ServoCommandType
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import TransformException
@@ -199,6 +206,49 @@ HOME_POSE_JOINTS = [
     'arm_wrist_1_wrist_2_joint',
     'arm_wrist_2_end_effector_joint',
 ]
+# Unstow: lift the arm off the rover body / its own base when it starts
+# resting there with the motors off (MoveIt refuses to plan from a start
+# state in collision). Only the shoulder and elbow move, straight to the
+# poses.json "unstow" targets, through the JTC directly — no planner.
+# Each joint only ever moves in its lifting direction (+1: increase,
+# -1: decrease); a joint already past its target is left where it is.
+UNSTOW_POSE_NAME = 'unstow'
+UNSTOW_JOINT_DIRECTIONS = {
+    'arm_base_shoulder_joint': +1,
+    'arm_shoulder_forearm_joint': -1,
+}
+DEFAULT_UNSTOW_TARGETS = {
+    'arm_base_shoulder_joint': -0.25,
+    'arm_shoulder_forearm_joint': 1.0,
+}
+# Average speed of the slowest-allowed lift; the trajectory is a quintic
+# (zero velocity and acceleration at both ends), so it starts and stops
+# smoothly and peaks at ~1.9x this.
+DEFAULT_UNSTOW_SPEED_RAD_S = 0.12
+DEFAULT_UNSTOW_MIN_DURATION_SEC = 3.0
+# ArmCanSystem ramps motor stiffness 0 -> 1 over gain_ramp_secs (15 s) after
+# activation; lifting before that lets the heavy arm lag, then catch up.
+DEFAULT_UNSTOW_WAIT_AFTER_START_SEC = 15.0
+# The JTC reports success once the trajectory time is up even if a joint got
+# blocked, so unstow checks the measured end position itself.
+UNSTOW_REACHED_TOLERANCE_RAD = 0.05
+
+
+def _load_unstow_targets():
+    """poses.json["unstow"] for the unstow joints, else the defaults."""
+    targets = dict(DEFAULT_UNSTOW_TARGETS)
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        path = Path(get_package_share_directory('arm_teleop')) / 'poses.json'
+        pose = json.loads(path.read_text()).get(UNSTOW_POSE_NAME) or {}
+        for name in UNSTOW_JOINT_DIRECTIONS:
+            if name in pose and math.isfinite(float(pose[name])):
+                targets[name] = float(pose[name])
+    except Exception:
+        pass
+    return targets
+
+
 def _load_home_pose_from_json(pose_name='home'):
     """Return ``pose_name`` joint positions from poses.json, or None if unavailable."""
     candidates = [
@@ -384,6 +434,9 @@ class ServoController(Node):
         # defaults to 0.0 (no wait) for bench testing, set explicitly to
         # ERC_REQUIRED_ACTIVITY_INDICATOR_PRE_DELAY_SEC (5.0) for real runs.
         self.declare_parameter('activity_indicator_pre_delay_sec', DEFAULT_ACTIVITY_INDICATOR_PRE_DELAY_SEC)
+        self.declare_parameter('unstow_speed_rad_s', DEFAULT_UNSTOW_SPEED_RAD_S)
+        self.declare_parameter('unstow_min_duration_sec', DEFAULT_UNSTOW_MIN_DURATION_SEC)
+        self.declare_parameter('unstow_wait_after_start_sec', DEFAULT_UNSTOW_WAIT_AFTER_START_SEC)
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -485,6 +538,12 @@ class ServoController(Node):
         self._pitch_yaw_locked = False
         self._activity_delay_active = False
         self._joint_positions = {}
+        # Wall-clock time of the first joint state (see unstow's stiffness wait).
+        self._first_joint_state_time = None
+        self._unstow_targets = _load_unstow_targets()
+        self._unstow_speed = float(self.get_parameter('unstow_speed_rad_s').value)
+        self._unstow_min_duration = float(self.get_parameter('unstow_min_duration_sec').value)
+        self._unstow_wait_after_start = float(self.get_parameter('unstow_wait_after_start_sec').value)
 
         self.gripper_vel = 0.0
         # Guess (closed) until the first /joint_states reading syncs this —
@@ -534,6 +593,9 @@ class ServoController(Node):
         # against the live planning scene) instead of a raw FollowJointTrajectory
         # goal — see _move_to_joint_positions_locked()/level_tool().
         self._move_group_client = ActionClient(self, MoveGroup, 'move_action')
+        self._jtc_client = ActionClient(
+            self, FollowJointTrajectory, f'{JTC_CONTROLLER_NAME}/follow_joint_trajectory')
+        self._state_validity_client = self.create_client(GetStateValidity, 'check_state_validity')
         self._acquire_lock_client = self.create_client(
             AcquireArmMotionLock, 'arm_motion_lock/acquire')
         self._release_lock_client = self.create_client(
@@ -789,6 +851,8 @@ class ServoController(Node):
         self._gripper_position = max(0.0, min(self._gripper_stroke, position))
 
     def _on_joint_state(self, msg: JointState):
+        if self._first_joint_state_time is None:
+            self._first_joint_state_time = time.monotonic()
         for name, pos in zip(msg.name, msg.position):
             self._joint_positions[name] = float(pos)
         # Runs only until the first message that names GRIPPER_JOINT_NAME —
@@ -1091,10 +1155,210 @@ class ServoController(Node):
             )
             return False
 
+        if not self.unstow_if_needed():
+            self.get_logger().error('Arm is still in collision — aborting home move.')
+            return False
+
         success = self._move_to_joint_positions(target_positions, f'home ({target_name})')
         if success:
             self._pitch_yaw_locked = False
         return success
+
+    def _check_state_validity(self):
+        """Ask move_group whether the current joint state is collision-free.
+
+        Returns:
+            tuple[bool | None, str]: (valid, description of contacts).
+            ``valid`` is None when the check could not be made.
+        """
+        if not self._joint_positions:
+            return None, 'no joint state received yet'
+        if not self._state_validity_client.wait_for_service(timeout_sec=2.0):
+            return None, 'check_state_validity service not available'
+
+        request = GetStateValidity.Request()
+        request.group_name = MOVEIT_GROUP_NAME
+        request.robot_state = RobotState()
+        request.robot_state.joint_state.name = list(self._joint_positions.keys())
+        request.robot_state.joint_state.position = list(self._joint_positions.values())
+
+        done_event = threading.Event()
+        future = self._state_validity_client.call_async(request)
+        future.add_done_callback(lambda _: done_event.set())
+        if not done_event.wait(timeout=5.0) or future.result() is None:
+            return None, 'check_state_validity timed out'
+        response = future.result()
+        pairs = sorted({f'{c.contact_body_1}<->{c.contact_body_2}' for c in response.contacts})
+        return bool(response.valid), ', '.join(pairs)
+
+    def _unstow_trajectory(self):
+        """Joint names, targets and duration for the lift, or None if no joint
+        needs to move. Joints already past their target are left alone."""
+        names, targets, travel = [], [], 0.0
+        for name, direction in UNSTOW_JOINT_DIRECTIONS.items():
+            if name not in self._joint_positions:
+                return None
+            current = self._joint_positions[name]
+            target = self._unstow_targets[name]
+            if (target - current) * direction <= 0.0:
+                continue
+            names.append(name)
+            targets.append(target)
+            travel = max(travel, abs(target - current))
+        if not names:
+            return None
+        speed = max(self._unstow_speed, 1e-3)
+        return names, targets, max(self._unstow_min_duration, travel / speed)
+
+    def unstow(self) -> bool:
+        """Operator-requested unstow (keyboard 'n' / gamepad button 4).
+
+        Stops Servo, hands the joints to the JTC and lifts shoulder/elbow to
+        the unstow pose even if MoveIt sees no collision (the arm may lie on
+        the body without touching it in the model). Still only ever moves a
+        joint in its lifting direction.
+        """
+        self.stop()
+        if not self.stop_servo():
+            self.get_logger().error('Could not confirm Servo stopped — aborting unstow.')
+            return False
+        if not self.use_trajectory_controller():
+            self.get_logger().error('Could not activate trajectory controller — aborting unstow.')
+            return False
+        return self.unstow_if_needed(force=True)
+
+    def unstow_if_needed(self, force: bool = False) -> bool:
+        """Lift the arm out of a resting collision before any planned move.
+
+        Does nothing when the current state is collision-free or can't be
+        checked (MoveIt will then report its own error). Otherwise waits for
+        the motors' stiffness ramp, sends one smooth shoulder/elbow
+        trajectory straight to the JTC (no planner — it is a fixed lift
+        that only moves each joint in its lifting direction), and re-checks.
+        Caller must have the JTC active.
+
+        ``force`` (explicit operator request) skips the "only when in
+        collision" gate.
+
+        Returns:
+            bool: False only if the arm is (still) in collision afterwards
+            or the lift failed.
+        """
+        if not force:
+            valid, contacts = self._check_state_validity()
+            if valid is None:
+                self.get_logger().warn(f'Unstow: skipping collision check ({contacts}).')
+                return True
+            if valid:
+                return True
+            self.get_logger().warn(f'Arm starts in collision ({contacts}) — unstowing.')
+
+        plan = self._unstow_trajectory()
+        if plan is None:
+            if force:
+                self.get_logger().info(
+                    f'Unstow: shoulder/elbow already at or past {self._unstow_targets} — nothing to do.')
+                return True
+            self.get_logger().error(
+                'Unstow cannot help: shoulder/elbow are already at or past the '
+                f'unstow pose {self._unstow_targets}.')
+            return False
+        names, targets, duration = plan
+
+        if self._first_joint_state_time is not None:
+            remaining = self._unstow_wait_after_start - (time.monotonic() - self._first_joint_state_time)
+            if remaining > 0.0:
+                self.get_logger().info(
+                    f'Unstow: waiting {remaining:.1f}s for the motors to reach full stiffness.')
+                time.sleep(remaining)
+
+        if not self._motion_lock.acquire(blocking=False):
+            self.get_logger().error('Another arm motion is already in progress — aborting unstow.')
+            return False
+        try:
+            lease_sec = duration + 30.0
+            try:
+                with arm_motion_lock(
+                        self._acquire_lock_client, self._release_lock_client,
+                        self._motion_lock_holder_id, lease_sec):
+                    if not self._send_jtc_trajectory(names, targets, duration):
+                        return False
+                    time.sleep(0.5)  # let joint_states catch up with the final point
+                    missed = {
+                        name: round(self._joint_positions.get(name, float('nan')), 3)
+                        for name, target in zip(names, targets)
+                        if not abs(self._joint_positions.get(name, float('nan')) - target)
+                        <= UNSTOW_REACHED_TOLERANCE_RAD
+                    }
+                    if missed:
+                        self.get_logger().error(
+                            f'Unstow: joints did not reach their targets (now at {missed}, '
+                            f'wanted {dict(zip(names, targets))}) — blocked?')
+                        return False
+            except ArmMotionBusy as exc:
+                self.get_logger().error(f'{exc} — aborting unstow.')
+                return False
+        finally:
+            self._motion_lock.release()
+
+        valid, contacts = self._check_state_validity()
+        if valid is False:
+            self.get_logger().error(f'Still in collision after unstow: {contacts}')
+            return False
+        self.get_logger().info('Unstow done.')
+        return True
+
+    def _send_jtc_trajectory(self, names, targets, duration: float) -> bool:
+        """Send one point to the JTC and wait for it to finish.
+
+        A single point with zero velocity and acceleration makes the JTC
+        interpolate from the current state with a quintic spline: smooth
+        start and stop, no step in acceleration. Joints not listed keep
+        holding (allow_partial_joints_goal).
+        """
+        if not self._jtc_client.wait_for_server(timeout_sec=3.0):
+            self.get_logger().error('JTC follow_joint_trajectory action not available')
+            return False
+
+        point = JointTrajectoryPoint()
+        point.positions = [float(v) for v in targets]
+        point.velocities = [0.0] * len(names)
+        point.accelerations = [0.0] * len(names)
+        point.time_from_start = Duration(sec=int(duration), nanosec=int((duration % 1.0) * 1e9))
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = JointTrajectory(joint_names=list(names), points=[point])
+
+        self.get_logger().info(
+            f'Unstow: {dict(zip(names, [round(v, 3) for v in targets]))} over {duration:.1f}s')
+
+        done_event = threading.Event()
+        outcome = {'handle': None, 'result': None}
+
+        def _on_result(future):
+            outcome['result'] = future.result()
+            done_event.set()
+
+        def _on_goal(future):
+            handle = future.result()
+            outcome['handle'] = handle
+            if handle is None or not handle.accepted:
+                done_event.set()
+                return
+            handle.get_result_async().add_done_callback(_on_result)
+
+        self._jtc_client.send_goal_async(goal).add_done_callback(_on_goal)
+        if not done_event.wait(timeout=duration + 15.0):
+            self.get_logger().error('Unstow trajectory timed out')
+            return False
+        if outcome['handle'] is None or not outcome['handle'].accepted:
+            self.get_logger().error('Unstow trajectory rejected by the JTC')
+            return False
+        result = outcome['result']
+        if result is None or result.status != GoalStatus.STATUS_SUCCEEDED or result.result.error_code != 0:
+            code = None if result is None else result.result.error_code
+            self.get_logger().error(f'Unstow trajectory failed (error_code={code})')
+            return False
+        return True
 
     def move_sampling_to_drill(self) -> bool:
         """Two-leg move for drill_sampling's B: sampling_to_drill waypoint,
@@ -1815,6 +2079,7 @@ HELP = """
 ║    r      — move to home + start servo           ║
 ║    f      — level tool (collision-checked; locks ║
 ║             pitch/yaw after — 'r' unlocks)       ║
+║    n      — unstow: lift arm off body/base       ║
 ║  p/r/f wait 5s (activity indicator) before moving║
 ║    ESC/x  — exit                                 ║
 ╚══════════════════════════════════════════════════╝
@@ -2109,6 +2374,24 @@ class KeyboardInputLoop:
         finally:
             self._safe_pose_running.release()
 
+    def _handle_unstow(self):
+        """Lift the arm off the body/base ('n'), then resume Servo either way
+        (a failed or no-op unstow leaves the arm where it safely was)."""
+        if not self._level_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
+            return
+        try:
+            print('Unstowing...')
+            if self._controller.run_planned_activity(self._controller.unstow, 'unstow'):
+                print('Unstowed.')
+            else:
+                print('Unstow failed.')
+            print('Resuming manual control...')
+            if self._controller.start_servo():
+                self._servo_started = True
+        finally:
+            self._level_running.release()
+
     def _handle_level(self):
         """Reorient the tool straight down via a collision-checked plan.
 
@@ -2165,6 +2448,12 @@ class KeyboardInputLoop:
                             if code == ecodes.KEY_R and value == self._KEYSTATE_DOWN:
                                 threading.Thread(
                                     target=self._handle_safe_pose, daemon=True
+                                ).start()
+                                continue
+
+                            if code == ecodes.KEY_N and value == self._KEYSTATE_DOWN:
+                                threading.Thread(
+                                    target=self._handle_unstow, daemon=True
                                 ).start()
                                 continue
 
@@ -2409,6 +2698,7 @@ GAMEPAD_HELP = """
 ║  Y                — go to drill_home         ║
 ║  Button 7          — align to panel          ║
 ║  Button 8          — reorient gripper only   ║
+║  Button 4 (BACK)   — unstow: lift off body   ║
 ║  A/B/Y/7/8: 5s indicator wait before move    ║
 ║  X                — exit                     ║
 ╚══════════════════════════════════════════════╝
@@ -2474,7 +2764,9 @@ class GamepadInputLoop:
     # ServoController.move_jaw_probing_to_container) — arms probing mode on
     # success, unlike drill_sampling's own Y.
     BUTTON_DRILL_HOME = 3
-    BUTTON_LB = 4          # unmapped (settle check only)
+    # BACK/SELECT (DualSense: Create) — 'n' equivalent: lift the arm off the
+    # body/base (ServoController.unstow).
+    BUTTON_UNSTOW = 4
     # LEFTSHOULDER/L1. Held to scale up commanded velocity — raises the
     # per-cycle position step Servo re-anchors from, which is what caps
     # static push force (not kp/kd).
@@ -2543,6 +2835,7 @@ class GamepadInputLoop:
         self._safe_pose_active = False
         self._level_running = controller.planned_activity_lock
         self._level_active = False
+        self._unstow_active = False
         self._orient_gripper_running = controller.planned_activity_lock
         self._orient_gripper_active = False
         self._prev_cmd = (0.0,) * 6
@@ -2727,6 +3020,7 @@ class GamepadInputLoop:
         lock_pressed = self._button_rising_edge(buttons, self.BUTTON_LOCK)
         unlock_pressed = self._button_rising_edge(buttons, self.BUTTON_UNLOCK)
         level_pressed = self._button_rising_edge(buttons, self.BUTTON_LEVEL)
+        unstow_pressed = self._button_rising_edge(buttons, self.BUTTON_UNSTOW)
         panel_align_pressed = self._button_rising_edge(buttons, self.BUTTON_PANEL_ALIGN)
         orient_gripper_pressed = self._button_rising_edge(buttons, self.BUTTON_ORIENT_GRIPPER)
 
@@ -2935,7 +3229,11 @@ class GamepadInputLoop:
         elif level_pressed:
             threading.Thread(target=self._handle_level, daemon=True).start()
 
-        if self._teleop_locked or self._safe_pose_active or self._level_active or self._orient_gripper_active:
+        if unstow_pressed:
+            threading.Thread(target=self._handle_unstow, daemon=True).start()
+
+        if (self._teleop_locked or self._safe_pose_active or self._level_active
+                or self._orient_gripper_active or self._unstow_active):
             self._controller.stop()
             return
 
@@ -3247,6 +3545,27 @@ class GamepadInputLoop:
         finally:
             self._safe_pose_active = False
             self._safe_pose_running.release()
+
+    def _handle_unstow(self):
+        """Gamepad button 4 — mirrors KeyboardInputLoop._handle_unstow.
+
+        ``_unstow_active`` makes ``_on_joy`` ignore stick input mid-lift.
+        """
+        if not self._level_running.acquire(blocking=False):
+            print('Another planned move is still running — wait for it to finish.')
+            return
+        self._unstow_active = True
+        try:
+            print('Unstowing...')
+            if self._controller.run_planned_activity(self._controller.unstow, 'unstow'):
+                print('Unstowed.')
+            else:
+                print('Unstow failed.')
+            print('Resuming manual control...')
+            self._controller.start_servo()
+        finally:
+            self._unstow_active = False
+            self._level_running.release()
 
     def _handle_level(self):
         """Reorient the tool straight down via a collision-checked plan
