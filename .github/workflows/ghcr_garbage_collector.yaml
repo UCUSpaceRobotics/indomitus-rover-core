@@ -22,7 +22,7 @@ jobs:
       - name: Clean stale DEV SHA tags
         uses: snok/container-retention-policy@v3.1.0
         with:
-          account: ${{ github.repository_owner }}
+          account: ${{ github.repository_owner == 'UCUSpaceRobotics' && github.repository_owner || 'user' }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "sha-*-dev"
           cut-off: 14d
@@ -32,7 +32,7 @@ jobs:
       - name: Clean stale PROD SHA tags
         uses: snok/container-retention-policy@v3.1.0
         with:
-          account: ${{ github.repository_owner }}
+          account: ${{ github.repository_owner == 'UCUSpaceRobotics' && github.repository_owner || 'user' }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "sha-*-prod"
           cut-off: 30d
@@ -42,7 +42,7 @@ jobs:
       - name: Delete untagged images
         uses: snok/container-retention-policy@v3.1.0
         with:
-          account: ${{ github.repository_owner }}
+          account: ${{ github.repository_owner == 'UCUSpaceRobotics' && github.repository_owner || 'user' }}
           image-names: ${{ steps.lowercase-repo.outputs.name }}
           image-tags: "!*"
           cut-off: 3d

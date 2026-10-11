@@ -10,10 +10,11 @@ This repository (`indomitus-rover-core-ai`) deploys **next to** the team's code,
 |---|---|---|
 | directory on the Jetson | `~/indomitus-rover-core` | `~/indomitus-rover-core-ai` |
 | container | `rover_prod` | `rover_ai` |
-| image | its own | by default the **same image** as `rover_prod`, recorded in `~/indomitus-rover-core-ai/.env` |
+| image | team image (ROS 2 Humble) | **this fork's CI image** `ghcr.io/yuriifito/indomitus-rover-core-ai:develop-prod` (ROS 2 Jazzy, built on every push to `develop`), recorded in `~/indomitus-rover-core-ai/.env` |
 | `build/`, `install/`, `log/` | inside the container | host directories in `~/indomitus-rover-core-ai` (survive container re-creation) |
 
-- First time: `./scripts/deploy_to_rover.sh sync-src` creates the directory, syncs `src/` and the compose file, writes `.env` with the image of `rover_prod`, starts `rover_ai` and builds. After that, `docker compose up -d` / `down` in `~/indomitus-rover-core-ai` on the Jetson work on their own.
+- First time: `./scripts/deploy_to_rover.sh pull` (downloads `develop-prod` on the laptop, copies it to the Jetson, writes `.env`, starts `rover_ai`), then `./scripts/deploy_to_rover.sh sync-src` (syncs `src/`, builds inside `rover_ai`). After that, `docker compose up -d` / `down` in `~/indomitus-rover-core-ai` on the Jetson work on their own.
+- `build/`, `install/`, `log/` are cleared automatically once when the image's ROS distro changes (marker `install/.ros_distro`), e.g. after moving from the team's Humble image to Jazzy.
 - Both containers can exist, but **launch nodes in only one of them at a time**: they share host networking, `ROS_DOMAIN_ID` and the CAN buses. The script warns when `rover_prod` is running; stop it with `cd ~/indomitus-rover-core && docker compose down`.
 
 
@@ -42,7 +43,7 @@ The script is pre-configured with default values matching the standard repositor
 ### Action Modes (Required)
 
 * `remote-build` : **REMOTE BUILD**: Syncs the entire local repository to the Jetson, builds the image natively using Compose, and restarts the container.
-* `pull` : **PULL MODE**: Pulls a pre-built (team) image from GHCR and switches `rover_ai` to it; our `src/` on the Jetson is kept and rebuilt. (The original behaviour, cloning the team's code into `src/`, is removed in this fork.)
+* `pull` : **PULL MODE**: Pulls a pre-built image of this fork from GHCR (default tag `develop-prod`) and switches `rover_ai` to it; our `src/` on the Jetson is kept and rebuilt. (The original behaviour, cloning the team's code into `src/`, is removed in this fork.)
 * `sync-src` : **SYNC SRC**: Syncs the local `src/` directory and the compose file, starts the container if it is not running (first-time setup), and compiles inside it.
 * `sync-docker-compose` : **SYNC COMPOSE**: Syncs ONLY the compose file and cleanly restarts the container.
 * `local-build` : **LOCAL BUILD (Deprecated)**: Cross-compiles a new ARM64 image locally using QEMU emulators, packages it, transfers the payload, and spins it up.
@@ -53,8 +54,8 @@ The script is pre-configured with default values matching the standard repositor
 * `--ip IP` : The Jetson IP address. (Default: `10.42.0.1`)
 * `--user USER` : The Jetson SSH username. (Default: `indomitus-rover`)
 * `--dir DIR` : Remote deployment directory on the Jetson. (Default: `/home/${JETSON_USER}/indomitus-rover-core-ai/`)
-* `--image-name NAME` : The Docker image name. (Default: `pull` → `ghcr.io/ucuspacerobotics/indomitus-rover-core`, `remote-build`/`local-build` → `indomitus-rover-core-ai`, other modes → the Jetson's `.env`, else the image of `rover_prod`)
-* `--tag TAG` : The Docker image tag (e.g., `develop-prod`, `feature-shared-branch-prod`). The script automatically derives the GitHub branch and exact commit from this tag.
+* `--image-name NAME` : The Docker image name. (Default: `pull` → `ghcr.io/yuriifito/indomitus-rover-core-ai`, `remote-build`/`local-build` → `indomitus-rover-core-ai`, other modes → the Jetson's `.env`, else `ghcr.io/yuriifito/indomitus-rover-core-ai:develop-prod`)
+* `--tag TAG` : The Docker image tag (e.g., `develop-prod`, `sha-1a2b3c4-prod`, or a version tag like `1.0.3-dev.1-prod`). Default for `pull`: `develop-prod`.
 * `--commit SHA` : Git commit SHA (7+ hex characters) to pull. Overrides `--tag` in `pull` mode.
 * `--container-name NAME`: The name of the Docker container on the Jetson. (Default: `rover_ai`)
 * `--dockerfile FILE` : Path to the local Dockerfile. (Default: `docker/Dockerfile`)

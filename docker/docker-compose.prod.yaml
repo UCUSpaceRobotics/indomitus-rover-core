@@ -1,6 +1,6 @@
 # indomitus-rover-core-ai on the Jetson: lives in ~/indomitus-rover-core-ai next to the
-# team's ~/indomitus-rover-core and runs as its own container (rover_ai), from the
-# same image unless told otherwise. IMAGE_NAME / IMAGE_TAG come from the .env file
+# team's ~/indomitus-rover-core and runs as its own container (rover_ai), from this
+# fork's CI image (ROS 2 Jazzy). IMAGE_NAME / IMAGE_TAG come from the .env file
 # next to this compose file, written by scripts/deploy_to_rover.sh.
 #
 # rover_prod and rover_ai can both exist, but run nodes in only one of them at a
@@ -14,11 +14,11 @@ services:
       dockerfile: docker/Dockerfile
       target: prod
       args:
-        BASE_IMAGE: ${BASE_IMAGE:-ros:humble-ros-base}
-        UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
-        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
+        BASE_IMAGE: ${BASE_IMAGE:-ros:jazzy-ros-base}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:-24.04}
+        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-jazzy}
 
-    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-prod}
+    image: ${IMAGE_NAME:-ghcr.io/yuriifito/indomitus-rover-core-ai}:${IMAGE_TAG:-develop-prod}
     pull_policy: never
     container_name: rover_ai
     command: tail -f /dev/null # command: autolaunch

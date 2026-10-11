@@ -9,7 +9,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  ROS_DISTRO: humble
+  ROS_DISTRO: jazzy
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -109,7 +109,9 @@ jobs:
           platforms: linux/arm64
           push: false
           build-args: |
-            BASE_IMAGE=ros:humble-ros-base
+            BASE_IMAGE=ros:jazzy-ros-base
+            UBUNTU_VERSION=24.04
+            TARGET_ROS_DISTRO=jazzy
           cache-from: |
             type=registry,ref=${{ env.REGISTRY }}/${{ needs.detect-changes.outputs.image_name }}-cache:pr-${{ github.event.pull_request.number }}-prod
             type=registry,ref=${{ env.REGISTRY }}/${{ needs.detect-changes.outputs.image_name }}-cache:prod-arm64
@@ -172,7 +174,9 @@ jobs:
           push: true
           build-args: |
             INSTALL_SIM_TOOLS=true
-            BASE_IMAGE=ros:humble-ros-base
+            BASE_IMAGE=ros:jazzy-ros-base
+            UBUNTU_VERSION=24.04
+            TARGET_ROS_DISTRO=jazzy
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
@@ -200,7 +204,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     env:
-      ROS_DISTRO: humble
+      ROS_DISTRO: jazzy
 
     steps:
       - name: Checkout repository

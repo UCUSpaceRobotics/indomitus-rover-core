@@ -72,7 +72,7 @@ jobs:
             type=sha
             type=raw,value=${{ needs.tag.outputs.new_tag }}
           labels: |
-            org.opencontainers.image.description=Production Image (ARM64) for Indomitus Rover
+            org.opencontainers.image.description=Production Image (ARM64, ROS 2 Jazzy) for Indomitus Rover (indomitus-rover-core-ai)
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -93,7 +93,9 @@ jobs:
           platforms: linux/arm64
           push: true
           build-args: |
-            BASE_IMAGE=ros:humble-ros-base
+            BASE_IMAGE=ros:jazzy-ros-base
+            UBUNTU_VERSION=24.04
+            TARGET_ROS_DISTRO=jazzy
           tags: ${{ steps.metadata-tags.outputs.tags }}
           labels: ${{ steps.metadata-tags.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ needs.meta.outputs.image }}-cache:prod-arm64
@@ -134,7 +136,7 @@ jobs:
             type=sha
             type=raw,value=${{ needs.tag.outputs.new_tag }}
           labels: |
-            org.opencontainers.image.description=Development Image (AMD64) for Indomitus Rover with Simulation Tools
+            org.opencontainers.image.description=Development Image (AMD64, ROS 2 Jazzy) for Indomitus Rover with Simulation Tools (indomitus-rover-core-ai)
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -156,7 +158,9 @@ jobs:
           push: true
           build-args: |
             INSTALL_SIM_TOOLS=true
-            BASE_IMAGE=ros:humble-ros-base
+            BASE_IMAGE=ros:jazzy-ros-base
+            UBUNTU_VERSION=24.04
+            TARGET_ROS_DISTRO=jazzy
           tags: ${{ steps.meta-dev.outputs.tags }}
           labels: ${{ steps.meta-dev.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ needs.meta.outputs.image }}-cache:dev-amd64

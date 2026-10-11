@@ -1,6 +1,6 @@
-ARG UBUNTU_VERSION=22.04
-ARG TARGET_ROS_DISTRO=humble
-ARG BASE_IMAGE="ros:humble-ros-base"
+ARG UBUNTU_VERSION=24.04
+ARG TARGET_ROS_DISTRO=jazzy
+ARG BASE_IMAGE="ros:jazzy-ros-base"
 # arm_tasks is not simulation code — it's excluded here (despite the var name)
 # because its remaining nodes are pure network clients against /arm, meant to
 # run from a dev/ground-station container rather than build into the Jetson
@@ -74,6 +74,7 @@ ENTRYPOINT ["/entrypoint.bash"]
 ####################
 FROM base AS dev
 ARG INSTALL_SIM_TOOLS=false
+ARG TARGET_ROS_DISTRO
 
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
@@ -93,7 +94,7 @@ RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
 
 # Debugging convenience tools, not any package's actual runtime dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gstreamer1.0-tools ros-humble-rqt-image-view && \
+    gstreamer1.0-tools ros-${TARGET_ROS_DISTRO}-rqt-image-view && \
     rm -rf /var/lib/apt/lists/*
 
 CMD ["bash"]

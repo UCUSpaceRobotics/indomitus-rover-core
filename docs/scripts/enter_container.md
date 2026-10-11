@@ -29,7 +29,7 @@ The script accepts the following flags to override defaults depending on the sub
 | --- | --- | --- | --- |
 | **`--name`** | `local`, `rover` | Docker container name | `rover_dev` (local), `rover_ai` (rover) |
 | **`--compose`** | `local`, `rover` | Compose file path | `docker-compose.yaml` (local), `docker-compose.prod.yaml` (rover) |
-| **`--ros-distro`** | `local` | ROS 2 distribution name | `humble` |
+| **`--ros-distro`** | `local` | ROS 2 distribution name | `jazzy` |
 | **`--workspace`** | `local`, `rover` | ROS 2 workspace path inside container | `/opt/ws` |
 | **`--user`** | `rover` | Jetson SSH username | `indomitus-rover` |
 | **`--ip`** | `rover` | Jetson target IP/hostname | `10.42.0.1` |

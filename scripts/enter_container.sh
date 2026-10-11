@@ -39,7 +39,7 @@ run_local() {
   # Defaults
   local CONTAINER_NAME="rover_dev"
   local COMPOSE_FILE="docker-compose.yaml"
-  local ROS_DISTRO="humble"
+  local ROS_DISTRO="jazzy"
   local WORKSPACE_DIR="/opt/ws"
 
   show_local_help() {
@@ -206,7 +206,7 @@ EOF
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
   # install/ is a host directory, empty until the first colcon build.
-  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -lc 'source /opt/ros/humble/setup.bash; [ -f ${WORKSPACE_DIR}/install/setup.bash ] && source ${WORKSPACE_DIR}/install/setup.bash; exec bash -i'"
+  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -lc 'source /opt/ros/\$TARGET_ROS_DISTRO/setup.bash; [ -f ${WORKSPACE_DIR}/install/setup.bash ] && source ${WORKSPACE_DIR}/install/setup.bash; exec bash -i'"
 
   echo -e "\n\e[32m[DONE]\e[0m Session closed."
 }

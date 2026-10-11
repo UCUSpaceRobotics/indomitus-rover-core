@@ -13,18 +13,19 @@ source "${SCRIPT_DIR}/utils.sh"
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
 # DEFAULT VARIABLES
-ROS_DISTRO="humble"
 JETSON_USER="indomitus-rover"
 JETSON_HOTSPOT_IP="10.42.0.1"
 JETSON_ETHERNET_IP="indomitus-rover-computer.local"
 JETSON_IP="${JETSON_HOTSPOT_IP}"
 REMOTE_DIR=""
-# Image: unset = keep the one in the Jetson's .env, else reuse the image of the
-# team's rover_prod container (see resolve_image()).
+# Image: unset = keep the one in the Jetson's .env, else our CI image
+# ${PULL_IMAGE_NAME}:${DEFAULT_IMAGE_TAG} (see resolve_image()).
 IMAGE_NAME=""
 IMAGE_TAG=""
 IMAGE_COMMIT=""
-PULL_IMAGE_NAME="ghcr.io/ucuspacerobotics/indomitus-rover-core"
+# Published by this fork's .github/workflows/publish_image.yaml (ROS 2 Jazzy).
+PULL_IMAGE_NAME="ghcr.io/yuriifito/indomitus-rover-core-ai"
+DEFAULT_IMAGE_TAG="develop-prod"
 BUILD_IMAGE_NAME="indomitus-rover-core-ai"
 CONTAINER_NAME="rover_ai"
 MAIN_CONTAINER_NAME="rover_prod"
@@ -49,7 +50,7 @@ Usage: $0 [MODE] [OPTIONS]
 
 Deploys indomitus-rover-core-ai to the Jetson: ~/indomitus-rover-core-ai, container
 '${CONTAINER_NAME}', next to (and independent of) the team's ~/indomitus-rover-core /
-'${MAIN_CONTAINER_NAME}'. By default the image of '${MAIN_CONTAINER_NAME}' is reused.
+'${MAIN_CONTAINER_NAME}'. Images come from this fork's CI (${PULL_IMAGE_NAME}, ROS 2 Jazzy).
 
 Modes (REQUIRED - You must specify exactly one):
     remote-build                REMOTE BUILD: Syncs the entire local repository to the Jetson, builds the image natively, and restarts.
@@ -69,8 +70,8 @@ Options:
     --user USER                 Jetson SSH username (Default: ${JETSON_USER})
     --dir DIR                   Remote deployment directory on the Jetson. (Default: /home/\${JETSON_USER}/indomitus-rover-core-ai/)
     --image-name NAME           Docker image name. Default: pull=${PULL_IMAGE_NAME}, builds=${BUILD_IMAGE_NAME},
-                                    otherwise the Jetson's .env, else the image of '${MAIN_CONTAINER_NAME}'.
-    --tag TAG                   Docker image tag (e.g., develop-prod, feature-branch-prod).
+                                    otherwise the Jetson's .env, else ${PULL_IMAGE_NAME}:${DEFAULT_IMAGE_TAG}.
+    --tag TAG                   Docker image tag (e.g., develop-prod, sha-1a2b3c4-prod). pull default: ${DEFAULT_IMAGE_TAG}.
     --commit SHA                Git commit SHA (7+ hex chars) to pull. Overrides --tag in pull mode.
     --container-name NAME       Docker container name (Default: ${CONTAINER_NAME})
     --dockerfile FILE           Path to the Dockerfile (Default: ${DOCKERFILE})
@@ -166,6 +167,7 @@ if [ "$LOCAL_BUILD_MODE" = true ] || [ "$REMOTE_BUILD_MODE" = true ]; then
     IMAGE_TAG="${IMAGE_TAG:-local-prod}"
 elif [ "$PULL_MODE" = true ]; then
     IMAGE_NAME="${IMAGE_NAME:-${PULL_IMAGE_NAME}}"
+    [ -n "$IMAGE_COMMIT" ] || IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_IMAGE_TAG}}"
 fi
 
 TARGET="${JETSON_USER}@${JETSON_IP}"
@@ -219,16 +221,16 @@ warn_if_main_running() {
 }
 
 # Sets IMAGE_NAME/IMAGE_TAG when not given on the command line: keep the image
-# in the Jetson's .env, else reuse the image the team's rover_prod runs on.
+# in the Jetson's .env, else our CI image (which must already be on the Jetson).
 resolve_image() {
     if [ -n "$IMAGE_NAME" ] && [ -n "$IMAGE_TAG" ]; then return; fi
     local current
     current=$(ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" 2>/dev/null && [ -f .env ] && . ./.env && echo \"\${IMAGE_NAME}:\${IMAGE_TAG}\"" || true)
     if [ -z "$current" ] || [ "$current" = ":" ]; then
-        current=$(ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker inspect -f '{{.Config.Image}}' '${MAIN_CONTAINER_NAME}' 2>/dev/null" || true)
-        [ -n "$current" ] || error "No image to use: no .env in ${REMOTE_DIR} and no '${MAIN_CONTAINER_NAME}' container on the Jetson.
-Pass --image-name and --tag, or use the pull / remote-build mode."
-        echo "Reusing the image of '${MAIN_CONTAINER_NAME}': ${current}"
+        current="${PULL_IMAGE_NAME}:${DEFAULT_IMAGE_TAG}"
+        ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker image inspect '${current}' >/dev/null 2>&1" \
+            || error "Image ${current} is not on the Jetson yet. Run '$0 pull' first (or remote-build)."
+        echo "Using ${current}"
     fi
     IMAGE_NAME="${IMAGE_NAME:-${current%:*}}"
     IMAGE_TAG="${IMAGE_TAG:-${current##*:}}"
@@ -276,9 +278,22 @@ echo "[OK] Container is up on ${IMAGE_NAME}:${IMAGE_TAG}"
 REMOTE_EOF
 }
 
+# build/ install/ log/ are host directories that outlive the image, so after a
+# switch to an image with another ROS distro (e.g. Humble -> Jazzy) they hold
+# stale CMake caches and Python bytecode: clear them once, tracked by a marker.
 build_in_container() {
     echo "Triggering colcon build inside '${CONTAINER_NAME}'..."
-    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/${ROS_DISTRO}/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
+    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c '
+        set -e
+        source /opt/ros/\$TARGET_ROS_DISTRO/setup.bash
+        cd /opt/ws
+        if [ \"\$(cat install/.ros_distro 2>/dev/null)\" != \"\$TARGET_ROS_DISTRO\" ]; then
+            echo \"[JETSON] Build output is not from ROS \$TARGET_ROS_DISTRO - clearing build/ install/ log/\"
+            find build install log -mindepth 1 -delete
+        fi
+        colcon build --symlink-install
+        echo \"\$TARGET_ROS_DISTRO\" > install/.ros_distro
+    '"; then
         success "Code successfully compiled on the Jetson!"
     else
         error "Compilation failed."

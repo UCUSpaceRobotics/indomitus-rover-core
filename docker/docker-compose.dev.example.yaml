@@ -6,12 +6,12 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
       args:
-        BASE_IMAGE: ${BASE_IMAGE:-ros:humble-ros-base}
-        UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
-        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
+        BASE_IMAGE: ${BASE_IMAGE:-ros:jazzy-ros-base}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:-24.04}
+        TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-jazzy}
         INSTALL_SIM_TOOLS: "false"
 
-    image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
+    image: ${IMAGE_NAME:-ghcr.io/yuriifito/indomitus-rover-core-ai}:${IMAGE_TAG:-develop-dev}
     pull_policy: never
     container_name: rover_dev
     command: tail -f /dev/null # command: autolaunch

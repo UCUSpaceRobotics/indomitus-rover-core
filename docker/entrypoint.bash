@@ -13,7 +13,7 @@ source_if_exists() {
 
 # -------------------- ROS2 Workspace Setup --------------------
 
-TARGET_ROS_DISTRO="${TARGET_ROS_DISTRO:-humble}"
+TARGET_ROS_DISTRO="${TARGET_ROS_DISTRO:-jazzy}"
 WS="${WS:-/opt/ws}"
 
 source_if_exists "/opt/ros/${TARGET_ROS_DISTRO}/setup.bash"
