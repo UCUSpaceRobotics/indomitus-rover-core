@@ -1,8 +1,8 @@
 """
 Arm-only Gazebo sim: world, bridges, the arm_standalone model and the
 optional switch panel. The arm's ROS stack (robot_state_publisher,
-controllers, move_group, servo) comes from arm_stack_sim.launch.py and runs
-under /arm, the same as arm hardware.
+controllers, move_group, servo) is arm_bringup/stack.launch.py under /arm,
+the same file the real arm runs.
 """
 
 import contextlib
@@ -26,7 +26,7 @@ from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
-from launch_ros.actions import Node, SetParameter
+from launch_ros.actions import Node, PushRosNamespace, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 
 
@@ -50,7 +50,7 @@ def generate_launch_description() -> LaunchDescription:
         None, [resource_path_root, os.path.dirname(panel_description_dir), existing_ign_path]))
 
     # Spawned from a string, not from a robot_state_publisher topic: the
-    # only arm robot_state_publisher is /arm's, in arm_stack_sim.launch.py.
+    # only arm robot_state_publisher is /arm's, in arm_bringup/stack.launch.py.
     spawn_description_content = Command([
         "xacro ", xacro_file,
         " sim:=true",
@@ -72,15 +72,18 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    # Wrapped in its own group so its launch_arguments don't leak into the
-    # rest of this file.
+    # The same arm stack as on the real arm, under /arm. Own group so the
+    # namespace and its launch_arguments don't leak into the rest of this file.
     arm_stack = GroupAction([
+        PushRosNamespace("arm"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(arm_sim_dir, "launch", "arm_stack_sim.launch.py")
+                os.path.join(get_package_share_directory("arm_bringup"),
+                             "launch", "stack.launch.py")
             ),
             launch_arguments={
                 "description_file": xacro_file,
+                "use_sim": "true",
                 "camera": LaunchConfiguration("camera"),
                 "end_effector": LaunchConfiguration("end_effector"),
             }.items(),
@@ -257,7 +260,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("camera", default_value="true"),
         DeclareLaunchArgument(
             "end_effector", default_value="jaw",
-            description="'jaw', 'other_tool', or 'drill_sampling' — see arm_macro.xacro"),
+            description="Tool mounted on the arm - see arm_macro.xacro"),
         DeclareLaunchArgument(
             "spawn_panel",
             # Defaults off for the drill build; still overridable.

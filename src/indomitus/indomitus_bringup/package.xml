@@ -23,6 +23,7 @@
   <exec_depend>rover_teleop</exec_depend>
   <exec_depend>arm_description</exec_depend>
   <exec_depend>arm_sim</exec_depend>
+  <exec_depend>arm_bringup</exec_depend>
 
   <!-- Optional switch panel (spawn_panel:=true) -->
   <exec_depend>panel_description</exec_depend>

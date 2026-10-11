@@ -1,7 +1,7 @@
 # Humble overrides for ompl_planning.yaml (which is in Jazzy format).
 #
 # On ROS_DISTRO=humble, arm_bringup's launch_utils.build_moveit_config()
-# (used by arm_bringup/arm.launch.py and arm_sim/arm_stack_sim.launch.py)
+# (used by arm_bringup/stack.launch.py, on the real arm and in sim)
 # drops planning_plugins/request_adapters/response_adapters from the loaded
 # ompl pipeline and puts these keys in their place; planner_configs etc.
 # stay shared. Humble wants single

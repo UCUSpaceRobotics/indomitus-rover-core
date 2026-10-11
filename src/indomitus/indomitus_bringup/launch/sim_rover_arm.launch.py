@@ -4,7 +4,7 @@ ros2_control stacks:
 
   /rover  robot_state_publisher (rover.xacro), /rover/controller_manager,
           twist_mux, drive_power — same as rover_sim/sim_gz.launch.py
-  /arm    arm_sim/arm_stack_sim.launch.py with arm_on_rover.urdf.xacro:
+  /arm    arm_bringup/stack.launch.py with arm_on_rover.urdf.xacro:
           robot_state_publisher, /arm/controller_manager, move_group, servo
 
 Both robot_state_publishers publish into the one global /tf tree
@@ -324,12 +324,14 @@ def generate_launch_description() -> LaunchDescription:
             "controllers_yaml_path": controllers_yaml_path,
         }),
 
-        # 3. /arm stack (pushes /arm itself). Own group so its
-        # launch_arguments don't leak into what follows.
+        # 3. /arm stack - the same file the real arm runs. Own group so the
+        # namespace and its launch_arguments don't leak into what follows.
         GroupAction([
-            include_launch("arm_sim", "arm_stack_sim.launch.py", {
+            PushRosNamespace("arm"),
+            include_launch("arm_bringup", "stack.launch.py", {
                 "description_file": os.path.join(
                     indomitus_description_share, "urdf", "arm_on_rover.urdf.xacro"),
+                "use_sim": "true",
                 "camera": LaunchConfiguration("arm_camera"),
                 "end_effector": LaunchConfiguration("end_effector"),
             }),

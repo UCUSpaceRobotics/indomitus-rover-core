@@ -1,5 +1,5 @@
-"""Launch helpers for the arm. MoveIt pieces shared by the real arm (arm.launch.py) and the sim
-(arm_sim/arm_stack_sim.launch.py), so both run the same MoveIt/Servo setup.
+"""Launch helpers for the arm: include_launch and the MoveIt config + Servo
+node used by arm_bringup/stack.launch.py (real arm and both sims).
 
 The rover's Jetson runs Humble, dev/sim runs Jazzy; MoveIt differs in the
 OMPL pipeline format and in moveit_servo (executable name, kinematics).
