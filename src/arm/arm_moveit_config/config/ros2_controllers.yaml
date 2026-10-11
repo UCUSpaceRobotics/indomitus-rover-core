@@ -46,9 +46,19 @@
     # current position, which is what makes single-joint test moves possible.
     allow_partial_joints_goal: true
 
-    # Left at the library default (true, deprecated) on purpose: legacy Servo
-    # streamed single-point trajectories. Teleop now uses the forward position
-    # controller; this flag still matters for any leftover single-point goals.
+    # Start every new trajectory from the JTC's own last reference, not from
+    # the measured state. Servo streams JointTrajectory here (Jazzy) and a new
+    # message arrives every cycle: interpolating from the measurement would
+    # re-anchor on it (gravity offset of the MIT motors -> the arm ratchets
+    # down), and right after a planned move it starts from a still-moving joint
+    # and overshoots.
+    interpolate_from_desired_state: true
+
+    # Servo (Jazzy) streams a rolling window whose last point is still moving
+    # while a key/stick is held. Jazzy's JTC rejects such trajectories by
+    # default (false since Jazzy; Humble defaulted to true), so teleop would
+    # only move once the command stops. Must stay true.
+    allow_nonzero_velocity_at_trajectory_end: true
 
     # Spline interpolation follows the TOTG velocity/accel profile from MoveIt.
     # Used for move_group Execute / home / teach_poses (multi-point timed paths).

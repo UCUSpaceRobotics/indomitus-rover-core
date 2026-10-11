@@ -68,6 +68,15 @@ def build_moveit_config(description_file: str, mappings: dict):
 def servo_node(moveit_config, extra_parameters=()) -> Node:
     """moveit_servo for the arm, with the distro-specific bits."""
     servo_params = _load_config_yaml('servo.yaml')['moveit_servo']['ros__parameters']
+    if IS_HUMBLE:
+        # servo.yaml streams JointTrajectory into the JTC, which only works well
+        # with Jazzy's rolling command window; Humble keeps the forward
+        # position controller (keyboard_servo_node switches to it there).
+        servo_params.update({
+            'command_out_type': 'std_msgs/Float64MultiArray',
+            'command_out_topic': f'{FORWARD_CONTROLLER}/commands',
+            'publish_joint_velocities': False,
+        })
     # Jazzy Servo rejects every command without an IK solver. Humble Servo
     # must not get one: it then uses KDL IK, which fails for +X from home
     # (one-sided teleop); without it, it uses the symmetric J^#.

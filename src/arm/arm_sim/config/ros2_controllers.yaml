@@ -35,6 +35,16 @@
     # Match hardware controller: follow MoveIt TOTG profiles continuously.
     interpolation_method: splines
     allow_partial_joints_goal: true
+    # Start every new trajectory from the JTC's own last reference, not from
+    # the measured state. Servo streams JointTrajectory here (Jazzy) and a new
+    # message arrives every cycle: interpolating from the measurement would
+    # re-anchor on it (gravity offset of the MIT motors -> the arm ratchets
+    # down), and right after a planned move it starts from a still-moving joint
+    # and overshoots.
+    interpolate_from_desired_state: true
+    # Servo's rolling window ends on a moving point while a key is held; Jazzy's
+    # JTC rejects that by default. See arm_moveit_config/config/ros2_controllers.yaml.
+    allow_nonzero_velocity_at_trajectory_end: true
 
 /**/indomitus_arm_forward_position_controller:
   ros__parameters:

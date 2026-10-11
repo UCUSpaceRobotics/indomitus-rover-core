@@ -122,6 +122,11 @@ except ImportError:
     from std_msgs.msg import Int8 as ServoStatus
     ServoCommandType = None
     SERVO_API_JAZZY = False
+
+# Where Servo's output goes (arm_bringup launch_utils.servo_node()): Jazzy
+# streams JointTrajectory into the JTC, so the JTC stays active during teleop;
+# Humble streams Float64MultiArray into the forward position controller.
+SERVO_USES_JTC = SERVO_API_JAZZY
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import TransformException
 from indomitus_interfaces.msg import EndEffectorState
@@ -1803,8 +1808,10 @@ class ServoController(Node):
         return True
 
     def start_servo(self) -> bool:
-        """Switch to streaming controller, then start MoveIt Servo.
+        """Claim the joints with Servo's output controller, then start Servo.
 
+        The output controller is the JTC on Jazzy (Servo streams
+        JointTrajectory) and the forward position controller on Humble.
         Jazzy: selects TWIST commands and unpauses Servo; Humble: calls
         ``start_servo``. Waits up to 2 seconds for each service and up to
         20 seconds for each call. Falls back to
@@ -1814,9 +1821,13 @@ class ServoController(Node):
         Returns:
             bool: True if Servo confirmed it started.
         """
-        if not self.use_streaming_controller():
+        if SERVO_USES_JTC:
+            claimed = self.use_trajectory_controller()
+        else:
+            claimed = self.use_streaming_controller()
+        if not claimed:
             self.get_logger().error(
-                'Could not activate forward position controller — Servo not started.'
+                'Could not activate the Servo output controller — Servo not started.'
             )
             return False
 

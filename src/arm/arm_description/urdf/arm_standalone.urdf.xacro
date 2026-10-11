@@ -20,13 +20,14 @@
           <namespace>/arm</namespace>
         </ros>
         <parameters>$(find arm_sim)/config/ros2_controllers.yaml</parameters>
-        <!-- Servo (Jazzy) commands "measured position + one step" every
-             10 ms; with the default gain of 0.1 Gazebo closes only ~10% of
-             each step before Servo re-anchors, so teleop crawled at ~10% of
-             the commanded speed. Set here, not in the yaml: with two
-             gz_ros2_control plugins in one model only the first plugin's
-             params file reaches the ROS context. -->
-        <position_proportional_gain>1.0</position_proportional_gain>
+        <!-- Fraction of the position error Gazebo closes per step. 1.0 was
+             needed while Servo re-anchored on the measured state every cycle
+             (with 0.1 teleop crawled); since Servo streams JointTrajectory
+             into the JTC (it integrates its own targets) 1.0 only made the
+             joints jitter and overshoot, 0.3 tracks smoothly. Set here, not in
+             the yaml: with two gz_ros2_control plugins in one model only the
+             first plugin's params file reaches the ROS context. -->
+        <position_proportional_gain>0.3</position_proportional_gain>
       </plugin>
     </gazebo>
   </xacro:if>
