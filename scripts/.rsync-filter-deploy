@@ -79,6 +79,10 @@
 # Protect Jetson's local repository state
 - .git/
 
+# Protect the Jetson-side image choice (written by deploy_to_rover.sh) from root sync
+- /.env
+- /.env.prev
+
 # Protect Compose files and backups from being wiped by root sync
 - docker-compose*.yaml
 - docker-compose*.yaml.bak

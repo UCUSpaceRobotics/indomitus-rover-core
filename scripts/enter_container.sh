@@ -113,7 +113,7 @@ run_rover() {
   local JETSON_ETHERNET_IP="indomitus-rover-computer.local"
   local JETSON_IP="${JETSON_HOTSPOT_IP}"
   local REMOTE_DIR=""
-  local CONTAINER_NAME="rover_prod"
+  local CONTAINER_NAME="rover_ai"
   local COMPOSE_FILE="docker-compose.prod.yaml"
   local WORKSPACE_DIR="/opt/ws"
   local WIFI_SSID="ERC_UCUSpaceRobotics_A"
@@ -125,8 +125,9 @@ run_rover() {
     cat << EOF
 Usage: $0 rover [OPTIONS]
 
-Connects to the rover computer, starts the production Docker container (if needed),
-and opens an interactive terminal inside the remote container.
+Connects to the rover computer, starts our container (if needed) from
+~/indomitus-rover-core-ai, and opens an interactive terminal inside it.
+First-time setup on the Jetson is './scripts/deploy_to_rover.sh sync-src'.
 
 Options:
   --eth                 Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
@@ -134,7 +135,7 @@ Options:
                          (already on the network, or connected some other way).
   --user USER           Jetson SSH username (Default: ${JETSON_USER})
   --ip IP               Jetson IP address (Default: ${JETSON_IP})
-  --dir DIR             Remote deployment directory (Default: /home/\${JETSON_USER}/indomitus-rover-core/)
+  --dir DIR             Remote deployment directory (Default: /home/\${JETSON_USER}/indomitus-rover-core-ai/)
   --name NAME           Docker container name (Default: ${CONTAINER_NAME})
   --compose FILE        Path to Compose file (Default: ${COMPOSE_FILE})
   --workspace DIR       ROS 2 workspace path inside container (Default: ${WORKSPACE_DIR})
@@ -161,7 +162,7 @@ EOF
     esac
   done
 
-  REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core/}"
+  REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core-ai/}"
 
   local TARGET="${JETSON_USER}@${JETSON_IP}"
   local REMOTE_COMPOSE_FILE="$(basename "${COMPOSE_FILE}")"
@@ -181,9 +182,12 @@ EOF
   ssh -q "${TARGET}" \
     "REMOTE_DIR='${REMOTE_DIR}' REMOTE_COMPOSE_FILE='${REMOTE_COMPOSE_FILE}' CONTAINER_NAME='${CONTAINER_NAME}' bash -s" << 'EOF'
   set -euo pipefail
-  cd "${REMOTE_DIR}"
+  cd "${REMOTE_DIR}" 2>/dev/null || { echo "[JETSON] ERROR: ${REMOTE_DIR} does not exist. Run './scripts/deploy_to_rover.sh sync-src' first." >&2; exit 1; }
   CONTAINER_STATE="$(docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null || echo missing)"
   if [ "${CONTAINER_STATE}" != "true" ]; then
+    # .env holds the image (written by deploy_to_rover.sh); without it compose
+    # would fall back to an image tag that may not exist on the Jetson.
+    [ -f .env ] || { echo "[JETSON] ERROR: no .env in ${REMOTE_DIR}. Run './scripts/deploy_to_rover.sh sync-src' first." >&2; exit 1; }
     echo "[JETSON] INFO: Container '${CONTAINER_NAME}' is not running. Starting it..."
     if command -v docker-compose >/dev/null 2>&1; then
       docker-compose up -d
@@ -201,7 +205,8 @@ EOF
   echo -e "Type \e[33mexit\e[0m to leave."
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
-  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -lc 'source /opt/ros/humble/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && exec bash -i'"
+  # install/ is a host directory, empty until the first colcon build.
+  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -lc 'source /opt/ros/humble/setup.bash; [ -f ${WORKSPACE_DIR}/install/setup.bash ] && source ${WORKSPACE_DIR}/install/setup.bash; exec bash -i'"
 
   echo -e "\n\e[32m[DONE]\e[0m Session closed."
 }
