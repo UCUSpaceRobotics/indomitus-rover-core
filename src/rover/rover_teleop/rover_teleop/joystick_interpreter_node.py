@@ -50,8 +50,10 @@ STATE_QOS = QoSProfile(
 
 class JoystickInterpreterNode(Node):
 
-    def __init__(self):
-        super().__init__('joystick_interpreter')
+    def __init__(self, node_name: str = 'joystick_interpreter', **node_kwargs):
+        # node_name / node_kwargs: keyboard_teleop_node runs a second instance
+        # in its own process, with its own name, parameters and remappings.
+        super().__init__(node_name, **node_kwargs)
 
         def declare_and_get(name, default):
             self.declare_parameter(name, default)
@@ -139,7 +141,10 @@ class JoystickInterpreterNode(Node):
             log=self._dataset_log,
         )
 
-        self._led = ControllerLed(self.get_logger())
+        # Off for keyboard_teleop_node: there is no gamepad to paint, and one
+        # plugged into the same laptop belongs to another interpreter.
+        self._led = (ControllerLed(self.get_logger())
+                     if bool(declare_and_get('controller_led', True)) else None)
         # Recomputes the colour each tick, so this also carries state changes
         # that no button press announces.
         self._led_timer = self.create_timer(LED_REPAINT_PERIOD, self._refresh_led)
@@ -251,6 +256,10 @@ class JoystickInterpreterNode(Node):
         if tick.publish_zero:
             self._publish_cmd(0.0, 0.0, 0.0)
 
+    def publish_stop(self):
+        """One zero twist, e.g. from keyboard_teleop_node on its way out."""
+        self._publish_cmd(0.0, 0.0, 0.0)
+
     def _publish_cmd(self, vx: float, vy: float, wz: float):
         out = Twist()
         out.linear.x = vx
@@ -335,7 +344,8 @@ class JoystickInterpreterNode(Node):
         self._refresh_led()
 
     def mark_led_offline(self):
-        self._led.set(LED_NODE_DOWN)
+        if self._led is not None:
+            self._led.set(LED_NODE_DOWN)
 
     def _refresh_led(self):
         """Paint the controller's light bar with the current drive state.
@@ -344,6 +354,8 @@ class JoystickInterpreterNode(Node):
         the default message reads motors-off, and the bar goes red — which is
         the truth: no controller has been activated, so the rover cannot move.
         """
+        if self._led is None:
+            return
         self._led.set(led_colour(
             motors_enabled=self._drive_state.motors_enabled,
             motors_inhibited=self._drive_state.motors_inhibited,
