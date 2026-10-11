@@ -82,13 +82,18 @@ def generate_launch_description():
         joy_dev_arg,
         # zed2i_mode_arg,
 
-        include_launch('rover_teleop', 'joy.launch.py', {
-            'rover_namespace': LaunchConfiguration('rover_namespace'),
-            'joy_dev': LaunchConfiguration('joy_dev'),
-        }, condition=IfCondition(LaunchConfiguration('use_joy'))),
-
         GroupAction([
             PushRosNamespace(namespace_val),
+
+            # Own group: an include's launch_arguments leak into the rest of the
+            # enclosing scope, and rover_namespace:='' would reach the
+            # robot_state_publisher include below.
+            GroupAction([
+                include_launch('rover_teleop', 'joy.launch.py', {
+                    'rover_namespace': '',   # already pushed by this group
+                    'joy_dev': LaunchConfiguration('joy_dev'),
+                }),
+            ], condition=IfCondition(LaunchConfiguration('use_joy'))),
 
             include_launch('rover_bringup', 'can.launch.py', {
                 'interface': LaunchConfiguration('interface'),
