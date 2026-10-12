@@ -305,7 +305,7 @@
 
            Both use finger_limit_epsilon padding past their real travel
            (right only ever commanded in [0, finger_stroke], left in
-           [-finger_stroke, 0] — see keyboard_servo_node.py), because the
+           [-finger_stroke, 0] — see servo_controller.py), because the
            0 rest position and the finger_stroke fully-open position are
            real endpoints a finger sits at continuously, and DART (Gazebo's
            physics engine) was found to sometimes silently ignore further
@@ -471,6 +471,14 @@
             <param name="max_cmd_speed_rad_s">1.0</param>
             <!-- Activation aborts if any motor is silent for this long -->
             <param name="feedback_timeout_secs">2.0</param>
+            <!-- Deactivate (arm_teleop Release, arm parked on its support):
+                 stiffness ramps 100% -> 0 over release_ramp_secs, first for
+                 the shoulder and elbow, then for the rest, then the motors
+                 are disabled. A joint moving more than
+                 release_drift_tol_rad meanwhile means the arm is not supported:
+                 stiffness comes back and the arm stays active. -->
+            <param name="release_ramp_secs">3.0</param>
+            <param name="release_drift_tol_rad">0.035</param>
             <param name="gravity_ff_enabled">true</param>
             <!-- Set to each motor family's own real rated capacity, not the
                  shared MIT-protocol packing scale (48 Nm) — that scale is
@@ -541,6 +549,7 @@
           <command_interface name="velocity"/>
           <state_interface name="position"/>
           <state_interface name="velocity"/>
+          <state_interface name="effort"/>
           <param name="motor_id">${motor_id}</param>
           <param name="direction">${direction}</param>
           <param name="offset">${offset}</param>

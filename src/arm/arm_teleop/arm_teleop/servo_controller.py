@@ -1,104 +1,30 @@
-#!/usr/bin/env python3
 """
-Keyboard control node for MoveIt Servo.
+ServoController: the arm teleop core — MoveIt Servo twists, controller
+switching, planned moves (home, level, panel align, unstow, park) and the
+arm's motors on/off, shared by every input source.
 
-Reads keyboard input and sends Cartesian velocity commands to MoveIt Servo.
-Designed to be modular — core logic is in ServoController class,
-so switching to gamepad (joy package) requires only replacing the input source.
-
-Controls:
-    EEF translation — absolute (in arm_mount_link):
-        w / s  — +X / -X
-        a / d  — +Y / -Y
-        q / e  — +Z / -Z
-
-    EEF translation — view-relative (in arm_camera_link, rigid with the
-    gripper; axes are REP-103 so +X is where the camera and gripper point):
-        Up / Down    — forward / back
-        Left / Right — left / right
-        t / g        — up / down
-
-    Both translation sets are summed, so they can be held together.
-
-    EEF rotation (about arm_tcp_link). Names are from the operator's point of
-    view, i.e. the camera frame, which is what the TCP axes actually work out
-    to: TCP +X is the camera's left-right axis (pitch), TCP +Y its vertical
-    axis (yaw), TCP +Z its line of sight (roll):
-        i / k  — pitch (+/- wx)
-        u / o  — yaw   (+/- wy)
-        j / l  — roll  (+/- wz)
-
-    Gripper (commanded directly on gripper_right/left_controller, bypassing Servo):
-        b / v  — open / close
-
-    r      — move to home + start servo
-    p      — align to detected panel (see panel_align_node); the first
-             successful align each session is remembered, so later presses
-             replay that exact position instead of re-planning
-    f      — level tool (collision-checked; locks pitch/yaw after — 'r'
-             unlocks)
-    n      — unstow: slowly lift shoulder/elbow off the body/base (no
-             planner; only lifts), then resume Servo. 'r' does this
-             automatically when the arm starts in collision.
-    m      — rotate the gripper in place to face the remembered panel
-             direction, current position kept (needs 'p' once first)
-    ESC/x  — exit
-
-    r/p/f/m (and their gamepad equivalents, see below) first light the
-    activity indicator and hold for 5s with the arm untouched before
-    actually moving — ERC 2026 Rules, Appendix 3, REQ-OPS-080/090/100 (see
-    ServoController.run_planned_activity()).
-
-Gamepad controls (via ros2 joy joy_node, e.g. Stadia controller).
-All gamepad translation is view-relative (arm_camera_link); rotation is
-about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
-    Left stick  left/right — EEF left / right (camera)
-    Left stick  up/down    — EEF forward / back (camera)
-    Right stick up/down    — EEF up / down (camera)
-    Right stick left/right — yaw (TCP)
-    R1 + right stick up/down    — pitch (TCP)
-    R1 + right stick left/right — roll (TCP)
-    A                — move to home + start servo
-    Button 7         — align to detected panel (see keyboard 'p' above)
-    Button 8         — reorient gripper only (see keyboard 'm' above)
-    Button 4 (BACK)  — unstow (see keyboard 'n' above)
-    X                — exit
-
-Usage (stack in one terminal, input in another):
-        ros2 launch arm_bringup arm.launch.py use_fake_hardware:=false
-        ros2 launch arm_teleop keyboard_servo.launch.py
-        # optional: pin a device — ros2 run arm_teleop keyboard_servo_node --ros-args
-        #   -r __ns:=/arm -p keyboard_device_path:=/dev/input/event19
-
-    Gazebo sim (sim clock):
-        ros2 launch arm_teleop keyboard_servo.launch.py use_sim_time:=true
-
-    Gamepad only:
-        ros2 launch arm_teleop gamepad.launch.py
+Input sources: keyboard_input.KeyboardInputLoop (evdev) and
+gamepad_input.GamepadInputLoop (/joy). Entry points: keyboard_teleop_node.py
+(keyboard_servo_node) and gamepad_teleop_node.py (gamepad_servo_node), whose
+docstrings list the controls.
 """
 
-import sys
 import os
-import fcntl
-import functools
 import signal
 import threading
-import termios
 import time
 import json
 import math
-import select
 from pathlib import Path
-
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped, Quaternion, TwistStamped
-from sensor_msgs.msg import JointState, Joy
-from std_msgs.msg import Float64MultiArray, ColorRGBA, String
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64MultiArray, ColorRGBA
 from std_srvs.srv import SetBool, Trigger
 from action_msgs.msg import GoalStatus
 from controller_manager_msgs.srv import ListControllers, SwitchController
@@ -108,6 +34,7 @@ from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from moveit_msgs.srv import GetStateValidity
 from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes, RobotState
+
 # MoveIt Servo's ROS API differs between distros (the rover's Jetson runs
 # Humble, dev/sim runs Jazzy):
 #   Jazzy:  ~/pause_servo (SetBool) + ~/switch_command_type, status is
@@ -122,20 +49,17 @@ except ImportError:
     from std_msgs.msg import Int8 as ServoStatus
     ServoCommandType = None
     SERVO_API_JAZZY = False
-
 # Where Servo's output goes (arm_bringup launch_utils.servo_node()): Jazzy
 # streams JointTrajectory into the JTC, so the JTC stays active during teleop;
 # Humble streams Float64MultiArray into the forward position controller.
 SERVO_USES_JTC = SERVO_API_JAZZY
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import TransformException
-from indomitus_interfaces.msg import EndEffectorState
+from indomitus_interfaces.msg import ArmState
 from indomitus_interfaces.srv import AcquireArmMotionLock, ReleaseArmMotionLock
-import evdev
-from evdev import ecodes
 import socket
-
 from arm_teleop.arm_motion_lock import ArmMotionBusy, arm_motion_lock
+from arm_power.park import max_deviation, park_approach, park_targets
 
 
 DEFAULT_LINEAR_SPEED  = 0.6
@@ -244,12 +168,31 @@ DEFAULT_UNSTOW_TARGETS = {
 # smoothly and peaks at ~1.9x this.
 DEFAULT_UNSTOW_SPEED_RAD_S = 0.12
 DEFAULT_UNSTOW_MIN_DURATION_SEC = 3.0
-# ArmCanSystem ramps motor stiffness 0 -> 1 over gain_ramp_secs (15 s) after
-# activation; lifting before that lets the heavy arm lag, then catch up.
-DEFAULT_UNSTOW_WAIT_AFTER_START_SEC = 15.0
 # The JTC reports success once the trajectory time is up even if a joint got
 # blocked, so unstow checks the measured end position itself.
 UNSTOW_REACHED_TOLERANCE_RAD = 0.05
+
+# Park lays the arm on its rest support (arm_power/park.py); turning the motors
+# on and off (Release) is arm_power's job — /arm/power, /arm/state.
+PARK_POSE_NAME = 'park'
+# Lowering = the opposite of each joint's lifting direction.
+PARK_LOWERING_DIRECTIONS = {name: -d for name, d in UNSTOW_JOINT_DIRECTIONS.items()}
+# How far past the recorded rest the lowering joints are aimed, so the arm
+# presses lightly on its support (kp 500 * 0.03 rad = 15 Nm at full stiffness).
+DEFAULT_PARK_PRESS_RAD = 0.03
+# Park from further than this (any joint, rad) goes through a MoveIt plan to
+# just above the support first (shoulder/elbow lifted by park_approach_lift_rad);
+# from closer, straight down with the JTC — no planner detours near the support.
+PARK_DIRECT_RADIUS_RAD = 0.3
+DEFAULT_PARK_APPROACH_LIFT_RAD = 0.15
+# Measured pose vs poses.json "park" (the press offset is not reached: the
+# support stops the arm), for both Park's own check and Release's gate.
+PARK_POSE_TOLERANCE_RAD = 0.08
+# arm_power's reply comes at once; the outcome (Release ramps the stiffness
+# down for several seconds) is waited for on /arm/state.
+POWER_OUTCOME_TIMEOUT_SEC = 20.0
+# Motion waits this long at most for the stiffness ramp after Activate.
+STIFFNESS_WAIT_TIMEOUT_SEC = 30.0
 
 
 def _load_unstow_targets():
@@ -334,48 +277,6 @@ def _rotate_vector_by_quat(q, x: float, y: float, z: float):
     )
 
 
-def _list_keyboard_candidates():
-    """Return evdev devices that look like QWERTY keyboards (path, name, score)."""
-    required = {ecodes.KEY_R, ecodes.KEY_W, ecodes.KEY_A, ecodes.KEY_ESC}
-    candidates = []
-    for path in evdev.list_devices():
-        try:
-            device = evdev.InputDevice(path)
-        except (FileNotFoundError, PermissionError, OSError):
-            continue
-        keys = set(device.capabilities().get(ecodes.EV_KEY, []))
-        if not required.issubset(keys):
-            continue
-        name = device.name or ''
-        phys = device.phys or ''
-        name_l = name.lower()
-        # Skip obvious non-keyboards that still expose a few KEY_* codes.
-        if any(bad in name_l for bad in ('sleep', 'lid', 'power', 'video bus', 'hdmi', 'headphone')):
-            continue
-        score = 0
-        if 'usb' in phys or phys.startswith('usb-'):
-            score += 100
-        if '/input0' in phys:
-            score += 20  # main HID collection on multi-interface boards
-        if 'keychron' in name_l or 'keyboard' in name_l:
-            score += 10
-        if 'at translated' in name_l or phys.startswith('isa'):
-            score -= 50  # laptop PS/2 — usually wrong when an external KB is plugged in
-        score += min(len(keys), 200) / 200.0
-        candidates.append((score, path, name, phys))
-    candidates.sort(reverse=True)
-    return candidates
-
-
-def _resolve_keyboard_device_path(requested: str) -> str | None:
-    """Resolve ``auto`` / empty to the best keyboard path, else return ``requested``."""
-    requested = (requested or '').strip()
-    if requested and requested.lower() != 'auto':
-        return requested
-    candidates = _list_keyboard_candidates()
-    if not candidates:
-        return None
-    return candidates[0][1]
 
 # Must mirror moveit_servo::StatusCode (status_codes.h) exactly — a prior
 # version of this table was off by one, mislabeling JOINT_BOUND as HALT_FOR_COLLISION.
@@ -465,7 +366,8 @@ class ServoController(Node):
         self.declare_parameter('activity_indicator_pre_delay_sec', DEFAULT_ACTIVITY_INDICATOR_PRE_DELAY_SEC)
         self.declare_parameter('unstow_speed_rad_s', DEFAULT_UNSTOW_SPEED_RAD_S)
         self.declare_parameter('unstow_min_duration_sec', DEFAULT_UNSTOW_MIN_DURATION_SEC)
-        self.declare_parameter('unstow_wait_after_start_sec', DEFAULT_UNSTOW_WAIT_AFTER_START_SEC)
+        self.declare_parameter('park_press_rad', DEFAULT_PARK_PRESS_RAD)
+        self.declare_parameter('park_approach_lift_rad', DEFAULT_PARK_APPROACH_LIFT_RAD)
 
         self._linear_speed  = self.get_parameter('linear_speed').value
         self._angular_speed = self.get_parameter('angular_speed').value
@@ -567,12 +469,21 @@ class ServoController(Node):
         self._pitch_yaw_locked = False
         self._activity_delay_active = False
         self._joint_positions = {}
-        # Wall-clock time of the first joint state (see unstow's stiffness wait).
-        self._first_joint_state_time = None
+        self._joint_velocities = {}
+        # When the motors started ramping to full stiffness: the first joint
+        # state for hardware that is active from the start, else Activate.
+        # See unstow's stiffness wait.
+        # Latest /arm/state from arm_power; None until it is heard (old stacks
+        # without arm_power: motion is then allowed as before).
+        self._arm_state = None
+        self._arm_state_event = threading.Event()
+        park = _load_home_pose_from_json(PARK_POSE_NAME)
+        self._park_pose = None if park is None else dict(zip(HOME_POSE_JOINTS, park))
+        self._park_press_rad = float(self.get_parameter('park_press_rad').value)
+        self._park_approach_lift_rad = float(self.get_parameter('park_approach_lift_rad').value)
         self._unstow_targets = _load_unstow_targets()
         self._unstow_speed = float(self.get_parameter('unstow_speed_rad_s').value)
         self._unstow_min_duration = float(self.get_parameter('unstow_min_duration_sec').value)
-        self._unstow_wait_after_start = float(self.get_parameter('unstow_wait_after_start_sec').value)
 
         self.gripper_vel = 0.0
         # Guess (closed) until the first /joint_states reading syncs this —
@@ -622,6 +533,12 @@ class ServoController(Node):
         self._list_controllers_client = self.create_client(
             ListControllers, 'controller_manager/list_controllers'
         )
+        # arm_power owns the motors: power on / Release, and the latched state.
+        self._power_client = self.create_client(SetBool, 'power')
+        self._arm_state_sub = self.create_subscription(
+            ArmState, 'state', self._on_arm_state,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       reliability=ReliabilityPolicy.RELIABLE))
         # Home/mode-engage moves plan through this (OMPL, collision-checked
         # against the live planning scene) instead of a raw FollowJointTrajectory
         # goal — see _move_to_joint_positions_locked()/level_tool().
@@ -884,10 +801,10 @@ class ServoController(Node):
         self._gripper_position = max(0.0, min(self._gripper_stroke, position))
 
     def _on_joint_state(self, msg: JointState):
-        if self._first_joint_state_time is None:
-            self._first_joint_state_time = time.monotonic()
         for name, pos in zip(msg.name, msg.position):
             self._joint_positions[name] = float(pos)
+        for name, vel in zip(msg.name, msg.velocity):
+            self._joint_velocities[name] = float(vel)
         # Runs only until the first message that names GRIPPER_JOINT_NAME —
         # after that, _gripper_position is our own commanded state and the
         # real joint may legitimately lag behind it while moving.
@@ -1016,6 +933,8 @@ class ServoController(Node):
 
     def use_trajectory_controller(self) -> bool:
         """Claim joints with JTC for home / Plan&Execute / teach_poses."""
+        if not self.require_arm_active():
+            return False
         return self._switch_controllers(
             activate=[JTC_CONTROLLER_NAME],
             deactivate=[FORWARD_CONTROLLER_NAME],
@@ -1023,10 +942,158 @@ class ServoController(Node):
 
     def use_streaming_controller(self) -> bool:
         """Claim joints with forward position controller for Servo teleop."""
+        if not self.require_arm_active():
+            return False
         return self._switch_controllers(
             activate=[FORWARD_CONTROLLER_NAME],
             deactivate=[JTC_CONTROLLER_NAME],
         )
+
+    # ---- Arm hardware on / off (Activate / Park / Release) ----------------
+
+    def _on_arm_state(self, msg: ArmState):
+        self._arm_state = msg
+        self._arm_state_event.set()
+
+    def motors_off(self) -> bool:
+        """True when arm_power reports the motors off (unknown: False)."""
+        return self._arm_state is not None and not self._arm_state.motors_enabled
+
+    def require_arm_active(self) -> bool:
+        """False (logged) when the arm motors are known to be off. Unknown
+        (no arm_power heard) counts as on: older stacks behave as before."""
+        if not self.motors_off():
+            return True
+        self.get_logger().error(
+            'Arm motors are off — activate them first (keyboard c / gamepad R1+A).')
+        return False
+
+    def wait_for_stiffness(self) -> None:
+        """Block until arm_power reports the activation stiffness ramp over
+        (ArmCanSystem gain_ramp_secs; motion before it lags, then catches up).
+        Without arm_power heard, does not wait."""
+        if self._arm_state is None:
+            return
+        deadline = time.monotonic() + STIFFNESS_WAIT_TIMEOUT_SEC
+        if not self._arm_state.stiffness_ready:
+            self.get_logger().info('Waiting for the motors to reach full stiffness...')
+        while not self._arm_state.stiffness_ready and time.monotonic() < deadline:
+            time.sleep(0.2)
+
+    def _request_power(self, on: bool) -> bool:
+        """Ask arm_power to turn the motors on / off and wait for the outcome
+        on /arm/state. Refusals (e.g. Release away from the park pose) come
+        back in the reply and are logged with their reason."""
+        what = 'on' if on else 'off'
+        if not self._power_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('arm_power (/arm/power) is not running.')
+            return False
+        done = threading.Event()
+        future = self._power_client.call_async(SetBool.Request(data=on))
+        future.add_done_callback(lambda _: done.set())
+        if not done.wait(timeout=5.0) or future.result() is None:
+            self.get_logger().error(f'arm_power did not answer the motors-{what} request.')
+            return False
+        reply = future.result()
+        if not reply.success:
+            self.get_logger().error(f'Motors {what}: {reply.message}')
+            return False
+        self.get_logger().info(f'Motors {what}: {reply.message}')
+
+        deadline = time.monotonic() + POWER_OUTCOME_TIMEOUT_SEC
+        while time.monotonic() < deadline:
+            state = self._arm_state
+            # On: also wait for the controller, so the next motion is followed.
+            if (state is not None and not state.busy and state.motors_enabled == on
+                    and (state.controller_active or not on)):
+                return True
+            if state is not None and not state.busy and state.last_error:
+                self.get_logger().error(state.last_error)
+                return False
+            self._arm_state_event.clear()
+            self._arm_state_event.wait(timeout=0.5)
+        self.get_logger().error(f'Motors {what}: no outcome on /arm/state in time.')
+        return False
+
+    def activate_arm(self) -> bool:
+        """Turn the arm motors on (keyboard c / gamepad R1+A): arm_power
+        enables them holding the measured pose, the stiffness ramps up, and
+        the trajectory controller takes the joints."""
+        if not self._request_power(True):
+            return False
+        self.get_logger().info('Arm motors on; stiffness ramping up. Next: home (r / A).')
+        return True
+
+    def park(self) -> bool:
+        """Lay the arm on its rest support, motors still on (keyboard z /
+        gamepad R1+BACK). See arm_teleop/park.py."""
+        if self._park_pose is None:
+            self.get_logger().error(
+                f'No "{PARK_POSE_NAME}" pose in poses.json — record it with the arm lying '
+                'on its support (motors off: ros2 topic echo /arm/joint_states --once).')
+            return False
+        self.stop()
+        if not self.stop_servo():
+            self.get_logger().error('Could not confirm Servo stopped — aborting park.')
+            return False
+        if not self.use_trajectory_controller():
+            self.get_logger().error('Could not activate trajectory controller — aborting park.')
+            return False
+        self.wait_for_stiffness()
+
+        _, off = max_deviation(self._joint_positions, self._park_pose)
+        if off > PARK_DIRECT_RADIUS_RAD:
+            # From further away: a planned, collision-checked move to just
+            # above the support first (the park pose itself touches it).
+            if not self.unstow_if_needed():
+                self.get_logger().error('Arm is in collision — aborting park.')
+                return False
+            approach = park_approach(self._park_pose, UNSTOW_JOINT_DIRECTIONS,
+                                     self._park_approach_lift_rad)
+            if not self._move_to_joint_positions(
+                    [approach[n] for n in HOME_POSE_JOINTS], 'park approach'):
+                return False
+
+        targets = park_targets(self._park_pose, PARK_LOWERING_DIRECTIONS, self._park_press_rad)
+        names = list(targets)
+        travel = max(abs(targets[n] - self._joint_positions.get(n, targets[n])) for n in names)
+        duration = max(self._unstow_min_duration, travel / max(self._unstow_speed, 1e-3))
+        if not self._motion_lock.acquire(blocking=False):
+            self.get_logger().error('Another arm motion is already in progress — aborting park.')
+            return False
+        try:
+            with arm_motion_lock(
+                    self._acquire_lock_client, self._release_lock_client,
+                    self._motion_lock_holder_id, duration + 30.0):
+                if not self._send_jtc_trajectory(names, [targets[n] for n in names], duration,
+                                                 label='Park'):
+                    return False
+                time.sleep(0.5)  # let joint_states catch up with the final point
+        except ArmMotionBusy as exc:
+            self.get_logger().error(f'{exc} — aborting park.')
+            return False
+        finally:
+            self._motion_lock.release()
+
+        joint, off = max_deviation(self._joint_positions, self._park_pose)
+        if off > PARK_POSE_TOLERANCE_RAD:
+            self.get_logger().error(
+                f'Park: {joint} ended {off:.3f} rad from the park pose — blocked?')
+            return False
+        self.get_logger().info('Parked. Release (y / R1+X) turns the motors off.')
+        return True
+
+    def release(self) -> bool:
+        """Turn the motors off from the park pose (keyboard y / gamepad R1+X).
+
+        arm_power refuses unless the arm rests in the park pose; ArmCanSystem
+        then ramps the stiffness down and disables the motors, or restores it
+        if a joint moves meanwhile (the arm is not resting on its support).
+        """
+        self.stop()
+        if not self.motors_off():
+            self.stop_servo()
+        return self._request_power(False)
 
     def _signal_activity_indicator(self, active: bool) -> None:
         """Publish the activity-indicator colour (best-effort, never raises).
@@ -1149,6 +1216,9 @@ class ServoController(Node):
         if not stopped:
             return False
 
+        # Motors off: no controller can take the joints, nothing to hand over.
+        if self.motors_off():
+            return True
         # Prefer JTC when teleop is idle so Plan&Execute / home work.
         return self.use_trajectory_controller()
 
@@ -1303,12 +1373,7 @@ class ServoController(Node):
             return False
         names, targets, duration = plan
 
-        if self._first_joint_state_time is not None:
-            remaining = self._unstow_wait_after_start - (time.monotonic() - self._first_joint_state_time)
-            if remaining > 0.0:
-                self.get_logger().info(
-                    f'Unstow: waiting {remaining:.1f}s for the motors to reach full stiffness.')
-                time.sleep(remaining)
+        self.wait_for_stiffness()
 
         if not self._motion_lock.acquire(blocking=False):
             self.get_logger().error('Another arm motion is already in progress — aborting unstow.')
@@ -1346,7 +1411,7 @@ class ServoController(Node):
         self.get_logger().info('Unstow done.')
         return True
 
-    def _send_jtc_trajectory(self, names, targets, duration: float) -> bool:
+    def _send_jtc_trajectory(self, names, targets, duration: float, label: str = 'Unstow') -> bool:
         """Send one point to the JTC and wait for it to finish.
 
         A single point with zero velocity and acceleration makes the JTC
@@ -1367,7 +1432,7 @@ class ServoController(Node):
         goal.trajectory = JointTrajectory(joint_names=list(names), points=[point])
 
         self.get_logger().info(
-            f'Unstow: {dict(zip(names, [round(v, 3) for v in targets]))} over {duration:.1f}s')
+            f'{label}: {dict(zip(names, [round(v, 3) for v in targets]))} over {duration:.1f}s')
 
         done_event = threading.Event()
         outcome = {'handle': None, 'result': None}
@@ -1386,15 +1451,15 @@ class ServoController(Node):
 
         self._jtc_client.send_goal_async(goal).add_done_callback(_on_goal)
         if not done_event.wait(timeout=duration + 15.0):
-            self.get_logger().error('Unstow trajectory timed out')
+            self.get_logger().error(f'{label} trajectory timed out')
             return False
         if outcome['handle'] is None or not outcome['handle'].accepted:
-            self.get_logger().error('Unstow trajectory rejected by the JTC')
+            self.get_logger().error(f'{label} trajectory rejected by the JTC')
             return False
         result = outcome['result']
         if result is None or result.status != GoalStatus.STATUS_SUCCEEDED or result.result.error_code != 0:
             code = None if result is None else result.result.error_code
-            self.get_logger().error(f'Unstow trajectory failed (error_code={code})')
+            self.get_logger().error(f'{label} trajectory failed (error_code={code})')
             return False
         return True
 
@@ -2103,1556 +2168,28 @@ class ServoController(Node):
         self._gripper_left_pub.publish(Float64MultiArray(data=[-self._gripper_position]))
 
 
-HELP = """
-╔══════════════════════════════════════════════════╗
-║  Keyboard Servo — EEF control                    ║
-╠══════════════════════════════════════════════════╣
-║  EEF translation (absolute, arm_mount_link):     ║
-║    w / s  — +X / -X                              ║
-║    a / d  — +Y / -Y                              ║
-║    q / e  — +Z / -Z                              ║
-║  EEF translation (view-relative, camera):        ║
-║    Up/Dn  — forward / back                       ║
-║    Lt/Rt  — left / right                         ║
-║    t / g  — up / down                            ║
-║  EEF rotation (about arm_tcp_link):              ║
-║    i / k  — pitch (wx)                           ║
-║    u / o  — yaw   (wy)                           ║
-║    j / l  — roll  (wz)                           ║
-║  Gripper:                                        ║
-║    b / v  — open / close                         ║
-║  Panel:                                          ║
-║    p      — align to detected panel              ║
-║    m      — reorient gripper only (p first)      ║
-║  Other:                                          ║
-║    r      — move to home + start servo           ║
-║    f      — level tool (collision-checked; locks ║
-║             pitch/yaw after — 'r' unlocks)       ║
-║    n      — unstow: lift arm off body/base       ║
-║  p/r/f wait 5s (activity indicator) before moving║
-║    ESC/x  — exit                                 ║
-╚══════════════════════════════════════════════════╝
-"""
 
-
-class KeyboardInputLoop:
-    """Reads raw keyboard events via evdev and drives a ``ServoController``.
-
-    Maintains the set of currently pressed direction keys, recomputes the
-    combined Cartesian velocity whenever the set changes, and handles the
-    special "safe pose" and "exit" key bindings.
-    """
-
-    _DIRECTIONS = {
-        ecodes.KEY_W: ( 1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_S: (-1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_A: ( 0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_D: ( 0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_Q: ( 0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_E: ( 0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_I: ( 0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0),  # pitch
-        ecodes.KEY_K: ( 0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_U: ( 0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0),  # yaw
-        ecodes.KEY_O: ( 0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_J: ( 0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0),  # roll
-        ecodes.KEY_L: ( 0.0,  0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0),
-        ecodes.KEY_UP:    ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  1.0,  0.0,  0.0),
-        ecodes.KEY_DOWN:  ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0,  0.0,  0.0),
-        ecodes.KEY_LEFT:  ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  1.0,  0.0),
-        ecodes.KEY_RIGHT: ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0, -1.0,  0.0),
-        ecodes.KEY_T:     ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  0.0,  1.0),
-        ecodes.KEY_G:     ( 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0,  0.0, -1.0),
-    }
-
-    _PITCH_YAW_KEYS = {ecodes.KEY_I, ecodes.KEY_K, ecodes.KEY_U, ecodes.KEY_O}
-
-    _GRIPPER_KEYS = {
-        ecodes.KEY_B: 1.0,   # open
-        ecodes.KEY_V: -1.0,  # close
-    }
-
-    _KEYSTATE_UP = 0
-    _KEYSTATE_DOWN = 1
-    _KEYSTATE_REPEAT = 2
-
-    _PANEL_LOST_CONFIRM_SEC = 2.0
-
-    def __init__(self, controller: 'ServoController'):
-        """Store a reference to the controller and initialize input state.
-
-        Args:
-            controller: The ``ServoController`` node that will receive
-                velocity commands derived from keyboard input.
-        """
-        self._controller = controller
-        self._linear_speed = controller.linear_speed
-        self._angular_speed = controller.angular_speed
-        self._gripper_speed = controller.gripper_speed
-        self._device_path = controller.keyboard_device_path
-        self._lock = threading.Lock()
-        self._pressed = set()
-        self._gripper_pressed = set()
-        self._exit_event = threading.Event()
-        self._devices = []
-        self._read_thread = None
-        self._servo_started = False
-        # One lock for all planned moves — see ServoController.planned_activity_lock.
-        self._safe_pose_running = controller.planned_activity_lock
-        self._level_running = controller.planned_activity_lock
-        self._panel_align_running = controller.planned_activity_lock
-        self._orient_gripper_running = controller.planned_activity_lock
-
-        self._panel_was_visible = False
-        self._panel_prompt_pending = False
-        self._panel_lost_since = None
-        self._panel_watch_timer = controller.create_timer(0.2, self._check_panel_visibility)
-
-    def _open_device(self) -> bool:
-        """Open evdev keyboard(s) for teleop.
-
-        ``keyboard_device_path:=auto`` (default) opens every QWERTY-capable
-        keyboard and merges events. Pinning only ``/dev/input/event3`` (laptop
-        AT keyboard) while typing on a Keychron produced zero key events.
-
-        Returns:
-            bool: True if at least one device opened.
-        """
-        requested = (self._device_path or '').strip()
-        if requested and requested.lower() != 'auto':
-            paths = [requested]
-        else:
-            paths = [p for _s, p, _n, _ph in _list_keyboard_candidates()]
-
-        if not paths:
-            self._controller.get_logger().error(
-                'No suitable keyboard found via evdev. Set keyboard_device_path '
-                'to an explicit /dev/input/eventN.'
-            )
-            return False
-
-        opened = []
-        for path in paths:
-            try:
-                device = evdev.InputDevice(path)
-                # Older python-evdev has no set_nonblocking(); use fcntl.
-                flag = fcntl.fcntl(device.fd, fcntl.F_GETFL)
-                fcntl.fcntl(device.fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
-            except (FileNotFoundError, PermissionError, OSError) as e:
-                self._controller.get_logger().warn(f'Skipping {path!r}: {e!r}')
-                continue
-            opened.append(device)
-            self._controller.get_logger().info(f'Listening on {path} ({device.name})')
-
-        if not opened:
-            self._controller.get_logger().error(f'Could not open any of {paths!r}')
-            return False
-
-        self._devices = opened
-        self._device_path = opened[0].path
-        print(
-            '\nKeyboard input:\n  '
-            + '\n  '.join(f'{d.name} ({d.path})' for d in opened)
-            + '\nPress r = home + start Servo, then WASD to move.\n'
-        )
-        return True
-
-    def _recompute_velocity(self):
-        """Recompute and apply the combined velocity from all pressed keys.
-
-        Sums the per-axis direction vectors of every currently pressed key
-        in ``self._pressed``, scales the result by the controller's linear
-        and angular speed settings, and forwards it to
-        ``ServoController.set_velocity``.
-        """
-        vx = vy = vz = wx = wy = wz = 0.0
-        cvx = cvy = cvz = 0.0
-        with self._lock:
-            active = list(self._pressed)
-        for code in active:
-            d = self._DIRECTIONS.get(code)
-            if d is None:
-                continue
-            vx += d[0]
-            vy += d[1]
-            vz += d[2]
-            wx += d[3]
-            wy += d[4]
-            wz += d[5]
-            cvx += d[6]
-            cvy += d[7]
-            cvz += d[8]
-        self._controller.set_velocity(
-            vx * self._linear_speed, vy * self._linear_speed, vz * self._linear_speed,
-            wx * self._angular_speed, wy * self._angular_speed, wz * self._angular_speed,
-            view_vx=cvx * self._linear_speed,
-            view_vy=cvy * self._linear_speed,
-            view_vz=cvz * self._linear_speed,
-        )
-
-    def _recompute_gripper_velocity(self):
-        """Recompute and apply gripper velocity from currently pressed b/v."""
-        with self._lock:
-            active = list(self._gripper_pressed)
-        vel = sum(self._GRIPPER_KEYS.get(c, 0.0) for c in active) * self._gripper_speed
-        self._controller.set_gripper_velocity(vel)
-
-    def _check_panel_visibility(self):
-        """Poll panel visibility and arm the one-shot prompt on a rising edge.
-
-        Runs on a ROS timer (not tied to key events) since the panel can
-        appear in frame without the operator pressing anything. Only
-        fires the prompt/gate on a *confirmed* False -> True transition —
-        'p' stays usable at any time the panel is visible (or a position
-        is already remembered) regardless of this flag (see _read_loop),
-        so re-detecting an already-visible panel does nothing here.
-
-        "Confirmed" (via _panel_lost_since/_PANEL_LOST_CONFIRM_SEC) means
-        is_panel_visible() must have been continuously False for a real
-        stretch of time, not just one poll tick — a single marker at a
-        marginal angle realistically drops detection for a second or more
-        while the operator is actively driving, and reacting to every one
-        of those gaps as "the panel left and came back" would re-fire the
-        prompt on every flicker.
-        """
-        now = self._controller.get_clock().now()
-        # Jaw-only, same as the P/M key handlers above and GamepadInputLoop's
-        # equivalent lockout — suppresses the prompt entirely for other tools.
-        raw_visible = (self._controller.end_effector == 'jaw'
-                       and self._controller.is_panel_visible())
-        if raw_visible:
-            self._panel_lost_since = None
-            visible = True
-        elif self._panel_was_visible:
-            if self._panel_lost_since is None:
-                self._panel_lost_since = now
-            lost_sec = (now - self._panel_lost_since).nanoseconds / 1e9
-            visible = lost_sec < self._PANEL_LOST_CONFIRM_SEC
-        else:
-            visible = False
-
-        if visible and not self._panel_was_visible:
-            self._panel_prompt_pending = True
-            self._controller.stop()
-            print('\n>>> Panel detected! Press P to align to it. <<<')
-        self._panel_was_visible = visible
-
-    def _handle_panel_align(self):
-        """Run panel alignment and hand control back to the operator either way.
-
-        Unlike _handle_safe_pose, Servo is restarted on failure too: most
-        align_to_panel() failures (stale detection, no remembered
-        position, planning rejected) never move the arm at all, and even
-        the execution-failure path only happens after a real
-        collision-checked plan or a deterministic replay — so there's no
-        equivalent of move_to_safe_pose()'s "arm may be stopped
-        mid-trajectory, don't hand back control blindly" risk. Stranding
-        the operator with no teleop just because alignment didn't succeed
-        would defeat the point of it being an assistive, not mandatory,
-        action.
-
-        Guarded by a non-blocking lock (mirrors _handle_safe_pose) so a
-        second 'p' press while an align is already in flight is ignored
-        instead of racing a second FollowJointTrajectory/align call
-        against the first — confirmed live: nothing here previously
-        stopped that, since KEY_P has no already-pressed dedup the way
-        direction/gripper keys do.
-        """
-        if not self._panel_align_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        try:
-            print('Aligning to panel...')
-            if self._controller.run_planned_activity(self._controller.align_to_panel, 'align_to_panel'):
-                print('Panel align succeeded.')
-            else:
-                print('Panel align failed.')
-            print('Resuming manual control...')
-            self._controller.start_servo()
-        finally:
-            self._panel_align_running.release()
-
-    def _handle_orient_gripper(self):
-        """Rotate the gripper in place to face the remembered panel direction."""
-        if not self._orient_gripper_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        try:
-            print('Orienting gripper toward panel...')
-            if self._controller.run_planned_activity(
-                    self._controller.orient_gripper_to_panel, 'orient_gripper_to_panel'):
-                print('Gripper oriented.')
-            else:
-                print('Gripper orient failed.')
-            print('Resuming manual control...')
-            self._controller.start_servo()
-        finally:
-            self._orient_gripper_running.release()
-
-    def _handle_safe_pose(self):
-        """Clear pressed keys, stop motion, and move to the safe pose.
-
-        Servo is only started if the safe-pose move actually succeeded;
-        starting it after a rejected/aborted/timed-out move would let the
-        operator resume Cartesian teleop from a pose that never reached the
-        intended safe configuration.
-
-        Intended to run in its own thread (spawned from ``_read_loop``) so
-        that the blocking safe-pose and servo-start calls do not stall
-        keyboard event processing.
-        """
-        if not self._safe_pose_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        try:
-            with self._lock:
-                self._pressed.clear()
-                self._gripper_pressed.clear()
-            self._controller.stop()
-            print('Moving to home...')
-            if self._controller.run_planned_activity(self._controller.move_to_safe_pose, 'move_to_safe_pose'):
-                if self._exit_event.is_set():
-                    print('Exit requested during home move — Servo not started.')
-                    return
-                print('Starting servo...')
-                if self._controller.start_servo():
-                    self._servo_started = True
-                else:
-                    print('Servo failed to start — staying on trajectory controller.')
-            else:
-                print('Home move failed — Servo not started.')
-        finally:
-            self._safe_pose_running.release()
-
-    def _handle_unstow(self):
-        """Lift the arm off the body/base ('n'), then resume Servo either way
-        (a failed or no-op unstow leaves the arm where it safely was)."""
-        if not self._level_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        try:
-            print('Unstowing...')
-            if self._controller.run_planned_activity(self._controller.unstow, 'unstow'):
-                print('Unstowed.')
-            else:
-                print('Unstow failed.')
-            print('Resuming manual control...')
-            if self._controller.start_servo():
-                self._servo_started = True
-        finally:
-            self._level_running.release()
-
-    def _handle_level(self):
-        """Reorient the tool straight down via a collision-checked plan.
-
-        Servo is restarted regardless of outcome, same reasoning as
-        move_to_safe_pose's failure path being the ONE case that does
-        not: a rejected/failed plan here never moved the arm from
-        wherever it already safely was, so there's no "resumed
-        mid-trajectory" risk to guard against.
-        """
-        if not self._level_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        try:
-            print('Leveling tool...')
-            if self._controller.run_planned_activity(self._controller.level_tool, 'level_tool'):
-                print('Tool leveled.')
-            else:
-                print('Level move failed.')
-            print('Resuming manual control...')
-            self._controller.start_servo()
-        finally:
-            self._level_running.release()
-
-    def _read_loop(self):
-        """Continuously read raw key events from all opened keyboards."""
-        try:
-            while not self._exit_event.is_set():
-                if not self._devices:
-                    break
-                try:
-                    ready, _, _ = select.select(
-                        [dev.fd for dev in self._devices], [], [], 0.2
-                    )
-                except (ValueError, OSError) as e:
-                    self._controller.get_logger().error(f'Keyboard select failed: {e!r}')
-                    break
-                if not ready:
-                    continue
-                fd_to_dev = {dev.fd: dev for dev in self._devices}
-                for fd in ready:
-                    device = fd_to_dev.get(fd)
-                    if device is None:
-                        continue
-                    try:
-                        for event in device.read():
-                            if event.type != ecodes.EV_KEY:
-                                continue
-                            code, value = event.code, event.value
-
-                            if code in (ecodes.KEY_ESC, ecodes.KEY_X) and value == self._KEYSTATE_DOWN:
-                                self._exit_event.set()
-                                return
-
-                            if code == ecodes.KEY_R and value == self._KEYSTATE_DOWN:
-                                threading.Thread(
-                                    target=self._handle_safe_pose, daemon=True
-                                ).start()
-                                continue
-
-                            if code == ecodes.KEY_N and value == self._KEYSTATE_DOWN:
-                                threading.Thread(
-                                    target=self._handle_unstow, daemon=True
-                                ).start()
-                                continue
-
-                            if code == ecodes.KEY_F and value == self._KEYSTATE_DOWN:
-                                if SAMPLING_DRILL_MODES_ENABLED:
-                                    threading.Thread(
-                                        target=self._handle_level, daemon=True
-                                    ).start()
-                                else:
-                                    print('level_tool() is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.')
-                                continue
-
-                            if code == ecodes.KEY_P and value == self._KEYSTATE_DOWN:
-                                if not self._servo_started:
-                                    continue
-                                # Panel align/orient is jaw-only — only the
-                                # jaw gripper physically interacts with the
-                                # panel (see GamepadInputLoop's identical
-                                # lockout for the reasoning).
-                                if self._controller.end_effector != 'jaw':
-                                    print(
-                                        f"Panel align is locked out with end_effector="
-                                        f"'{self._controller.end_effector}' — only the "
-                                        'jaw gripper interacts with the panel.'
-                                    )
-                                    continue
-                                self._panel_prompt_pending = False
-                                if (self._controller.is_panel_visible()
-                                        or self._controller.has_remembered_panel_position):
-                                    threading.Thread(
-                                        target=self._handle_panel_align, daemon=True
-                                    ).start()
-                                else:
-                                    print('No panel currently in view and no panel position remembered yet.')
-                                continue
-
-                            if code == ecodes.KEY_M and value == self._KEYSTATE_DOWN:
-                                if not self._servo_started:
-                                    continue
-                                if self._controller.end_effector != 'jaw':
-                                    print(
-                                        f"Gripper orient is locked out with end_effector="
-                                        f"'{self._controller.end_effector}' — only the "
-                                        'jaw gripper interacts with the panel.'
-                                    )
-                                    continue
-                                if self._controller.has_remembered_panel_position:
-                                    threading.Thread(
-                                        target=self._handle_orient_gripper, daemon=True
-                                    ).start()
-                                else:
-                                    print('No panel position remembered yet — align (p) first.')
-                                continue
-
-                            if code in self._GRIPPER_KEYS:
-                                if not self._servo_started:
-                                    continue
-                                if self._panel_prompt_pending and value == self._KEYSTATE_DOWN:
-                                    self._panel_prompt_pending = False
-                                    print('Continuing manual control (panel align not triggered).')
-                                if value == self._KEYSTATE_DOWN:
-                                    with self._lock:
-                                        already_pressed = code in self._gripper_pressed
-                                        other = (ecodes.KEY_V if code == ecodes.KEY_B
-                                                 else ecodes.KEY_B)
-                                        self._gripper_pressed.discard(other)
-                                        self._gripper_pressed.add(code)
-                                    if not already_pressed:
-                                        self._recompute_gripper_velocity()
-                                        key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
-                                        print(f'{key_name} gripper_vel={self._controller.gripper_vel:.4f}')
-                                elif value == self._KEYSTATE_UP:
-                                    with self._lock:
-                                        self._gripper_pressed.discard(code)
-                                    self._recompute_gripper_velocity()
-                                continue
-
-                            if code not in self._DIRECTIONS:
-                                continue
-
-                            if not self._servo_started:
-                                continue
-
-                            if self._panel_prompt_pending and value == self._KEYSTATE_DOWN:
-                                self._panel_prompt_pending = False
-                                print('Continuing manual control (panel align not triggered).')
-
-                            if value == self._KEYSTATE_DOWN:
-                                with self._lock:
-                                    already_pressed = code in self._pressed
-                                    self._pressed.add(code)
-                                if not already_pressed:
-                                    self._recompute_velocity()
-                                    if not (self._controller._pitch_yaw_locked
-                                            and code in self._PITCH_YAW_KEYS):
-                                        key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
-                                        # view_* included or the arrow keys would
-                                        # report all-zero and look like a no-op.
-                                        print(
-                                            f'{key_name} vx={self._controller.vx:.2f} '
-                                            f'vy={self._controller.vy:.2f} '
-                                            f'vz={self._controller.vz:.2f} '
-                                            f'wx={self._controller.wx:.2f} '
-                                            f'wy={self._controller.wy:.2f} '
-                                            f'wz={self._controller.wz:.2f} '
-                                            f'| fwd={self._controller.view_vx:.2f} '
-                                            f'left={self._controller.view_vy:.2f} '
-                                            f'up={self._controller.view_vz:.2f}'
-                                        )
-                            elif value == self._KEYSTATE_UP:
-                                with self._lock:
-                                    self._pressed.discard(code)
-                                self._recompute_velocity()
-                    except BlockingIOError:
-                        continue
-                    except OSError as e:
-                        self._controller.get_logger().warn(
-                            f'Lost keyboard {device.path}: {e!r}'
-                        )
-                        self._devices = [d for d in self._devices if d.fd != fd]
-                        if not self._devices:
-                            raise
-        except OSError as e:
-            self._controller.get_logger().error(f'Keyboard read loop failed: {e!r}')
-        finally:
-            self._exit_event.set()
-
-    def run(self):
-        """Open the keyboard device and run the input loop until exit.
-
-        Opens the evdev device (returning early if this fails), prints the
-        help banner, disables terminal echo where possible, starts the
-        event-reading loop in a daemon thread, and blocks until the exit
-        event is set. On exit, stops the controller's motion and restores
-        the original terminal settings.
-        """
-        if not self._open_device():
-            return
-        print(HELP, flush=True)
-        self._controller.get_logger().info(
-            'Keyboard teleop ready. Press r = home + Servo, then WASD. '
-            'Do not start a second keyboard_servo_node.'
-        )
-
-        # ros2 launch often has no TTY; fileno()/tcgetattr would abort the node.
-        old_term_settings = None
-        stdin_fd = None
-        try:
-            stdin_fd = sys.stdin.fileno()
-        except (AttributeError, ValueError, OSError):
-            stdin_fd = None
-        if stdin_fd is not None:
-            try:
-                old_term_settings = termios.tcgetattr(stdin_fd)
-                new_term_settings = termios.tcgetattr(stdin_fd)
-                new_term_settings[3] &= ~termios.ECHO
-                termios.tcsetattr(stdin_fd, termios.TCSADRAIN, new_term_settings)
-            except (termios.error, OSError):
-                old_term_settings = None
-
-        self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
-        self._read_thread.start()
-        try:
-            self._exit_event.wait()
-        finally:
-            print('\nExiting...')
-            with self._safe_pose_running:
-                pass
-            self._controller.stop()
-            if old_term_settings is not None:
-                termios.tcflush(stdin_fd, termios.TCIFLUSH)
-                termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_term_settings)
-
-
-class EndEffectorClient:
-    """Publishes one-shot commands to end_effector_controller/command,
-    tracks latest end_effector_controller/state. See arm_peripherals/
-    end_effector_can_node.py for the actual CAN link."""
-
-    _VALID_COMMANDS = frozenset({
-        'open', 'close', 'drill_up', 'drill_down',
-        'stop_step', 'stop_drill', 'lock', 'unlock', 'read_ph',
-    })
-
-    def __init__(self, node):
-        self._pub = node.create_publisher(String, 'end_effector_controller/command', 10)
-        self._state_sub = node.create_subscription(
-            EndEffectorState, 'end_effector_controller/state', self._on_state, 10)
-        self._logger = node.get_logger()
-        self.load_right_g = 0.0
-        self.load_left_g = 0.0
-        self.connected = False
-
-    def send(self, command: str) -> None:
-        assert command in self._VALID_COMMANDS, command
-        self._pub.publish(String(data=command))
-
-    def _on_state(self, msg) -> None:
-        self.load_right_g = msg.load_right_g
-        self.load_left_g = msg.load_left_g
-        self.connected = msg.connected
-        self._logger.info(
-            f'End-effector load: right={self.load_right_g}g left={self.load_left_g}g',
-            throttle_duration_sec=1.0,
-        )
-
-
-GAMEPAD_HELP = """
-╔══════════════════════════════════════════════╗
-║  Gamepad — EEF control (view-relative)       ║
-╠══════════════════════════════════════════════╣
-║  Left stick   ←→  — left / right  (camera)   ║
-║               ↑↓  — forward / back (camera)  ║
-║  Right stick  ↑↓  — up / down     (camera)   ║
-║               ←→  — yaw   (TCP)              ║
-║  R1 + right   ↑↓  — pitch (TCP)              ║
-║               ←→  — roll  (TCP)              ║
-║  9 (button)       — push boost (hold)        ║
-║  11 (button)      — jaw: gripper OPEN        ║
-║                     drill_sampling: claw     ║
-║                     OPEN, or drill UP in     ║
-║                     drill mode               ║
-║  13 (button)      — jaw: gripper CLOSE       ║
-║                     drill_sampling: claw     ║
-║                     CLOSE, or drill DOWN in  ║
-║                     drill mode               ║
-║  12 (button)      — drill_sampling: LOCK     ║
-║  14 (button)      — drill_sampling: UNLOCK   ║
-║   (SAFE gripper / claw+drill+lock firmware,  ║
-║   over CAN — B/Y below own sampling/drill    ║
-║   mode entry)                                ║
-║   drill: right ←→ fwd/back, right ↑↓         ║
-║   left/right, left ↑↓ up/down, no roll       ║
-║   sampling: right ↑↓/←→ inverted, left ←→    ║
-║   roll                                       ║
-║   (pitch/yaw locked in both modes)           ║
-║   A/R -> mode-specific home pose             ║
-║  6 (button)       — point tool straight down ║
-║   (collision-checked; sampling/drill modes)  ║
-║  A                — home + start servo       ║
-║  B                — go to sampling_home      ║
-║  Y                — go to drill_home         ║
-║  Button 7          — align to panel          ║
-║  Button 8          — reorient gripper only   ║
-║  Button 4 (BACK)   — unstow: lift off body   ║
-║  A/B/Y/7/8: 5s indicator wait before move    ║
-║  X                — exit                     ║
-╚══════════════════════════════════════════════╝
-"""
-
-
-class GamepadInputLoop:
-    """Reads sensor_msgs/Joy messages and drives a ``ServoController``.
-
-    Replaces the raw-keyboard evdev input of ``KeyboardInputLoop`` with a
-    subscription to the ``joy`` package's ``/joy`` topic — as this module's
-    docstring already promises, ``ServoController`` itself needs no changes.
-
-    Launch via ``arm_teleop/launch/gamepad.launch.py``, which starts
-    ``game_controller_node`` (not plain ``joy_node``): it maps raw HID
-    reports through SDL's GameController DB into a fixed canonical index
-    order (A=0, X=2, LEFTSHOULDER=9, RIGHTSHOULDER=10, DPAD_UP=11,
-    DPAD_LEFT=13, ... — same on every machine/controller SDL recognizes),
-    instead of joy_node's raw per-device layout, which was observed to
-    shift index depending on kernel/Bluetooth stack even for the identical
-    physical pad. The indices below match that canonical table directly.
-
-    Trigger axes (4/5) still get a per-axis rest sample while sticks are
-    centered (``_trigger_amount``) as a safety net — GameController's
-    TRIGGERLEFT/TRIGGERRIGHT are specified to rest at 0.0, but this costs
-    nothing if that already holds.
-    """
-
-    # Gamepad translation is view-relative (camera frame), not mount-frame —
-    # the operator is looking through the camera, so "forward" should follow
-    # it. Mount-frame XYZ stays available on the keyboard.
-    AXIS_LEFT_X = 0     # view +Y / -Y  (left / right)
-    AXIS_LEFT_Y = 1     # view +X / -X  (forward / back)
-    AXIS_RIGHT_X = 2    # yaw (-wy)     — roll  (-wz) while R1 held
-    AXIS_RIGHT_Y = 3    # view +Z / -Z  — pitch (+wx) while R1 held
-    AXIS_L2 = 4         # unmapped; used only for trigger rest calibration
-    AXIS_R2 = 5
-
-    # 'A' — jaw/astrobio: move to home + start servo. drill_sampling: always
-    # goes to sampling_home instead (also how you get back to it from
-    # sampling_container after Y — see BUTTON_DRILL_HOME below).
-    BUTTON_SAFE_POSE = 0
-    # 'B' — astrobio: locked out (no drill/sampling tool mounted).
-    # drill_sampling: goes to drill_home — via the sampling_to_drill
-    # transition waypoint first if drill mode isn't already armed (see
-    # ServoController.move_sampling_to_drill), straight there otherwise
-    # (already in the drill zone, e.g. returning from drill_container — see
-    # _on_joy). jaw: arms probing mode instead (jaw_probing_home +
-    # continuous point-down hold, same _level_hold mechanism as sampling
-    # mode — see PROBING_POINT_AXIS); plain A (BUTTON_SAFE_POSE) is jaw's
-    # way back out. One-shot, not a toggle — there is no button that turns
-    # drill_sampling's own sampling/drill mode back off short of restarting
-    # with a different end_effector.
-    BUTTON_SAMPLING_HOME = 1
-    BUTTON_EXIT = 2        # 'X' — exit
-    # 'Y' — astrobio: locked out. drill_sampling: container detour, target
-    # depends on whichever mode is CURRENTLY armed (not fixed) —
-    # sampling_container while sampling_mode is active, drill_container
-    # while drill_mode is active (see _on_joy) — armed by A/B above, not by
-    # this button itself; one-shot per press, does not change which mode is
-    # armed. jaw: two-leg move instead — jaw_probing_home waypoint, then
-    # (only on success) jaw_probing_container (see
-    # ServoController.move_jaw_probing_to_container) — arms probing mode on
-    # success, unlike drill_sampling's own Y.
-    BUTTON_DRILL_HOME = 3
-    # BACK/SELECT (DualSense: Create) — 'n' equivalent: lift the arm off the
-    # body/base (ServoController.unstow).
-    BUTTON_UNSTOW = 4
-    # LEFTSHOULDER/L1. Held to scale up commanded velocity — raises the
-    # per-cycle position step Servo re-anchors from, which is what caps
-    # static push force (not kp/kd).
-    BUTTON_PUSH_BOOST = 9
-    # Bounded by max_cmd_speed_rad_s (arm_macro.xacro): the hardware
-    # interface rate-limits actual motion to that many rad/s regardless
-    # of what Servo asks for, so beyond a certain multiplier this stops
-    # helping and max_cmd_speed_rad_s becomes the real ceiling instead.
-    PUSH_BOOST_MULTIPLIER = 3.0
-    # Shift button has no class constant — parameterized (DEFAULT_GAMEPAD_SHIFT_BUTTON),
-    # read via self._shift_button, in case a pad's SDL mapping is ever wrong.
-
-    BUTTON_GRIPPER_OPEN = 11
-    BUTTON_GRIPPER_CLOSE = 13
-    # DPAD_DOWN / DPAD_RIGHT — drill_sampling tool's electric lock
-    # (EndEffectorClient.send('lock'/'unlock')). No jaw/astrobio
-    # equivalent, so these are no-ops unless end_effector == 'drill_sampling'.
-    BUTTON_LOCK = 12
-    BUTTON_UNLOCK = 14
-    # On-demand collision-checked "point straight down now" (mirrors
-    # KeyboardInputLoop's 'f') — see ServoController.level_tool() for why
-    # this needs to be its own move_group plan, not just a harder nudge
-    # from _level_hold. Index unverified — see the comment above.
-    BUTTON_LEVEL = 6
-    # NOT 12/14 — those are BUTTON_LOCK/BUTTON_UNLOCK above, gated on
-    # end_effector=='drill_sampling'. panel_align/orient_gripper have no
-    # such gate (any end_effector, whenever a panel is visible/remembered),
-    # so sharing an index with LOCK/UNLOCK let one button press fire both
-    # a drill command and an arm motion at once (review-flagged). L3/R3
-    # (stick clicks) are otherwise unused.
-    BUTTON_PANEL_ALIGN = 7      # 'p' equivalent — align to detected panel
-    BUTTON_ORIENT_GRIPPER = 8   # 'm' equivalent — reorient gripper only
-
-    _DEADZONE = 0.2
-    _JOY_TIMEOUT_SEC = 0.2
-    _WATCHDOG_PERIOD_SEC = 0.1
-    # See KeyboardInputLoop's identically-named constant.
-    _PANEL_LOST_CONFIRM_SEC = 2.0
-
-    def __init__(self, controller: 'ServoController'):
-        """Store a reference to the controller and subscribe to ``/joy``.
-
-        Args:
-            controller: The ``ServoController`` node that will receive
-                velocity commands derived from gamepad input. Its own
-                ``create_subscription`` is reused for the ``/joy`` topic
-                so the callback runs on the node's existing executor —
-                no separate thread is needed, unlike the keyboard's
-                blocking evdev read loop.
-        """
-        self._controller = controller
-        self._linear_speed = controller.linear_speed
-        self._angular_speed = controller.angular_speed
-        self._shift_button = controller.gamepad_shift_button
-        # Mirrors ServoController's own _sampling_mode/_drill_mode/_probing_mode
-        # — needed here too since they decide how the right stick maps to
-        # wx/wy/wz/view_vz.
-        self._sampling_mode = False
-        self._drill_mode = False
-        self._probing_mode = False
-        self._exit_event = threading.Event()
-        self._prev_buttons = None
-        # One lock for all planned moves — see ServoController.planned_activity_lock.
-        self._safe_pose_running = controller.planned_activity_lock
-        self._panel_align_running = controller.planned_activity_lock
-        self._safe_pose_active = False
-        self._level_running = controller.planned_activity_lock
-        self._level_active = False
-        self._unstow_active = False
-        self._orient_gripper_running = controller.planned_activity_lock
-        self._orient_gripper_active = False
-        self._prev_cmd = (0.0,) * 6
-
-        self._last_joy_time = None
-        self._joy_silent = False
-        self._teleop_locked = True
-
-        self._joy_settling = False
-        # Per-trigger rest samples (axis index -> float). None until the
-        # first centered settle so we do not assume both are +1.0.
-        self._trigger_rest = {}
-
-        self._panel_was_visible = False
-        self._panel_prompt_pending = False
-        self._panel_lost_since = None
-
-        self._sub = controller.create_subscription(Joy, 'joy', self._on_joy, 10)
-        self._watchdog_timer = controller.create_timer(
-            self._WATCHDOG_PERIOD_SEC, self._check_joy_timeout
-        )
-
-        self._ee_client = EndEffectorClient(controller)
-
-    @classmethod
-    def _deadzone(cls, value: float) -> float:
-        """Zero out small stick values so resting drift doesn't creep the arm."""
-        return 0.0 if abs(value) < cls._DEADZONE else value
-
-    def _axis(self, axes, index: int) -> float:
-        """Return ``axes[index]`` with deadzone applied, or 0.0 if out of range."""
-        if index >= len(axes):
-            return 0.0
-        return self._deadzone(axes[index])
-
-    def _calibrate_triggers(self, axes) -> None:
-        """Record L2/R2 rest values from a centered Joy snapshot."""
-        for index in (self.AXIS_L2, self.AXIS_R2):
-            if index < len(axes):
-                self._trigger_rest[index] = float(axes[index])
-        self._controller.get_logger().info(
-            f'Trigger rest L2={self._trigger_rest.get(self.AXIS_L2, float("nan")):.2f} '
-            f'R2={self._trigger_rest.get(self.AXIS_R2, float("nan")):.2f}'
-        )
-
-    def _sticks_centered(self, axes) -> bool:
-        """True when both sticks are inside the deadzone (triggers ignored)."""
-        return all(
-            self._axis(axes, i) == 0.0
-            for i in (self.AXIS_LEFT_X, self.AXIS_LEFT_Y,
-                      self.AXIS_RIGHT_X, self.AXIS_RIGHT_Y)
-        )
-
-    def _trigger_amount(self, axes, index: int) -> float:
-        """Return how far a trigger (L2/R2) is pressed: 0.0 .. 1.0.
-
-        Supports both common rest conventions on this Stadia over ``joy_node``:
-        rest near +1 (press toward -1) and rest near 0 (press toward ±1).
-        Before calibration, only the +1-rest formula is used, and a raw
-        value near 0 is treated as released — otherwise an uncalibrated
-        0-rest R2 looks like a constant half-press (wz ≈ 0.5 * angular).
-        """
-        if index >= len(axes):
-            return 0.0
-        raw = float(axes[index])
-        rest = self._trigger_rest.get(index)
-
-        if rest is None:
-            # Uncalibrated: never treat raw≈0 as a half-press (0-rest R2
-            # phantom). Full +1-rest presses still register via raw≤-0.5.
-            if raw >= 0.5 or raw <= -0.5:
-                amount = (1.0 - raw) / 2.0
-            else:
-                amount = 0.0
-        elif rest > 0.5:
-            # Classic: +1 released → -1 fully pressed.
-            amount = (rest - raw) / (rest - (-1.0))
-        else:
-            # Rest near 0: any deflection toward ±1 is a press.
-            amount = abs(raw - rest)
-
-        if amount < 0.0:
-            amount = 0.0
-        elif amount > 1.0:
-            amount = 1.0
-        return 0.0 if amount < self._DEADZONE else amount
-
-    def _button_pressed(self, buttons, index: int) -> bool:
-        """Return True if ``buttons[index]`` is currently held down."""
-        return index < len(buttons) and buttons[index] == 1
-
-    def _button_rising_edge(self, buttons, index: int) -> bool:
-        """Return True if ``buttons[index]`` was just pressed this message.
-
-        Requires a real previous reading — see ``_prev_buttons`` in
-        ``__init__`` for why ``None`` (no baseline yet) always reports
-        no edge rather than comparing against an assumed all-zero state.
-        """
-        if self._prev_buttons is None:
-            return False
-        was_pressed = index < len(self._prev_buttons) and self._prev_buttons[index] == 1
-        return self._button_pressed(buttons, index) and not was_pressed
-
-    @staticmethod
-    def _active_label(view_vx, view_vy, view_vz, wx, wy, wz, shift: bool) -> str:
-        """Describe which physical control(s) are driving a nonzero command."""
-        # wy (yaw) only ever comes from the plain right stick, wx/wz (pitch/
-        # roll) only from the shifted one — so the axes identify the source.
-        parts = []
-        if view_vx or view_vy:
-            parts.append('left stick')
-        if view_vz or wy:
-            parts.append('right stick')
-        if wx or wz:
-            parts.append('R1+right stick')
-        return '+'.join(parts) if parts else ('R1' if shift else 'idle')
-
-    def _check_joy_timeout(self):
-        """Stop the arm if no ``/joy`` message has arrived recently.
-
-        Runs on the node's own timer, independent of message arrival, so
-        a disconnected controller or a dead ``joy_node`` can't
-        leave the last commanded velocity republishing forever — Servo's
-        own command timeout does not help here because ServoController
-        keeps re-publishing that last twist every tick regardless of
-        whether new input has arrived. This only zeroes the current
-        command; it does not lock teleop out, so control resumes on its
-        own the moment ``/joy`` messages start arriving again (e.g. a
-        Bluetooth reconnect) — no separate re-arm step.
-        """
-        if self._last_joy_time is None:
-            return
-        elapsed = (self._controller.get_clock().now() - self._last_joy_time).nanoseconds / 1e9
-        if elapsed > self._JOY_TIMEOUT_SEC:
-            if not self._joy_silent:
-                self._joy_silent = True
-                self._joy_settling = True
-                self._trigger_rest.clear()
-                self._prev_buttons = None
-                self._controller.get_logger().warn(
-                    f'/joy timed out after {elapsed:.2f}s — stopping arm.'
-                )
-            self._controller.stop()
-
-    def _log_raw_joy(self, axes, buttons, note: str = ''):
-        """Log the full Joy message — an out-of-range index fails silently otherwise."""
-        axes_str = ', '.join(f'{i}:{v:+.2f}' for i, v in enumerate(axes))
-        buttons_str = ', '.join(f'{i}:{b}' for i, b in enumerate(buttons))
-        self._controller.get_logger().info(
-            f'/joy raw{note} — axes[{len(axes)}]: {{{axes_str}}}  '
-            f'buttons[{len(buttons)}]: {{{buttons_str}}}'
-        )
-
-    def _on_joy(self, msg: Joy):
-        """Translate one Joy snapshot into a velocity command and edge-triggered actions."""
-        axes = msg.axes
-        buttons = msg.buttons
-
-        if self._joy_silent:
-            self._joy_silent = False
-            self._controller.get_logger().info('/joy resumed.')
-        self._last_joy_time = self._controller.get_clock().now()
-
-        if self._prev_buttons is None:
-            # First message (also re-fires after a /joy dropout). Warn early
-            # if gamepad_shift_button is out of range for this controller.
-            self._log_raw_joy(axes, buttons, ' (first message)')
-            if self._shift_button >= len(buttons):
-                self._controller.get_logger().warn(
-                    f'gamepad_shift_button={self._shift_button} but this '
-                    f'/joy only reports {len(buttons)} button(s) '
-                    f'(0..{len(buttons) - 1}) — that index can never be '
-                    f'pressed. Pick a real index from the buttons[] list above.'
-                )
-
-        safe_pose_pressed = self._button_rising_edge(buttons, self.BUTTON_SAFE_POSE)
-        sampling_home_pressed = self._button_rising_edge(buttons, self.BUTTON_SAMPLING_HOME)
-        drill_home_pressed = self._button_rising_edge(buttons, self.BUTTON_DRILL_HOME)
-        exit_pressed = self._button_rising_edge(buttons, self.BUTTON_EXIT)
-        gripper_open_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_OPEN)
-        gripper_close_pressed = self._button_rising_edge(buttons, self.BUTTON_GRIPPER_CLOSE)
-        lock_pressed = self._button_rising_edge(buttons, self.BUTTON_LOCK)
-        unlock_pressed = self._button_rising_edge(buttons, self.BUTTON_UNLOCK)
-        level_pressed = self._button_rising_edge(buttons, self.BUTTON_LEVEL)
-        unstow_pressed = self._button_rising_edge(buttons, self.BUTTON_UNSTOW)
-        panel_align_pressed = self._button_rising_edge(buttons, self.BUTTON_PANEL_ALIGN)
-        orient_gripper_pressed = self._button_rising_edge(buttons, self.BUTTON_ORIENT_GRIPPER)
-
-        # Log the raw state on any button change, not just the mapped ones,
-        # so an unmapped shift button still shows up.
-        if self._prev_buttons is not None:
-            width = max(len(buttons), len(self._prev_buttons))
-            changed = [
-                i for i in range(width)
-                if self._button_pressed(buttons, i)
-                != (i < len(self._prev_buttons) and self._prev_buttons[i] == 1)
-            ]
-            if changed:
-                self._log_raw_joy(
-                    axes, buttons,
-                    f' (button(s) {changed} changed; shift configured as '
-                    f'{self._shift_button})',
-                )
-
-        self._prev_buttons = list(buttons)
-
-        if exit_pressed:
-            self._exit_event.set()
-
-        end_effector = self._controller.end_effector
-
-        if gripper_open_pressed:
-            if end_effector == 'drill_sampling':
-                if self._drill_mode:
-                    self._ee_client.send('drill_up')
-                    self._controller.get_logger().info('Drill: UP sent.')
-                else:
-                    self._ee_client.send('open')
-                    self._controller.get_logger().info('Claw: OPEN sent.')
-            elif end_effector == 'astrobio':
-                self._ee_client.send('open')
-                self._controller.get_logger().info('Astrobio: SUCK ON sent.')
-            else:
-                self._ee_client.send('open')
-                self._controller.set_gripper_target(self._controller.gripper_stroke)
-                self._controller.get_logger().info('Gripper: SAFE_OPEN sent.')
-
-        if gripper_close_pressed:
-            if end_effector == 'drill_sampling':
-                if self._drill_mode:
-                    self._ee_client.send('drill_down')
-                    self._controller.get_logger().info('Drill: DOWN sent.')
-                else:
-                    self._ee_client.send('close')
-                    self._controller.get_logger().info('Claw: CLOSE sent.')
-            elif end_effector == 'astrobio':
-                self._ee_client.send('close')
-                self._controller.get_logger().info('Astrobio: SUCK OFF sent.')
-            else:
-                self._ee_client.send('close')
-                self._controller.set_gripper_target(0.0)
-                self._controller.get_logger().info('Gripper: SAFE_CLOSE sent.')
-
-        if lock_pressed and end_effector == 'drill_sampling':
-            self._ee_client.send('lock')
-            self._controller.get_logger().info('Claw/drill: LOCK sent.')
-        elif lock_pressed and end_effector == 'astrobio':
-            self._ee_client.send('read_ph')
-            self._controller.get_logger().info('Astrobio: READ PH sent.')
-
-        if unlock_pressed and end_effector == 'drill_sampling':
-            self._ee_client.send('unlock')
-            self._controller.get_logger().info('Claw/drill: UNLOCK sent.')
-
-        # drill_sampling's own A/B/Y sequence (button labels below match the
-        # physical buttons, not the old sampling/drill "home" naming):
-        #   A -> sampling_home (always; also how you get back to it from
-        #        sampling_container). For jaw, plain A/home also exits
-        #        probing mode if it was armed (see _handle_safe_pose).
-        #   B -> drill_home, routed by whichever mode is currently active:
-        #        via the sampling_to_drill transition waypoint first if NOT
-        #        already in drill mode (see
-        #        ServoController.move_sampling_to_drill), or straight there
-        #        if drill mode is already armed (e.g. returning from
-        #        drill_container — no need to detour back through the
-        #        sampling-side waypoint just to reach a pose you're already
-        #        near). For jaw specifically, B instead arms probing mode
-        #        (jaw_probing_home + continuous point-down hold, same
-        #        _level_hold mechanism as sampling mode — see
-        #        PROBING_POINT_AXIS) — jaw has no drill/sampling tool, so
-        #        this button was otherwise unused for it.
-        #   Y -> drill_sampling: container detour, routed by whichever mode
-        #        is currently active: sampling_container while sampling_mode
-        #        is armed, drill_container while drill_mode is armed. Does
-        #        not change which mode is armed (see _handle_safe_pose's
-        #        docstring). jaw: two-leg move instead — jaw_probing_home
-        #        waypoint, then (only on success) jaw_probing_container (see
-        #        ServoController.move_jaw_probing_to_container), arming
-        #        probing mode on success — jaw's own equivalent of B's
-        #        sampling_to_drill chain, just on Y instead since jaw
-        #        already uses B to arm probing mode via jaw_probing_home
-        #        alone.
-        if safe_pose_pressed and end_effector == 'drill_sampling':
-            self._controller.get_logger().info(
-                'A pressed (drill_sampling) — going straight to sampling_home.'
-            )
-            threading.Thread(
-                target=self._handle_safe_pose, args=('sampling',), daemon=True
-            ).start()
-        elif safe_pose_pressed:
-            threading.Thread(target=self._handle_safe_pose, daemon=True).start()
-
-        if sampling_home_pressed and not SAMPLING_DRILL_MODES_ENABLED:
-            self._controller.get_logger().warn(
-                'Sampling home is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
-            )
-        elif sampling_home_pressed and end_effector == 'astrobio':
-            self._controller.get_logger().warn(
-                f"B (sampling_home) is locked out with end_effector='{end_effector}' "
-                '— no drill/sampling tool mounted.'
-            )
-        elif sampling_home_pressed and end_effector == 'jaw':
-            self._controller.get_logger().info(
-                'B pressed (jaw) — going to jaw_probing_home (probing mode).'
-            )
-            threading.Thread(
-                target=self._handle_safe_pose, args=('probing',), daemon=True
-            ).start()
-        elif sampling_home_pressed and end_effector == 'drill_sampling':
-            if self._drill_mode:
-                # Already in drill mode (e.g. sitting at drill_container via
-                # Y) — go straight back to drill_home, no need to route
-                # through the sampling-side transition waypoint again.
-                self._controller.get_logger().info(
-                    'B pressed (drill_sampling, already drill mode) — '
-                    'going straight to drill_home.'
-                )
-                threading.Thread(
-                    target=self._handle_safe_pose, args=('drill',), daemon=True
-                ).start()
-            else:
-                self._controller.get_logger().info(
-                    'B pressed (drill_sampling) — going to sampling_to_drill, then drill_home.'
-                )
-                threading.Thread(
-                    target=self._handle_safe_pose, args=('sampling_to_drill',), daemon=True
-                ).start()
-        elif sampling_home_pressed:
-            # Mode is NOT flipped here — only once the home move actually
-            # succeeds (see _handle_safe_pose's target_mode handling).
-            # Flipping it immediately would change axis mapping/collision
-            # assumptions for a physical configuration the arm may never
-            # reach (review-flagged: a rejected/failed move used to leave
-            # software mode and physical pose out of sync).
-            self._controller.get_logger().info(
-                'B pressed — going straight to sampling_home.'
-            )
-            threading.Thread(
-                target=self._handle_safe_pose, args=('sampling',), daemon=True
-            ).start()
-
-        if drill_home_pressed and not SAMPLING_DRILL_MODES_ENABLED:
-            self._controller.get_logger().warn(
-                'Drill home is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
-            )
-        elif drill_home_pressed and end_effector == 'astrobio':
-            self._controller.get_logger().warn(
-                f"Y (drill_home) is locked out with end_effector='{end_effector}' "
-                '— no drill/sampling tool mounted.'
-            )
-        elif drill_home_pressed and end_effector == 'jaw':
-            self._controller.get_logger().info(
-                'Y pressed (jaw) — going to jaw_probing_home, then jaw_probing_container.'
-            )
-            threading.Thread(
-                target=self._handle_safe_pose, args=('jaw_probing_container',), daemon=True
-            ).start()
-        elif drill_home_pressed and end_effector == 'drill_sampling':
-            if self._drill_mode:
-                container_target = 'drill_container'
-            elif self._sampling_mode:
-                container_target = 'sampling_container'
-            else:
-                container_target = None
-            if container_target is None:
-                self._controller.get_logger().warn(
-                    'Y pressed but neither sampling_home nor drill_home has '
-                    'been reached yet — press A first.'
-                )
-            else:
-                self._controller.get_logger().info(
-                    f'Y pressed (drill_sampling) — going to {container_target}.'
-                )
-                threading.Thread(
-                    target=self._handle_safe_pose, args=(container_target,), daemon=True
-                ).start()
-        elif drill_home_pressed:
-            # See sampling_home_pressed's comment above — same deferred-
-            # mode-switch reasoning applies here.
-            self._controller.get_logger().info(
-                'Y pressed — going straight to drill_home.'
-            )
-            threading.Thread(
-                target=self._handle_safe_pose, args=('drill',), daemon=True
-            ).start()
-
-        if level_pressed and not SAMPLING_DRILL_MODES_ENABLED:
-            self._controller.get_logger().warn(
-                'level_tool() is disabled (SAMPLING_DRILL_MODES_ENABLED=False) — ignored.'
-            )
-        elif level_pressed:
-            threading.Thread(target=self._handle_level, daemon=True).start()
-
-        if unstow_pressed:
-            threading.Thread(target=self._handle_unstow, daemon=True).start()
-
-        if (self._teleop_locked or self._safe_pose_active or self._level_active
-                or self._orient_gripper_active or self._unstow_active):
-            self._controller.stop()
-            return
-
-        if self._joy_settling:
-            centered = (
-                self._sticks_centered(axes)
-                and self._trigger_amount(axes, self.AXIS_L2) == 0.0
-                and self._trigger_amount(axes, self.AXIS_R2) == 0.0
-                and not self._button_pressed(buttons, self.BUTTON_PUSH_BOOST)
-                and not self._button_pressed(buttons, self._shift_button)
-            )
-            self._controller.stop()
-            if centered:
-                self._calibrate_triggers(axes)
-                self._joy_settling = False
-                self._controller.get_logger().info('Sticks centered — resuming control.')
-            return
-
-        if not self._trigger_rest and self._sticks_centered(axes):
-            self._calibrate_triggers(axes)
-
-        # Held BUTTON_PUSH_BOOST scales up the commanded velocity — see its
-        # comment for why that's what actually raises the arm's static
-        # push force against resistance, not kp/kd/gravity-ff.
-        boost = (self.PUSH_BOOST_MULTIPLIER
-                 if self._button_pressed(buttons, self.BUTTON_PUSH_BOOST) else 1.0)
-        linear_speed = self._linear_speed * boost
-        angular_speed = self._angular_speed * boost
-
-        now = self._controller.get_clock().now()
-        # Panel detection/prompting is jaw-only — see panel_align_pressed's
-        # own lockout below for why (only the jaw gripper interacts with
-        # the panel). Suppressed entirely for other tools, or a
-        # drill/astrobio operator would get an unhelpful "press button 7"
-        # prompt (and an unwanted stop()) for a feature that just refuses.
-        raw_panel_visible = end_effector == 'jaw' and self._controller.is_panel_visible()
-        if raw_panel_visible:
-            self._panel_lost_since = None
-            panel_visible = True
-        elif self._panel_was_visible:
-            if self._panel_lost_since is None:
-                self._panel_lost_since = now
-            panel_visible = (now - self._panel_lost_since).nanoseconds / 1e9 < self._PANEL_LOST_CONFIRM_SEC
-        else:
-            panel_visible = False
-
-        if panel_visible and not self._panel_was_visible:
-            self._panel_prompt_pending = True
-            self._controller.stop()
-            print('\n>>> Panel detected! Press button 7 to align to it. <<<')
-        self._panel_was_visible = panel_visible
-
-        if panel_align_pressed and end_effector != 'jaw':
-            self._controller.get_logger().warn(
-                f"Panel align is locked out with end_effector='{end_effector}' "
-                '— only the jaw gripper interacts with the panel.'
-            )
-        elif panel_align_pressed:
-            self._panel_prompt_pending = False
-            if panel_visible or self._controller.has_remembered_panel_position:
-                threading.Thread(target=self._handle_panel_align, daemon=True).start()
-            else:
-                print('No panel currently in view and no panel position remembered yet.')
-
-        if orient_gripper_pressed and end_effector != 'jaw':
-            self._controller.get_logger().warn(
-                f"Gripper orient is locked out with end_effector='{end_effector}' "
-                '— only the jaw gripper interacts with the panel.'
-            )
-        elif orient_gripper_pressed:
-            if self._controller.has_remembered_panel_position:
-                threading.Thread(target=self._handle_orient_gripper, daemon=True).start()
-            else:
-                print('No panel position remembered yet — align (button 7) first.')
-
-        if self._panel_prompt_pending:
-            # Same "any real stick input dismisses it" rule as
-            # KeyboardInputLoop — checked on just the 4 sticks, since the
-            # gripper/panel buttons aren't "driving".
-            any_axis_active = (
-                self._axis(axes, self.AXIS_LEFT_X) != 0.0
-                or self._axis(axes, self.AXIS_LEFT_Y) != 0.0
-                or self._axis(axes, self.AXIS_RIGHT_X) != 0.0
-                or self._axis(axes, self.AXIS_RIGHT_Y) != 0.0
-            )
-            if any_axis_active:
-                self._panel_prompt_pending = False
-                print('Continuing manual control (panel align not triggered).')
-            else:
-                self._controller.stop()
-                return
-
-        left_x = self._axis(axes, self.AXIS_LEFT_X)
-        left_y = self._axis(axes, self.AXIS_LEFT_Y)
-        view_vx = left_y * linear_speed
-
-        right_x = self._axis(axes, self.AXIS_RIGHT_X)
-        right_y = self._axis(axes, self.AXIS_RIGHT_Y)
-        shift = self._button_pressed(buttons, self._shift_button)
-
-        view_vz = 0.0
-        wx = wy = wz = 0.0
-        if self._sampling_mode:
-            # Note wx/wy are never assigned in this branch at all (stay 0.0
-            # from above): pitch/yaw has no stick input routed to it here,
-            # _level_hold in _publish is the only thing that ever touches
-            # them while this mode is active.
-            view_vy = -right_y * linear_speed      # inverted
-            view_vz = right_x * linear_speed       # inverted
-            wz = -left_x * angular_speed           # roll — pitch/yaw locked level
-        elif self._probing_mode:
-            # Right stick axes swapped vs sampling mode above (by request):
-            # vertical stick drives up/down (view_vz, inverted — also by
-            # request), horizontal stick drives left/right (view_vy) — same
-            # wx/wy-untouched note as sampling mode applies here too.
-            view_vy = -right_x * linear_speed
-            view_vz = -right_y * linear_speed
-            wz = -left_x * angular_speed           # roll — pitch/yaw locked level
-        elif self._drill_mode:
-            # Right stick axes swapped vs the naive mapping on purpose (by
-            # request): vertical stick drives forward/back, horizontal
-            # stick drives left/right — opposite of every other mode here.
-            view_vx = -right_y * linear_speed
-            view_vy = -right_x * linear_speed
-            view_vz = left_y * linear_speed
-        elif shift:
-            view_vy = left_x * linear_speed
-            wx = right_y * angular_speed          # pitch
-            wz = -right_x * angular_speed         # roll
-        else:
-            view_vy = left_x * linear_speed
-            view_vz = -right_y * linear_speed      # stick up = view +Z
-            wy = -right_x * angular_speed         # yaw
-
-        # Mount-frame translation is unused here — every gamepad axis is
-        # view-relative or a rotation.
-        self._controller.set_velocity(
-            0.0, 0.0, 0.0, wx, wy, wz,
-            view_vx=view_vx, view_vy=view_vy, view_vz=view_vz,
-            hold_boost=boost,
-        )
-
-        cmd = (view_vx, view_vy, view_vz, wx, wy, wz)
-        if cmd != self._prev_cmd and any(c != 0.0 for c in cmd):
-            label = self._active_label(view_vx, view_vy, view_vz, wx, wy, wz, shift)
-            print(f'{label} fwd={view_vx:.2f} left={view_vy:.2f} up={view_vz:.2f} '
-                  f'wx={wx:.2f} wy={wy:.2f} wz={wz:.2f}')
-        self._prev_cmd = cmd
-
-    def _handle_panel_align(self):
-        """Run panel alignment and hand control back to the operator either way.
-
-        Mirrors KeyboardInputLoop._handle_panel_align — see its docstring
-        for why Servo is restarted on failure too, unlike _handle_safe_pose,
-        and for why this is guarded by a non-blocking lock.
-        """
-        if not self._panel_align_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        try:
-            print('Aligning to panel...')
-            if self._controller.run_planned_activity(self._controller.align_to_panel, 'align_to_panel'):
-                print('Panel align succeeded.')
-            else:
-                print('Panel align failed.')
-            print('Resuming manual control...')
-            self._controller.start_servo()
-        finally:
-            self._panel_align_running.release()
-
-    def _handle_orient_gripper(self):
-        """Rotate the gripper in place to face the remembered panel direction
-        (mirrors KeyboardInputLoop._handle_orient_gripper)."""
-        if not self._orient_gripper_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        self._orient_gripper_active = True
-        try:
-            print('Orienting gripper toward panel...')
-            if self._controller.run_planned_activity(
-                    self._controller.orient_gripper_to_panel, 'orient_gripper_to_panel'):
-                print('Gripper oriented.')
-            else:
-                print('Gripper orient failed.')
-            print('Resuming manual control...')
-            self._controller.start_servo()
-        finally:
-            self._orient_gripper_active = False
-            self._orient_gripper_running.release()
-
-    def _handle_safe_pose(self, target_mode=None):
-        """Stop motion and move to the safe pose (mirrors KeyboardInputLoop's 'r').
-
-        Args:
-            target_mode: ``None`` for plain A (jaw/astrobio home) — also
-                the only path that disarms jaw's ``_probing_mode`` if it was
-                armed, since jaw has no other "return to normal" button.
-                drill_sampling's own A/B/Y sequence (see ``_on_joy``):
-                ``'sampling'`` (A, sampling_home), ``'sampling_to_drill'``
-                (B, two-leg move ending at drill_home — see
-                ``ServoController.move_sampling_to_drill``),
-                ``'sampling_container'``/``'drill_container'`` (Y, routed
-                by whichever mode is currently active — side detour, does
-                NOT change ``_sampling_mode``/``_drill_mode`` below).
-                ``'drill'`` is kept only for callers that want to jump
-                straight to drill_home without the sampling_to_drill leg.
-                ``'probing'`` is jaw's own B — jaw_probing_home + continuous
-                point-down hold (see ``PROBING_POINT_AXIS``), the jaw
-                equivalent of ``'sampling'``. ``'jaw_probing_container'`` is
-                jaw's own Y — two-leg move via jaw_probing_home then (only
-                on success) jaw_probing_container, see
-                ``ServoController.move_jaw_probing_to_container`` — the jaw
-                equivalent of ``'sampling_to_drill'``.
-                Only decides which pose(s) to target and which mode to
-                commit AFTER a successful move — see below.
-
-        Guarded by a non-blocking lock so a second button press while a
-        move is already in progress is ignored instead of racing a
-        redundant safe-pose goal against the first. Also sets
-        ``_safe_pose_active`` for the duration so ``_on_joy`` ignores
-        stick/trigger input while it's set — otherwise a stick held
-        during the move would resume Cartesian motion the instant
-        ``start_servo()`` re-enables Servo, before the operator has a
-        chance to let go.
-
-        This is also the only place ``_teleop_locked`` is cleared (see
-        its declaration in ``__init__``).
-
-        Sampling/drill mode itself is committed (on both this loop and
-        the controller) ONLY after ``home_ok`` — review-flagged: setting
-        it immediately on button press let the software mode (and its
-        axis mapping / _level_hold target) change even when the move was
-        rejected/failed, leaving the arm physically in its old
-        configuration while teleop already assumed the new one.
-        """
-        if not self._safe_pose_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        self._safe_pose_active = True
-        try:
-            self._controller.stop()
-            print('Moving to home...')
-            if target_mode == 'sampling':
-                action = functools.partial(
-                    self._controller.move_to_safe_pose,
-                    positions=self._controller.sampling_home_pose,
-                    name=self._controller.sampling_home_pose_name,
-                )
-            elif target_mode == 'drill':
-                action = functools.partial(
-                    self._controller.move_to_safe_pose,
-                    positions=self._controller.drill_home_pose,
-                    name=self._controller.drill_home_pose_name,
-                )
-            elif target_mode == 'sampling_to_drill':
-                action = self._controller.move_sampling_to_drill
-            elif target_mode == 'sampling_container':
-                action = functools.partial(
-                    self._controller.move_to_safe_pose,
-                    positions=self._controller.sampling_container_pose,
-                    name=self._controller.sampling_container_pose_name,
-                )
-            elif target_mode == 'drill_container':
-                action = functools.partial(
-                    self._controller.move_to_safe_pose,
-                    positions=self._controller.drill_container_pose,
-                    name=self._controller.drill_container_pose_name,
-                )
-            elif target_mode == 'probing':
-                action = functools.partial(
-                    self._controller.move_to_safe_pose,
-                    positions=self._controller.jaw_probing_home_pose,
-                    name=self._controller.jaw_probing_home_pose_name,
-                )
-            elif target_mode == 'jaw_probing_container':
-                action = self._controller.move_jaw_probing_to_container
-            else:
-                action = self._controller.move_to_safe_pose
-            home_ok = self._controller.run_planned_activity(action, 'move_to_safe_pose')
-            if home_ok:
-                if target_mode == 'sampling':
-                    self._sampling_mode = True
-                    self._drill_mode = False
-                    self._controller.set_sampling_mode(True)
-                elif target_mode in ('drill', 'sampling_to_drill'):
-                    self._drill_mode = True
-                    self._sampling_mode = False
-                    self._controller.set_drill_mode(True)
-                elif target_mode in ('probing', 'jaw_probing_container'):
-                    self._probing_mode = True
-                    self._controller.set_probing_mode(True)
-                elif target_mode is None:
-                    # Plain A/home (jaw/astrobio) — jaw's only way back from
-                    # probing mode, since jaw has no dedicated "exit" button.
-                    self._probing_mode = False
-                    self._controller.set_probing_mode(False)
-                # sampling_container/drill_container: side detour, current
-                # mode is left exactly as it was (see docstring above).
-                print('Starting servo...')
-                if self._controller.start_servo():
-                    self._teleop_locked = False
-                    self._controller.get_logger().info('Teleop enabled.')
-                else:
-                    self._controller.get_logger().warn(
-                        'Servo failed to start — staying on trajectory controller.'
-                    )
-            else:
-                print('Home move failed — Servo not started.')
-        finally:
-            self._safe_pose_active = False
-            self._safe_pose_running.release()
-
-    def _handle_unstow(self):
-        """Gamepad button 4 — mirrors KeyboardInputLoop._handle_unstow.
-
-        ``_unstow_active`` makes ``_on_joy`` ignore stick input mid-lift.
-        """
-        if not self._level_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        self._unstow_active = True
-        try:
-            print('Unstowing...')
-            if self._controller.run_planned_activity(self._controller.unstow, 'unstow'):
-                print('Unstowed.')
-            else:
-                print('Unstow failed.')
-            print('Resuming manual control...')
-            self._controller.start_servo()
-        finally:
-            self._unstow_active = False
-            self._level_running.release()
-
-    def _handle_level(self):
-        """Reorient the tool straight down via a collision-checked plan
-        (mirrors KeyboardInputLoop's 'f' — see level_tool's own docstring
-        for why this needs to be its own move_group plan).
-
-        ``_level_active`` mirrors ``_safe_pose_active``'s own role: held
-        for the duration so ``_on_joy`` ignores stick input mid-move,
-        same reasoning as that flag's own declaration.
-        """
-        if not self._level_running.acquire(blocking=False):
-            print('Another planned move is still running — wait for it to finish.')
-            return
-        self._level_active = True
-        try:
-            self._controller.stop()
-            print('Leveling tool...')
-            if self._controller.run_planned_activity(self._controller.level_tool, 'level_tool'):
-                print('Tool leveled.')
-            else:
-                print('Level move failed.')
-            print('Resuming manual control...')
-            self._controller.start_servo()
-        finally:
-            self._level_active = False
-            self._level_running.release()
-
-    def run(self):
-        """Print the help banner and block until the exit button is pressed."""
-        print(GAMEPAD_HELP)
-        try:
-            self._exit_event.wait()
-        finally:
-            print('\nExiting...')
-            self._controller.stop()
-
-
-def _run_teleop(controller: 'ServoController', input_loop) -> None:
+def run_motor_action(controller: 'ServoController', action: str) -> bool:
+    """Activate / park / release, shared by keyboard and gamepad. Park moves
+    the arm, so it goes through the activity indicator like other planned
+    moves; activate holds the current pose and release only relaxes."""
+    print({'activate': 'Activating the arm motors...',
+           'park': 'Parking the arm on its support...',
+           'release': 'Releasing the arm (motors off)...'}[action])
+    if action == 'activate':
+        ok = controller.activate_arm()
+    elif action == 'park':
+        ok = controller.run_planned_activity(controller.park, 'park')
+    else:
+        ok = controller.release()
+    print({'activate': 'Motors on — press r / A for home.',
+           'park': 'Parked — y / R1+X turns the motors off.',
+           'release': 'Motors off.'}[action] if ok else f'{action.capitalize()} failed (see log).')
+    return ok
+
+
+
+def run_teleop(controller: 'ServoController', input_loop) -> None:
     """Spin ``controller`` in a background thread and run ``input_loop`` until exit.
 
     Shared by ``main`` (keyboard) and ``main_gamepad`` (gamepad): both
@@ -3670,7 +2207,7 @@ def _run_teleop(controller: 'ServoController', input_loop) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        # The ROS context is still alive here (see _init_ros), so Servo can be
+        # The ROS context is still alive here (see init_ros), so Servo can be
         # paused and the joints handed back to the trajectory controller.
         controller.stop()
         if not controller.stop_servo():
@@ -3688,11 +2225,11 @@ def _raise_keyboard_interrupt(signum, frame):
     raise KeyboardInterrupt
 
 
-def _init_ros() -> None:
+def init_ros() -> None:
     """Init rclpy without its signal handlers.
 
     rclpy's own SIGINT handler shuts the context down immediately, so the
-    cleanup in ``_run_teleop`` could no longer reach Servo or the controller
+    cleanup in ``run_teleop`` could no longer reach Servo or the controller
     manager. Ctrl+C (and the SIGTERM ``ros2 launch`` escalates to) instead
     raise KeyboardInterrupt in the main thread and go through that cleanup.
     """
@@ -3700,28 +2237,3 @@ def _init_ros() -> None:
     # Explicit: a process started in the background inherits SIGINT ignored.
     signal.signal(signal.SIGINT, signal.default_int_handler)
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
-
-
-def main():
-    """Entry point: initialize ROS2, run the keyboard input loop, and clean up.
-
-    See ``_run_teleop`` for the shared spin/cleanup lifecycle.
-    """
-    _init_ros()
-    controller = ServoController()
-    _run_teleop(controller, KeyboardInputLoop(controller))
-
-
-def main_gamepad():
-    """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
-
-    Requires a running ``joy`` publisher — see ``arm_teleop/launch/gamepad.launch.py``.
-    See ``_run_teleop`` for the shared spin/cleanup lifecycle.
-    """
-    _init_ros()
-    controller = ServoController()
-    _run_teleop(controller, GamepadInputLoop(controller))
-
-
-if __name__ == '__main__':
-    main()

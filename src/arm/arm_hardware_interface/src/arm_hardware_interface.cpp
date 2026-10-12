@@ -224,6 +224,8 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
     gain_ramp_secs_        = param_or(info.hardware_parameters, "gain_ramp_secs", gain_ramp_secs_);
     max_cmd_speed_rad_s_   = param_or(info.hardware_parameters, "max_cmd_speed_rad_s", max_cmd_speed_rad_s_);
     feedback_timeout_secs_ = param_or(info.hardware_parameters, "feedback_timeout_secs", feedback_timeout_secs_);
+    release_ramp_secs_     = param_or(info.hardware_parameters, "release_ramp_secs", release_ramp_secs_);
+    release_drift_tol_rad_ = param_or(info.hardware_parameters, "release_drift_tol_rad", release_drift_tol_rad_);
     gravity_ff_enabled_    = param_bool(info.hardware_parameters, "gravity_ff_enabled", gravity_ff_enabled_);
     gravity_ff_max_nm_sw_  = param_or(info.hardware_parameters, "gravity_ff_max_nm_steadywin", gravity_ff_max_nm_sw_);
     gravity_ff_max_nm_dm_  = param_or(info.hardware_parameters, "gravity_ff_max_nm_damiao", gravity_ff_max_nm_dm_);
@@ -268,6 +270,7 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
     joint_velocity_command_.fill(0.0);
     joint_position_state_.fill(0.0);
     joint_velocity_state_.fill(0.0);
+    joint_effort_state_.fill(0.0);
     hw_position_states_.fill(0.0);
     hw_velocity_states_.fill(0.0);
     feedback_seen_.fill(false);
@@ -370,6 +373,7 @@ std::vector<hardware_interface::StateInterface> ArmCanSystem::export_state_inter
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
         state_interfaces.emplace_back(joint_names_[i], hardware_interface::HW_IF_POSITION, &joint_position_state_[i]);
         state_interfaces.emplace_back(joint_names_[i], hardware_interface::HW_IF_VELOCITY, &joint_velocity_state_[i]);
+        state_interfaces.emplace_back(joint_names_[i], hardware_interface::HW_IF_EFFORT, &joint_effort_state_[i]);
     }
     return state_interfaces;
 }
@@ -399,25 +403,73 @@ hardware_interface::return_type ArmCanSystem::perform_command_mode_switch(
     return hardware_interface::return_type::OK;
 }
 
+// Lifecycle, following ros2_control's own meaning of the states:
+//   INACTIVE (on_configure): CAN open, motors polled torquelessly — joint
+//     states are live while the arm hangs limp (or lies on its support).
+//   ACTIVE (on_activate): motors enabled, stiffness ramps up from the
+//     measured pose.
+//   on_deactivate: stiffness ramps back down holding the last command, then
+//     the motors are disabled — meant for an arm resting on its support
+//     (Park, then Release in arm_teleop). If a joint moves during the ramp
+//     the arm is not supported: full stiffness is restored and the
+//     transition fails, so the arm stays ACTIVE.
+//   on_shutdown (process exit): motors keep holding, as before — killing
+//     ros2_control_node must never drop an arm that was not parked.
+
 hardware_interface::CallbackReturn ArmCanSystem::on_configure(const rclcpp_lifecycle::State&)
 {
     RCLCPP_INFO(logger_, "Configuring ArmCanSystem...");
+    if (!open_bus()) {
+        return hardware_interface::CallbackReturn::ERROR;
+    }
+
+    // Torqueless reads: Steadywin 0xF1 never enters MIT mode, a zero-gain MIT
+    // probe produces no torque on a Damiao.
+    feedback_seen_.fill(false);
+    dm_enable_for_poll_ = false;
+    bool all = wait_for_all_feedback(feedback_timeout_secs_);
+    if (!all) {
+        bool sw_ok = true;
+        {
+            std::lock_guard<std::mutex> lock(feedback_mutex_);
+            for (std::size_t i = 0; i < NUM_STEADYWIN; ++i) sw_ok = sw_ok && feedback_seen_[i];
+        }
+        if (sw_ok) {
+            // A disabled Damiao may ignore MIT frames: enable them (torque
+            // stays 0 — nothing but zero-gain probes is sent while inactive).
+            RCLCPP_WARN(logger_, "Damiao motors silent while disabled — enabling them "
+                                 "torqueless to read their positions.");
+            dm_enable_for_poll_ = true;
+            send_dm_enable_frames();
+            all = wait_for_all_feedback(feedback_timeout_secs_);
+        }
+    }
+    if (!all) {
+        RCLCPP_FATAL(logger_, "Not all motors reported their position. Check CAN wiring / IDs / power.");
+        safe_stop();
+        return hardware_interface::CallbackReturn::ERROR;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        joint_position_state_ = hw_position_states_;
+        joint_velocity_state_ = hw_velocity_states_;
+    }
+    last_poll_ = std::chrono::steady_clock::now();
+    RCLCPP_INFO(logger_, "ArmCanSystem configured: motors are read, NOT enabled (no torque).");
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecycle::State&)
 {
-    if (!open_can_socket()) {
+    if (can_fd_ < 0 && !open_bus()) {
         return hardware_interface::CallbackReturn::ERROR;
     }
-
-    feedback_seen_.fill(false);
-    rx_running_.store(true);
-    rx_thread_ = std::thread(&ArmCanSystem::rx_thread_fn, this);
 
     // 1) Enable: Steadywin gets its 0xF0 limits config (does NOT apply torque —
     //    it only enters MIT mode on the first 0x4xx frame). Damiao gets 0xFC
     //    (enabled but torqueless until its first MIT command).
+    feedback_seen_.fill(false);
     send_enable_frames();
 
     // 2) ACTIVELY poll every motor for its true position: they only reply when
@@ -427,7 +479,8 @@ hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecy
         RCLCPP_FATAL(logger_,
             "Not all motors reported their position — REFUSING to enable torque "
             "with an unknown arm pose. Check CAN wiring / IDs / power.");
-        safe_stop();
+        send_disable_frames();
+        if (dm_enable_for_poll_) send_dm_enable_frames();   // keep them readable
         return hardware_interface::CallbackReturn::ERROR;
     }
 
@@ -448,6 +501,7 @@ hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecy
     }
     have_last_sent_ = true;
     ramp_started_   = false;   // ramp clock starts at the first write()
+    releasing_.store(false);
     motors_enabled_.store(true);
 
     RCLCPP_INFO(logger_,
@@ -458,20 +512,33 @@ hardware_interface::CallbackReturn ArmCanSystem::on_activate(const rclcpp_lifecy
 
 hardware_interface::CallbackReturn ArmCanSystem::on_deactivate(const rclcpp_lifecycle::State&)
 {
-    RCLCPP_WARN(logger_,
-        "Deactivating WITHOUT disabling: Steadywin motors (base/shoulder/"
-        "elbow) hold their last commanded position indefinitely — they need "
-        "no further CAN traffic to stay stiff. Damiao wrist motors (forearm/"
-        "wrist/end-effector) WILL go limp shortly after this process stops "
-        "sending frames (their own comm-loss watchdog disables them) — "
-        "support the wrist/end-effector before deactivating.");
-    stop_holding();
-    RCLCPP_INFO(logger_, "ArmCanSystem deactivated (motors left enabled, holding last position).");
+    if (!motors_enabled_.load()) {
+        return hardware_interface::CallbackReturn::SUCCESS;
+    }
+    if (!rclcpp::ok()) {
+        // Process is going down (Ctrl+C), not an operator's Release: hold.
+        RCLCPP_WARN(logger_, "Shutting down while active: motors keep holding their last "
+                             "position (Steadywin); Damiao wrists go limp on their watchdog.");
+        stop_holding();
+        return hardware_interface::CallbackReturn::SUCCESS;
+    }
+    return soft_release();
+}
+
+hardware_interface::CallbackReturn ArmCanSystem::on_cleanup(const rclcpp_lifecycle::State&)
+{
+    close_bus();
     return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::CallbackReturn ArmCanSystem::on_shutdown(const rclcpp_lifecycle::State&)
 {
+    if (motors_enabled_.load()) {
+        RCLCPP_WARN(logger_,
+            "Shutting down while active: Steadywin motors (base/shoulder/elbow) "
+            "keep holding their last commanded position; Damiao wrist motors go "
+            "limp shortly after (their comm-loss watchdog) — support the wrist.");
+    }
     stop_holding();
     return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -493,11 +560,7 @@ void ArmCanSystem::safe_stop()
     if (can_fd_ >= 0) {
         send_disable_frames();
     }
-    rx_running_.store(false);
-    if (rx_thread_.joinable()) {
-        rx_thread_.join();
-    }
-    close_can_socket();
+    close_bus();
 }
 
 void ArmCanSystem::stop_holding()
@@ -508,11 +571,115 @@ void ArmCanSystem::stop_holding()
     // Damiao motors will drop out on their own comm-loss watchdog shortly
     // after we stop streaming — nothing we send here changes that.
     motors_enabled_.store(false);
-    rx_running_.store(false);
-    if (rx_thread_.joinable()) {
-        rx_thread_.join();
+    close_bus();
+}
+
+void ArmCanSystem::send_hold_frames(const std::array<double, NUM_JOINTS>& hold,
+                                    const std::array<double, NUM_JOINTS>& scale)
+{
+    const std::array<float, NUM_JOINTS> gravity_tff =
+        gravity_ff_enabled_ ? compute_gravity_feedforward() : std::array<float, NUM_JOINTS>{};
+    std::lock_guard<std::mutex> lock(can_tx_mutex_);
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        const float pos = static_cast<float>(urdf_to_motor(i, hold[i]));
+        const float kp  = static_cast<float>(joint_kp_[i] * scale[i]);
+        const float kd  = static_cast<float>(joint_kd_[i] * scale[i]);
+        const float tff = gravity_tff[i] * static_cast<float>(scale[i]);
+        can_msgs::msg::Frame f = (i < NUM_STEADYWIN)
+            ? sw::build_mit_command_frame(motor_ids_[i], pos, 0.0f, kp, kd, tff)
+            : dm::build_mit_command_frame(motor_ids_[i], pos, 0.0f, kp, kd, tff);
+        send_can_frame(f.id, f.data, f.dlc);
     }
-    close_can_socket();
+}
+
+hardware_interface::CallbackReturn ArmCanSystem::soft_release()
+{
+    // Two stages: shoulder and elbow first — in the park pose the arm rests
+    // on its support through them — then base and wrists. Each stage ramps
+    // its joints' kp, kd and gravity ff to 0 holding the last command.
+    // The controller manager is busy with this transition, so this loop
+    // streams the frames itself; write() stays silent until it is over.
+    constexpr std::array<std::size_t, 2> kFirstStage = {1, 2};   // shoulder, elbow
+    releasing_.store(true);
+    const std::array<double, NUM_JOINTS> hold = last_sent_command_;
+    std::array<double, NUM_JOINTS> start{};
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        start = hw_position_states_;
+    }
+    RCLCPP_INFO(logger_,
+        "Releasing: shoulder/elbow, then the rest, stiffness 100%% -> 0 over %.1f s each "
+        "(abort if a joint moves > %.3f rad).", release_ramp_secs_, release_drift_tol_rad_);
+
+    constexpr auto kPeriod = std::chrono::milliseconds(10);
+    std::array<double, NUM_JOINTS> scale;
+    scale.fill(1.0);
+    for (int stage = 0; stage < 2; ++stage) {
+        std::array<bool, NUM_JOINTS> ramping{};
+        for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+            const bool first = std::find(kFirstStage.begin(), kFirstStage.end(), i) != kFirstStage.end();
+            ramping[i] = (stage == 0) == first;
+        }
+        const auto t0 = std::chrono::steady_clock::now();
+        while (true) {
+            const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            const double s_now = release_ramp_secs_ > 0.05 ? 1.0 - smoothstep01(t / release_ramp_secs_) : 0.0;
+            for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+                if (ramping[i]) scale[i] = s_now;
+            }
+
+            std::array<double, NUM_JOINTS> now_pos{};
+            {
+                std::lock_guard<std::mutex> lock(feedback_mutex_);
+                now_pos = hw_position_states_;
+                joint_position_state_ = hw_position_states_;   // gravity ff uses it
+            }
+            std::size_t moved = NUM_JOINTS;
+            for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+                if (std::abs(now_pos[i] - start[i]) > release_drift_tol_rad_) { moved = i; break; }
+            }
+            if (moved < NUM_JOINTS) {
+                RCLCPP_ERROR(logger_,
+                    "Release ABORTED: '%s' moved %.3f rad (stage %d, its stiffness %.0f%%) — the arm "
+                    "is not resting on its support. Restoring full stiffness where it is now.",
+                    joint_names_[moved].c_str(), now_pos[moved] - start[moved], stage + 1,
+                    scale[moved] * 100.0);
+                // Hold where it is now (pulling back to `hold` would yank it up),
+                // ramping back to full stiffness quickly.
+                const std::array<double, NUM_JOINTS> from = scale;
+                const auto r0 = std::chrono::steady_clock::now();
+                constexpr double kRestoreSecs = 0.5;
+                for (double r = 0.0; r < 1.0;) {
+                    r = std::min(1.0, std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - r0).count() / kRestoreSecs);
+                    for (std::size_t i = 0; i < NUM_JOINTS; ++i) scale[i] = from[i] + (1.0 - from[i]) * r;
+                    send_hold_frames(now_pos, scale);
+                    std::this_thread::sleep_for(kPeriod);
+                }
+                for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+                    last_sent_command_[i]      = now_pos[i];
+                    joint_position_command_[i] = now_pos[i];
+                }
+                ramp_started_ = true;
+                ramp_start_   = std::chrono::steady_clock::now() - std::chrono::hours(1);  // full
+                releasing_.store(false);
+                return hardware_interface::CallbackReturn::FAILURE;
+            }
+
+            send_hold_frames(hold, scale);
+            if (s_now <= 0.0) break;
+            std::this_thread::sleep_for(kPeriod);
+        }
+        if (stage == 0) RCLCPP_INFO(logger_, "Shoulder/elbow relaxed and resting; relaxing the rest.");
+    }
+
+    motors_enabled_.store(false);
+    send_disable_frames();
+    // Keep them readable while inactive (torqueless, see on_configure).
+    if (dm_enable_for_poll_) send_dm_enable_frames();
+    releasing_.store(false);
+    RCLCPP_INFO(logger_, "Released: motors disabled, still reading positions.");
+    return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 // =============================================================================
@@ -521,15 +688,28 @@ void ArmCanSystem::stop_holding()
 
 hardware_interface::return_type ArmCanSystem::read(const rclcpp::Time&, const rclcpp::Duration&)
 {
+    // INACTIVE: nothing is streamed to the motors and they only reply when
+    // spoken to, so poll them (torqueless) to keep the joint states live.
+    if (!motors_enabled_.load() && can_fd_ >= 0) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_poll_ >= std::chrono::milliseconds(50)) {
+            last_poll_ = now;
+            send_poll_frames();
+        }
+    }
+
     std::lock_guard<std::mutex> lock(feedback_mutex_);
     joint_position_state_ = hw_position_states_;
     joint_velocity_state_ = hw_velocity_states_;
+    for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+        joint_effort_state_[i] = last_torque_nm_[i] * joint_directions_[i];
+    }
     return hardware_interface::return_type::OK;
 }
 
 hardware_interface::return_type ArmCanSystem::write(const rclcpp::Time&, const rclcpp::Duration& period)
 {
-    if (!motors_enabled_.load()) return hardware_interface::return_type::OK;
+    if (!motors_enabled_.load() || releasing_.load()) return hardware_interface::return_type::OK;
 
     // ---- Stiffness ramp: 0 -> 1 over gain_ramp_secs_ from the first write ----
     if (!ramp_started_) {
@@ -679,6 +859,24 @@ void ArmCanSystem::close_can_socket()
     }
 }
 
+bool ArmCanSystem::open_bus()
+{
+    if (can_fd_ >= 0) return true;
+    if (!open_can_socket()) return false;
+    rx_running_.store(true);
+    rx_thread_ = std::thread(&ArmCanSystem::rx_thread_fn, this);
+    return true;
+}
+
+void ArmCanSystem::close_bus()
+{
+    rx_running_.store(false);
+    if (rx_thread_.joinable()) {
+        rx_thread_.join();
+    }
+    close_can_socket();
+}
+
 bool ArmCanSystem::send_can_frame(uint32_t id, const std::array<uint8_t, 8>& data, uint8_t dlc)
 {
     if (can_fd_ < 0) return false;
@@ -709,6 +907,15 @@ void ArmCanSystem::send_enable_frames()
     }
 }
 
+void ArmCanSystem::send_dm_enable_frames()
+{
+    std::lock_guard<std::mutex> lock(can_tx_mutex_);
+    for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+        auto f = dm::build_enable_frame(motor_ids_[i]);
+        send_can_frame(f.id, f.data, f.dlc);
+    }
+}
+
 void ArmCanSystem::send_disable_frames()
 {
     std::lock_guard<std::mutex> lock(can_tx_mutex_);
@@ -730,6 +937,21 @@ void ArmCanSystem::send_disable_frames()
     }
 }
 
+void ArmCanSystem::send_poll_frames()
+{
+    std::lock_guard<std::mutex> lock(can_tx_mutex_);
+    for (std::size_t i = 0; i < NUM_STEADYWIN; ++i) {
+        // 0xF1: reads state WITHOUT entering MIT mode — zero torque.
+        auto f = sw::build_read_state_frame(motor_ids_[i]);
+        send_can_frame(f.id, f.data, f.dlc);
+    }
+    for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
+        // kp=0/kd=0/tff=0 MIT frame: zero torque, elicits feedback.
+        auto f = dm::build_zero_gain_probe_frame(motor_ids_[i]);
+        send_can_frame(f.id, f.data, f.dlc);
+    }
+}
+
 bool ArmCanSystem::wait_for_all_feedback(double timeout_sec)
 {
     RCLCPP_INFO(logger_, "Polling all motors for their true positions (timeout %.1f s)...",
@@ -739,19 +961,7 @@ bool ArmCanSystem::wait_for_all_feedback(double timeout_sec)
                         + std::chrono::duration<double>(timeout_sec);
 
     while (std::chrono::steady_clock::now() < deadline) {
-        {
-            std::lock_guard<std::mutex> lock(can_tx_mutex_);
-            for (std::size_t i = 0; i < NUM_STEADYWIN; ++i) {
-                // 0xF1: reads state WITHOUT entering MIT mode — zero torque.
-                auto f = sw::build_read_state_frame(motor_ids_[i]);
-                send_can_frame(f.id, f.data, f.dlc);
-            }
-            for (std::size_t i = NUM_STEADYWIN; i < NUM_JOINTS; ++i) {
-                // kp=0/kd=0/tff=0 MIT frame: zero torque, elicits feedback.
-                auto f = dm::build_zero_gain_probe_frame(motor_ids_[i]);
-                send_can_frame(f.id, f.data, f.dlc);
-            }
-        }
+        send_poll_frames();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
         bool all = true;

@@ -3,7 +3,7 @@ in review: hung execution + cancellation, cross-process motion exclusion,
 and collision-checked remembered-position replay.
 
 Internal methods are called/monkeypatched directly rather than round-tripped
-through real action servers, mirroring test_keyboard_servo_node.py's own
+through real action servers, mirroring test_servo_teleop.py's own
 rationale for the same choice.
 """
 import threading

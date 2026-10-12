@@ -1,15 +1,15 @@
 """MoveIt-planned, collision-checked alignment to a detected panel.
 
-Separate node from ``keyboard_servo_node.py`` on purpose: MoveIt planning
+Separate node from ``servo_controller.py`` on purpose: MoveIt planning
 is a new, heavier dependency this codebase hasn't used before, and
 shouldn't be mixed into the input-handling module. Exposes one
 ``std_srvs/srv/Trigger`` service (``align``), the same idiom
-keyboard_servo_node.py already uses for ``panel_align/*``.
+servo_controller.py already uses for ``panel_align/*``.
 
 ``align_to_panel()`` mirrors ``ServoController.move_to_safe_pose()``'s
 contract: returns ``bool``, never raises, logs a distinguishing message
 per failure mode, and never re-enables Servo itself — the caller (the
-'p'-key/gamepad-button handler in ``keyboard_servo_node.py``) decides
+'p'-key/gamepad-button handler in ``keyboard_input.py``/``gamepad_input.py``) decides
 what to do next.
 
 The panel is a completely separate Gazebo model, not part of the arm's
@@ -21,7 +21,7 @@ object we're deliberately moving toward."
 
 Every blocking sub-call in align_to_panel() (stop_servo, apply_planning_
 scene, /move_action, /execute_trajectory) waits on a threading.Event set
-from an rclpy done-callback — the same pattern keyboard_servo_node.py
+from an rclpy done-callback — the same pattern servo_controller.py
 uses successfully, but THERE it always runs on a background thread
 separate from the ROS spin thread. Here, align_to_panel() runs FROM
 _on_align_request, itself a callback invoked BY the executor — with the
@@ -96,7 +96,7 @@ PLANNING_FRAME = 'arm_mount_link'
 
 DEFAULT_PANEL_POSE_TOPIC = '/panel_pose'
 DEFAULT_CAMERA_INFO_TOPIC = '/camera/camera_info'
-# Must exceed keyboard_servo_node.py's ACTIVITY_INDICATOR_PRE_DELAY_SEC
+# Must exceed servo_controller.py's ACTIVITY_INDICATOR_PRE_DELAY_SEC
 # (5s) with margin: the align request only reaches this node AFTER that
 # wait, so the check here has to tolerate a detection drop spanning it.
 DEFAULT_MAX_PANEL_POSE_AGE_SEC = 8.0
@@ -251,7 +251,7 @@ class PanelAlignNode(Node):
         self.declare_parameter('orient_gripper_path_position_radius', 0.05)
         # This 60s, summed with every other wait_for_service/server +
         # done.wait() in align_to_panel()'s sequence, must stay under
-        # keyboard_servo_node.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
+        # servo_controller.py's DEFAULT_PANEL_ALIGN_TIMEOUT — see its
         # comment for the full worst-case budget. A parameter (not a
         # literal) so tests can shrink it instead of actually waiting 60s
         # to exercise the cancel-on-timeout path.
@@ -1086,7 +1086,7 @@ class PanelAlignNode(Node):
         if not done.wait(timeout=self.get_parameter('execution_timeout_sec').value):
             # Critical: NOT cancelling here would leave the JTC goal
             # running server-side after this function returns "failed" —
-            # keyboard_servo_node.py's align handler unconditionally
+            # keyboard_input.py's / gamepad_input.py's align handler unconditionally
             # restarts Servo (switching to the streaming controller)
             # right after any align outcome, success or failure. Without
             # this cancel-and-wait, that reactivation would race an

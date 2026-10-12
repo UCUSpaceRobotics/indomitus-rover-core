@@ -47,7 +47,17 @@ joint_limits:
     has_velocity_limits: true
     max_velocity: 0.8
     has_acceleration_limits: true
-    max_acceleration: 2.5
+    # Raised from 2.5: this joint fell behind (path-tolerance abort, see
+    # ros2_controllers.yaml's constraints comment) on a large swing
+    # (drill_home -> sampling_home). Same MIT-mode static-friction
+    # reasoning as servo.yaml's own publish_period comment — too gentle a
+    # ramp at the start of a big move doesn't generate enough torque
+    # authority to break static friction promptly, so the joint lags from
+    # the first instant and never catches up. More acceleration headroom
+    # gives it a steeper initial ramp instead. Provisional — re-tune (or
+    # revert) once motor 24 has been physically checked (see also the
+    # trajectory tolerance bump below).
+    max_acceleration: 3.5
     has_jerk_limits: true
     max_jerk: 12.5
   arm_wrist_2_end_effector_joint:

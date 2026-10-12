@@ -1,7 +1,7 @@
 # Мапінг геймпада для керування рукою (arm gamepad teleop)
 
 > Для ground station: точний перелік осей/кнопок геймпада, які використовує
-> `gamepad_servo_node` (`src/arm/arm_teleop/arm_teleop/keyboard_servo_node.py`,
+> `gamepad_servo_node` (`src/arm/arm_teleop/arm_teleop/gamepad_input.py`,
 > клас `GamepadInputLoop`) для ручного керування рукою. Запускається через
 > `src/arm/arm_teleop/launch/gamepad.launch.py`.
 >
@@ -127,11 +127,11 @@ R1/shift ігнорується в sampling і drill режимах.
 
 ## 5. Кінцевий інструмент (end effector) — окремий CAN-канал
 
-Кнопки 11/12/13/14 шлють одноразові команди на топік `end_effector_controller/command`, а не через сервоконтур руки. Спрацьовують по натисканню (не по утриманню). Сам CAN живе в окремому вузлі, `arm_peripherals/end_effector_can_node.py` (не в `keyboard_servo_node.py`), який транслює ці команди в проводовий протокол змонтованого інструмента:
+Кнопки 11/12/13/14 шлють одноразові команди на топік `end_effector_controller/command`, а не через сервоконтур руки. Спрацьовують по натисканню (не по утриманню). Сам CAN живе в окремому вузлі, `arm_peripherals/end_effector_can_node.py` (не в `servo_controller.py`), який транслює ці команди в проводовий протокол змонтованого інструмента:
 
 - **jaw** (CAN `0x1A`): `SAFE_OPEN`/`SAFE_CLOSE`.
 - **drill_sampling** (CAN `0x1E`): `OPEN`(2)/`CLOSE`(1) для клешні, `UP`(5)/`DOWN`(4) для дриля, `LOCK`(7)/`UNLOCK`(8) для електрозамка.
 
 ## 6. Відомі розбіжності зі старою документацією
 
-`docs/arm/arm_teleop.md` описує **застарілий** мапінг: тільки базовий режим (без B/Y, без захвату, без push-boost, без level) і вказує дефолтний shift-button = 5, тоді як у коді дефолт — **10**. Цей документ (`arm_gamepad_mapping.md`) відображає поточний стан коду; при розбіжності орієнтуватись на нього і на клас `GamepadInputLoop` у `keyboard_servo_node.py`.
+`docs/arm/arm_teleop.md` описує **застарілий** мапінг: тільки базовий режим (без B/Y, без захвату, без push-boost, без level) і вказує дефолтний shift-button = 5, тоді як у коді дефолт — **10**. Цей документ (`arm_gamepad_mapping.md`) відображає поточний стан коду; при розбіжності орієнтуватись на нього і на клас `GamepadInputLoop` у `servo_controller.py`.

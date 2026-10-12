@@ -40,6 +40,7 @@
   <exec_depend>ros2_socketcan</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>arm_teleop</exec_depend>
+  <exec_depend>arm_power</exec_depend>
   <!-- collision_link_reporter (report_collisions:=true) only — arm_tasks is
        excluded from the Jetson production image (docker/Dockerfile's
        SIMULATION_PKGS), so arm.launch.py defaults report_collisions to

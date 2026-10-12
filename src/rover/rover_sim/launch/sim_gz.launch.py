@@ -427,7 +427,7 @@ def generate_launch_description() -> LaunchDescription:
                 "use_sim_time": "true",
             }),
 
-            include_launch("rover_teleop", "drive_power.launch.py", {
+            include_launch("rover_power", "drive_power.launch.py", {
                 "use_sim_time": "true",
                 "controller_name": LaunchConfiguration("swerve_controller"),
             }),

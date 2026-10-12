@@ -21,13 +21,14 @@ from rclpy.duration import Duration
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState, Joy
 
-from arm_teleop.keyboard_servo_node import (
+from evdev import ecodes
+
+from arm_teleop.gamepad_input import GamepadInputLoop
+from arm_teleop.keyboard_input import KeyboardInputLoop
+from arm_teleop.servo_controller import (
     GRIPPER_JOINT_NAME,
     HOME_POSE_JOINTS,
-    GamepadInputLoop,
-    KeyboardInputLoop,
     ServoController,
-    ecodes,
 )
 
 
@@ -502,7 +503,7 @@ def test_move_to_safe_pose_uses_collision_aware_planning(controller, monkeypatch
     # — no such server in this unit test, so bypass it like every other
     # cross-node call in this file.
     monkeypatch.setattr(
-        'arm_teleop.keyboard_servo_node.arm_motion_lock',
+        'arm_teleop.servo_controller.arm_motion_lock',
         lambda *a, **kw: contextlib.nullcontext())
     calls = []
 
@@ -560,7 +561,7 @@ def test_run_planned_activity_holds_input_suppressed_for_the_whole_sleep(control
         seen_during_sleep.append(controller._activity_delay_active)
 
     monkeypatch.setattr(
-        'arm_teleop.keyboard_servo_node.time.sleep', _fake_sleep)
+        'arm_teleop.servo_controller.time.sleep', _fake_sleep)
 
     controller.run_planned_activity(lambda: True, 'test')
 
@@ -571,7 +572,7 @@ def test_run_planned_activity_holds_input_suppressed_for_the_whole_sleep(control
 # ── review: a taught pose must never carry a NaN/inf value onward ──────
 
 def test_load_home_pose_from_json_rejects_non_finite_values(monkeypatch):
-    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _load_home_pose_from_json
+    from arm_teleop.servo_controller import HOME_POSE_JOINTS, _load_home_pose_from_json
     bad_pose = {name: 0.0 for name in HOME_POSE_JOINTS}
     bad_pose[HOME_POSE_JOINTS[0]] = float('inf')  # e.g. a corrupted/malformed taught entry
     contents = json.dumps({'home': bad_pose})
@@ -583,7 +584,7 @@ def test_load_home_pose_from_json_rejects_non_finite_values(monkeypatch):
 
 
 def test_load_home_pose_from_json_accepts_finite_values(monkeypatch):
-    from arm_teleop.keyboard_servo_node import HOME_POSE_JOINTS, _load_home_pose_from_json
+    from arm_teleop.servo_controller import HOME_POSE_JOINTS, _load_home_pose_from_json
     good_pose = {name: 0.1 for name in HOME_POSE_JOINTS}
     contents = json.dumps({'home': good_pose})
 
@@ -591,3 +592,122 @@ def test_load_home_pose_from_json_accepts_finite_values(monkeypatch):
     monkeypatch.setattr(pathlib.Path, 'read_text', lambda self: contents)
 
     assert _load_home_pose_from_json('home') == [0.1] * len(HOME_POSE_JOINTS)
+
+
+# ── activate / park / release (motors on / off) ─────────────────────────
+
+def _shift_plus(loop, button):
+    buttons = [0] * 13
+    buttons[loop._shift_button] = 1
+    buttons[button] = 1
+    return make_joy(buttons=buttons)
+
+
+@pytest.mark.parametrize('button_name, action', [
+    ('BUTTON_SAFE_POSE', 'activate'),
+    ('BUTTON_UNSTOW', 'park'),
+    ('BUTTON_EXIT', 'release'),
+])
+def test_gamepad_shift_turns_buttons_into_motor_actions(controller, monkeypatch, button_name, action):
+    loop = GamepadInputLoop(controller)
+    actions, homes, unstows = [], [], []
+    monkeypatch.setattr(loop, '_handle_motor_action', actions.append)
+    monkeypatch.setattr(loop, '_handle_safe_pose', lambda *a: homes.append(a))
+    monkeypatch.setattr(loop, '_handle_unstow', lambda: unstows.append(True))
+    loop._on_joy(make_joy())
+    loop._on_joy(_shift_plus(loop, getattr(loop, button_name)))
+    time.sleep(0.1)   # the action runs on its own thread
+    assert actions == [action]
+    assert homes == [] and unstows == []
+    assert not loop._exit_event.is_set()   # R1+X releases, does not exit
+
+
+def test_gamepad_motor_action_locks_teleop(controller, monkeypatch):
+    loop = GamepadInputLoop(controller)
+    loop._teleop_locked = False
+    monkeypatch.setattr(controller, 'activate_arm', lambda: True)
+    loop._handle_motor_action('activate')
+    assert loop._teleop_locked is True
+
+
+def test_keyboard_motor_keys_dispatch(controller):
+    loop = KeyboardInputLoop(controller)
+    assert loop._MOTOR_KEYS == {ecodes.KEY_C: 'activate', ecodes.KEY_Z: 'park',
+                                ecodes.KEY_Y: 'release'}
+
+
+def _arm_state(**fields):
+    from indomitus_interfaces.msg import ArmState
+    return ArmState(**fields)
+
+
+def _power_reply(controller, monkeypatch, success=True, message='ok'):
+    from std_srvs.srv import SetBool
+    calls = []
+    monkeypatch.setattr(controller._power_client, 'wait_for_service', lambda timeout_sec=0: True)
+    monkeypatch.setattr(
+        controller._power_client, 'call_async',
+        lambda req: calls.append(req.data) or _FakeFuture(
+            SetBool.Response(success=success, message=message)))
+    return calls
+
+
+def test_release_refusal_reason_comes_from_arm_power(controller, monkeypatch):
+    controller._arm_state = _arm_state(motors_enabled=True, controller_active=True)
+    monkeypatch.setattr(controller, 'stop_servo', lambda: True)
+    calls = _power_reply(controller, monkeypatch, success=False,
+                         message='release refused: not in the park pose')
+    assert controller.release() is False
+    assert calls == [False]
+
+
+def test_release_succeeds_once_state_reports_motors_off(controller, monkeypatch):
+    controller._arm_state = _arm_state(motors_enabled=False)   # outcome already published
+    monkeypatch.setattr(controller, 'stop_servo', lambda: True)
+    calls = _power_reply(controller, monkeypatch)
+    assert controller.release() is True
+    assert calls == [False]
+
+
+def test_aborted_release_reports_last_error(controller, monkeypatch):
+    controller._arm_state = _arm_state(motors_enabled=True, last_error='release aborted')
+    monkeypatch.setattr(controller, 'stop_servo', lambda: True)
+    _power_reply(controller, monkeypatch)
+    assert controller.release() is False
+
+
+def test_activate_asks_arm_power_for_motors_on(controller, monkeypatch):
+    controller._arm_state = _arm_state(motors_enabled=True, controller_active=True)
+    calls = _power_reply(controller, monkeypatch)
+    assert controller.activate_arm() is True
+    assert calls == [True]
+
+
+def test_activate_fails_cleanly_without_arm_power(controller, monkeypatch):
+    monkeypatch.setattr(controller._power_client, 'wait_for_service', lambda timeout_sec=0: False)
+    assert controller.activate_arm() is False
+
+
+def test_controller_switch_refused_while_motors_off(controller, monkeypatch):
+    controller._arm_state = _arm_state(motors_enabled=False)
+    switched = []
+    monkeypatch.setattr(controller, '_switch_controllers', lambda **kw: switched.append(kw) or True)
+    assert controller.use_trajectory_controller() is False
+    assert switched == []
+
+
+def test_unknown_arm_state_allows_motion(controller):
+    controller._arm_state = None   # no arm_power heard: behave as before
+    assert controller.require_arm_active() is True
+
+
+def test_wait_for_stiffness_returns_once_ready(controller):
+    controller._arm_state = _arm_state(motors_enabled=True, stiffness_ready=True)
+    started = time.monotonic()
+    controller.wait_for_stiffness()
+    assert time.monotonic() - started < 0.1
+
+
+def test_park_refuses_without_a_park_pose(controller):
+    controller._park_pose = None
+    assert controller.park() is False

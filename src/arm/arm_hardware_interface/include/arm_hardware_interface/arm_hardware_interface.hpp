@@ -39,6 +39,9 @@ public:
     hardware_interface::CallbackReturn on_deactivate(
         const rclcpp_lifecycle::State& previous_state) override;
 
+    hardware_interface::CallbackReturn on_cleanup(
+        const rclcpp_lifecycle::State& previous_state) override;
+
     hardware_interface::CallbackReturn on_shutdown(
         const rclcpp_lifecycle::State& previous_state) override;
 
@@ -66,15 +69,25 @@ private:
     // SocketCAN
     bool open_can_socket();
     void close_can_socket();
+    bool open_bus();               // socket + RX thread (from on_configure on)
+    void close_bus();
     bool send_can_frame(uint32_t id, const std::array<uint8_t, 8>& data, uint8_t dlc);
     void rx_thread_fn();
 
     // Motor sequences
     void send_enable_frames();     // SW: 0xF0 limits config; DM: 0xFC enable
     void send_disable_frames();    // torqueless MIT first, then SW 0xCF / DM 0xFD
+    void send_dm_enable_frames();  // DM 0xFC only (torqueless until an MIT frame with gains)
     bool wait_for_all_feedback(double timeout_sec);  // active polling, abort on missing motor
+    void send_poll_frames();       // torqueless state reads: SW 0xF1, DM zero-gain probe
     void safe_stop();              // full disable (torqueless) — only for on_error, real faults
-    void stop_holding();           // clean shutdown WITHOUT disabling — see on_deactivate
+    void stop_holding();           // shutdown WITHOUT disabling — see on_shutdown
+    // Gains (and gravity ff) ramped to 0 holding the last command — shoulder
+    // and elbow first, then the rest — then disabled; aborts and restores
+    // stiffness if a joint drifts (arm not resting on its support).
+    hardware_interface::CallbackReturn soft_release();
+    void send_hold_frames(const std::array<double, NUM_JOINTS>& hold,
+                          const std::array<double, NUM_JOINTS>& scale);   // per-joint 0..1
 
     // Static gravity compensation: per-joint holding torque (motor frame, Nm)
     // at the current measured pose, clamped per motor family. See kLinkMass /
@@ -102,6 +115,8 @@ private:
     double gain_ramp_secs_{8.0};        // stiffness ramp 0 -> full after activation
     double max_cmd_speed_rad_s_{0.3};   // rate limiter on out going position commands
     double feedback_timeout_secs_{2.0}; // abort activation if a motor never replies
+    double release_ramp_secs_{3.0};     // stiffness ramp full -> 0 on deactivate
+    double release_drift_tol_rad_{0.035}; // drift during that ramp = arm not supported
 
     // ---- Gravity compensation (feed-forward torque, t_ff in the MIT frame) ----
     bool   gravity_ff_enabled_{false};
@@ -127,6 +142,7 @@ private:
     std::array<double, NUM_JOINTS> joint_velocity_command_{};
     std::array<double, NUM_JOINTS> joint_position_state_{};
     std::array<double, NUM_JOINTS> joint_velocity_state_{};
+    std::array<double, NUM_JOINTS> joint_effort_state_{};   // measured torque, URDF frame
 
     // RX-thread shadow buffers (URDF frame) + liveness flags
     std::array<double, NUM_JOINTS> hw_position_states_{};
@@ -142,6 +158,14 @@ private:
     // Stiffness ramp
     std::chrono::steady_clock::time_point ramp_start_;
     bool ramp_started_{false};
+
+    // Torqueless polling while INACTIVE (motors only reply when spoken to)
+    std::chrono::steady_clock::time_point last_poll_;
+    // Set when a disabled Damiao did not answer the probe at configure: it is
+    // then enabled (still torqueless — zero-gain probes only) to be readable.
+    bool dm_enable_for_poll_{false};
+    // soft_release() streams its own frames; write() must stay silent meanwhile.
+    std::atomic<bool> releasing_{false};
 
     int can_fd_{-1};
     std::mutex can_tx_mutex_;

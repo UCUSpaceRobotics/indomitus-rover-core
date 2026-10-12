@@ -357,7 +357,7 @@ def generate_launch_description() -> LaunchDescription:
         ]),
         GroupAction([
             PushRosNamespace(ROVER_NAMESPACE),
-            include_launch("rover_teleop", "drive_power.launch.py", {
+            include_launch("rover_power", "drive_power.launch.py", {
                 "use_sim_time": "true",
                 "controller_name": LaunchConfiguration("swerve_controller"),
             }),

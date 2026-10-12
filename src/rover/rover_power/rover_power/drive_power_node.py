@@ -48,7 +48,7 @@ from lifecycle_msgs.msg import State
 
 from indomitus_interfaces.msg import DriveState as DriveStateMsg
 
-from rover_teleop.drive_power_state import (
+from rover_power.drive_power_state import (
     DrivePower,
     after_compact_result,
     after_controller_result,
@@ -56,8 +56,7 @@ from rover_teleop.drive_power_state import (
     after_power_result,
     seeded,
 )
-from rover_teleop.service_call import GuardedCall
-from rover_teleop.teleop_state import GenerationGuard
+from rover_power.service_call import GenerationGuard, GuardedCall
 
 
 #: Latched, depth 1: a ground station UI that connects after the fact gets the

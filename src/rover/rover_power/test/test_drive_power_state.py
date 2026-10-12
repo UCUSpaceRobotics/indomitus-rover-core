@@ -9,7 +9,7 @@ a rover that looks drivable and is not.
 No ROS import anywhere in here — drive_power_state is deliberately standalone.
 """
 
-from rover_teleop.drive_power_state import (
+from rover_power.drive_power_state import (
     DrivePower,
     after_compact_result,
     after_controller_result,

@@ -28,6 +28,12 @@ kp > 0.5 (rate scales mildly with kp, capped). kp≈0 == torqueless: position
 holds (or drifts if you enable --gravity, which sags joints 1 and 2 slowly —
 useful to see the ramp actually "catch" the arm).
 
+With --gravity, motors 21/22 cannot hold below --hold-kp: they sag (faster
+the lower kp gets), e.g. while ArmCanSystem ramps the stiffness down on
+Release. --support 21:-0.6,22:1.5 puts a rest support under them (motor-frame
+rad they cannot sag below), i.e. the arm lying parked; without it a Release
+should be aborted by the drift check.
+
 Usage:
   sudo modprobe vcan
   sudo ip link add dev vcan0 type vcan
@@ -81,6 +87,9 @@ def unpack_mit(data, p_max, v_max, t_max):
 
 
 class Motor:
+    hold_kp = 100.0          # --hold-kp
+    support = {}             # --support: motor id -> lowest position
+
     def __init__(self, mid, proto, pos0):
         self.id = mid
         self.proto = proto                    # "sw" | "dm"
@@ -95,16 +104,24 @@ class Motor:
         now = time.monotonic()
         dt = min(now - self.last_t, 0.1)
         self.last_t = now
-        if self.enabled and self.kp > 0.5:
+        sagging = gravity and self.id in (21, 22)
+        if self.enabled and self.kp > 0.5 and not (sagging and self.kp < self.hold_kp):
             rate = min(3.0, 0.3 + self.kp * 0.02)          # rad/s, kp-flavored
             err = self.target - self.pos
+            if sagging and self.id in self.support:
+                err = max(err, self.support[self.id] - self.pos)  # cannot push through it
             step = max(-rate * dt, min(rate * dt, err))
             self.pos += step
             self.vel = step / dt if dt > 0 else 0.0
+        elif sagging:
+            # Too weak to hold: sag, faster the weaker, until the support.
+            weakness = 1.0 - min(self.kp, self.hold_kp) / self.hold_kp if self.enabled else 1.0
+            floor = self.support.get(self.id, -math.inf)
+            new = max(floor, self.pos - 0.3 * weakness * dt)
+            self.vel = (new - self.pos) / dt if dt > 0 else 0.0
+            self.pos = new
         else:
             self.vel = 0.0
-            if gravity and self.id in (21, 22):            # sag when torqueless
-                self.pos -= 0.05 * dt
 
 
 class Sim:
@@ -277,7 +294,12 @@ def main():
                     help="comma-separated motor IDs NOT to simulate because they "
                          "are real and on the same bus, e.g. --skip 20")
     ap.add_argument("--gravity", action="store_true",
-                    help="joints 21/22 sag slowly while torqueless")
+                    help="joints 21/22 sag while their kp is below --hold-kp")
+    ap.add_argument("--hold-kp", type=float, default=100.0,
+                    help="with --gravity: kp below which 21/22 cannot hold")
+    ap.add_argument("--support", default="",
+                    help="with --gravity: rest support, e.g. 21:-0.6,22:1.5 "
+                         "(motor-frame rad 21/22 cannot sag below)")
     ap.add_argument("--ids", default=None,
                     help="comma-separated motor IDs to emulate, e.g. --ids 24,25 "
                          "(default: all six). Use when some motors are REAL "
@@ -289,6 +311,10 @@ def main():
     if len(pose) != 6:
         print("--pose needs 6 values")
         sys.exit(1)
+
+    Motor.hold_kp = args.hold_kp
+    Motor.support = {int(k): float(v) for k, v in
+                     (item.split(":") for item in args.support.split(",") if item.strip())}
 
     skip = {int(x) for x in args.skip.split(",") if x.strip()}
     if args.ids:
