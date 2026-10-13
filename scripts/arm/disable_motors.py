@@ -88,12 +88,6 @@ def main():
     ap.add_argument("--iface", default="can0")
     args = ap.parse_args()
 
-    print("!!! Arm WILL sag/fall once disabled — make sure it's supported. !!!")
-    ans = input("Type 'DISABLE' to proceed: ").strip()
-    if ans != "DISABLE":
-        print("Cancelled.")
-        return
-
     sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
     sock.bind((args.iface,))
     sock.setblocking(False)
