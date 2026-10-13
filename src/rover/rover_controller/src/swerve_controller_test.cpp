@@ -59,7 +59,7 @@ RoverSwerveControllerTest::on_configure(const rclcpp_lifecycle::State & /*previo
 
     shape_smoother_ = std::make_unique<ShapeSmoother>(max_theta_rate_, max_phi_rate_);
 
-    magnitude_limiter_ = SlewRateLimiter{max_accel_, max_decel_};
+    magnitude_limiter_ = SCurveLimiter{max_accel_, max_decel_, max_jerk_, max_decel_jerk_};
 
     cmd_vel_buffer_.initRT(CmdVelStamped{
         geometry_msgs::msg::Twist{},
@@ -438,6 +438,9 @@ void RoverSwerveControllerTest::declare_parameters()
     declare_param("max_linear_speed",      0.50);
     declare_param("max_accel",             0.20);
     declare_param("max_decel",             0.50);
+    // 0.0 → no jerk limit (trapezoidal speed profile).
+    declare_param("max_jerk",              0.0);
+    declare_param("max_decel_jerk",        0.0);
     declare_param("cmd_vel_timeout_s",     2.0);
 
     // 0.0 → auto (wheel half-diagonal, computed in read_parameters).
@@ -471,6 +474,8 @@ bool RoverSwerveControllerTest::read_parameters()
     max_linear_      = node->get_parameter("max_linear_speed").as_double();
     max_accel_       = node->get_parameter("max_accel").as_double();
     max_decel_       = node->get_parameter("max_decel").as_double();
+    max_jerk_        = node->get_parameter("max_jerk").as_double();
+    max_decel_jerk_  = node->get_parameter("max_decel_jerk").as_double();
     cmd_vel_timeout_ = node->get_parameter("cmd_vel_timeout_s").as_double();
 
     rotation_scale_  = node->get_parameter("rotation_scale_length").as_double();
@@ -502,6 +507,8 @@ bool RoverSwerveControllerTest::read_parameters()
         {"max_linear_speed",      max_linear_,       finite_positive(max_linear_)},
         {"max_accel",             max_accel_,        finite_positive(max_accel_)},
         {"max_decel",             max_decel_,        finite_positive(max_decel_)},
+        {"max_jerk",              max_jerk_,         finite_nonneg(max_jerk_)},
+        {"max_decel_jerk",        max_decel_jerk_,   finite_nonneg(max_decel_jerk_)},
         {"cmd_vel_timeout_s",     cmd_vel_timeout_,  finite_positive(cmd_vel_timeout_)},
         {"max_theta_rate_rad",    max_theta_rate_,   finite_positive(max_theta_rate_)},
         {"max_phi_rate_rad",      max_phi_rate_,     finite_positive(max_phi_rate_)},

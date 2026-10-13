@@ -62,7 +62,8 @@
 #  include "realtime_tools/realtime_buffer.h"
 #endif
 
-// SlewRateLimiter, SteerHandles, DriveHandles, NUM_WHEELS — reused as-is.
+// SteerHandles, DriveHandles, NUM_WHEELS — reused as-is.
+#include "rover_controller/s_curve_limiter.hpp"
 #include "rover_controller/swerve_controller.hpp"
 #include "rover_controller/swerve_kinematics.hpp"
 #include "rover_controller/twist_shape.hpp"
@@ -154,7 +155,7 @@ private:
 
     /// Accel/decel limiter for the (signed) magnitude. The only limiter here —
     /// vx/vy/wz are never smoothed individually.
-    SlewRateLimiter magnitude_limiter_{0.2, 0.5};
+    SCurveLimiter magnitude_limiter_{0.2, 0.5};
 
     // Runtime state
     WheelData current_angles_{WheelData::filled(0.0)};   ///< integrated steering command
@@ -220,6 +221,8 @@ private:
     double max_linear_{0.5};              // m/s
     double max_accel_{0.2};
     double max_decel_{0.5};
+    double max_jerk_{0.0};                // m/s³, 0 = trapezoidal profile
+    double max_decel_jerk_{0.0};          // m/s³, 0 = trapezoidal profile
     double cmd_vel_timeout_{2.0};         // s
 
     /// Lever arm converting wz into a linear speed. 0.0 in yaml means "auto",
