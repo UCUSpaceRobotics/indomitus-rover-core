@@ -1,4 +1,4 @@
-"""Gamepad teleop: game_controller_node + joystick_interpreter, side by side
+"""Gamepad teleop: game_controller_node + gamepad_interpreter, side by side
 on the machine the gamepad is plugged into.
 
 Namespace: pushes rover_namespace (default $ROVER_NAMESPACE or 'rover'),
@@ -7,7 +7,7 @@ includes it with rover_namespace:='' (see rover_bringup/rover.launch.py).
 
 On the operator's laptop, drive through the rover's twist_mux below the
 rover-side gamepad:
-    ros2 launch rover_teleop joy.launch.py cmd_vel_topic:=cmd_vel_gs
+    ros2 launch rover_teleop gamepad.launch.py cmd_vel_topic:=cmd_vel_gs
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, OpaqueFunction
@@ -27,7 +27,7 @@ def generate_launch_description():
     default_config = PathJoinSubstitution([
         FindPackageShare('rover_teleop'),
         'config',
-        'joy.yaml',
+        'gamepad.yaml',
     ])
 
     joy_node = Node(
@@ -47,7 +47,7 @@ def generate_launch_description():
 
     joy_interpreter = Node(
         package='rover_teleop',
-        executable='joystick_interpreter_node',
+        executable='gamepad_interpreter_node',
         output='screen',
         parameters=[default_config],
         remappings=[

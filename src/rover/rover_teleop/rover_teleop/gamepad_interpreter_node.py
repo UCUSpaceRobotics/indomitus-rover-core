@@ -48,9 +48,9 @@ STATE_QOS = QoSProfile(
 )
 
 
-class JoystickInterpreterNode(Node):
+class GamepadInterpreterNode(Node):
 
-    def __init__(self, node_name: str = 'joystick_interpreter', **node_kwargs):
+    def __init__(self, node_name: str = 'gamepad_interpreter', **node_kwargs):
         # node_name / node_kwargs: keyboard_teleop_node runs a second instance
         # in its own process, with its own name, parameters and remappings.
         super().__init__(node_name, **node_kwargs)
@@ -177,7 +177,7 @@ class JoystickInterpreterNode(Node):
         ]
 
         self.get_logger().info(
-            f'JoystickInterpreter started — '
+            f'GamepadInterpreter started — '
             f'vy_toggle_button={self._toggles[0].button_index}, '
             f'motor_toggle_button={self._toggles[1].button_index}, '
             f'vy_enabled={self._vy_enabled}, '
@@ -369,7 +369,7 @@ class JoystickInterpreterNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = JoystickInterpreterNode()
+    node = GamepadInterpreterNode()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

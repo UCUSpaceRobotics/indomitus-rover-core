@@ -6,7 +6,7 @@ Two operators command the same drive: the onboard joystick and the ground
 station. Everything they can ask for that is *hardware* state rather than a
 choice about their own output lives here, so there is exactly one copy of it.
 
-Before this node existed, all of it lived inside joystick_interpreter, which
+Before this node existed, all of it lived inside gamepad_interpreter, which
 meant the swerve controller could only ever be activated by pressing a button
 on a physical gamepad plugged into the rover — the ground station could hold
 full priority in twist_mux and still not move a wheel.
@@ -112,7 +112,7 @@ class DrivePowerNode(Node):
         self._state_pub = self.create_publisher(DriveStateMsg, 'drive/state', STATE_QOS)
         self._state_timer = self.create_timer(self._state_period, self._publish_state)
 
-        # joystick_interpreter outranks the ground station in twist_mux, so the
+        # gamepad_interpreter outranks the ground station in twist_mux, so the
         # ground station operator needs to see when it is holding cmd_vel_joy.
         # Latched on both ends; no joystick running at all leaves this False,
         # which is the correct answer.

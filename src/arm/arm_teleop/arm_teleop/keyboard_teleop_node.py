@@ -74,15 +74,16 @@ about arm_tcp_link, same as the keyboard's I/K/U/O/J/L:
 
 Usage (stack in one terminal, input in another):
         ros2 launch arm_bringup arm.launch.py use_fake_hardware:=false
-        ros2 launch arm_teleop keyboard_servo.launch.py
+        ros2 launch arm_teleop keyboard.launch.py
         # optional: pin a device — ros2 run arm_teleop keyboard_servo_node --ros-args
         #   -r __ns:=/arm -p keyboard_device_path:=/dev/input/event19
 
     Gazebo sim (sim clock):
-        ros2 launch arm_teleop keyboard_servo.launch.py use_sim_time:=true
+        ros2 launch arm_teleop keyboard.launch.py use_sim_time:=true
 
-    Gamepad only:
-        ros2 launch arm_teleop gamepad.launch.py
+    Gamepad instead (arm.launch.py already starts gamepad_servo_node):
+        ros2 launch arm_teleop gamepad_joy.launch.py      # where the gamepad is plugged in
+        ros2 launch arm_teleop gamepad_servo.launch.py    # only if the stack did not start it (sims)
 """
 
 

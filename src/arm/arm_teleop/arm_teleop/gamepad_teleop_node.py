@@ -10,7 +10,8 @@ from arm_teleop.servo_controller import ServoController, init_ros, run_teleop
 def main():
     """Entry point: initialize ROS2, run the gamepad input loop, and clean up.
 
-    Requires a running ``joy`` publisher — see ``arm_teleop/launch/gamepad.launch.py``.
+    Requires a running ``joy`` publisher — see ``arm_teleop/launch/gamepad_joy.launch.py``.
+    This node itself comes from ``gamepad_servo.launch.py`` (included by ``arm.launch.py``).
     See ``servo_controller.run_teleop`` for the shared spin/cleanup lifecycle.
     """
     init_ros()

@@ -1,4 +1,4 @@
-/**/joystick_interpreter:
+/**/gamepad_interpreter:
   ros__parameters:
     axis_linear:
       x: 1 # Left stick vertical (forward/backward)
@@ -15,7 +15,7 @@
 
     # Stick deadzone. Applied here, NOT in the joy driver — game_controller_node
     # stops publishing /joy entirely when its own deadzone swallows resting-stick
-    # noise (ros-drivers/joystick_drivers#304), so joy.launch.py keeps the driver
+    # noise (ros-drivers/joystick_drivers#304), so gamepad.launch.py keeps the driver
     # deadzone at 0.0 and this node filters instead.
     deadzone: 0.05
 

@@ -3,7 +3,7 @@
 
 Deadzoning happens here rather than in the joy driver: game_controller_node
 stops publishing /joy entirely when its own deadzone swallows resting-stick
-noise (ros-drivers/joystick_drivers#304), so joy.launch.py keeps the driver
+noise (ros-drivers/joystick_drivers#304), so gamepad.launch.py keeps the driver
 deadzone at 0.0 and this filters instead.
 
 No ROS import anywhere in here — joy_input is deliberately standalone.

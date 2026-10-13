@@ -70,7 +70,7 @@ Main launch and configuration package for the real rover.
 **Python module:**
 - `rover_bringup/launch_utils.py` — shared launch-file helpers (e.g. `include_launch`) used across packages
 
-> Note: `joy.launch.py` and `container.launch.py` now live in `rover_teleop` and `rover_peripherals` respectively, not here.
+> Note: `gamepad.launch.py` and `container.launch.py` now live in `rover_teleop` and `rover_peripherals` respectively, not here.
 
 ---
 
@@ -93,17 +93,17 @@ URDF/xacro robot description files and 3D meshes. Sim/real-agnostic — differen
 ## 6. `rover_teleop` (Python)
 Teleoperation nodes.
 
-- **`joystick_interpreter_node`** — maps raw joystick input (`sensor_msgs/Joy`) to `Twist` commands on `/cmd_vel` (remapped to `/cmd_vel_joy`). Owns only what shapes its own twist: strafe, granny, curvature vs raw twist, and whether it is publishing at all. Its buttons are momentary, so everything else they touch is a `Trigger` call asking an owner to invert state — `drive_power_node` for the drive, `lights_can_node` for the lights. Paints the controller light bar from `drive/state`, and publishes `teleop/joystick_active` so the ground station can see when this node is holding the mux.
+- **`gamepad_interpreter_node`** — maps raw joystick input (`sensor_msgs/Joy`) to `Twist` commands on `/cmd_vel` (remapped to `/cmd_vel_joy`). Owns only what shapes its own twist: strafe, granny, curvature vs raw twist, and whether it is publishing at all. Its buttons are momentary, so everything else they touch is a `Trigger` call asking an owner to invert state — `drive_power_node` for the drive, `lights_can_node` for the lights. Paints the controller light bar from `drive/state`, and publishes `teleop/joystick_active` so the ground station can see when this node is holding the mux.
 
   When `/joy` goes stale it publishes a short burst of zeros (`timeout_zero_burst`, default 3) and then **stops publishing**. `cmd_vel_joy` has the highest priority in twist_mux, so a node that kept publishing zeros would hold that priority forever and lock the ground station out of a rover nobody is driving.
 
-- **`keyboard_teleop_node`** — drive the rover from a terminal (e.g. the ground station laptop): `ros2 run rover_teleop keyboard_teleop_node` (namespace from `$ROVER_NAMESPACE`, default `rover`). Keys are read from **that terminal only** (stdin), so typing in another window never moves the rover. They become the same `sensor_msgs/Joy` the DualSense produces and go into a second `joystick_interpreter` instance in the same process (`keyboard_interpreter`, parameters and button indices from `config/joy.yaml`), so every mode, toggle and the stale-input release work as with the gamepad. Output: `cmd_vel_gs` (parameter `cmd_vel_topic`), i.e. below the rover-side gamepad in twist_mux; its active flag is `teleop/keyboard_active`. Keys: `w/x` forward/back, `a/d` turn, `q/e/z/c` diagonals, `j/l` strafe (vy mode), `s` or space stop, `1..9,0` speed 10–100 %, `m` motors, `t` raw/curvature, `g` granny, `v` vy, `p` compact, `o` active, `f`/`b` lights, `X` clear motor errors. A terminal reports no key release, so a key counts as held for 0.6 s after its first character (autorepeat delay) and 0.15 s after each repeat; only one movement key at a time. Must be started with `ros2 run`, not `ros2 launch` (launch gives its nodes no terminal).
+- **`keyboard_teleop_node`** — drive the rover from a terminal (e.g. the ground station laptop): `ros2 run rover_teleop keyboard_teleop_node` (namespace from `$ROVER_NAMESPACE`, default `rover`). Keys are read from **that terminal only** (stdin), so typing in another window never moves the rover. They become the same `sensor_msgs/Joy` the DualSense produces and go into a second `gamepad_interpreter` instance in the same process (`keyboard_interpreter`, parameters and button indices from `config/gamepad.yaml`), so every mode, toggle and the stale-input release work as with the gamepad. Output: `cmd_vel_gs` (parameter `cmd_vel_topic`), i.e. below the rover-side gamepad in twist_mux; its active flag is `teleop/keyboard_active`. Keys: `w/x` forward/back, `a/d` turn, `q/e/z/c` diagonals, `j/l` strafe (vy mode), `s` or space stop, `1..9,0` speed 10–100 %, `m` motors, `t` raw/curvature, `g` granny, `v` vy, `p` compact, `o` active, `f`/`b` lights, `X` clear motor errors. A terminal reports no key release, so a key counts as held for 0.6 s after its first character (autorepeat delay) and 0.15 s after each repeat; only one movement key at a time. Must be started with `ros2 run`, not `ros2 launch` (launch gives its nodes no terminal).
 
 **Launch files:**
-- `launch/joy.launch.py` — launches the joystick driver + interpreter stack
+- `launch/gamepad.launch.py` — launches the joystick driver + interpreter stack
 
 **Config:**
-- `config/joy.yaml` — joystick driver config
+- `config/gamepad.yaml` — joystick driver config
 
 ---
 
@@ -114,7 +114,7 @@ the ground station) only call its services.
 
 - **`drive_power_node`** — owns motors, swerve-controller activation, compact mode, and the post-clear-errors inhibit, and publishes them latched on `drive/state`. Each is offered twice: `SetBool` for the ground station's latching switches, `Trigger` on `.../toggle` for the joystick's momentary buttons. `drive/power` does the hardware-component transition and the controller switch as one operation, so no caller has to sequence them.
 
-  Launched from `rover_bringup/launch/rover.launch.py`, **not** from `joy.launch.py`: the ground station has to be able to power the drive with no gamepad plugged into the rover.
+  Launched from `rover_bringup/launch/rover.launch.py`, **not** from `gamepad.launch.py`: the ground station has to be able to power the drive with no gamepad plugged into the rover.
 
 | Service | Type |
 |---|---|

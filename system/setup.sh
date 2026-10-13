@@ -80,7 +80,7 @@ fi
 # 3. INSTALL PLAYSTATION LIGHT BAR RULES
 # ==========================================
 # Hands the controller light bar (DualSense or DualShock 4) to group 'plugdev'
-# so joystick_interpreter can paint it with the drive state without running as
+# so gamepad_interpreter can paint it with the drive state without running as
 # root. The rule sets the group; the user must already be a member of plugdev.
 if [ "$INSTALL_JOYSTICK_LED" = true ]; then
     echo ">>> Copying udev rules..."

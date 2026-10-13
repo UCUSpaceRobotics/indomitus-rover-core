@@ -6,9 +6,9 @@ Keyboard teleop for the rover, from a terminal (ground station laptop).
 
 Keys are read from THIS terminal only (stdin), so typing in another window
 never moves the rover. They become the same sensor_msgs/Joy the DualSense
-produces (keyboard_input.KeyboardJoy) and go into a joystick_interpreter
+produces (keyboard_input.KeyboardJoy) and go into a gamepad_interpreter
 running in this process, so the keyboard shares every mode, toggle and safety
-rule of the gamepad; button indices come from the same config/joy.yaml.
+rule of the gamepad; button indices come from the same config/gamepad.yaml.
 
 Must be started with ros2 run, not ros2 launch: launch does not hand the
 terminal to its children. Namespace: $ROVER_NAMESPACE, default 'rover'.
@@ -30,7 +30,7 @@ from rclpy.parameter import Parameter
 from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import Joy
 
-from rover_teleop.joystick_interpreter_node import JoystickInterpreterNode
+from rover_teleop.gamepad_interpreter_node import GamepadInterpreterNode
 from rover_teleop.keyboard_input import BUTTON_KEYS, HELP, KeyboardJoy
 
 STOP_BURST = 3   # zero twists sent on exit, like the interpreter's timeout burst
@@ -41,10 +41,10 @@ def _raise_keyboard_interrupt(signum, frame):
 
 
 def _interpreter_parameters() -> dict:
-    """joystick_interpreter's parameters from config/joy.yaml, flattened."""
-    path = os.path.join(get_package_share_directory('rover_teleop'), 'config', 'joy.yaml')
+    """gamepad_interpreter's parameters from config/gamepad.yaml, flattened."""
+    path = os.path.join(get_package_share_directory('rover_teleop'), 'config', 'gamepad.yaml')
     with open(path) as f:
-        params = yaml.safe_load(f)['/**/joystick_interpreter']['ros__parameters']
+        params = yaml.safe_load(f)['/**/gamepad_interpreter']['ros__parameters']
 
     flat = {}
 
@@ -130,7 +130,7 @@ def main(args=None):
     keyboard = KeyboardJoyNode(button_indices, namespace=namespace)
     overrides = [Parameter(name, value=value) for name, value in params.items()]
     overrides.append(Parameter('controller_led', value=False))
-    interpreter = JoystickInterpreterNode(
+    interpreter = GamepadInterpreterNode(
         node_name='keyboard_interpreter',
         namespace=namespace,
         parameter_overrides=overrides,

@@ -2,8 +2,9 @@
 
 > Для ground station: точний перелік осей/кнопок геймпада, які використовує
 > `gamepad_servo_node` (`src/arm/arm_teleop/arm_teleop/gamepad_input.py`,
-> клас `GamepadInputLoop`) для ручного керування рукою. Запускається через
-> `src/arm/arm_teleop/launch/gamepad.launch.py`.
+> клас `GamepadInputLoop`) для ручного керування рукою. Сам вузол запускає
+> `src/arm/arm_teleop/launch/gamepad_servo.launch.py` (його включає `arm.launch.py`),
+> геймпад — `src/arm/arm_teleop/launch/gamepad_joy.launch.py` там, де він підключений.
 >
 > Індекси відповідають **канонічному SDL GameController мапінгу**
 > (`joy/game_controller_node`, а не сирий `joy_node`) — тобто той самий

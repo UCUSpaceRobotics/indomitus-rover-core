@@ -49,7 +49,7 @@ Motors are **disabled by default** on activation. Enable/disable is controlled v
 /controller_manager/set_hardware_component_state
 ```
 
-Called from `joystick_interpreter_node` on button press. On deactivation — zero commands are sent and motors are disabled gracefully.
+Called from `gamepad_interpreter_node` on button press. On deactivation — zero commands are sent and motors are disabled gracefully.
 
 ## Clearing drive-motor faults
 

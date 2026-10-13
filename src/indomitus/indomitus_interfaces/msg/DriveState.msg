@@ -23,7 +23,7 @@ bool compact_mode
 # rover. Derived, but carried on the wire so no consumer has to re-derive it.
 bool can_drive
 
-# Whether joystick_interpreter is currently publishing to cmd_vel_joy. The
+# Whether gamepad_interpreter is currently publishing to cmd_vel_joy. The
 # joystick outranks the ground station in twist_mux, so this is the ground
 # station operator's answer to "why is the rover ignoring my sticks?".
 # False also when no joystick is running at all.

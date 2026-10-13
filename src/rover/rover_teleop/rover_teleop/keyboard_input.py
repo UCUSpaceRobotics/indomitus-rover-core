@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Terminal keys -> the same sensor_msgs/Joy layout the DualSense produces.
 
-keyboard_teleop_node feeds this into its own joystick_interpreter, so the
+keyboard_teleop_node feeds this into its own gamepad_interpreter, so the
 keyboard gets every mode, toggle and safety rule of the gamepad for free.
 
 A terminal only delivers characters, never "key released": holding a key gives
@@ -16,7 +16,7 @@ No ROS import anywhere in here — keyboard_input is deliberately standalone.
 
 from dataclasses import dataclass
 
-# Joy axes, as joystick_interpreter reads them (config/joy.yaml).
+# Joy axes, as gamepad_interpreter reads them (config/gamepad.yaml).
 AXIS_VY = 0   # left stick horizontal, +1 = left
 AXIS_VX = 1   # left stick vertical, +1 = forward
 AXIS_WZ = 2   # right stick horizontal, +1 = left (counter-clockwise)
@@ -37,7 +37,7 @@ MOVE_KEYS = {
     'l': (0.0, -1.0, 0.0),
 }
 
-# key -> joy.yaml parameter holding that button's index. One press = one
+# key -> gamepad.yaml parameter holding that button's index. One press = one
 # rising edge = one toggle, exactly like tapping the gamepad button.
 BUTTON_KEYS = {
     'm': 'motor_toggle_button',
@@ -83,7 +83,7 @@ class KeyboardJoy:
 
     def __init__(self, button_indices: dict, speed: float = 0.5,
                  initial_hold: float = 0.6, repeat_hold: float = 0.15):
-        """button_indices: joy.yaml parameter name -> button index."""
+        """button_indices: gamepad.yaml parameter name -> button index."""
         self._buttons = {key: int(button_indices[param])
                          for key, param in BUTTON_KEYS.items() if param in button_indices}
         self.speed = speed

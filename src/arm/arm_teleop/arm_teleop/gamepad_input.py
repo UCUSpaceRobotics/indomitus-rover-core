@@ -64,7 +64,7 @@ class GamepadInputLoop:
     subscription to the ``joy`` package's ``/joy`` topic — as this module's
     docstring already promises, ``ServoController`` itself needs no changes.
 
-    Launch via ``arm_teleop/launch/gamepad.launch.py``, which starts
+    The joy side is ``arm_teleop/launch/gamepad_joy.launch.py``, which starts
     ``game_controller_node`` (not plain ``joy_node``): it maps raw HID
     reports through SDL's GameController DB into a fixed canonical index
     order (A=0, X=2, LEFTSHOULDER=9, RIGHTSHOULDER=10, DPAD_UP=11,

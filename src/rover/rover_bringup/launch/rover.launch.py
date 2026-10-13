@@ -89,7 +89,7 @@ def generate_launch_description():
             # enclosing scope, and rover_namespace:='' would reach the
             # robot_state_publisher include below.
             GroupAction([
-                include_launch('rover_teleop', 'joy.launch.py', {
+                include_launch('rover_teleop', 'gamepad.launch.py', {
                     'rover_namespace': '',   # already pushed by this group
                     'joy_dev': LaunchConfiguration('joy_dev'),
                 }),
@@ -122,7 +122,7 @@ def generate_launch_description():
 
             include_launch('rover_bringup', 'twist_mux.launch.py'),
 
-            # Owns motors + controller activation. Not in joy.launch.py on
+            # Owns motors + controller activation. Not in gamepad.launch.py on
             # purpose: the ground station must be able to power the drive with
             # no gamepad plugged into the rover.
             include_launch('rover_power', 'drive_power.launch.py'),

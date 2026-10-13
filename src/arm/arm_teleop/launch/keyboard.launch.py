@@ -1,8 +1,8 @@
 """Keyboard teleop for the arm: keyboard_servo_node under /arm.
 
-  ros2 launch arm_teleop keyboard_servo.launch.py                     # real arm / fake hardware
-  ros2 launch arm_teleop keyboard_servo.launch.py use_sim_time:=true  # Gazebo sim
-  ros2 launch arm_teleop keyboard_servo.launch.py linear_speed:=1.0 angular_speed:=2.0
+  ros2 launch arm_teleop keyboard.launch.py                     # real arm / fake hardware
+  ros2 launch arm_teleop keyboard.launch.py use_sim_time:=true  # Gazebo sim
+  ros2 launch arm_teleop keyboard.launch.py linear_speed:=1.0 angular_speed:=2.0
 
 Reads the keyboard through evdev (/dev/input), not this terminal.
 """

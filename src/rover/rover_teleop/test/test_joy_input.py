@@ -45,7 +45,7 @@ def test_the_sign_of_the_stick_survives():
 
 
 def test_a_zero_deadzone_is_a_pass_through():
-    # joy.launch.py pins the driver deadzone at 0.0 and filters here instead;
+    # gamepad.launch.py pins the driver deadzone at 0.0 and filters here instead;
     # a config that also zeroes this one must not start dividing by 1-0.
     assert apply_deadzone(0.01, 0.0) == 0.01
 
