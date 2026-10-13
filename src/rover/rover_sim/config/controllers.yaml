@@ -114,5 +114,5 @@
 /**/diff_bar_effort_controller:
   ros__parameters:
     k_stiffness: 2000.0
-    d_damping: 100.0
+    d_damping: 20.0
     effort_limit: 150.0
