@@ -28,8 +28,10 @@ Controls:
         u / o  — yaw   (+/- wy)
         j / l  — roll  (+/- wz)
 
-    Gripper (commanded directly on gripper_right/left_controller, bypassing Servo):
-        b / v  — open / close
+    Gripper (bypassing Servo):
+        b / v  — open / close: one 'open'/'close' to the real tool on press
+                 (end_effector_controller/command -> CAN), and while held the
+                 URDF fingers move on gripper_right/left_controller (sim, RViz)
 
     r      — move to home + start servo
     p      — align to detected panel (see panel_align_node); the first

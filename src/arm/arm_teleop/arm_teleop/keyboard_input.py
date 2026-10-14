@@ -13,6 +13,7 @@ import select
 import evdev
 from evdev import ecodes
 
+from arm_teleop.end_effector_client import EndEffectorClient
 from arm_teleop.servo_controller import (
     SAMPLING_DRILL_MODES_ENABLED, ServoController, run_motor_action,
 )
@@ -157,6 +158,10 @@ class KeyboardInputLoop:
         self._angular_speed = controller.angular_speed
         self._gripper_speed = controller.gripper_speed
         self._device_path = controller.keyboard_device_path
+        # The real tool (CAN, arm_peripherals/end_effector_can_node). b/v's
+        # velocity only moves the URDF fingers — on the real arm that is the
+        # JawGripperStub, so without this the keys never reach the gripper.
+        self._ee_client = EndEffectorClient(controller)
         self._lock = threading.Lock()
         self._pressed = set()
         self._gripper_pressed = set()
@@ -263,6 +268,14 @@ class KeyboardInputLoop:
             active = list(self._gripper_pressed)
         vel = sum(self._GRIPPER_KEYS.get(c, 0.0) for c in active) * self._gripper_speed
         self._controller.set_gripper_velocity(vel)
+
+    def _send_gripper_command(self, code):
+        """One-shot open/close to the real end effector on a b/v press, like
+        the gamepad's open/close buttons (for astrobio: suction on/off)."""
+        command = 'open' if self._GRIPPER_KEYS[code] > 0 else 'close'
+        self._ee_client.send(command)
+        self._controller.get_logger().info(
+            f'End effector ({self._controller.end_effector}): {command.upper()} sent.')
 
     def _check_panel_visibility(self):
         """Poll panel visibility and arm the one-shot prompt on a rising edge.
@@ -561,6 +574,7 @@ class KeyboardInputLoop:
                                         self._gripper_pressed.discard(other)
                                         self._gripper_pressed.add(code)
                                     if not already_pressed:
+                                        self._send_gripper_command(code)
                                         self._recompute_gripper_velocity()
                                         key_name = ecodes.KEY[code].removeprefix('KEY_').lower()
                                         print(f'{key_name} gripper_vel={self._controller.gripper_vel:.4f}')

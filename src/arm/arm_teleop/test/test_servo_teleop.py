@@ -213,6 +213,15 @@ def test_keyboard_close_key_sets_negative_velocity(controller):
     assert controller.gripper_vel == pytest.approx(-controller.gripper_speed)
 
 
+def test_keyboard_gripper_keys_command_the_real_end_effector(controller):
+    loop = KeyboardInputLoop(controller)
+    sent = []
+    loop._ee_client.send = sent.append
+    loop._send_gripper_command(ecodes.KEY_B)
+    loop._send_gripper_command(ecodes.KEY_V)
+    assert sent == ['open', 'close']
+
+
 def test_keyboard_both_gripper_keys_cancel_out(controller):
     loop = KeyboardInputLoop(controller)
     loop._gripper_pressed.add(ecodes.KEY_B)
