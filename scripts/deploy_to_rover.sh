@@ -157,11 +157,6 @@ if [ ! -f "$FILTER_FILE" ] && [ "$SYNC_COMPOSE_MODE" = false ]; then
     error "rsync filter file not found: $FILTER_FILE"
 fi
 
-# ENFORCE TAG OR COMMIT IN PULL MODE
-if [ "$PULL_MODE" = true ] && [ -z "$IMAGE_TAG" ] && [ -z "$IMAGE_COMMIT" ]; then
-    error "The --tag (or --commit) flag is mandatory when using pull mode."
-fi
-
 if [ "$LOCAL_BUILD_MODE" = true ] || [ "$REMOTE_BUILD_MODE" = true ]; then
     IMAGE_NAME="${IMAGE_NAME:-${BUILD_IMAGE_NAME}}"
     IMAGE_TAG="${IMAGE_TAG:-local-prod}"

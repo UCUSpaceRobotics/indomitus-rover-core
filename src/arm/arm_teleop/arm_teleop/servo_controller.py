@@ -1087,8 +1087,8 @@ class ServoController(Node):
         """Turn the motors off from the park pose (keyboard y / gamepad R1+X).
 
         arm_power refuses unless the arm rests in the park pose; ArmCanSystem
-        then ramps the stiffness down and disables the motors, or restores it
-        if a joint moves meanwhile (the arm is not resting on its support).
+        then ramps the stiffness down and disables the motors (optionally
+        restoring it if a joint drifts, see release_drift_tol_rad).
         """
         self.stop()
         if not self.motors_off():

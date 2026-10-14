@@ -84,7 +84,7 @@ private:
     void stop_holding();           // shutdown WITHOUT disabling — see on_shutdown
     // Gains (and gravity ff) ramped to 0 holding the last command — shoulder
     // and elbow first, then the rest — then disabled; aborts and restores
-    // stiffness if a joint drifts (arm not resting on its support).
+    // stiffness if a joint drifts more than release_drift_tol_rad (when > 0).
     hardware_interface::CallbackReturn soft_release();
     void send_hold_frames(const std::array<double, NUM_JOINTS>& hold,
                           const std::array<double, NUM_JOINTS>& scale);   // per-joint 0..1
@@ -116,7 +116,7 @@ private:
     double max_cmd_speed_rad_s_{0.3};   // rate limiter on out going position commands
     double feedback_timeout_secs_{2.0}; // abort activation if a motor never replies
     double release_ramp_secs_{3.0};     // stiffness ramp full -> 0 on deactivate
-    double release_drift_tol_rad_{0.035}; // drift during that ramp = arm not supported
+    double release_drift_tol_rad_{0.0};   // drift during that ramp = arm not supported; <= 0: off
 
     // ---- Gravity compensation (feed-forward torque, t_ff in the MIT frame) ----
     bool   gravity_ff_enabled_{false};

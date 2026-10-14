@@ -607,9 +607,19 @@ hardware_interface::CallbackReturn ArmCanSystem::soft_release()
         std::lock_guard<std::mutex> lock(feedback_mutex_);
         start = hw_position_states_;
     }
-    RCLCPP_INFO(logger_,
-        "Releasing: shoulder/elbow, then the rest, stiffness 100%% -> 0 over %.1f s each "
-        "(abort if a joint moves > %.3f rad).", release_ramp_secs_, release_drift_tol_rad_);
+    // tol <= 0: no drift check. The park pose cannot be reached exactly (the
+    // resting pose is in collision for MoveIt), so the arm settles onto its
+    // support while relaxing and that movement must not abort the release.
+    const bool check_drift = release_drift_tol_rad_ > 0.0;
+    if (check_drift) {
+        RCLCPP_INFO(logger_,
+            "Releasing: shoulder/elbow, then the rest, stiffness 100%% -> 0 over %.1f s each "
+            "(abort if a joint moves > %.3f rad).", release_ramp_secs_, release_drift_tol_rad_);
+    } else {
+        RCLCPP_INFO(logger_,
+            "Releasing: shoulder/elbow, then the rest, stiffness 100%% -> 0 over %.1f s each "
+            "(no drift check).", release_ramp_secs_);
+    }
 
     constexpr auto kPeriod = std::chrono::milliseconds(10);
     std::array<double, NUM_JOINTS> scale;
@@ -635,7 +645,7 @@ hardware_interface::CallbackReturn ArmCanSystem::soft_release()
                 joint_position_state_ = hw_position_states_;   // gravity ff uses it
             }
             std::size_t moved = NUM_JOINTS;
-            for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
+            for (std::size_t i = 0; check_drift && i < NUM_JOINTS; ++i) {
                 if (std::abs(now_pos[i] - start[i]) > release_drift_tol_rad_) { moved = i; break; }
             }
             if (moved < NUM_JOINTS) {

@@ -474,11 +474,14 @@
             <!-- Deactivate (arm_teleop Release, arm parked on its support):
                  stiffness ramps 100% -> 0 over release_ramp_secs, first for
                  the shoulder and elbow, then for the rest, then the motors
-                 are disabled. A joint moving more than
-                 release_drift_tol_rad meanwhile means the arm is not supported:
-                 stiffness comes back and the arm stays active. -->
+                 are disabled. If release_drift_tol_rad > 0, a joint moving
+                 more than that meanwhile means the arm is not supported:
+                 stiffness comes back and the arm stays active. Off (0): the
+                 park pose is only approximate (the resting pose is in
+                 collision for MoveIt), so the arm settles onto its support
+                 while relaxing. -->
             <param name="release_ramp_secs">3.0</param>
-            <param name="release_drift_tol_rad">0.035</param>
+            <param name="release_drift_tol_rad">0.0</param>
             <param name="gravity_ff_enabled">true</param>
             <!-- Set to each motor family's own real rated capacity, not the
                  shared MIT-protocol packing scale (48 Nm) — that scale is

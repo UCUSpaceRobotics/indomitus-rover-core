@@ -167,10 +167,11 @@ Lay the arm down and turn the motors off from teleop:
    still: `ArmCanSystem::on_deactivate` ramps kp, kd and the gravity
    feed-forward to zero over `release_ramp_secs` (3 s) holding the last
    command — first shoulder and elbow (the arm settles onto the support
-   through them), then base and wrists — then disables the motors. If any joint moves more than
-   `release_drift_tol_rad` (0.035) during the ramp — the arm is not actually
-   resting on the support — it restores full stiffness where the arm is,
-   the transition fails and the arm stays active.
+   through them), then base and wrists — then disables the motors. The arm
+   may move while it settles: the park pose is only approximate, because the
+   resting pose itself is in collision for MoveIt. An optional drift check
+   (`release_drift_tol_rad` > 0 in `arm_macro.xacro`, off by default) restores
+   full stiffness and keeps the arm active if a joint moves more than that.
 
 After Release the motors are free, but positions are still read; **c** turns
 them back on.
