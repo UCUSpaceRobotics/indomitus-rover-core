@@ -14,10 +14,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml?query=branch%3Amain"><img alt="main build" src="https://img.shields.io/github/actions/workflow/status/UCUSpaceRobotics/indomitus-rover-core/publish_image.yaml?branch=main&label=main%20build&logo=github"></a>
-  <a href="https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml?query=branch%3Adevelop"><img alt="develop build" src="https://img.shields.io/github/actions/workflow/status/UCUSpaceRobotics/indomitus-rover-core/publish_image.yaml?branch=develop&label=develop%20build&logo=github"></a>
-  <a href="https://github.com/UCUSpaceRobotics/indomitus-rover-core/releases/latest"><img alt="main release" src="https://img.shields.io/github/v/release/UCUSpaceRobotics/indomitus-rover-core?label=main&color=green"></a>
-  <a href="https://github.com/UCUSpaceRobotics/indomitus-rover-core/releases"><img alt="develop release" src="https://img.shields.io/github/v/release/UCUSpaceRobotics/indomitus-rover-core?include_prereleases&label=develop"></a>
+  <a href="https://github.com/yuriifito/indomitus-rover-core-ai/actions/workflows/publish_image.yaml?query=branch%3Amain"><img alt="main build" src="https://img.shields.io/github/actions/workflow/status/yuriifito/indomitus-rover-core-ai/publish_image.yaml?branch=main&label=main%20build&logo=github"></a>
+  <a href="https://github.com/yuriifito/indomitus-rover-core-ai/actions/workflows/publish_image.yaml?query=branch%3Adevelop"><img alt="develop build" src="https://img.shields.io/github/actions/workflow/status/yuriifito/indomitus-rover-core-ai/publish_image.yaml?branch=develop&label=develop%20build&logo=github"></a>
+  <a href="https://github.com/yuriifito/indomitus-rover-core-ai/releases/latest"><img alt="main release" src="https://img.shields.io/github/v/release/yuriifito/indomitus-rover-core-ai?label=main&color=green"></a>
+  <a href="https://github.com/yuriifito/indomitus-rover-core-ai/releases"><img alt="develop release" src="https://img.shields.io/github/v/release/yuriifito/indomitus-rover-core-ai?include_prereleases&label=develop"></a>
 </p>
 
 ---
