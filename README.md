@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <a href="https://docs.ros.org/en/humble/"><img alt="ROS 2 Humble" src="https://img.shields.io/badge/ROS%202-Humble-22314E?logo=ros&logoColor=white"></a>
-  <a href="https://releases.ubuntu.com/22.04/"><img alt="Ubuntu 22.04" src="https://img.shields.io/badge/Ubuntu-22.04-E95420?logo=ubuntu&logoColor=white"></a>
+  <a href="https://docs.ros.org/en/jazzy/"><img alt="ROS 2 Jzzy" src="https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white"></a>
+  <a href="https://releases.ubuntu.com/24.04/"><img alt="Ubuntu 24.04" src="https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-amd64%20%7C%20arm64-informational">
 </p>
 
