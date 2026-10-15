@@ -53,10 +53,15 @@
         </geometry>
         <material name="dark_wheel"/>
       </visual>
+      <!-- Sphere, not a cylinder: a flat cylinder touches the ground at one rim
+           edge in DART, which shortens the spin lever arm by wheel_width/2 and
+           made the sim rotate ~13% faster than the wheel kinematics. A sphere
+           always contacts directly under the wheel centre, at the same rolling
+           radius, and is the most stable shape against the terrain mesh. -->
       <collision>
-        <origin xyz="0 0 0" rpy="${pi / 2.0 * y_sign} 0 0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+          <sphere radius="${wheel_radius}"/>
         </geometry>
       </collision>
     </link>
