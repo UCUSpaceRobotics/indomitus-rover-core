@@ -561,8 +561,9 @@ class KeyboardInputLoop:
                                 continue
 
                             if code in self._GRIPPER_KEYS:
-                                if not self._servo_started:
-                                    continue
+                                # Not gated on _servo_started: the gripper
+                                # neither goes through Servo nor needs the arm
+                                # motors, so it works right after c / z / y too.
                                 if self._panel_prompt_pending and value == self._KEYSTATE_DOWN:
                                     self._panel_prompt_pending = False
                                     print('Continuing manual control (panel align not triggered).')
