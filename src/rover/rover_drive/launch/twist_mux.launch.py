@@ -5,10 +5,10 @@ from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
-    rover_bringup_dir = get_package_share_directory('rover_bringup')
+    rover_drive_dir = get_package_share_directory('rover_drive')
 
     twist_mux_config = os.path.join(
-        rover_bringup_dir,
+        rover_drive_dir,
         'config',
         'twist_mux.yaml',
     )

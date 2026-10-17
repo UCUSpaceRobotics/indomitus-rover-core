@@ -177,7 +177,7 @@ After Release the motors are free, but positions are still read; **c** turns
 them back on.
 
 Turning the motors on and off belongs to the `arm_power` node, not to teleop
-(the arm's counterpart of the rover's `drive_power`): **c** and **y** just call
+(the arm's counterpart of the rover's `drive_manager`): **c** and **y** just call
 `/arm/power` (`std_srvs/SetBool`, true / false). Anything else can call it too —
 `ros2 service call /arm/power std_srvs/srv/SetBool "{data: false}"` releases a
 parked arm; a refusal comes back in the reply with its reason. The latched

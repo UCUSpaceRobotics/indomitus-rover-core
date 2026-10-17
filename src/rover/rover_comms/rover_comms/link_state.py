@@ -16,7 +16,7 @@ the node is the part that talks to rclpy and the serial port. The rules:
   * A failsafed link gets a short burst of zero publishes, then goes quiet -
     same policy as JoyWatchdog (rover_teleop/teleop_state.py) and the same
     reason: LoRa is twist_mux's lowest-priority input (see
-    rover_bringup/config/twist_mux.yaml), so there is nothing beneath it to
+    rover_drive/config/twist_mux.yaml), so there is nothing beneath it to
     fall through to. Publishing zero forever would instead make LoRa look
     like a live "someone is driving" source to anything watching twist_mux's
     inputs - drive_source_lamp_node in particular, which would read a

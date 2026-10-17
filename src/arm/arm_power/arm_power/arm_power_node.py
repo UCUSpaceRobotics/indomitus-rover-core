@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arm power owner — the arm's counterpart of rover_power's drive_power.
+Arm power owner — the arm's counterpart of rover_drive's drive_manager.
 
 The real arm starts with its motors off (ArmSystem INACTIVE: positions read,
 no torque). Turning them on and, more importantly, off again is hardware state

@@ -2,11 +2,24 @@
 
 DriveSourceWatchdog has no ROS in it and takes its clock as an argument
 precisely so these can be tested here - same split and same reason as
-test_link_state.py / test_gs_link_watchdog.py. The priorities/timeouts below
-mirror rover_bringup/config/twist_mux.yaml at the time this was written.
+test_link_state.py / test_gs_link_watchdog.py. The priorities/timeouts in
+SOURCES were config/twist_mux.yaml at the time this was written; the node
+reads the real file through sources_from_twist_mux, tested at the bottom.
 """
 
-from rover_teleop.drive_source_watchdog import DriveSourceWatchdog, Source
+import os
+
+import pytest
+import yaml
+
+from rover_drive.drive_source_watchdog import (
+    DriveSourceWatchdog,
+    Source,
+    sources_from_twist_mux,
+)
+
+TWIST_MUX_YAML = os.path.join(
+    os.path.dirname(__file__), '..', 'config', 'twist_mux.yaml')
 
 
 class FakeClock:
@@ -121,3 +134,53 @@ def test_recovers_without_a_restart():
     watchdog.on_message('cmd_vel_gs')
     assert watchdog.winner() == 'cmd_vel_gs'
     assert watchdog.autonomous() is False
+
+
+# -- reading twist_mux.yaml ------------------------------------------------
+
+def _config(topics, key='/**/twist_mux'):
+    return {key: {'ros__parameters': {'use_stamped': False, 'topics': topics}}}
+
+
+def test_reads_the_shipped_twist_mux_config():
+    with open(TWIST_MUX_YAML) as f:
+        sources = sources_from_twist_mux(yaml.safe_load(f), ['cmd_vel_nav'])
+    by_name = {s.name: s for s in sources}
+    assert set(by_name) == {s.name for s in SOURCES}
+    # Exactly one autonomous input, and the lamp's colour depends on it.
+    assert [s.name for s in sources if s.autonomous] == ['cmd_vel_nav']
+    for source in sources:
+        assert source.timeout > 0
+
+
+def test_reads_priorities_timeouts_and_flags():
+    sources = sources_from_twist_mux(_config({
+        'joystick': {'topic': 'cmd_vel_joy', 'timeout': 0.5, 'priority': 100},
+        'nav2': {'topic': 'cmd_vel_nav', 'timeout': 1, 'priority': 20},
+    }), ['cmd_vel_nav'])
+    assert sources == (
+        Source('cmd_vel_joy', priority=100, timeout=0.5, autonomous=False),
+        Source('cmd_vel_nav', priority=20, timeout=1.0, autonomous=True),
+    )
+
+
+@pytest.mark.parametrize('key', ['/**/twist_mux', '/rover/twist_mux', 'twist_mux'])
+def test_finds_the_node_entry_under_any_namespace(key):
+    sources = sources_from_twist_mux(_config({
+        'joystick': {'topic': 'cmd_vel_joy', 'timeout': 0.5, 'priority': 100},
+    }, key=key), [])
+    assert [s.name for s in sources] == ['cmd_vel_joy']
+
+
+def test_missing_twist_mux_entry_is_an_error():
+    with pytest.raises(ValueError):
+        sources_from_twist_mux({'/**/other_node': {'ros__parameters': {}}}, [])
+
+
+def test_autonomous_topic_absent_from_the_config_is_an_error():
+    # Otherwise renaming cmd_vel_nav in twist_mux.yaml alone would leave the
+    # lamp green through an autonomy run.
+    with pytest.raises(ValueError):
+        sources_from_twist_mux(_config({
+            'joystick': {'topic': 'cmd_vel_joy', 'timeout': 0.5, 'priority': 100},
+        }), ['cmd_vel_nav'])

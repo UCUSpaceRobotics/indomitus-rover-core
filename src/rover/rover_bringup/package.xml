@@ -22,14 +22,11 @@
   <exec_depend>rover_description</exec_depend>
   <exec_depend>rover_peripherals</exec_depend>
   <exec_depend>rover_diagnostics</exec_depend>
-  <exec_depend>rover_power</exec_depend>
+  <exec_depend>rover_drive</exec_depend>
   <exec_depend>rover_teleop</exec_depend>
 
   <!-- CAN -->
   <exec_depend>ros2_socketcan</exec_depend>
-
-  <!-- cmd_vel multiplexer -->
-  <exec_depend>twist_mux</exec_depend>
 
   <!-- URDF -->
   <exec_depend>xacro</exec_depend>

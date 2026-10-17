@@ -2,7 +2,7 @@ import os
 from glob import glob
 from setuptools import find_packages, setup
 
-package_name = 'rover_power'
+package_name = 'rover_drive'
 
 setup(
     name=package_name,
@@ -21,7 +21,7 @@ setup(
     zip_safe=True,
     maintainer='yurifi',
     maintainer_email='fito.pn@ucu.edu.ua',
-    description='Owner of the rover drive power (hardware + swerve controller).',
+    description='Rover drive command path: twist_mux, drive power owner, drive-source lamp.',
     license='MIT',
     extras_require={
         'test': [
@@ -30,7 +30,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            f'drive_power_node = {package_name}.drive_power_node:main',
+            f'drive_manager_node = {package_name}.drive_manager_node:main',
+            f'drive_source_lamp_node = {package_name}.drive_source_lamp_node:main',
         ],
     },
 )

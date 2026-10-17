@@ -32,7 +32,6 @@ setup(
         'console_scripts': [
             f'gamepad_interpreter_node = {package_name}.gamepad_interpreter_node:main',
             f'keyboard_teleop_node = {package_name}.keyboard_teleop_node:main',
-            f'drive_source_lamp_node = {package_name}.drive_source_lamp_node:main',
         ],
     },
 )

@@ -1,4 +1,4 @@
-/**/drive_power:
+/**/drive_manager:
   ros__parameters:
 
     # The swerve controller drive/power activates and deactivates. Must match

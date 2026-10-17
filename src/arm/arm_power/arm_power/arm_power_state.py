@@ -1,6 +1,6 @@
 """What the arm's motors are capable of, and how each event moves it.
 
-The arm's counterpart of rover_power's drive_power_state: arm_power owns this
+The arm's counterpart of rover_drive's drive_manager_state: arm_power owns this
 and publishes it on /arm/state; these are its transition rules, with the ROS
 calls taken out so they can be tested without a controller_manager.
 

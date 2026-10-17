@@ -6,7 +6,7 @@
   <description>
     Owner of the arm's motor power: turns ArmSystem (and the arm's controllers)
     on, and off again only from the park pose (Release), and publishes the
-    latched /arm/state. The arm's counterpart of rover_power. Runs next to the
+    latched /arm/state. The arm's counterpart of rover_drive. Runs next to the
     arm's controller_manager in hardware, mock and simulation alike.
   </description>
   <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>

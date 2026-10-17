@@ -48,7 +48,7 @@ from lifecycle_msgs.msg import State
 
 from indomitus_interfaces.msg import DriveState as DriveStateMsg
 
-from rover_power.drive_power_state import (
+from rover_drive.drive_manager_state import (
     DrivePower,
     after_compact_result,
     after_controller_result,
@@ -56,7 +56,7 @@ from rover_power.drive_power_state import (
     after_power_result,
     seeded,
 )
-from rover_power.service_call import GenerationGuard, GuardedCall
+from rover_drive.service_call import GenerationGuard, GuardedCall
 
 
 #: Latched, depth 1: a ground station UI that connects after the fact gets the
@@ -69,10 +69,10 @@ STATE_QOS = QoSProfile(
 )
 
 
-class DrivePowerNode(Node):
+class DriveManagerNode(Node):
 
     def __init__(self):
-        super().__init__('drive_power')
+        super().__init__('drive_manager')
 
         def declare_and_get(name, default):
             self.declare_parameter(name, default)
@@ -152,7 +152,7 @@ class DrivePowerNode(Node):
         self._publish_state()
 
         self.get_logger().info(
-            f'DrivePower started — controller={self._controller_name}, '
+            f'drive_manager started — controller={self._controller_name}, '
             f'hardware={self._hardware_name}\n'
             f'  drive/power           (Service) - SetBool, absolute\n'
             f'  drive/power/toggle    (Service) - Trigger, invert\n'
@@ -174,7 +174,7 @@ class DrivePowerNode(Node):
 
         Republishing unchanged state is not redundancy: it is the only thing
         that tells a console the value on screen is still live. Without it a
-        dead drive_power_node leaves the last latched state up forever,
+        dead drive_manager_node leaves the last latched state up forever,
         indistinguishable from a rover deliberately sitting still. It also
         makes the topic usable from a VOLATILE subscriber — the ground station
         UI reaches it through rosbridge, which need not match TRANSIENT_LOCAL.
@@ -466,7 +466,7 @@ class DrivePowerNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = DrivePowerNode()
+    node = DriveManagerNode()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Async service calls that cannot pile up on each other.
 
-GuardedCall is a copy of rover_power's (helpers are copied between packages,
+GuardedCall is a copy of rover_drive's (helpers are copied between packages,
 not shared; arm_* never imports rover_*).
 
 A button held down, a switch bounced, or a service that has gone quiet will all

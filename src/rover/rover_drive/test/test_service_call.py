@@ -2,7 +2,7 @@
 
 No ROS import anywhere in here."""
 
-from rover_power.service_call import GenerationGuard
+from rover_drive.service_call import GenerationGuard
 
 
 # ── superseded service replies ───────────────────────────────────────────────

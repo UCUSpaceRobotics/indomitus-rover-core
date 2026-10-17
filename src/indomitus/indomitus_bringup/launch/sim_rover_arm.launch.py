@@ -3,7 +3,7 @@ Rover with the arm mounted, in one Gazebo model, with two independent
 ros2_control stacks:
 
   /rover  robot_state_publisher (rover.xacro), /rover/controller_manager,
-          twist_mux, drive_power — same as rover_sim/sim_gz.launch.py
+          twist_mux, drive_manager — same as rover_sim/sim_gz.launch.py
   /arm    arm_bringup/stack.launch.py with arm_on_rover.urdf.xacro:
           robot_state_publisher, /arm/controller_manager, move_group, servo
 
@@ -344,20 +344,20 @@ def generate_launch_description() -> LaunchDescription:
         }),
 
         # 5. Rover controllers (spawners resolve to /rover/controller_manager),
-        # twist_mux and drive_power, as in sim_gz.launch.py.
+        # twist_mux and drive_manager, as in sim_gz.launch.py.
         OpaqueFunction(function=make_rover_control, kwargs={
             "controllers_yaml_path": controllers_yaml_path,
             "base_controllers": rover_sim.BASE_CONTROLLERS,
         }),
         GroupAction([
             PushRosNamespace(ROVER_NAMESPACE),
-            include_launch("rover_bringup", "twist_mux.launch.py", {
+            include_launch("rover_drive", "twist_mux.launch.py", {
                 "use_sim_time": "true",
             }),
         ]),
         GroupAction([
             PushRosNamespace(ROVER_NAMESPACE),
-            include_launch("rover_power", "drive_power.launch.py", {
+            include_launch("rover_drive", "drive_manager.launch.py", {
                 "use_sim_time": "true",
                 "controller_name": LaunchConfiguration("swerve_controller"),
             }),
