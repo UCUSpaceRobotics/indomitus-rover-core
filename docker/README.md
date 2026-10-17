@@ -31,6 +31,34 @@ sudo usermod -aG docker $USER           # run docker without sudo (re-login requ
 
 > 💡 You can enter the same container from multiple terminals simultaneously.
 
+## Base images
+
+| image | base | GPU |
+|---|---|---|
+| `…-dev` (amd64, laptops, sim) | `ros:jazzy-ros-base` | none |
+| `…-prod` (arm64, Jetson) | `dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04` + ROS 2 Jazzy from apt | CUDA 12.8, cuDNN 9.7, TensorRT 10.7, onnxruntime |
+
+The Jetson runs JetPack 6.2 (Ubuntu 22.04, L4T r36.4) on the host; the container is Ubuntu
+24.04 for ROS 2 Jazzy. The GPU driver comes from the host (`runtime: nvidia` in
+`docker-compose.prod.yaml`); CUDA and the libraries on top of it come from the image, built for
+L4T r36 by [jetson-containers](https://github.com/dusty-nv/jetson-containers) (CUDA 12.8 runs on
+JetPack 6.2's driver through `/usr/local/cuda/compat`).
+
+- `nvidia/cuda:*-ubuntu24.04` does **not** work: it is the SBSA (server Arm) build, and kernels
+  fail on the Jetson's GPU ("no kernel image is available for execution on the device").
+- `dustynv/ros:jazzy-*` does not fit either: its ROS is built from source, so rosdep and apt ROS
+  packages (ros2_control, MoveIt, ...) do not mix with it. The Dockerfile installs ROS from apt
+  when the base image has none.
+- jetson-containers keep Python packages in `/opt/venv`; the Dockerfile makes them visible to
+  `/usr/bin/python3` (which ROS nodes use) through a `.pth` file and takes the venv off `PATH`.
+
+Check the GPU inside `rover_ai`:
+
+```bash
+python3 -c "import onnxruntime as o; print(o.get_available_providers())"   # expect CUDA/TensorRT
+python3 -c "import ctypes; print('cuInit', ctypes.CDLL('libcuda.so.1').cuInit(0))"   # 0 = OK
+```
+
 ## Display Access (for GUI / RViz)
 
 Allow Docker to use your screen before entering the container:

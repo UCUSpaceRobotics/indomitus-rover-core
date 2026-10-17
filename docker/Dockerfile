@@ -41,6 +41,33 @@ ENV ROS_PYTHON_VERSION=3
 ENV TZ=Etc/UTC
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
+# The Jetson (prod) base is jetson-containers' CUDA image (CUDA, cuDNN, TensorRT,
+# onnxruntime for L4T r36 / JetPack 6, Ubuntu 24.04), which has no ROS: install
+# ROS from the official apt repository, so rosdep and apt ROS packages work as on
+# ros:jazzy-ros-base. (Its sibling dustynv/ros:jazzy-* builds ROS from source,
+# which rosdep and apt ROS packages do not mix with.)
+RUN if [ ! -f /opt/ros/${TARGET_ROS_DISTRO}/setup.bash ]; then \
+        apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+        curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+            -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+            > /etc/apt/sources.list.d/ros2.list && \
+        apt-get update && apt-get install -y --no-install-recommends ros-${TARGET_ROS_DISTRO}-ros-base && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# jetson-containers keep their Python packages (onnxruntime, numpy, ...) in
+# /opt/venv, first in PATH; ROS nodes and tools run on /usr/bin/python3. Make the
+# venv's packages visible to the system Python (after its own, so apt's numpy
+# etc. that ROS was built against win), and take the venv off PATH. The base
+# image also points pip at its own mirror; use PyPI. No-ops on ros:* images.
+RUN for sp in /opt/venv/lib/python3*/site-packages; do \
+        [ -d "$sp" ] && echo "$sp" > /usr/lib/python3/dist-packages/zz-jetson-venv.pth; \
+    done; true
+ENV PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PIP_INDEX_URL=https://pypi.org/simple
+RUN if [ -d /opt/venv ]; then /usr/bin/python3 -c "import onnxruntime; print('onnxruntime', onnxruntime.__version__, onnxruntime.get_available_providers())"; fi
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales git curl wget ca-certificates \
     build-essential python3-pip \

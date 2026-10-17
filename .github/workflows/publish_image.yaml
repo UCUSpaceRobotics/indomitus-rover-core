@@ -92,8 +92,10 @@ jobs:
           target: prod
           platforms: linux/arm64
           push: true
+          # CUDA/cuDNN/TensorRT/onnxruntime for JetPack 6 (L4T r36.4) on Ubuntu 24.04;
+          # the Dockerfile adds ROS from apt. See docker/README.md.
           build-args: |
-            BASE_IMAGE=ros:jazzy-ros-base
+            BASE_IMAGE=dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04
             UBUNTU_VERSION=24.04
             TARGET_ROS_DISTRO=jazzy
           tags: ${{ steps.metadata-tags.outputs.tags }}

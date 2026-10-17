@@ -109,7 +109,7 @@ jobs:
           platforms: linux/arm64
           push: false
           build-args: |
-            BASE_IMAGE=ros:jazzy-ros-base
+            BASE_IMAGE=dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04
             UBUNTU_VERSION=24.04
             TARGET_ROS_DISTRO=jazzy
           cache-from: |
