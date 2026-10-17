@@ -472,9 +472,14 @@
             <!-- Activation aborts if any motor is silent for this long -->
             <param name="feedback_timeout_secs">2.0</param>
             <!-- Deactivate (arm_teleop Release, arm parked on its support):
-                 stiffness ramps 100% -> 0 over release_ramp_secs, first for
-                 the shoulder and elbow, then for the rest, then the motors
-                 are disabled. If release_drift_tol_rad > 0, a joint moving
+                 stiffness (kp, gravity ff) ramps 100% -> 0 over
+                 release_ramp_secs, first for the shoulder and elbow, then for
+                 the rest. Damping (kd) stays full the whole time, so the arm
+                 is braked while it settles instead of falling freely at the
+                 end of the ramp; then damping alone holds until every joint
+                 is slower than release_still_rad_s for 0.3 s (at most
+                 release_settle_secs), then the motors are disabled.
+                 If release_drift_tol_rad > 0, a joint moving
                  more than that meanwhile means the arm is not supported:
                  stiffness comes back and the arm stays active. Off (0): the
                  park pose is only approximate (the resting pose is in
@@ -482,6 +487,8 @@
                  while relaxing. -->
             <param name="release_ramp_secs">3.0</param>
             <param name="release_drift_tol_rad">0.0</param>
+            <param name="release_settle_secs">3.0</param>
+            <param name="release_still_rad_s">0.02</param>
             <param name="gravity_ff_enabled">true</param>
             <!-- Set to each motor family's own real rated capacity, not the
                  shared MIT-protocol packing scale (48 Nm) — that scale is

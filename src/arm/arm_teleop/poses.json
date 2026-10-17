@@ -133,11 +133,11 @@
     "arm_shoulder_forearm_joint": 1.0
   },
   "park": {
-    "arm_mount_base_joint": 0.0,
-    "arm_base_shoulder_joint": -0.9682298273183719,
-    "arm_shoulder_forearm_joint": 1.3580055537493334,
-    "arm_forearm_wrist_1_joint": 0.6927344175256422,
-    "arm_wrist_1_wrist_2_joint": 0.04418485067138436,
-    "arm_wrist_2_end_effector_joint": -0.9899093758242309
+    "arm_mount_base_joint": 0.00269,
+    "arm_base_shoulder_joint": -1.267218,
+    "arm_shoulder_forearm_joint": 1.470435,
+    "arm_forearm_wrist_1_joint": 0.947405,
+    "arm_wrist_1_wrist_2_joint": 0.123815,
+    "arm_wrist_2_end_effector_joint": -0.956242
   }
 }

@@ -226,6 +226,8 @@ hardware_interface::CallbackReturn ArmCanSystem::init_from_info(
     feedback_timeout_secs_ = param_or(info.hardware_parameters, "feedback_timeout_secs", feedback_timeout_secs_);
     release_ramp_secs_     = param_or(info.hardware_parameters, "release_ramp_secs", release_ramp_secs_);
     release_drift_tol_rad_ = param_or(info.hardware_parameters, "release_drift_tol_rad", release_drift_tol_rad_);
+    release_settle_secs_   = param_or(info.hardware_parameters, "release_settle_secs", release_settle_secs_);
+    release_still_rad_s_   = param_or(info.hardware_parameters, "release_still_rad_s", release_still_rad_s_);
     gravity_ff_enabled_    = param_bool(info.hardware_parameters, "gravity_ff_enabled", gravity_ff_enabled_);
     gravity_ff_max_nm_sw_  = param_or(info.hardware_parameters, "gravity_ff_max_nm_steadywin", gravity_ff_max_nm_sw_);
     gravity_ff_max_nm_dm_  = param_or(info.hardware_parameters, "gravity_ff_max_nm_damiao", gravity_ff_max_nm_dm_);
@@ -575,7 +577,8 @@ void ArmCanSystem::stop_holding()
 }
 
 void ArmCanSystem::send_hold_frames(const std::array<double, NUM_JOINTS>& hold,
-                                    const std::array<double, NUM_JOINTS>& scale)
+                                    const std::array<double, NUM_JOINTS>& scale,
+                                    const std::array<double, NUM_JOINTS>& kd_scale)
 {
     const std::array<float, NUM_JOINTS> gravity_tff =
         gravity_ff_enabled_ ? compute_gravity_feedforward() : std::array<float, NUM_JOINTS>{};
@@ -583,7 +586,7 @@ void ArmCanSystem::send_hold_frames(const std::array<double, NUM_JOINTS>& hold,
     for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
         const float pos = static_cast<float>(urdf_to_motor(i, hold[i]));
         const float kp  = static_cast<float>(joint_kp_[i] * scale[i]);
-        const float kd  = static_cast<float>(joint_kd_[i] * scale[i]);
+        const float kd  = static_cast<float>(joint_kd_[i] * kd_scale[i]);
         const float tff = gravity_tff[i] * static_cast<float>(scale[i]);
         can_msgs::msg::Frame f = (i < NUM_STEADYWIN)
             ? sw::build_mit_command_frame(motor_ids_[i], pos, 0.0f, kp, kd, tff)
@@ -596,7 +599,11 @@ hardware_interface::CallbackReturn ArmCanSystem::soft_release()
 {
     // Two stages: shoulder and elbow first — in the park pose the arm rests
     // on its support through them — then base and wrists. Each stage ramps
-    // its joints' kp, kd and gravity ff to 0 holding the last command.
+    // its joints' kp and gravity ff to 0 holding the last command. kd stays
+    // full throughout (with kp = 0 it is pure damping, -kd * v): ramping it
+    // too left nothing braking the arm at the end of the ramp, exactly when
+    // it was settling, and it hit the support hard. Once both stages are
+    // done, damping alone holds until the arm is still, then motors go off.
     // The controller manager is busy with this transition, so this loop
     // streams the frames itself; write() stays silent until it is over.
     constexpr std::array<std::size_t, 2> kFirstStage = {1, 2};   // shoulder, elbow
@@ -624,6 +631,8 @@ hardware_interface::CallbackReturn ArmCanSystem::soft_release()
     constexpr auto kPeriod = std::chrono::milliseconds(10);
     std::array<double, NUM_JOINTS> scale;
     scale.fill(1.0);
+    std::array<double, NUM_JOINTS> full;
+    full.fill(1.0);
     for (int stage = 0; stage < 2; ++stage) {
         std::array<bool, NUM_JOINTS> ramping{};
         for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
@@ -663,7 +672,7 @@ hardware_interface::CallbackReturn ArmCanSystem::soft_release()
                     r = std::min(1.0, std::chrono::duration<double>(
                         std::chrono::steady_clock::now() - r0).count() / kRestoreSecs);
                     for (std::size_t i = 0; i < NUM_JOINTS; ++i) scale[i] = from[i] + (1.0 - from[i]) * r;
-                    send_hold_frames(now_pos, scale);
+                    send_hold_frames(now_pos, scale, full);
                     std::this_thread::sleep_for(kPeriod);
                 }
                 for (std::size_t i = 0; i < NUM_JOINTS; ++i) {
@@ -676,11 +685,45 @@ hardware_interface::CallbackReturn ArmCanSystem::soft_release()
                 return hardware_interface::CallbackReturn::FAILURE;
             }
 
-            send_hold_frames(hold, scale);
+            send_hold_frames(hold, scale, full);
             if (s_now <= 0.0) break;
             std::this_thread::sleep_for(kPeriod);
         }
         if (stage == 0) RCLCPP_INFO(logger_, "Shoulder/elbow relaxed and resting; relaxing the rest.");
+    }
+
+    // Damping only (kp = ff = 0) until every joint has been still for a
+    // moment, so the motors are not cut while the arm is still sinking onto
+    // its support. Bounded: a joint that keeps creeping cannot hold this up.
+    {
+        constexpr auto kStillFor = std::chrono::milliseconds(300);
+        const auto t0 = std::chrono::steady_clock::now();
+        auto still_since = t0;
+        bool settled = false;
+        while (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count()
+               < release_settle_secs_) {
+            std::array<double, NUM_JOINTS> vel{};
+            {
+                std::lock_guard<std::mutex> lock(feedback_mutex_);
+                vel = hw_velocity_states_;
+                joint_position_state_ = hw_position_states_;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            bool still = true;
+            for (double v : vel) still = still && std::abs(v) < release_still_rad_s_;
+            if (!still) {
+                still_since = now;
+            } else if (now - still_since >= kStillFor) {
+                settled = true;
+                break;
+            }
+            send_hold_frames(hold, scale, full);
+            std::this_thread::sleep_for(kPeriod);
+        }
+        if (!settled && release_settle_secs_ > 0.0) {
+            RCLCPP_WARN(logger_, "Release: arm still moving after %.1f s of damping; "
+                                 "disabling the motors anyway.", release_settle_secs_);
+        }
     }
 
     motors_enabled_.store(false);

@@ -62,6 +62,10 @@ from arm_teleop.arm_motion_lock import ArmMotionBusy, arm_motion_lock
 from arm_power.park import max_deviation, park_approach, park_targets
 
 
+# Namespace when started bare with `ros2 run` (the arm stack lives under /arm).
+# A launch file's namespace= or `--ros-args -r __ns:=...` still wins.
+DEFAULT_NAMESPACE = os.environ.get('ARM_NAMESPACE', 'arm')
+
 DEFAULT_LINEAR_SPEED  = 0.6
 DEFAULT_ANGULAR_SPEED = 1.8
 DEFAULT_PUBLISH_RATE  = 100.0
@@ -332,7 +336,7 @@ class ServoController(Node):
         status subscription.
         """
 
-        super().__init__('keyboard_servo_node')
+        super().__init__('keyboard_servo_node', namespace=DEFAULT_NAMESPACE)
 
         self.declare_parameter('linear_speed',  DEFAULT_LINEAR_SPEED)
         self.declare_parameter('angular_speed', DEFAULT_ANGULAR_SPEED)

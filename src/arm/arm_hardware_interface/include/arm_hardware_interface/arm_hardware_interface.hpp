@@ -82,12 +82,17 @@ private:
     void send_poll_frames();       // torqueless state reads: SW 0xF1, DM zero-gain probe
     void safe_stop();              // full disable (torqueless) — only for on_error, real faults
     void stop_holding();           // shutdown WITHOUT disabling — see on_shutdown
-    // Gains (and gravity ff) ramped to 0 holding the last command — shoulder
-    // and elbow first, then the rest — then disabled; aborts and restores
+    // kp and gravity ff ramped to 0 holding the last command — shoulder and
+    // elbow first, then the rest — with kd kept full, then damping only until
+    // the arm is still (release_settle_secs max), then disabled; aborts and restores
     // stiffness if a joint drifts more than release_drift_tol_rad (when > 0).
     hardware_interface::CallbackReturn soft_release();
+    // kp and gravity ff are scaled by `scale`, kd by `kd_scale`: a release
+    // keeps full damping while the stiffness goes, so the arm is braked all
+    // the way down instead of falling freely once the ramp nears 0.
     void send_hold_frames(const std::array<double, NUM_JOINTS>& hold,
-                          const std::array<double, NUM_JOINTS>& scale);   // per-joint 0..1
+                          const std::array<double, NUM_JOINTS>& scale,
+                          const std::array<double, NUM_JOINTS>& kd_scale);   // per-joint 0..1
 
     // Static gravity compensation: per-joint holding torque (motor frame, Nm)
     // at the current measured pose, clamped per motor family. See kLinkMass /
@@ -117,6 +122,8 @@ private:
     double feedback_timeout_secs_{2.0}; // abort activation if a motor never replies
     double release_ramp_secs_{3.0};     // stiffness ramp full -> 0 on deactivate
     double release_drift_tol_rad_{0.0};   // drift during that ramp = arm not supported; <= 0: off
+    double release_settle_secs_{3.0};   // after the ramp: damping only, until the arm is still (max)
+    double release_still_rad_s_{0.02};  // "still": every joint slower than this for 0.3 s
 
     // ---- Gravity compensation (feed-forward torque, t_ff in the MIT frame) ----
     bool   gravity_ff_enabled_{false};

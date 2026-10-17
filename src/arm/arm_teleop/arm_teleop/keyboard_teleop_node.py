@@ -78,7 +78,7 @@ Usage (stack in one terminal, input in another):
         ros2 launch arm_bringup arm.launch.py use_fake_hardware:=false
         ros2 launch arm_teleop keyboard.launch.py
         # optional: pin a device — ros2 run arm_teleop keyboard_servo_node --ros-args
-        #   -r __ns:=/arm -p keyboard_device_path:=/dev/input/event19
+        #   -p keyboard_device_path:=/dev/input/event19   (namespace defaults to /arm)
 
     Gazebo sim (sim clock):
         ros2 launch arm_teleop keyboard.launch.py use_sim_time:=true
