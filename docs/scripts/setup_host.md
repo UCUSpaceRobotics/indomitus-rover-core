@@ -20,7 +20,7 @@ The actual install is done by `system/setup.sh`, which runs on the target.
 
 | Flag | Description |
 |---|---|
-| `--udev A,B` | Rules `system/rules.d/[NN-]A.rules`, ... (e.g. `can,playstation-led`) |
+| `--udev A,B` | Rules `system/rules.d/[NN-]A.rules`, ... (`can`, `playstation-led`, `cameras`, `arducam-no-superspeed`) |
 | `--service A,B` | Units `system/systemd/A.service`, ... (e.g. `rover`) |
 | `--all` | Every rule and unit in `system/` |
 
@@ -31,8 +31,8 @@ Every file of a kind goes through the same steps — a new rule or unit dropped
 into `system/` needs no script changes:
 
 - **udev rule**: copy to `/etc/udev/rules.d` → `udevadm control --reload-rules`
-  → `udevadm trigger --action=add` scoped to the `SUBSYSTEM==` / `KERNEL==`
-  keys of each rule line (so devices already plugged in get the rule without
+  → `udevadm trigger --action=add` scoped to the `SUBSYSTEM==` / `KERNEL==` /
+  `ATTR{..}==` keys of each rule line (so devices already plugged in get the rule without
   replugging; unrelated devices are not replayed) → `udevadm settle`.
   A rule line with no `SUBSYSTEM==` key is not triggered (warning printed).
 - **systemd unit**: copy to `/etc/systemd/system` → `daemon-reload` → `stop`

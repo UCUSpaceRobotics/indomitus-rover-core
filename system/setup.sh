@@ -61,12 +61,15 @@ for rule in "${RULES[@]}"; do
     echo ">>> Installing udev rule $(basename "$rule")..."
     run_sudo install -m 0644 "$rule" /etc/udev/rules.d/
     run_sudo udevadm control --reload-rules
-    # Re-emit 'add' only for devices this rule matches (its SUBSYSTEM/KERNEL keys),
+    # Re-emit 'add' only for devices this rule matches (its SUBSYSTEM/KERNEL/ATTR keys),
     # so already-connected devices pick it up without replaying unrelated rules.
+    declare -A seen=()
     grep -v '^\s*#' "$rule" | grep -o 'SUBSYSTEM=="[^"]*".*' | while read -r line; do
         subsystem=$(grep -oP '(^|[ ,])SUBSYSTEM=="\K[^"]*' <<< "$line")
         kernel=$(grep -oP '(^|[ ,])KERNEL=="\K[^"]*' <<< "$line" || true)
-        run_sudo udevadm trigger --action=add --subsystem-match="$subsystem" ${kernel:+--sysname-match="$kernel"}
+        mapfile -t attrs < <(grep -oP '(^|[ ,])ATTR\{\K[^}]+\}=="[^"]*' <<< "$line" | sed 's/}=="/=/; s/^/--attr-match=/')
+        key="$subsystem|$kernel|${attrs[*]}"; [ -n "${seen[$key]}" ] && continue; seen[$key]=1
+        run_sudo udevadm trigger --action=add --subsystem-match="$subsystem" ${kernel:+--sysname-match="$kernel"} "${attrs[@]}"
     done
     run_sudo udevadm settle
 done
