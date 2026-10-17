@@ -1,0 +1,35 @@
+# rover_probe_detection parameters. Camera names are rover_cameras' ROS names
+# (cameras.yaml name with '-' as '_'); topics are relative to the rover namespace.
+/**/probe_detector:
+  ros__parameters:
+    cameras: [arducam_mast, arducam_fr_bottom, arm_camera]
+    backend: none          # no model yet, see rover_probe_detection/detector.py
+    model_path: ''
+    min_score: 0.3
+
+/**/probe_triangulator:
+  ros__parameters:
+    cameras: [arducam_mast, arducam_fr_bottom, arm_camera]
+    # Frame the rays of different cameras and moments are combined in, and the
+    # output frame. base_footprint is only right while the rover holds still
+    # within max_age; switch to odom once odom -> base_footprint is published.
+    fixed_frame: base_footprint
+    ground_frame: base_footprint
+    class_id: probe
+    min_score: 0.3
+    rate: 5.0
+    max_age: 0.5               # s, older detections are dropped
+    max_ray_gap: 0.10          # m, rays closer than this see the same probe
+    min_ray_angle_deg: 2.0     # nearly parallel rays give no depth
+    max_range: 8.0             # m
+    single_view: ground        # ground | none: a probe only one camera sees
+    point_height: 0.0          # m above ground of the image point (bbox centre ~ probe mid-height)
+    single_view_sigma: 0.3     # m, reported uncertainty of a ground-plane probe
+    min_sigma: 0.02            # m
+
+/**/fake_probe_detections:
+  ros__parameters:
+    cameras: [arducam_mast, arducam_fr_bottom, arm_camera]
+    probes_frame: base_footprint
+    pixel_noise: 0.5
+    rate: 5.0

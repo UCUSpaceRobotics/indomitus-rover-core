@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rover_probe_detection</name>
+  <version>0.0.0</version>
+  <description>
+    ERC probes in the rover's cameras: a per-camera 2D detector (model from
+    the course project; not implemented yet) and a triangulator that turns the
+    detections of several cameras into 3D probe positions, using CameraInfo and
+    TF at each frame's capture time. Inputs come from rover_cameras; outputs
+    are standard vision_msgs, so the arm side can consume them without
+    depending on rover packages.
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>vision_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>tf2_ros</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
