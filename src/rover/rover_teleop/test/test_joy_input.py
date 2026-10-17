@@ -9,13 +9,25 @@ No ROS import anywhere in here — joy_input is deliberately standalone.
 """
 
 import math
+import os
+
+import yaml
 
 from rover_teleop.joy_input import (
+    DISABLED,
     ButtonToggle,
     apply_deadzone,
+    shared_buttons,
     trigger_diff,
     triggers_held,
 )
+
+GAMEPAD_YAML = os.path.join(os.path.dirname(__file__), '..', 'config', 'gamepad.yaml')
+
+
+def _gamepad_params():
+    with open(GAMEPAD_YAML) as f:
+        return yaml.safe_load(f)['/**/gamepad_interpreter']['ros__parameters']
 
 
 # ── deadzone ─────────────────────────────────────────────────────────────────
@@ -155,3 +167,37 @@ def test_reset_forgets_a_button_that_was_down():
     toggle.update([1])
 
     assert pressed.count == 2
+
+
+def test_a_disabled_button_never_fires():
+    # -1 means "no button does this". Python would read buttons[-1] as the
+    # last button on the pad, so this must be refused explicitly.
+    pressed = Counter()
+    toggle = ButtonToggle(DISABLED, pressed)
+
+    toggle.update([1, 1, 1])
+    toggle.update([0, 0, 0])
+    toggle.update([1, 1, 1])
+
+    assert pressed.count == 0
+    assert toggle.enabled is False
+
+
+def test_shared_buttons_lists_only_real_clashes():
+    clashes = shared_buttons({
+        'a_button': 3,
+        'b_button': 3,
+        'c_button': 4,
+        'd_button': DISABLED,
+        'e_button': DISABLED,
+    })
+    assert clashes == {3: ['a_button', 'b_button']}
+
+
+def test_shipped_gamepad_layout_has_no_shared_buttons():
+    # Freeing buttons for the competition means moving things around in
+    # gamepad.yaml; two functions on one button would fire together.
+    params = _gamepad_params()
+    layout = {k: int(v) for k, v in params.items() if k.endswith('_button')}
+    assert layout, 'no *_button parameters found in gamepad.yaml'
+    assert shared_buttons(layout) == {}

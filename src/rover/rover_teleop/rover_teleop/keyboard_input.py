@@ -37,37 +37,78 @@ MOVE_KEYS = {
     'l': (0.0, -1.0, 0.0),
 }
 
-# key -> gamepad.yaml parameter holding that button's index. One press = one
-# rising edge = one toggle, exactly like tapping the gamepad button.
-BUTTON_KEYS = {
-    'm': 'motor_toggle_button',
-    'g': 'granny_button',
-    't': 'raw_twist_mode_button',
-    'v': 'vy_toggle_button',
-    'p': 'compact_mode_button',
-    'o': 'active_toggle_button',
-    'X': 'clear_errors_button',   # capital on purpose: a recovery action
-    'f': 'spotlight_button',
-    'b': 'beautiful_button',
-}
-
 STOP_KEYS = (' ', 's')
 
 # '1'..'9' -> 10..90 %, '0' -> 100 % stick deflection.
 SPEED_KEYS = {str(d): d / 10.0 for d in range(1, 10)}
 SPEED_KEYS['0'] = 1.0
 
-HELP = """\
+# Keys the keyboard uses for driving; config/keyboard.yaml cannot bind them.
+RESERVED_KEYS = set(MOVE_KEYS) | set(STOP_KEYS) | set(SPEED_KEYS)
+
+# Every interpreter function a key can press (gamepad.yaml parameter names),
+# with its line in the help text. Which key, if any, comes from
+# config/keyboard.yaml - see parse_keymap.
+FUNCTIONS = {
+    'motor_toggle_button': 'motors on/off',
+    'raw_twist_mode_button': 'raw twist / curvature',
+    'granny_button': 'granny',
+    'vy_toggle_button': 'vy (strafe)',
+    'compact_mode_button': 'compact mode',
+    'active_toggle_button': 'active (yield to others)',
+    'spotlight_button': 'spotlight',
+    'beautiful_button': 'beautiful lights',
+    'clear_errors_button': 'clear motor errors',
+    'dataset_capture_button': 'dataset: save one frame',
+    'dataset_record_button': 'dataset: record on/off',
+}
+
+_HELP_HEAD = """\
 Rover keyboard teleop (this terminal must have focus)
   w / x      forward / back          a / d   turn left / right
   q / e      forward-left / -right   z / c   back-left / -right
-  j / l      strafe left / right (only with vy mode on: v)
+  j / l      strafe left / right (only with vy mode on)
   s, space   stop                    1..9,0  speed 10..100 %
-  m  motors on/off    t  raw twist / curvature    g  granny
-  v  vy (strafe)      p  compact mode             o  active (yield to others)
-  f  spotlight        b  beautiful lights         X  clear motor errors
-  Ctrl+C  quit (stops the rover)
 """
+
+
+def parse_keymap(raw: dict) -> dict:
+    """config/keyboard.yaml `keys` (function -> key) -> {key: function}.
+
+    An empty or missing key leaves the function off. Every mistake is
+    collected and raised together, so one run shows all of them.
+    """
+    keymap, problems = {}, []
+    for function, key in (raw or {}).items():
+        if function not in FUNCTIONS:
+            problems.append(f'unknown function {function!r} '
+                            f'(known: {", ".join(FUNCTIONS)})')
+            continue
+        if key is None or key == '':
+            continue
+        if not isinstance(key, str) or len(key) != 1:
+            problems.append(f'{function}: key must be one character in quotes, got {key!r}')
+        elif key in RESERVED_KEYS:
+            problems.append(f'{function}: {key!r} is a driving key (move/stop/speed)')
+        elif key in keymap:
+            problems.append(f'{function}: {key!r} is already {keymap[key]}')
+        else:
+            keymap[key] = function
+    if problems:
+        raise ValueError('config/keyboard.yaml: ' + '; '.join(problems))
+    return keymap
+
+
+def button_indices(keymap: dict) -> dict:
+    """The keyboard's own virtual Joy layout: {function: button index}, one
+    button per bound function in keymap order. keyboard_teleop_node hands this
+    to its interpreter, so it is independent of the gamepad's layout."""
+    return {function: index for index, function in enumerate(keymap.values())}
+
+
+def help_text(keymap: dict) -> str:
+    lines = [f'  {key}  {FUNCTIONS[function]}' for key, function in keymap.items()]
+    return _HELP_HEAD + '\n'.join(lines) + '\n  Ctrl+C  quit (stops the rover)\n'
 
 
 @dataclass
@@ -81,11 +122,11 @@ class _HeldKey:
 class KeyboardJoy:
     """Turns timestamped key characters into Joy axes and buttons."""
 
-    def __init__(self, button_indices: dict, speed: float = 0.5,
+    def __init__(self, keymap: dict, speed: float = 0.5,
                  initial_hold: float = 0.6, repeat_hold: float = 0.15):
-        """button_indices: gamepad.yaml parameter name -> button index."""
-        self._buttons = {key: int(button_indices[param])
-                         for key, param in BUTTON_KEYS.items() if param in button_indices}
+        """keymap: {key: function}, from parse_keymap."""
+        indices = button_indices(keymap)
+        self._buttons = {key: indices[function] for key, function in keymap.items()}
         self.speed = speed
         self._initial_hold = initial_hold
         self._repeat_hold = repeat_hold

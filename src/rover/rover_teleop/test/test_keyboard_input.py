@@ -7,24 +7,42 @@ first character, or keeps it driving after the operator let go.
 No ROS import anywhere in here — keyboard_input is deliberately standalone.
 """
 
-from rover_teleop.joy_input import ButtonToggle
-from rover_teleop.keyboard_input import AXIS_VX, AXIS_VY, AXIS_WZ, KeyboardJoy
+import os
 
-INDICES = {
-    'motor_toggle_button': 6,
-    'granny_button': 0,
-    'raw_twist_mode_button': 3,
-    'vy_toggle_button': 4,
-    'compact_mode_button': 1,
-    'active_toggle_button': 2,
-    'clear_errors_button': 13,
-    'spotlight_button': 9,
-    'beautiful_button': 10,
-}
+import pytest
+import yaml
+
+from rover_teleop.joy_input import ButtonToggle
+from rover_teleop.keyboard_input import (
+    AXIS_VX,
+    AXIS_VY,
+    AXIS_WZ,
+    FUNCTIONS,
+    NUM_BUTTONS,
+    KeyboardJoy,
+    button_indices,
+    help_text,
+    parse_keymap,
+)
+
+KEYBOARD_YAML = os.path.join(os.path.dirname(__file__), '..', 'config', 'keyboard.yaml')
+
+KEYMAP = parse_keymap({
+    'motor_toggle_button': 'm',
+    'granny_button': 'g',
+    'clear_errors_button': 'X',
+})
+MOTOR = button_indices(KEYMAP)['motor_toggle_button']
+CLEAR_ERRORS = button_indices(KEYMAP)['clear_errors_button']
 
 
 def make(**kwargs):
-    return KeyboardJoy(INDICES, speed=0.5, initial_hold=0.6, repeat_hold=0.15, **kwargs)
+    return KeyboardJoy(KEYMAP, speed=0.5, initial_hold=0.6, repeat_hold=0.15, **kwargs)
+
+
+def shipped_keys():
+    with open(KEYBOARD_YAML) as f:
+        return yaml.safe_load(f)['/**/keyboard_joy']['ros__parameters']['keys']
 
 
 # ── hold detection ───────────────────────────────────────────────────────────
@@ -101,14 +119,14 @@ def test_a_press_is_one_edge_on_the_configured_index():
     k = make()
     k.on_key('m', 0.0)
     first, second = k.buttons(), k.buttons()
-    assert first[6] == 1 and sum(first) == 1
+    assert first[MOTOR] == 1 and sum(first) == 1
     assert sum(second) == 0
 
 
 def test_pressing_twice_gives_two_edges_to_the_interpreter():
     k = make()
     presses = []
-    toggle = ButtonToggle(6, lambda: presses.append(1))
+    toggle = ButtonToggle(MOTOR, lambda: presses.append(1))
     k.on_key('m', 0.0)
     k.on_key('m', 0.01)                    # both before the next Joy message
     for _ in range(5):
@@ -121,10 +139,54 @@ def test_clear_errors_needs_the_capital_key():
     k.on_key('x', 0.0)                     # lower case is "back", not a button
     assert sum(k.buttons()) == 0
     k.on_key('X', 0.0)
-    assert k.buttons()[13] == 1
+    assert k.buttons()[CLEAR_ERRORS] == 1
 
 
 def test_unknown_keys_are_ignored():
     k = make()
     assert k.on_key('?', 0.0) == ''
     assert k.axes(0.0) == [0.0] * 6 and sum(k.buttons()) == 0
+
+
+def test_every_bound_function_has_its_own_virtual_button():
+    # The keyboard's layout is its own, not gamepad.yaml's: one distinct index
+    # per bound function, all inside the Joy message it publishes.
+    indices = list(button_indices(parse_keymap(shipped_keys())).values())
+    assert len(set(indices)) == len(indices)
+    assert all(0 <= i < NUM_BUTTONS for i in indices)
+
+
+# ── config/keyboard.yaml ─────────────────────────────────────────────────────
+
+def test_shipped_keyboard_yaml_parses():
+    keymap = parse_keymap(shipped_keys())
+    assert keymap['m'] == 'motor_toggle_button'
+    assert keymap['X'] == 'clear_errors_button'
+
+
+def test_empty_key_leaves_the_function_off():
+    keymap = parse_keymap({'motor_toggle_button': 'm', 'granny_button': ''})
+    assert keymap == {'m': 'motor_toggle_button'}
+    k = KeyboardJoy(keymap)
+    assert k.on_key('g', 0.0) == ''
+
+
+@pytest.mark.parametrize('raw', [
+    {'motor_toggle_button': 'm', 'granny_button': 'm'},   # one key, two functions
+    {'motor_toggle_button': 'w'},                         # a movement key
+    {'motor_toggle_button': ' '},                         # stop
+    {'motor_toggle_button': '5'},                         # a speed key
+    {'motor_toggle_button': 'mm'},                        # not one character
+    {'motor_toggle_button': 1},                           # unquoted digit in yaml
+    {'motr_toggle_button': 'm'},                          # typo in the function
+])
+def test_bad_keymaps_are_refused(raw):
+    with pytest.raises(ValueError):
+        parse_keymap(raw)
+
+
+def test_help_lists_exactly_the_bound_keys():
+    text = help_text(KEYMAP)
+    assert 'm  motors on/off' in text
+    assert 'X  clear motor errors' in text
+    assert FUNCTIONS['spotlight_button'] not in text

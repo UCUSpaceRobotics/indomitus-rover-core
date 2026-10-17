@@ -1,0 +1,35 @@
+# Keyboard teleop (keyboard_teleop_node, `ros2 run`, usually on the ground
+# station laptop). Everything else - speeds, modes, timeouts - is the
+# interpreter's and comes from gamepad.yaml.
+
+/**/keyboard_joy:
+  ros__parameters:
+    cmd_vel_topic: cmd_vel_gs   # below the rover-side gamepad in twist_mux
+    publish_rate: 20.0
+    speed: 0.5                  # starting stick deflection, 1..9,0 change it
+
+    # A terminal reports no key release: a key counts as held this long after
+    # its first character (bridges the autorepeat delay) and after each repeat.
+    initial_hold: 0.6
+    repeat_hold: 0.15
+
+    # function: key. One character, in quotes. "" or a missing line = no key.
+    # The help printed at startup is generated from this list.
+    # Taken by driving and not bindable: w x a d q e z c j l (move),
+    # s and space (stop), 0-9 (speed).
+    # The keyboard has its own virtual buttons, so a function that is off on
+    # the gamepad (-1 in gamepad.yaml) still works from here.
+    keys:
+      motor_toggle_button: "m"
+      raw_twist_mode_button: "t"
+      granny_button: "g"
+      vy_toggle_button: "v"
+      compact_mode_button: "p"
+      active_toggle_button: "o"
+      spotlight_button: "f"
+      beautiful_button: "b"
+      clear_errors_button: "X"      # capital on purpose: a recovery action
+      # Off: the camera servers are on the rover, and gamepad.yaml's
+      # dataset_host (127.0.0.1) would point at this laptop instead.
+      dataset_capture_button: ""
+      dataset_record_button: ""

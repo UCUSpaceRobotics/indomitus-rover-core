@@ -31,7 +31,14 @@ from rover_teleop.drive_kinematics import (
     KinematicsParams,
     twist_from_input,
 )
-from rover_teleop.joy_input import ButtonToggle, apply_deadzone, trigger_diff, triggers_held
+from rover_teleop.joy_input import (
+    DISABLED,
+    ButtonToggle,
+    apply_deadzone,
+    shared_buttons,
+    trigger_diff,
+    triggers_held,
+)
 from rover_teleop.service_call import GuardedCall
 from rover_teleop.teleop_state import JoyWatchdog
 
@@ -154,38 +161,49 @@ class GamepadInterpreterNode(Node):
         self._publish_timer = self.create_timer(
             1.0 / max(0.001, self._cmd_pub_rate), self._publish_timer_cb)
 
-        self._toggles = [
-            ButtonToggle(declare_and_get('vy_toggle_button', 8), self._on_vy_toggle_pressed),
-            ButtonToggle(declare_and_get('motor_toggle_button', 9),
-                         lambda: self._request('drive/power/toggle')),
-            ButtonToggle(declare_and_get('raw_twist_mode_button', 3),
-                         self._on_raw_twist_mode_toggle_pressed),
-            ButtonToggle(declare_and_get('compact_mode_button', 1),
-                         lambda: self._request('drive/compact/toggle')),
-            ButtonToggle(declare_and_get('granny_button', 10), self._on_granny_toggle_pressed),
-            ButtonToggle(declare_and_get('spotlight_button', 4),
-                         lambda: self._request('lights/spotlight/toggle')),
-            ButtonToggle(declare_and_get('beautiful_button', 5),
-                         lambda: self._request('lights/beautiful/toggle')),
-            ButtonToggle(declare_and_get('active_toggle_button', 2), self._on_active_toggle_pressed),
-            ButtonToggle(declare_and_get('clear_errors_button', 20),
-                         lambda: self._request('drive/clear_errors')),
-            ButtonToggle(declare_and_get('dataset_capture_button', 14),
-                         lambda: self._dataset_press('capture', self._dataset.capture)),
-            ButtonToggle(declare_and_get('dataset_record_button', 15),
-                         lambda: self._dataset_press('record', self._dataset.toggle_record)),
-        ]
+        # Button layout comes only from gamepad.yaml: a function the yaml does
+        # not give a button (or gives -1) is off, so niche ones cost nothing
+        # on a pad with few buttons. No fallback indices here on purpose -
+        # they drifted from the yaml and nobody noticed.
+        bindings = {
+            'vy_toggle_button': self._on_vy_toggle_pressed,
+            'motor_toggle_button': lambda: self._request('drive/power/toggle'),
+            'raw_twist_mode_button': self._on_raw_twist_mode_toggle_pressed,
+            'compact_mode_button': lambda: self._request('drive/compact/toggle'),
+            'granny_button': self._on_granny_toggle_pressed,
+            'spotlight_button': lambda: self._request('lights/spotlight/toggle'),
+            'beautiful_button': lambda: self._request('lights/beautiful/toggle'),
+            'active_toggle_button': self._on_active_toggle_pressed,
+            'clear_errors_button': lambda: self._request('drive/clear_errors'),
+            'dataset_capture_button':
+                lambda: self._dataset_press('capture', self._dataset.capture),
+            'dataset_record_button':
+                lambda: self._dataset_press('record', self._dataset.toggle_record),
+        }
+        layout = {name: int(declare_and_get(name, DISABLED)) for name in bindings}
+        self._toggles = [ButtonToggle(layout[name], on_press)
+                         for name, on_press in bindings.items()]
+        self._log_layout(layout)
 
         self.get_logger().info(
             f'GamepadInterpreter started — '
-            f'vy_toggle_button={self._toggles[0].button_index}, '
-            f'motor_toggle_button={self._toggles[1].button_index}, '
             f'vy_enabled={self._vy_enabled}, '
             f'deadzone={self._deadzone}'
         )
 
         self._publish_active()
         self._refresh_led()
+
+    def _log_layout(self, layout: dict):
+        bound = ', '.join(f'{name}={index}' for name, index in layout.items() if index >= 0)
+        off = ', '.join(name for name, index in layout.items() if index < 0)
+        self.get_logger().info(f'Buttons: {bound or "none"}')
+        if off:
+            self.get_logger().info(f'Not bound (off): {off}')
+        for index, names in shared_buttons(layout).items():
+            self.get_logger().warn(
+                f'Button {index} is bound to several functions, one press fires '
+                f'all of them: {", ".join(names)}')
 
     # =======================================================================
     # Input

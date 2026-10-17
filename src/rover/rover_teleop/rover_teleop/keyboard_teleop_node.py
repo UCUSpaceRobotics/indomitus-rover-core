@@ -8,7 +8,10 @@ Keys are read from THIS terminal only (stdin), so typing in another window
 never moves the rover. They become the same sensor_msgs/Joy the DualSense
 produces (keyboard_input.KeyboardJoy) and go into a gamepad_interpreter
 running in this process, so the keyboard shares every mode, toggle and safety
-rule of the gamepad; button indices come from the same config/gamepad.yaml.
+rule of the gamepad. The interpreter's parameters come from the same
+config/gamepad.yaml, except the button layout: which key presses which
+function is config/keyboard.yaml, and the keys drive their own virtual
+buttons, whatever the gamepad has on or off.
 
 Must be started with ros2 run, not ros2 launch: launch does not hand the
 terminal to its children. Namespace: $ROVER_NAMESPACE, default 'rover'.
@@ -31,7 +34,8 @@ from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import Joy
 
 from rover_teleop.gamepad_interpreter_node import GamepadInterpreterNode
-from rover_teleop.keyboard_input import BUTTON_KEYS, HELP, KeyboardJoy
+from rover_teleop.joy_input import DISABLED
+from rover_teleop.keyboard_input import KeyboardJoy, button_indices, help_text, parse_keymap
 
 STOP_BURST = 3   # zero twists sent on exit, like the interpreter's timeout burst
 
@@ -40,11 +44,11 @@ def _raise_keyboard_interrupt(signum, frame):
     raise KeyboardInterrupt
 
 
-def _interpreter_parameters() -> dict:
-    """gamepad_interpreter's parameters from config/gamepad.yaml, flattened."""
-    path = os.path.join(get_package_share_directory('rover_teleop'), 'config', 'gamepad.yaml')
+def _parameters(config: str, node: str) -> dict:
+    """A node's parameters from this package's config/<config>, flattened."""
+    path = os.path.join(get_package_share_directory('rover_teleop'), 'config', config)
     with open(path) as f:
-        params = yaml.safe_load(f)['/**/gamepad_interpreter']['ros__parameters']
+        params = yaml.safe_load(f)[f'/**/{node}']['ros__parameters']
 
     flat = {}
 
@@ -62,7 +66,7 @@ def _interpreter_parameters() -> dict:
 class KeyboardJoyNode(Node):
     """Reads the terminal and publishes Joy for the in-process interpreter."""
 
-    def __init__(self, button_indices: dict, **node_kwargs):
+    def __init__(self, keymap: dict, **node_kwargs):
         super().__init__('keyboard_joy', **node_kwargs)
         self.declare_parameter('cmd_vel_topic', 'cmd_vel_gs')
         self.declare_parameter('publish_rate', 20.0)
@@ -71,7 +75,7 @@ class KeyboardJoyNode(Node):
         self.declare_parameter('repeat_hold', 0.15)
 
         self.keys = KeyboardJoy(
-            button_indices,
+            keymap,
             speed=float(self.get_parameter('speed').value),
             initial_hold=float(self.get_parameter('initial_hold').value),
             repeat_hold=float(self.get_parameter('repeat_hold').value),
@@ -124,10 +128,25 @@ def main(args=None):
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
 
     namespace = os.environ.get('ROVER_NAMESPACE', 'rover')
-    params = _interpreter_parameters()
-    button_indices = {name: params[name] for name in BUTTON_KEYS.values() if name in params}
+    keyboard_params = _parameters('keyboard.yaml', 'keyboard_joy')
+    raw_keys = {name[len('keys.'):]: keyboard_params.pop(name)
+                for name in list(keyboard_params) if name.startswith('keys.')}
+    try:
+        keymap = parse_keymap(raw_keys)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
 
-    keyboard = KeyboardJoyNode(button_indices, namespace=namespace)
+    params = _parameters('gamepad.yaml', 'gamepad_interpreter')
+    # The gamepad's layout does not apply here: every function with a key in
+    # keyboard.yaml gets its virtual button, the rest are off.
+    for name in [n for n in params if n.endswith('_button')]:
+        params[name] = DISABLED
+    params.update(button_indices(keymap))
+
+    keyboard = KeyboardJoyNode(
+        keymap, namespace=namespace,
+        parameter_overrides=[Parameter(n, value=v) for n, v in keyboard_params.items()])
     overrides = [Parameter(name, value=value) for name, value in params.items()]
     overrides.append(Parameter('controller_led', value=False))
     interpreter = GamepadInterpreterNode(
@@ -149,7 +168,7 @@ def main(args=None):
 
     stdin_fd = sys.stdin.fileno()
     saved_tty = termios.tcgetattr(stdin_fd)
-    print(HELP)
+    print(help_text(keymap))
     print(f'  -> /{namespace}/{keyboard.cmd_vel_topic}\n')
     try:
         tty.setcbreak(stdin_fd)   # keys arrive one by one, no echo; Ctrl+C still works

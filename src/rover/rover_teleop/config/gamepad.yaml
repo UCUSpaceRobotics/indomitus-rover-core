@@ -1,3 +1,9 @@
+# Buttons: every *_button below is the only place a function gets a button -
+# the node has no fallback layout. -1 (or leaving the key out) turns the
+# function off, so niche features don't take one of the pad's few buttons.
+# The node logs the layout at startup and warns if two functions share a button.
+# keyboard_teleop_node ignores these indices: its keys are in keyboard.yaml.
+
 /**/gamepad_interpreter:
   ros__parameters:
     axis_linear:
@@ -74,8 +80,10 @@
     # buttons only ask. Capture saves one frame from every running camera,
     # record toggles saving one per second. The ground station UI drives the
     # same servers, and both read the state back, so they never disagree.
-    dataset_capture_button: 14
-    dataset_record_button: 15
+    # Off by default (-1): niche, and the competition needs the buttons. For
+    # dataset collection set them (they used to be 14 / 15).
+    dataset_capture_button: -1
+    dataset_record_button: -1
     dataset_host: 127.0.0.1   # host networking: the servers are on loopback
     dataset_camera_ports: [8090, 8091, 8092, 8093, 8094, 8095, 8096, 8097]
 

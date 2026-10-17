@@ -45,22 +45,48 @@ def triggers_held(axes, l2_index: int, r2_index: int, deadzone: float) -> bool:
     return max(abs(value(l2_index)), abs(value(r2_index))) > deadzone
 
 
+# A *_button parameter set to this means "no button does this". Buttons are
+# scarce on a gamepad, so the layout lives only in gamepad.yaml and every
+# function is off unless the yaml gives it a button.
+DISABLED = -1
+
+
+def shared_buttons(bindings: dict) -> dict:
+    """{button index: [names]} for every index bound to more than one function.
+
+    `bindings` maps function name -> button index; disabled ones are ignored.
+    """
+    by_index = {}
+    for name, index in bindings.items():
+        if index >= 0:
+            by_index.setdefault(index, []).append(name)
+    return {index: names for index, names in by_index.items() if len(names) > 1}
+
+
 class ButtonToggle:
     """Rising-edge detector for a single joystick button.
 
     The buttons are momentary and /joy repeats at 20 Hz, so acting on the level
     would fire the action twenty times a second for as long as a finger rests
     on the button.
+
+    A negative index (DISABLED) never fires. It has to be checked explicitly:
+    Python would read buttons[-1] as the last button on the pad.
     """
 
     def __init__(self, button_index: int, on_press):
-        self.button_index = button_index
+        self.button_index = int(button_index)
         self._on_press = on_press
         self._prev_state = 0
 
+    @property
+    def enabled(self) -> bool:
+        return self.button_index >= 0
+
     def update(self, buttons) -> bool:
         """Feed the latest Joy.buttons array in; returns True if this was a press edge."""
-        current = buttons[self.button_index] if self.button_index < len(buttons) else 0
+        index = self.button_index
+        current = buttons[index] if 0 <= index < len(buttons) else 0
         pressed = current == 1 and self._prev_state == 0
         self._prev_state = current
         if pressed:
