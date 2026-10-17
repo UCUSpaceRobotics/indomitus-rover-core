@@ -224,7 +224,7 @@ class ControllerLed:
                 f'controller LED found at {path} but not writable: {exc!r} — '
                 f'the light bar will not track the drive state. Install the '
                 f'udev rule with: scripts/setup_host.sh <rover|local> '
-                f'--joystick-led (and make sure this user is in the plugdev '
+                f'--udev playstation-led (and make sure this user is in the plugdev '
                 f'group)')
 
     def _sysfs_targets(self):
