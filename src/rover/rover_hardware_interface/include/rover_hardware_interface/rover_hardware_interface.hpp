@@ -183,6 +183,10 @@ private:
     std::array<double, NUM_WHEELS> drive_pos_{};    ///< drive wheel position     [rad]
     std::array<double, NUM_WHEELS> drive_vel_{};    ///< drive wheel velocity     [rad/s]
 
+    /// Continuous drive position from the wrapping MIT feedback. Control thread
+    /// only (read()), so it needs no lock.
+    std::array<damiao_protocol::PositionUnwrapper, NUM_WHEELS> drive_unwrap_{};
+
     // Command interface backing storage
 
     std::array<double, NUM_WHEELS> steer_cmd_{};    ///< target steering position [rad]

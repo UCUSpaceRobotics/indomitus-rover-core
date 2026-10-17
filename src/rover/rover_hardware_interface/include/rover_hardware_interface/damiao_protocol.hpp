@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include "can_msgs/msg/frame.hpp"
@@ -48,6 +49,38 @@ struct MotorState {
     float pos_exact = 0.0f;  // rad, from register 80 (p_m) — motor shaft
     float pos_out   = 0.0f;  // rad, from register 81 (xout) — output shaft
     bool reg_valid  = false;
+};
+
+/// Turns the MIT position (±pmax, wraps by 2·pmax) into a continuous
+/// multi-turn angle, which is what ros2_control expects from a continuous
+/// joint and what Gazebo exports in sim. Unwrapping by 2π downstream is not
+/// enough: 2·pmax = 25 rad is not a multiple of 2π, so each wrap would leave
+/// 25 - 8π ≈ 0.13 rad of phantom travel. Valid while true travel between two
+/// samples stays below pmax — 12.5 rad per cycle, far beyond any wheel speed.
+struct PositionUnwrapper {
+    bool   has_prev  = false;
+    bool   has_accum = false;
+    double prev  = 0.0;
+    double accum = 0.0;
+
+    double update(double raw, double pmax) {
+        if (!has_accum) {
+            accum = raw;
+            has_accum = true;
+        } else if (has_prev) {
+            const double span = 2.0 * pmax;
+            double d = raw - prev;
+            d -= span * std::round(d / span);
+            accum += d;
+        }
+        prev = raw;
+        has_prev = true;
+        return accum;
+    }
+
+    /// Forget the last raw sample but keep accum: travel while unobserved is
+    /// dropped, so the exported position never jumps.
+    void resync() { has_prev = false; }
 };
 
 inline uint16_t floatToUint(float x, float xmin, float xmax, int bits) {

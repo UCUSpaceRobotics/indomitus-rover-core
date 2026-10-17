@@ -446,6 +446,57 @@ TEST(FaultRecovery, ObservedFieldFaultIsClassified) {
     EXPECT_STREQ(rover_fault::to_string(f), "voltage");
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Damiao position unwrapping
+// ═══════════════════════════════════════════════════════════════════════════════
+
+namespace {
+constexpr double kPmax = 12.5;
+// What the motor reports for a true multi-turn angle: wrapped into ±pmax.
+double wrapToPmax(double x) {
+    const double span = 2.0 * kPmax;
+    return x - span * std::floor((x + kPmax) / span);
+}
+}  // namespace
+
+TEST(DamiaoUnwrap, FirstSampleInitialisesToRaw) {
+    damiao_protocol::PositionUnwrapper u;
+    EXPECT_DOUBLE_EQ(u.update(3.0, kPmax), 3.0);
+}
+
+TEST(DamiaoUnwrap, CrossingPositiveLimitIsContinuous) {
+    damiao_protocol::PositionUnwrapper u;
+    u.update(12.4, kPmax);
+    u.update(12.49, kPmax);
+    EXPECT_NEAR(u.update(-12.49, kPmax), 12.51, 1e-9);
+    EXPECT_NEAR(u.update(-12.4, kPmax), 12.6, 1e-9);
+}
+
+TEST(DamiaoUnwrap, CrossingNegativeLimitIsContinuous) {
+    damiao_protocol::PositionUnwrapper u;
+    u.update(-12.4, kPmax);
+    EXPECT_NEAR(u.update(12.4, kPmax), -12.6, 1e-9);
+}
+
+TEST(DamiaoUnwrap, ManyWrapsAccumulateWithoutError) {
+    damiao_protocol::PositionUnwrapper u;
+    const double start = 1.0;
+    double out = u.update(wrapToPmax(start), kPmax);
+    for (int k = 1; k <= 2000; ++k) {
+        out = u.update(wrapToPmax(start + 0.05 * k), kPmax);
+    }
+    EXPECT_NEAR(out, start + 100.0, 1e-6);
+}
+
+TEST(DamiaoUnwrap, ResyncDropsUnobservedTravelWithoutJump) {
+    damiao_protocol::PositionUnwrapper u;
+    u.update(1.0, kPmax);
+    u.update(2.0, kPmax);
+    u.resync();
+    EXPECT_DOUBLE_EQ(u.update(-7.0, kPmax), 2.0);
+    EXPECT_DOUBLE_EQ(u.update(-6.5, kPmax), 2.5);
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

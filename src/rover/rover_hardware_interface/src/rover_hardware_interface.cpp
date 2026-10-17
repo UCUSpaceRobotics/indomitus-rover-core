@@ -371,7 +371,12 @@ RoverHardwareInterface::read(
 
     // Nothing polls the motors while they are disabled, so the timeout clock
     // only runs while we are actually asking them to answer.
-    if (!enabled) feedback_expected_since_ns_.store(now_ns);
+    if (!enabled) {
+        feedback_expected_since_ns_.store(now_ns);
+        // Same reason: the last drive sample is stale, so the first one after
+        // (re)enable must not be diffed against it.
+        for (auto & u : drive_unwrap_) u.resync();
+    }
 
     // Snapshot, then release: everything below is arithmetic on a private copy.
     // Holding feedback_mutex_ across detection would make the RX thread wait on
@@ -391,7 +396,8 @@ RoverHardwareInterface::read(
             ? static_cast<double>(steer[i].pos_rad) : 0.0;
 
         if (drive[i].valid) {
-            drive_pos_[i] = static_cast<double>(drive[i].pos) * kDriveSigns[i];
+            drive_pos_[i] = drive_unwrap_[i].update(drive[i].pos, drive_pmax_)
+                            * kDriveSigns[i];
             drive_vel_[i] = static_cast<double>(drive[i].vel) * kDriveSigns[i];
         }
     }
