@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- A USB camera (rover_cameras): <name>_link (x forward, z up, the pose you measure)
+       and <name>_optical_frame (z into the scene, x right, y down; REP-103), which is
+       what rover_cameras' image_raw/camera_info carry as frame_id. `name` is the
+       cameras.yaml name with '-' replaced by '_'. Visual only: no collision, no mass. -->
+  <xacro:macro name="usb_camera" params="name parent *origin">
+    <joint name="${name}_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_link"/>
+      <xacro:insert_block name="origin"/>
+    </joint>
+
+    <link name="${name}_link">
+      <visual>
+        <origin xyz="-0.01 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.02 0.038 0.038"/>
+        </geometry>
+        <material name="dark_wheel"/>
+      </visual>
+    </link>
+
+    <joint name="${name}_optical_joint" type="fixed">
+      <parent link="${name}_link"/>
+      <child link="${name}_optical_frame"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <link name="${name}_optical_frame"/>
+  </xacro:macro>
+
+</robot>

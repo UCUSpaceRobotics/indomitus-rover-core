@@ -100,6 +100,36 @@
   <xacro:property name="zed2i_ry" value="${pi/12}"/>
   <xacro:property name="zed2i_rz" value="0.0"/>
 
+  <!-- ===================== CAMERA MAST ===================== -->
+  <!-- Vertical 2x2 cm pole on the rear face of the main body, 1 m tall, its bottom
+       level with the body's bottom. Centred left-right: CALIBRATE (measure). -->
+  <xacro:property name="mast_size" value="0.02"/>
+  <xacro:property name="mast_height" value="1.0"/>
+  <xacro:property name="mast_mass" value="0.3"/>
+  <xacro:property name="mast_x" value="${-body_length / 2.0 - mast_size / 2.0}"/>
+  <xacro:property name="mast_y" value="0.0"/>
+  <xacro:property name="mast_z" value="${-body_height / 2.0 + mast_height / 2.0}"/>
+
+  <!-- ===================== USB CAMERAS (rover_cameras) ===================== -->
+  <!-- Hand-measured mounting poses, relative to the parent link's origin; pitch > 0
+       looks down. Every value marked CALIBRATE is a tape-measure estimate to replace
+       with an extrinsic calibration (grep CALIBRATE). -->
+
+  <!-- arducam-fr-bottom: under the main body, 15 cm forward of its centre, 3 cm below
+       its bottom, looking forward 15 deg down. CALIBRATE: y (assumed centred), z, pitch. -->
+  <xacro:property name="arducam_fr_bottom_x" value="0.15"/>
+  <xacro:property name="arducam_fr_bottom_y" value="0.0"/>
+  <xacro:property name="arducam_fr_bottom_z" value="${-body_height / 2.0 - 0.03}"/>
+  <xacro:property name="arducam_fr_bottom_pitch" value="${15.0 * pi / 180.0}"/>
+
+  <!-- arducam-mast: on the mast (relative to mast_link, the pole's centre), 5 cm
+       below its top, 2 cm to the left of the pole, looking forward 25 deg down.
+       CALIBRATE: y (2 cm from the pole's axis assumed), x, pitch. -->
+  <xacro:property name="arducam_mast_x" value="0.0"/>
+  <xacro:property name="arducam_mast_y" value="0.02"/>
+  <xacro:property name="arducam_mast_z" value="${mast_height / 2.0 - 0.05}"/>
+  <xacro:property name="arducam_mast_pitch" value="${25.0 * pi / 180.0}"/>
+
   <!-- ===================== LIDAR POSSITION ===================== -->
   <xacro:property name="lidar_x" value="0.0"/>
   <xacro:property name="lidar_y" value="0.0"/>

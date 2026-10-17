@@ -7,6 +7,7 @@
   <xacro:include filename="$(find rover_description)/urdf/macros/accessories.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/stereo_camera.xacro"/>
   <xacro:include filename="$(find rover_description)/urdf/macros/lidar.xacro"/>
+  <xacro:include filename="$(find rover_description)/urdf/macros/usb_camera.xacro"/>
 
   <!-- ===================== MATERIALS ===================== -->
   <material name="blue_body">
@@ -133,6 +134,45 @@
     <child link="laser_link"/>
     <origin xyz="${lidar_x} ${lidar_y} ${lidar_z}" rpy="0 0 0"/>
   </joint>
+
+  <!-- ===================== CAMERA MAST ===================== -->
+  <link name="mast_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="${mast_mass}"/>
+      <xacro:box_inertia m="${mast_mass}" x="${mast_size}" y="${mast_size}" z="${mast_height}"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <box size="${mast_size} ${mast_size} ${mast_height}"/>
+      </geometry>
+      <material name="grey_structure"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${mast_size} ${mast_size} ${mast_height}"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="mast_joint" type="fixed">
+    <parent link="main_body_link"/>
+    <child link="mast_link"/>
+    <origin xyz="${mast_x} ${mast_y} ${mast_z}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===================== USB CAMERAS (rover_cameras) ===================== -->
+  <!-- Poses in properties.xacro (CALIBRATE markers). Not yet modelled:
+       arducam-front, thermal-camera-front (positions unknown). -->
+  <xacro:usb_camera name="arducam_fr_bottom" parent="main_body_link">
+    <origin xyz="${arducam_fr_bottom_x} ${arducam_fr_bottom_y} ${arducam_fr_bottom_z}"
+            rpy="0 ${arducam_fr_bottom_pitch} 0"/>
+  </xacro:usb_camera>
+
+  <xacro:usb_camera name="arducam_mast" parent="mast_link">
+    <origin xyz="${arducam_mast_x} ${arducam_mast_y} ${arducam_mast_z}"
+            rpy="0 ${arducam_mast_pitch} 0"/>
+  </xacro:usb_camera>
 
   <!-- ===================== ROCKERS + WHEELS ===================== -->
   <xacro:rocker_assembly side="l" y_sign="1"/>
