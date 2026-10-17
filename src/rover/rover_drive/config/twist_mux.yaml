@@ -12,6 +12,11 @@
         timeout: 0.5
         priority: 50
 
+      remote:
+        topic:   "cmd_vel_remote"
+        timeout: 0.5
+        priority: 30
+
       nav2:
         topic:   "cmd_vel_nav"
         timeout: 1.0

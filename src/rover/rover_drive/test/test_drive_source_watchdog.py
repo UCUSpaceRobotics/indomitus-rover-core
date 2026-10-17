@@ -146,7 +146,11 @@ def test_reads_the_shipped_twist_mux_config():
     with open(TWIST_MUX_YAML) as f:
         sources = sources_from_twist_mux(yaml.safe_load(f), ['cmd_vel_nav'])
     by_name = {s.name: s for s in sources}
-    assert set(by_name) == {s.name for s in SOURCES}
+    assert set(by_name) == {s.name for s in SOURCES} | {'cmd_vel_remote'}
+    # The rover-side gamepad outranks every other source, and the operators
+    # outrank autonomy.
+    assert max(sources, key=lambda s: s.priority).name == 'cmd_vel_joy'
+    assert by_name['cmd_vel_remote'].priority > by_name['cmd_vel_nav'].priority
     # Exactly one autonomous input, and the lamp's colour depends on it.
     assert [s.name for s in sources if s.autonomous] == ['cmd_vel_nav']
     for source in sources:

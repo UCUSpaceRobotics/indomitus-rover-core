@@ -4,7 +4,10 @@
 # The node logs the layout at startup and warns if two functions share a button.
 # keyboard_teleop_node ignores these indices: its keys are in keyboard.yaml.
 
-/**/gamepad_interpreter:
+# `/**` rather than the node's name: gamepad.launch.py names the interpreter
+# gamepad_interpreter or remote_gamepad_interpreter depending on `source`, and
+# this file is only ever handed to the interpreter.
+/**:
   ros__parameters:
     axis_linear:
       x: 1 # Left stick vertical (forward/backward)

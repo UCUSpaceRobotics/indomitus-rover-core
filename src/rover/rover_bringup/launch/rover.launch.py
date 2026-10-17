@@ -50,7 +50,7 @@ def generate_launch_description():
         'use_joy', default_value='true',
         description='Wired gamepad plugged into the rover itself (cmd_vel_joy, '
                     'top twist_mux priority) - separate from the ground '
-                    'station\'s own joystick on cmd_vel_gs',
+                    'station (cmd_vel_gs) and operator laptops (cmd_vel_remote)',
     )
 
     joy_dev_arg = DeclareLaunchArgument(
@@ -91,6 +91,7 @@ def generate_launch_description():
             GroupAction([
                 include_launch('rover_teleop', 'gamepad.launch.py', {
                     'rover_namespace': '',   # already pushed by this group
+                    'source': 'rover',       # the default is a laptop gamepad
                     'joy_dev': LaunchConfiguration('joy_dev'),
                 }),
             ], condition=IfCondition(LaunchConfiguration('use_joy'))),

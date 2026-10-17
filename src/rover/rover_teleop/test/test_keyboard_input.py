@@ -42,7 +42,7 @@ def make(**kwargs):
 
 def shipped_keys():
     with open(KEYBOARD_YAML) as f:
-        return yaml.safe_load(f)['/**/keyboard_joy']['ros__parameters']['keys']
+        return yaml.safe_load(f)['/**/remote_keyboard_joy']['ros__parameters']['keys']
 
 
 # ── hold detection ───────────────────────────────────────────────────────────

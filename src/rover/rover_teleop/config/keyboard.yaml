@@ -1,10 +1,12 @@
-# Keyboard teleop (keyboard_teleop_node, `ros2 run`, usually on the ground
-# station laptop). Everything else - speeds, modes, timeouts - is the
-# interpreter's and comes from gamepad.yaml.
+# Keyboard teleop (keyboard_teleop_node, `ros2 run`) on an operator's laptop -
+# the `remote` control source, see docs/software/control_sources.md.
+# Everything else - speeds, modes, timeouts - is the interpreter's and comes
+# from gamepad.yaml.
 
-/**/keyboard_joy:
+/**/remote_keyboard_joy:
   ros__parameters:
-    cmd_vel_topic: cmd_vel_gs   # below the rover-side gamepad in twist_mux
+    cmd_vel_topic: cmd_vel_remote   # laptop operators' twist_mux input, shared with
+                                    # a laptop gamepad (one operator at a time)
     publish_rate: 20.0
     speed: 0.5                  # starting stick deflection, 1..9,0 change it
 

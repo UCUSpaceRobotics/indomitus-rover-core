@@ -44,11 +44,11 @@ def _raise_keyboard_interrupt(signum, frame):
     raise KeyboardInterrupt
 
 
-def _parameters(config: str, node: str) -> dict:
-    """A node's parameters from this package's config/<config>, flattened."""
+def _parameters(config: str, key: str) -> dict:
+    """The parameters under `key` in this package's config/<config>, flattened."""
     path = os.path.join(get_package_share_directory('rover_teleop'), 'config', config)
     with open(path) as f:
-        params = yaml.safe_load(f)[f'/**/{node}']['ros__parameters']
+        params = yaml.safe_load(f)[key]['ros__parameters']
 
     flat = {}
 
@@ -67,8 +67,8 @@ class KeyboardJoyNode(Node):
     """Reads the terminal and publishes Joy for the in-process interpreter."""
 
     def __init__(self, keymap: dict, **node_kwargs):
-        super().__init__('keyboard_joy', **node_kwargs)
-        self.declare_parameter('cmd_vel_topic', 'cmd_vel_gs')
+        super().__init__('remote_keyboard_joy', **node_kwargs)
+        self.declare_parameter('cmd_vel_topic', 'cmd_vel_remote')
         self.declare_parameter('publish_rate', 20.0)
         self.declare_parameter('speed', 0.5)
         self.declare_parameter('initial_hold', 0.6)
@@ -80,7 +80,7 @@ class KeyboardJoyNode(Node):
             initial_hold=float(self.get_parameter('initial_hold').value),
             repeat_hold=float(self.get_parameter('repeat_hold').value),
         )
-        self._pub = self.create_publisher(Joy, 'keyboard/joy', 10)
+        self._pub = self.create_publisher(Joy, 'remote/keyboard/joy', 10)
         self._status = None
         rate = float(self.get_parameter('publish_rate').value)
         self.create_timer(1.0 / max(rate, 1.0), self._tick)
@@ -128,7 +128,7 @@ def main(args=None):
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
 
     namespace = os.environ.get('ROVER_NAMESPACE', 'rover')
-    keyboard_params = _parameters('keyboard.yaml', 'keyboard_joy')
+    keyboard_params = _parameters('keyboard.yaml', '/**/remote_keyboard_joy')
     raw_keys = {name[len('keys.'):]: keyboard_params.pop(name)
                 for name in list(keyboard_params) if name.startswith('keys.')}
     try:
@@ -137,7 +137,7 @@ def main(args=None):
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    params = _parameters('gamepad.yaml', 'gamepad_interpreter')
+    params = _parameters('gamepad.yaml', '/**')
     # The gamepad's layout does not apply here: every function with a key in
     # keyboard.yaml gets its virtual button, the rest are off.
     for name in [n for n in params if n.endswith('_button')]:
@@ -150,15 +150,16 @@ def main(args=None):
     overrides = [Parameter(name, value=value) for name, value in params.items()]
     overrides.append(Parameter('controller_led', value=False))
     interpreter = GamepadInterpreterNode(
-        node_name='keyboard_interpreter',
+        node_name='remote_keyboard_interpreter',
         namespace=namespace,
         parameter_overrides=overrides,
         cli_args=[
             '--ros-args',
-            '-r', 'joy:=keyboard/joy',
+            '-r', 'joy:=remote/keyboard/joy',
             '-r', f'cmd_vel:={keyboard.cmd_vel_topic}',
-            # The gamepad's interpreter owns teleop/joystick_active.
-            '-r', 'teleop/joystick_active:=teleop/keyboard_active',
+            # teleop/joystick_active is the rover gamepad's (drive_manager
+            # reads it); this one publishes under its own node name.
+            '-r', 'teleop/joystick_active:=~/active',
         ],
     )
 

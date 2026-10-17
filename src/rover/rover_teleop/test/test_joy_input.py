@@ -27,7 +27,7 @@ GAMEPAD_YAML = os.path.join(os.path.dirname(__file__), '..', 'config', 'gamepad.
 
 def _gamepad_params():
     with open(GAMEPAD_YAML) as f:
-        return yaml.safe_load(f)['/**/gamepad_interpreter']['ros__parameters']
+        return yaml.safe_load(f)['/**']['ros__parameters']
 
 
 # ── deadzone ─────────────────────────────────────────────────────────────────
