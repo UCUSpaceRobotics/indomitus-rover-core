@@ -62,9 +62,10 @@ def generate_launch_description():
         'zed2i_mode', default_value='',
         description=(
             "ZED2i stereo camera mode: 'rgb' for the operator color feed, 'nav' for the "
-            "point cloud and VIO used by navigation. Leave empty to not launch the camera at all."
+            "point cloud and VIO used by navigation, 'record' for traversability-dataset recording. "
+            "Leave empty to not launch the camera at all."
         ),
-        choices=['', 'rgb', 'nav'],
+        choices=['', 'rgb', 'nav', 'record'],
     )
     zed2i_mode_val = LaunchConfiguration('zed2i_mode')
 

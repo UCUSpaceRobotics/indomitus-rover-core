@@ -16,6 +16,7 @@ from launch_ros.actions import ComposableNodeContainer, Node, SetRemap
 COMMON_CONFIG_NAME = "zed2i_common.yaml"
 RGB_CONFIG_NAME = "zed2i_rgb.yaml"
 NAV_CONFIG_NAME = "zed2i_nav.yaml"
+RECORD_CONFIG_NAME = "zed2i_record.yaml"
 CAMERA_MODEL = "zed2i"
 CONTAINER_NAME = "zed_container"
 
@@ -35,14 +36,18 @@ def _resolve_config_file(mode: str, config_path: str) -> str:
     """
     `zed_camera.launch.py`'s `ros_params_override_path` only accepts a single file, so the
     general/video/sensors settings shared by every mode (zed2i_common.yaml) and the
-    mode-specific overrides (zed2i_rgb.yaml / zed2i_nav.yaml) are merged here into one temp
-    file instead of duplicating the shared block in both mode config files.
+    mode-specific overrides (zed2i_rgb.yaml / zed2i_nav.yaml / zed2i_record.yaml) are merged
+    here into one temp file instead of duplicating the shared block in every mode config file.
+    Each mode file is merged on top of common.
     """
     if config_path:
         return config_path
 
     config_dir = os.path.join(get_package_share_directory("rover_sensors"), "config")
-    mode_config_name = NAV_CONFIG_NAME if mode == "nav" else RGB_CONFIG_NAME
+    mode_config_name = {
+        "nav": NAV_CONFIG_NAME,
+        "record": RECORD_CONFIG_NAME,
+    }.get(mode, RGB_CONFIG_NAME)
 
     with open(os.path.join(config_dir, COMMON_CONFIG_NAME)) as f:
         merged_config = yaml.safe_load(f)
@@ -162,10 +167,12 @@ def generate_launch_description() -> LaunchDescription:
         default_value="rgb",
         description=(
             "Camera operation mode: 'rgb' publishes only the rectified color feed for the "
-            "operator, 'nav' additionally enables the point cloud and VIO used by navigation stack. "
+            "operator, 'nav' additionally enables the point cloud and VIO used by navigation stack, "
+            "'record' is for traversability-dataset recording (VIO, downscaled images + depth, "
+            "no point cloud). "
             "Selects the default config file, unless `config_path` is set explicitly."
         ),
-        choices=["rgb", "nav"],
+        choices=["rgb", "nav", "record"],
     )
 
     config_path_arg = DeclareLaunchArgument(
