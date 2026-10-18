@@ -17,7 +17,7 @@
   <a href="https://github.com/yuriifito/indomitus-rover-core-ai/actions/workflows/publish_image.yaml?query=branch%3Amain"><img alt="main build" src="https://img.shields.io/github/actions/workflow/status/yuriifito/indomitus-rover-core-ai/publish_image.yaml?branch=main&label=main%20build&logo=github"></a>
   <a href="https://github.com/yuriifito/indomitus-rover-core-ai/actions/workflows/publish_image.yaml?query=branch%3Adevelop"><img alt="develop build" src="https://img.shields.io/github/actions/workflow/status/yuriifito/indomitus-rover-core-ai/publish_image.yaml?branch=develop&label=develop%20build&logo=github"></a>
   <a href="https://github.com/yuriifito/indomitus-rover-core-ai/releases/latest"><img alt="main release" src="https://img.shields.io/github/v/release/yuriifito/indomitus-rover-core-ai?label=main&color=green"></a>
-  <a href="https://github.com/yuriifito/indomitus-rover-core-ai/releases"><img alt="develop release" src="https://img.shields.io/github/v/release/yuriifito/indomitus-rover-core-ai?include_prereleases&label=develop"></a>
+  <a href="https://github.com/yuriifito/indomitus-rover-core-ai/releases"><img alt="develop release" src="https://img.shields.io/github/v/release/yuriifito/indomitus-rover-core-ai?include_prereleases&sort=date&label=develop"></a>
 </p>
 
 ---
