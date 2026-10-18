@@ -4,8 +4,8 @@ How to launch autonomous navigation (LiDAR + SLAM + Nav2) — on the physical ro
 
 ## 1. What needs to be connected
 
-* **RPLIDAR S2** — connected via USB, recognized at `/dev/rplidar-s2` (udev rule, see [`rplidar_s2.md`](../../src/rover_sensors/docs/rplidar_s2.md)).
-* **ZED2i stereo camera** — connected via USB, host udev rule (`99-slabs.rules`) and GPU passthrough set up (see [`zed2i.md`](../../src/rover_sensors/docs/zed2i.md)). Must already be running in `nav` mode before `navigation.launch.py`'s waits will succeed — it does not start the camera itself.
+* **RPLIDAR S2** — connected via USB, recognized at `/dev/rplidar-s2` (udev rule, see [`rplidar_s2.md`](../../src/rover/rover_sensors/docs/rplidar_s2.md)).
+* **ZED2i stereo camera** — connected via USB, host udev rule (`99-slabs.rules`) and GPU passthrough set up (see [`zed2i.md`](../../src/rover/rover_sensors/docs/zed2i.md)). Must already be running in `nav` mode before `navigation.launch.py`'s waits will succeed — it does not start the camera itself.
 
 ## 2. Launch commands
 

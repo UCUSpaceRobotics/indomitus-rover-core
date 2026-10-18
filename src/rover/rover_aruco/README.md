@@ -118,7 +118,7 @@ The utility outputs an OpenCV `.npz` archive. You must manually map this to a RO
 * Transfer intrinsic values to the 3x4 `projection_matrix`.
 * Ensure `camera_name` matches your driver configuration.
 
-Store the YAML in `src/rover_aruco/config/` and update your camera launch files to point to it.
+Store the YAML in `src/rover/rover_aruco/config/` and update your camera launch files to point to it.
 
 ### Step 5: Post-Calibration Validation
 

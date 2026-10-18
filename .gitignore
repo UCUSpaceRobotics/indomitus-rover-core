@@ -229,15 +229,15 @@ __marimo__/
 # COLCON
 colcon_defaults.yaml
 COLCON_IGNORE
-!src/rover_navigation/COLCON_IGNORE
-!src/rover_localization/COLCON_IGNORE
-!src/rover_costmap_plugins/COLCON_IGNORE
+!src/rover/rover_navigation/COLCON_IGNORE
+!src/rover/rover_localization/COLCON_IGNORE
+!src/rover/rover_costmap_plugins/COLCON_IGNORE
 
 # Ament
 AMENT_IGNORE
-!src/rover_navigation/AMENT_IGNORE
-!src/rover_localization/AMENT_IGNORE
-!src/rover_costmap_plugins/AMENT_IGNORE
+!src/rover/rover_navigation/AMENT_IGNORE
+!src/rover/rover_localization/AMENT_IGNORE
+!src/rover/rover_costmap_plugins/AMENT_IGNORE
 
 # Code formating
 .clang-format

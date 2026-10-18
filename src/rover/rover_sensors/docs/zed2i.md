@@ -29,7 +29,7 @@ ros2 launch rover_sensors zed2i.launch.py mode:=rgb
 ros2 launch rover_sensors zed2i.launch.py mode:=nav
 ```
 
-On the real rover, this launch file is normally started via `rover_bringup/launch/rover.launch.py`'s `zed2i_mode` argument rather than invoked directly — see [`nodes_overview.md`](../../../docs/software/nodes_overview.md). `config_path` can still be set explicitly to override the default file chosen by `mode` - in that case the file is used as-is and `zed2i_common.yaml` is not merged in.
+On the real rover, this launch file is normally started via `rover_bringup/launch/rover.launch.py`'s `zed2i_mode` argument rather than invoked directly — see [`nodes_overview.md`](../../../../docs/software/nodes_overview.md). `config_path` can still be set explicitly to override the default file chosen by `mode` - in that case the file is used as-is and `zed2i_common.yaml` is not merged in.
 
 
 ---

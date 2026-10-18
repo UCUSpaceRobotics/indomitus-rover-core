@@ -15,8 +15,8 @@ It publishes laser scan data to the `/scan` (`/rplidar/scan`) topic.
 The driver executable comes from the upstream Slamtec `sllidar_ros2` package, which is built in the Docker hardware workspace. The rover package keeps the rover-specific launch file and default parameter file:
 
 ```text
-src/rover_sensors/launch/rplidar_s2_launch.py
-src/rover_sensors/config/rplidar_s2.yaml
+src/rover/rover_sensors/launch/rplidar_s2_launch.py
+src/rover/rover_sensors/config/rplidar_s2.yaml
 ```
 
 The launched executable is `sllidar_node`, but the node is named `rplidar_node` in our launch file so the YAML parameter namespace matches rover naming.
@@ -70,7 +70,7 @@ share/rover_sensors/config/rplidar_s2.yaml
 The tracked source file is:
 
 ```text
-src/rover_sensors/config/rplidar_s2.yaml
+src/rover/rover_sensors/config/rplidar_s2.yaml
 ```
 
 Current rover defaults (utilizing the udev rule):
@@ -86,7 +86,7 @@ scan_mode: DenseBoost
 
 ## Change frame ID or scan mode
 
-Edit `frame_id` or `scan_mode` in `src/rover_sensors/config/rplidar_s2.yaml`.
+Edit `frame_id` or `scan_mode` in `src/rover/rover_sensors/config/rplidar_s2.yaml`.
 
 For `RPLIDAR S2`, the current default scan mode is:
 
