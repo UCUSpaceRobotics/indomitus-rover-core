@@ -111,6 +111,9 @@ if(BUILD_TESTING)
     std_srvs
     realtime_tools
   )
+
+  ament_add_gtest(test_s_curve_limiter test/test_s_curve_limiter.cpp)
+  target_link_libraries(test_s_curve_limiter ${PROJECT_NAME})
 endif()
 
 ament_package()

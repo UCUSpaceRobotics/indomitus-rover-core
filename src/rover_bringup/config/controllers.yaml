@@ -69,6 +69,11 @@
     # Dynamics — applied to the twist magnitude only, never to vx/vy/wz apart.
     max_accel: 0.6
     max_decel: 1.2
+    # Jerk limits (m/s³) give an S-curve instead of a trapezoid: acceleration
+    # ramps in over max_accel/max_jerk s (0.3 s) and out the same way. Each
+    # ramp costs that much extra time, stops included (0.2 s). 0 = off.
+    max_jerk: 2.0
+    max_decel_jerk: 6.0
     cmd_vel_timeout_s: 0.5
 
     # Kinematics restriction. Note there is no max_angular_speed: clamping wz

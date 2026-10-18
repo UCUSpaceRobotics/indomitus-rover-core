@@ -1,0 +1,48 @@
+defaults:
+  format: YUYV
+  res: 960x600
+  fps: 15
+  quality: 60
+  save_quality: 95
+  jpeg_encoder: jpegenc
+  ros_fps: 5
+  ros_res: ''
+  ros_encoding: rgb8
+  save_dir: ~/dataset
+
+cameras:
+  # Arducam B0495, YUYV only:
+  #   USB 3.0: 1920x1200 @50/30/15, 960x600 @80/60/30/15
+  #   USB 2.0: 960x600 @10 only
+  arducam-mast:
+    device: /dev/arducam-mast
+    port: 8091   # http://10.42.0.1:8091/arducam-mast?action=stream
+
+  arducam-front-bottom:
+    device: /dev/arducam-front-bottom
+    port: 8093   # http://10.42.0.1:8093/arducam-front-bottom?action=stream
+
+  # Arducam B0495, YUYV only:
+  #   USB 3.0: 1920x1200 @50/30/15, 960x600 @80/60/30/15
+  #   USB 2.0: 960x600 @10 only
+  arm-camera:
+    device: /dev/arm-camera
+    port: 8095   # http://10.42.0.1:8095/arm-camera?action=stream
+
+  # # MJPG: 640x480 .. 2592x1944 @30; YUYV: 640x480 @30, larger ones slower
+  # arm-camera:
+  #   device: /dev/arm-camera
+  #   port: 8095   # http://10.42.0.1:8095/arm-camera?action=stream
+  #   format: MJPG
+  #   res: 640x480
+  #   fps: 30
+  #   quality: 30
+
+  # MJPG: up to 1920x1080 @30, 1280x720 and smaller @60
+  thermal-camera-front:
+    device: /dev/thermal-camera
+    port: 8097   # http://10.42.0.1:8097/thermal-camera-front?action=stream
+    format: MJPG
+    res: 640x480
+    fps: 10
+    quality: 40

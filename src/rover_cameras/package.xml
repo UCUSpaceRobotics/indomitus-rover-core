@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rover_cameras</name>
+  <version>0.0.0</version>
+  <description>
+    The rover's USB cameras. One GStreamer pipeline per camera feeds two
+    consumers: MJPEG over HTTP for the ground station (the same URLs and
+    dataset API as indomitus-ground-station's camera_mjpeg_server.py; video
+    never crosses DDS) and sensor_msgs/Image + CameraInfo topics for nodes on
+    the rover, stamped with the capture time.
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>indomitus_interfaces</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-gi</exec_depend>
+  <!-- also brings gir1.2-gst-plugins-base-1.0 (GstVideo) and gir1.2-gstreamer-1.0 -->
+  <exec_depend>gstreamer1.0-plugins-base</exec_depend>
+  <!-- v4l2src, jpegenc, jpegdec -->
+  <exec_depend>gstreamer1.0-plugins-good</exec_depend>
+  <!-- v4l2-ctl, to list the modes a camera offers -->
+  <exec_depend>v4l-utils</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

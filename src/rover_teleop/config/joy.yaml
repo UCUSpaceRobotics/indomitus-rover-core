@@ -68,6 +68,12 @@
     # is a recovery action and a stray press costs the operator a power cycle.
     clear_errors_button: 13   # ↑
 
+    # --- DATASET ---
+    # rover_cameras' dataset_node: capture saves one frame from every camera,
+    # record toggles saving one per second (on unless any camera records).
+    dataset_capture_button: 14
+    dataset_record_button: 15
+
     # --- TIMEOUT / PUBLISH RATE ---
     cmd_timeout: 0.2
     timeout_pub_rate: 20.0

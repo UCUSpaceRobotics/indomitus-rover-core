@@ -14,6 +14,6 @@ chmod +x ./script/your_script
 | **`enter_container.sh`** | Connects to local or remote Docker environments, manages container states, and opens an interactive terminal. | [Read Docs](../docs/scripts/enter_container.md) |
 | **`deploy_to_rover.sh`** | Pulls image from the github, then deploys; synchronizes the whole workspace and the builds the image on Jetson; builds localy and deploys the new image; synchronizes the src/docker-compose.prod.yaml with the Jetson without image rebuild. | [Read Docs](../docs/scripts/deploy_to_rover.md) |
 | **`test_motors.py`** | A standalone hardware utility to quickly verify CAN bus communication and basic motor behavior. | - |
-| **`setup_host.sh`** | Deploys the CAN udev rule and rover systemd service to the Jetson. Preserves the previous enable state of `rover.service`. | [Read Docs](../docs/scripts/setup_host.md) |
+| **`setup_host.sh`** | Installs udev rules and systemd units from `system/` on the Jetson or locally. Rules are re-triggered on matching devices; units are always left stopped and disabled. | [Read Docs](../docs/scripts/setup_host.md) |
 | **`navigation/compare_pose.py`** | Compares RViz's estimated rover pose against Gazebo ground truth (sim only). | [Read Docs](../docs/scripts/navigation_diagnostics.md) |
 | **`navigation/track_pose_drift.py`** | Tracks drift of an estimated pose from its starting value over time (sim or real hardware). | [Read Docs](../docs/scripts/navigation_diagnostics.md) |

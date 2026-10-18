@@ -18,10 +18,8 @@ WIFI_PASS="19283746"
 NO_WIFI=false
 TARGET_MODE=""   # Must be set via positional arg: rover|local
 
-# Flags to forward to setup.sh
-RUN_CAN=false
-RUN_SERVICE=false
-RUN_JOYSTICK_LED=false
+# Args forwarded verbatim to system/setup.sh (--udev A,B  --service A,B  --all)
+SETUP_ARGS=()
 
 # HELPER FUNCTIONS
 success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }
@@ -38,10 +36,14 @@ Targets:
     rover             Deploy over SSH to the Jetson Nano (Wi-Fi connect + SCP + remote setup)
     local             Deploy files directly to THIS machine (skips SSH/Wi-Fi)
 
-Options:
-    --can             Deploy/configure CAN rules only
-    --service         Deploy/configure Rover systemd service only
-    --joystick-led    Deploy/configure PlayStation light bar rules only
+What to install (any combination, at least one):
+    --udev A,B        udev rules system/rules.d/[NN-]A.rules, ...
+                      (installed, then re-triggered on matching devices)
+    --service A,B     systemd units system/systemd/A.service, ...
+                      (installed, always left stopped and disabled)
+    --all             Every rule and unit in system/
+
+Connection:
     -i, --ip IP       Jetson IP address (Default: ${JETSON_IP})
     -u, --user USER   Jetson SSH username (Default: ${JETSON_USER})
     -w, --ssid SSID   Wi-Fi SSID (Default: ${WIFI_SSID})
@@ -51,9 +53,9 @@ Options:
     -h, --help        Display this help message and exit
 
 Examples:
-    $0 rover --can --service
-    $0 local --can
-    $0 local --joystick-led
+    $0 rover --udev can --service rover
+    $0 local --udev can,playstation-led
+    $0 rover --all
 EOF
 }
 
@@ -63,9 +65,9 @@ while [[ "$#" -gt 0 ]]; do
         rover|local)
             [[ -n "$TARGET_MODE" ]] && error "Target already set to '$TARGET_MODE'; cannot also set '$1'."
             TARGET_MODE="$1"; shift;;
-        --can)          RUN_CAN=true; shift;;
-        --service)      RUN_SERVICE=true; shift;;
-        --joystick-led) RUN_JOYSTICK_LED=true; shift;;
+        --udev|--service)
+            [[ "$#" -ge 2 ]] || error "$1 requires a NAME."; SETUP_ARGS+=("$1" "$2"); shift 2;;
+        --all) SETUP_ARGS+=("$1"); shift;;
         -i|--ip)   [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
         -u|--user) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_USER="$2"; shift 2;;
         -w|--ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
@@ -81,18 +83,11 @@ if [[ -z "$TARGET_MODE" ]]; then
     error "Missing target. Usage: $0 {rover,local} [OPTIONS]  (run with -h for help)"
 fi
 
-# Build the argument string to pass down to setup.sh
-SETUP_ARGS=""
-[ "$RUN_CAN" = true ] && SETUP_ARGS="$SETUP_ARGS --can"
-[ "$RUN_SERVICE" = true ] && SETUP_ARGS="$SETUP_ARGS --service"
-[ "$RUN_JOYSTICK_LED" = true ] && SETUP_ARGS="$SETUP_ARGS --joystick-led"
-
 # PRE-FLIGHT CHECKS
+# Resolve the names locally before touching Wi-Fi/SSH, so a typo fails here.
 step "Pre-Flight Checks..."
-[[ -f "$HOST_CONFIG_DIR/rules.d/80-can.rules" ]]  || error "Not found: $HOST_CONFIG_DIR/rules.d/80-can.rules"
-[[ -f "$HOST_CONFIG_DIR/systemd/rover.service" ]] || error "Not found: $HOST_CONFIG_DIR/systemd/rover.service"
-[[ -f "$HOST_CONFIG_DIR/rules.d/99-playstation-led.rules" ]] || error "Not found: $HOST_CONFIG_DIR/rules.d/99-playstation-led.rules"
-[[ -f "$HOST_CONFIG_DIR/setup.sh" ]]              || error "Not found: $HOST_CONFIG_DIR/setup.sh"
+[[ -f "$HOST_CONFIG_DIR/setup.sh" ]] || error "Not found: $HOST_CONFIG_DIR/setup.sh"
+bash "$HOST_CONFIG_DIR/setup.sh" --check "${SETUP_ARGS[@]}" || error "Nothing valid to install."
 success "All configuration assets verified."
 
 
@@ -102,7 +97,7 @@ success "All configuration assets verified."
 if [ "$TARGET_MODE" = "local" ]; then
     step "Deploying LOCALLY..."
     # Execute setup.sh locally with the parsed arguments
-    bash "$HOST_CONFIG_DIR/setup.sh" $SETUP_ARGS
+    bash "$HOST_CONFIG_DIR/setup.sh" "${SETUP_ARGS[@]}"
     success "Local host configuration deployed successfully."
     exit 0
 fi
@@ -131,7 +126,7 @@ success "Files copied."
 
 # Run setup.sh on the Jetson with parsed arguments forwarded
 step "Installing on Jetson..."
-ssh -t -q "${TARGET}" "SUDO_PASS='$SUDO_PASS' bash /tmp/host_config/setup.sh $SETUP_ARGS"
+ssh -t -q "${TARGET}" "SUDO_PASS='$SUDO_PASS' bash /tmp/host_config/setup.sh ${SETUP_ARGS[*]}"
 
 # Cleanup
 ssh -q "${TARGET}" "rm -rf /tmp/host_config"

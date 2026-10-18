@@ -56,6 +56,8 @@
     max_linear_speed:  1.0
     max_accel:         0.6
     max_decel:         1.2
+    max_jerk:          2.0
+    max_decel_jerk:    6.0
     cmd_vel_timeout_s: 0.5
 
     # 135 to match the real rover rather than the 90 used above. Spin-in-place
@@ -112,5 +114,5 @@
 /**/diff_bar_effort_controller:
   ros__parameters:
     k_stiffness: 2000.0
-    d_damping: 10.0
+    d_damping: 20.0
     effort_limit: 150.0
