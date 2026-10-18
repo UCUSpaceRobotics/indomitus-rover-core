@@ -59,7 +59,7 @@ RoverSwerveControllerTest::on_configure(const rclcpp_lifecycle::State & /*previo
 
     shape_smoother_ = std::make_unique<ShapeSmoother>(max_theta_rate_, max_phi_rate_);
 
-    magnitude_limiter_ = SlewRateLimiter{max_accel_, max_decel_};
+    magnitude_limiter_ = SCurveLimiter{max_accel_, max_decel_, max_jerk_, max_decel_jerk_};
 
     cmd_vel_buffer_.initRT(CmdVelStamped{
         geometry_msgs::msg::Twist{},
@@ -146,6 +146,7 @@ RoverSwerveControllerTest::on_activate(const rclcpp_lifecycle::State & /*previou
 
     shape_smoother_->reset();
     magnitude_limiter_.reset(0.0);
+    effective_magnitude_ = 0.0;
     target_shape_ = TwistShape{};
 
     idle_       = false;
@@ -353,12 +354,6 @@ RoverSwerveControllerTest::update(
         nominal_speeds[i]    = take_alt ? -s0 : s0;
     }
 
-    // Below park_speed the wheels still track the commanded angle but the
-    // drives are held at zero — this is what lets a near-zero Twist act as a
-    // pure "point the wheels here" command with the rover standing still.
-    const double speed_gain =
-        (std::abs(magnitude) < park_speed_) ? 0.0 : (magnitude / nominal);
-
     // Step 4: Step the steering joints toward target, rate-limited.
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         current_angles_[i] = step_angle(
@@ -406,9 +401,24 @@ RoverSwerveControllerTest::update(
             "[SwerveControllerTest] Non-finite steering feedback; drives held at zero.");
     }
 
+    // Step 5b: The alignment cut is instant — a misaligned wheel must stop
+    // pushing now — but the way back up is held to max_accel. Kept apart from
+    // the limiter's own state so a steady small misalignment scales the speed
+    // rather than compounding into a decay.
+    const double effective = std::min(
+        std::abs(magnitude) * align_scale,
+        std::abs(effective_magnitude_) + max_accel_ * dt);
+    effective_magnitude_ = std::copysign(effective, magnitude);
+
+    // Below park_speed the wheels still track the commanded angle but the
+    // drives are held at zero — this is what lets a near-zero Twist act as a
+    // pure "point the wheels here" command with the rover standing still.
+    const double speed_gain =
+        (std::abs(magnitude) < park_speed_) ? 0.0 : (effective_magnitude_ / nominal);
+
     WheelData speeds;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        speeds[i] = nominal_speeds[i] * speed_gain * align_scale * drive_sign[i];
+        speeds[i] = nominal_speeds[i] * speed_gain * drive_sign[i];
     }
 
     write_drive_commands(speeds);
@@ -438,6 +448,9 @@ void RoverSwerveControllerTest::declare_parameters()
     declare_param("max_linear_speed",      0.50);
     declare_param("max_accel",             0.20);
     declare_param("max_decel",             0.50);
+    // 0.0 → no jerk limit (trapezoidal speed profile).
+    declare_param("max_jerk",              0.0);
+    declare_param("max_decel_jerk",        0.0);
     declare_param("cmd_vel_timeout_s",     2.0);
 
     // 0.0 → auto (wheel half-diagonal, computed in read_parameters).
@@ -471,6 +484,8 @@ bool RoverSwerveControllerTest::read_parameters()
     max_linear_      = node->get_parameter("max_linear_speed").as_double();
     max_accel_       = node->get_parameter("max_accel").as_double();
     max_decel_       = node->get_parameter("max_decel").as_double();
+    max_jerk_        = node->get_parameter("max_jerk").as_double();
+    max_decel_jerk_  = node->get_parameter("max_decel_jerk").as_double();
     cmd_vel_timeout_ = node->get_parameter("cmd_vel_timeout_s").as_double();
 
     rotation_scale_  = node->get_parameter("rotation_scale_length").as_double();
@@ -502,6 +517,8 @@ bool RoverSwerveControllerTest::read_parameters()
         {"max_linear_speed",      max_linear_,       finite_positive(max_linear_)},
         {"max_accel",             max_accel_,        finite_positive(max_accel_)},
         {"max_decel",             max_decel_,        finite_positive(max_decel_)},
+        {"max_jerk",              max_jerk_,         finite_nonneg(max_jerk_)},
+        {"max_decel_jerk",        max_decel_jerk_,   finite_nonneg(max_decel_jerk_)},
         {"cmd_vel_timeout_s",     cmd_vel_timeout_,  finite_positive(cmd_vel_timeout_)},
         {"max_theta_rate_rad",    max_theta_rate_,   finite_positive(max_theta_rate_)},
         {"max_phi_rate_rad",      max_phi_rate_,     finite_positive(max_phi_rate_)},
