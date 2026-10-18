@@ -65,12 +65,15 @@ private:
   void callback(const sensor_msgs::msg::Imu::SharedPtr msg)
   {
     // The reading includes how the IMU is mounted. Read that from TF so it
-    // holds wherever the URDF puts the sensor.
+    // holds wherever the URDF puts the sensor. The mount is rigid, so the
+    // latest transform is used, not the one at the IMU stamp: the ZED node
+    // publishes camera -> imu_link on /tf stamped like the IMU samples, and a
+    // sample often arrives just before its transform (extrapolation error).
     tf2::Quaternion q_mount(0.0, 0.0, 0.0, 1.0);
     try {
       const geometry_msgs::msg::TransformStamped mount_tf = tf_buffer_->lookupTransform(
-        child_frame_, msg->header.frame_id, msg->header.stamp,
-        rclcpp::Duration::from_seconds(tf_tolerance_));
+        child_frame_, msg->header.frame_id, tf2::TimePointZero,
+        tf2::durationFromSec(tf_tolerance_));
       const auto & r = mount_tf.transform.rotation;
       q_mount = tf2::Quaternion(r.x, r.y, r.z, r.w);
     } catch (const tf2::TransformException & ex) {
