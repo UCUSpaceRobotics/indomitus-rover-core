@@ -1,27 +1,20 @@
 ARG UBUNTU_VERSION=22.04
 ARG TARGET_ROS_DISTRO=humble
 ARG BASE_IMAGE="ros:humble-ros-base"
-# arm_tasks is not simulation code — it's excluded here (despite the var name)
-# because its remaining nodes are pure network clients against /arm, meant to
-# run from a dev/ground-station container rather than build into the Jetson
-# production image.
-ARG SIMULATION_PKGS="rover_sim rover_viz arm_sim arm_viz panel_sim arm_tasks"
+
+ARG ROBOT_META="indomitus_robot"
+ARG DESKTOP_META="indomitus_desktop"
 ARG WS="/opt/ws"
 
 ####################
 # CACHER
 ####################
 FROM ubuntu:${UBUNTU_VERSION} AS cacher
-ARG INSTALL_SIM_TOOLS=false
-ARG SIMULATION_PKGS
 
 WORKDIR /tmp/src
 COPY src/ .
 
-RUN if [ "$INSTALL_SIM_TOOLS" != "true" ]; then \
-        for pkg in ${SIMULATION_PKGS}; do find . -name "$pkg" -type d -exec rm -rf {} + ; done; \
-    fi && \
-    mkdir -p /extracted_xmls && \
+RUN mkdir -p /extracted_xmls && \
     find . -name "package.xml" -exec cp --parents {} /extracted_xmls/ \;
 
 
@@ -74,17 +67,16 @@ ENTRYPOINT ["/entrypoint.bash"]
 ####################
 FROM base AS dev
 ARG INSTALL_SIM_TOOLS=false
+ARG DESKTOP_META
 
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
-RUN apt-get update && \ 
-    if [ "${INSTALL_SIM_TOOLS}" = "true" ]; then \
-        rosdep install --from-paths ${WS}/src/ --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y ; \
-    else \
-        rosdep install --from-paths ${WS}/src/ --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y --skip-keys "${SIMULATION_PKGS}" ; \
-    fi && \
+# Dependencies of indomitus_desktop and everything it pulls in.
+RUN apt-get update && \
+    rosdep install --from-paths $(colcon list --packages-up-to ${DESKTOP_META} --paths-only) \
+        --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
-        
+
 RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libglib2.0-0 && \
@@ -103,12 +95,13 @@ CMD ["bash"]
 # PROD
 ####################
 FROM base AS prod
-ARG SIMULATION_PKGS
+ARG ROBOT_META
 
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
-RUN apt-get update && rosdep install --from-paths ${WS}/src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
-    --skip-keys "${SIMULATION_PKGS}" \
+# Dependencies of indomitus_robot only: no simulation, no viz.
+RUN apt-get update && rosdep install --from-paths $(colcon list --packages-up-to ${ROBOT_META} --paths-only) \
+    --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
     -t build \
     -t buildtool \
     -t build_export \
@@ -118,14 +111,11 @@ RUN apt-get update && rosdep install --from-paths ${WS}/src --ignore-src --rosdi
 
 COPY src/ ${WS}/src/
 
-RUN cd ${WS}/src && \
-    for pkg in ${SIMULATION_PKGS}; do find . -name "$pkg" -type d -exec rm -rf {} + ; done
-
 COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
 ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
 
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
-RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && colcon build"
+RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && colcon build --packages-up-to ${ROBOT_META}"
 
 RUN rm -rf ${WS}/log/
 

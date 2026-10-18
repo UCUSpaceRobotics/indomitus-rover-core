@@ -189,8 +189,8 @@ Visualization tooling.
 - **`arm_moveit_config`** — MoveIt2 configuration only: SRDF, kinematics, joint limits, controllers, Servo config; Setup-Assistant-generated launch files (`move_group`, controller spawning, virtual joint TFs, setup assistant, warehouse DB). No `rviz2` dependency and no hand-written bringup/CAN logic — that lives in `arm_bringup` now, kept separate so this package stays safe to regenerate.
 - **`arm_peripherals`** (Python) — `end_effector_can_node`: bridges the end-effector tool's CAN traffic (`can_msgs/Frame` over `ros2_socketcan`) to `end_effector_controller/{command,state}`, same pattern as `rover_peripherals`'s lighting node.
 - **`arm_sim`** — simulation support for the arm (structure only; no launch/config files yet)
-- **`arm_tasks`** (Python) — `teach_poses`, `panel_align_node`, `collision_link_reporter`: pure ROS clients against the `/arm` stack, no direct hardware access. Excluded from the Jetson production image (see `docker/Dockerfile`'s `SIMULATION_PKGS`) — run from a dev/ground-station container instead.
+- **`arm_tasks`** (Python) — `teach_poses`, `panel_align_node`, `collision_link_reporter`: pure ROS clients against the `/arm` stack, no direct hardware access. Not in `indomitus_robot`, so not in the Jetson production image — run from a dev/ground-station container instead.
 - **`arm_teleop`** (Python) — `keyboard_servo_node`/`gamepad_servo_node`: direct keyboard/gamepad control, mirrors rover_teleop's split from task nodes.
-- **`arm_viz`** — RViz configs + launch files: bare `rviz.launch.py`, `urdf_preview.launch.py` (pure URDF/TF preview, no ros2_control/CAN), and `moveit_rviz.launch.py` (Motion Planning panel against an already-running `/arm` stack). Stripped from Jetson production builds (see `docker/Dockerfile`'s `SIMULATION_PKGS`).
+- **`arm_viz`** — RViz configs + launch files: bare `rviz.launch.py`, `urdf_preview.launch.py` (pure URDF/TF preview, no ros2_control/CAN), and `moveit_rviz.launch.py` (Motion Planning panel against an already-running `/arm` stack). Not in `indomitus_robot` (desktop only).
 
 ---
