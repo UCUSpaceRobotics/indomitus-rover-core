@@ -51,9 +51,9 @@ cameras:
     port: 8092   # http://10.42.0.1:8092/arducam-front?action=stream
     quality: 5
 
-  arducam-fr-bottom:
-    device: /dev/arducam-fr-bottom
-    port: 8093   # http://10.42.0.1:8093/arducam-fr-bottom?action=stream
+  arducam-front-bottom:
+    device: /dev/arducam-front-bottom
+    port: 8093   # http://10.42.0.1:8093/arducam-front-bottom?action=stream
 
   # MJPG: 640x480 .. 2592x1944 @30; YUYV: 640x480 @30, larger ones slower
   arm-camera:
