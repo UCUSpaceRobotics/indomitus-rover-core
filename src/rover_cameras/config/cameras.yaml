@@ -1,31 +1,3 @@
-# The cameras this rover can carry. cameras.launch.py starts one camera_node per entry;
-# a camera that is not plugged in just waits for its device, so this lists every camera
-# that may be mounted, not the ones mounted today.
-#
-# Ported from indomitus-ground-station/cameras/cameras.yaml: same names, devices (udev
-# symlinks — /dev/videoN numbers move on replug) and ports, so GS UI tiles keep working:
-#   http://10.42.0.1:<port>/<name>?action=stream
-# Check a camera's real modes with `v4l2-ctl -d <device> --list-formats-ext`; a mode it
-# does not offer is snapped to the nearest one and logged.
-#
-# ROS: /rover/cameras/<name with - as _>/image_raw and .../camera_info, for nodes on the
-# rover only (video to the GS goes over HTTP, never DDS).
-#
-# Keys (any of them also under `defaults:`):
-#   device         udev symlink, or `videotestsrc` for a test pattern
-#   port           HTTP port of the MJPEG stream; 0 = no HTTP
-#   format         V4L2 FourCC: YUYV, MJPG, UYVY, GREY, NV12
-#   res, fps       capture mode
-#   quality        stream JPEG quality (ignored for MJPG cameras: passed through as is)
-#   save_quality   JPEG quality of dataset frames (/capture, /record)
-#   jpeg_encoder   GStreamer JPEG encoder element (jpegenc = CPU; nvjpegenc when available)
-#   ros_fps        rate of the ROS topic; 0 = every captured frame
-#   ros_res        size of the ROS topic, WxH; empty = capture size
-#   ros_encoding   rgb8, bgr8 or mono8
-#   frame_id       default <ros name>_optical_frame
-#   calibration    camera_calibration YAML, relative to config/calibration/ or absolute;
-#                  default config/calibration/<name>.yaml if it exists
-
 defaults:
   format: YUYV
   res: 960x600
