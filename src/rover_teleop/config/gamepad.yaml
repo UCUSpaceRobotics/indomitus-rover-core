@@ -1,4 +1,4 @@
-/**/joystick_interpreter:
+/**:
   ros__parameters:
     axis_linear:
       x: 1 # Left stick vertical (forward/backward)
@@ -9,14 +9,11 @@
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise)
+      yaw: 2 # Right stick horizontal
     scale_angular:
       yaw: 1.0
 
-    # Stick deadzone. Applied here, NOT in the joy driver — game_controller_node
-    # stops publishing /joy entirely when its own deadzone swallows resting-stick
-    # noise (ros-drivers/joystick_drivers#304), so joy.launch.py keeps the driver
-    # deadzone at 0.0 and this node filters instead.
+    # Stick deadzone. Applied here, NOT in the joy driver as it has a bug
     deadzone: 0.05
 
     # --- SPIN IN PLACE (L2 / R2) ---
@@ -69,10 +66,9 @@
     clear_errors_button: 13   # ↑
 
     # --- DATASET ---
-    # rover_cameras' dataset_node: capture saves one frame from every camera,
-    # record toggles saving one per second (on unless any camera records).
-    dataset_capture_button: 14
-    dataset_record_button: 15
+    # rover_cameras' dataset_node calls
+    dataset_capture_button: -1
+    dataset_record_button: -1
 
     # --- TIMEOUT / PUBLISH RATE ---
     cmd_timeout: 0.2
@@ -81,12 +77,8 @@
     cmd_pub_rate: 20.0
 
     # Zero twists published when /joy goes stale, before this node goes quiet
-    # and lets twist_mux fall through to the ground station. Not a stream:
-    # cmd_vel_joy has the highest priority in the mux, so holding it with zeros
-    # would mean an unplugged gamepad locks out the only operator left.
     timeout_zero_burst: 3
 
     # --- LIGHTS ---
-    # State lives in lights_can_node; these ask it to invert a light.
     spotlight_button: 9   # L1
-    beautiful_button: 10   # R1
+    beautiful_button: 10  # R1

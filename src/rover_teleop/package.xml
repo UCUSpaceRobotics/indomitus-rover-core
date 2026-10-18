@@ -18,6 +18,9 @@
 
   <!-- Joystick driver -->
   <exec_depend>joy</exec_depend>
+  <!-- keyboard_teleop_node reads config/gamepad.yaml -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
 
   <!-- Messages types -->
   <depend>std_srvs</depend>

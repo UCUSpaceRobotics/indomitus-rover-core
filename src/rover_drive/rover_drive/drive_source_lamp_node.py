@@ -2,7 +2,7 @@
 """Lights the tower red for autonomous, green for manual drive.
 
 Watches the same command topics twist_mux does (cmd_vel_joy, cmd_vel_gs,
-cmd_vel_nav, cmd_vel_ext, cmd_vel_lora) and picks the same winner it would,
+cmd_vel_remote, cmd_vel_nav, cmd_vel_ext, cmd_vel_lora) and picks the same winner it would,
 using the priorities/timeouts mirrored from rover_drive/config/twist_mux.yaml
 in DriveSourceWatchdog - see that module for why this reimplements the rule
 rather than reading it back off twist_mux's /diagnostics.
@@ -28,6 +28,7 @@ from rover_drive.service_call import GuardedCall
 DEFAULT_SOURCES = (
     Source('cmd_vel_joy', priority=100, timeout=0.5, autonomous=False),
     Source('cmd_vel_gs', priority=50, timeout=0.5, autonomous=False),
+    Source('cmd_vel_remote', priority=30, timeout=0.5, autonomous=False),
     Source('cmd_vel_nav', priority=20, timeout=1.0, autonomous=True),
     Source('cmd_vel_ext', priority=10, timeout=0.5, autonomous=False),
     Source('cmd_vel_lora', priority=5, timeout=1.0, autonomous=False),

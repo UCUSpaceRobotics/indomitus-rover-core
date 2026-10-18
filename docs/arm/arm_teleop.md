@@ -73,7 +73,7 @@ same `can_msgs/Frame`-over-`ros2_socketcan` pattern `rover_peripherals`'s
 lighting node already uses for the rover's own ESP32 peripherals), spawned
 by `arm.launch.py` itself. So `gamepad.launch.py` can now run on a
 **separate machine** (e.g. a laptop) from `arm.launch.py`, the same way
-`rover_teleop/joy.launch.py` already runs separately from the rover's own
+`rover_teleop/gamepad.launch.py` already runs separately from the rover's own
 bringup — provided both machines share the same `ROS_DOMAIN_ID` and have
 working DDS discovery between them (same requirement as the optional RViz
 laptop viewer above).

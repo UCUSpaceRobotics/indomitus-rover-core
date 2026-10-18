@@ -43,13 +43,7 @@ Joint names follow URDF: `fl_steer`, `fr_steer`, `rl_steer`, `rr_steer`, `fl_dri
 
 ## Lifecycle
 
-Motors are **disabled by default** on activation. Enable/disable is controlled via:
-
-```
-/controller_manager/set_hardware_component_state
-```
-
-Called from `joystick_interpreter_node` on button press. On deactivation — zero commands are sent and motors are disabled gracefully.
+Motors are **disabled by default** on activation. Enable/disable is controlled by drive_manager_node.
 
 ## Clearing drive-motor faults
 

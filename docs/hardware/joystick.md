@@ -38,7 +38,7 @@ Plug **USB-A** into the Jetson and **USB Type-C** into the joystick. No further 
 
 ## Light Bar
 
-On a PlayStation controller, `joystick_interpreter` paints the light bar with the current drive state. The colours are ordered by severity — the bar always shows the most serious state that applies, so green means the joystick can move the rover *right now*:
+On a PlayStation controller, `gamepad_interpreter` paints the light bar with the current drive state. The colours are ordered by severity — the bar always shows the most serious state that applies, so green means the joystick can move the rover *right now*:
 
 | Color | Meaning |
 |-------|---------|
@@ -47,7 +47,7 @@ On a PlayStation controller, `joystick_interpreter` paints the light bar with th
 | 🟠 Orange | Motors on, controller inactive |
 | 🔵 Blue | Yielding to navigation |
 | 🟢 Green | Joystick in command |
-| ⚪ White | `joystick_interpreter` is not running |
+| ⚪ White | `gamepad_interpreter` is not running |
 
 White is painted as the node shuts down.
 

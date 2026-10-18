@@ -50,7 +50,7 @@ def generate_launch_description():
         'use_joy', default_value='true',
         description='Wired gamepad plugged into the rover itself (cmd_vel_joy, '
                     'top twist_mux priority) - separate from the ground '
-                    'station\'s own joystick on cmd_vel_gs',
+                    'station (cmd_vel_gs) and operator laptops (cmd_vel_remote)',
     )
 
     joy_dev_arg = DeclareLaunchArgument(
@@ -82,13 +82,17 @@ def generate_launch_description():
         joy_dev_arg,
         # zed2i_mode_arg,
 
-        include_launch('rover_teleop', 'joy.launch.py', {
-            'rover_namespace': LaunchConfiguration('rover_namespace'),
-            'joy_dev': LaunchConfiguration('joy_dev'),
-        }, condition=IfCondition(LaunchConfiguration('use_joy'))),
-
         GroupAction([
             PushRosNamespace(namespace_val),
+
+            # Own GroupAction: include arguments leak into the enclosing scope.
+            GroupAction([
+                include_launch('rover_teleop', 'gamepad.launch.py', {
+                    'rover_namespace': '',   # already pushed by this group
+                    'source': 'rover',       # the default is a laptop gamepad
+                    'joy_dev': LaunchConfiguration('joy_dev'),
+                }),
+            ], condition=IfCondition(LaunchConfiguration('use_joy'))),
 
             include_launch('rover_bringup', 'can.launch.py', {
                 'interface': LaunchConfiguration('interface'),
@@ -117,9 +121,6 @@ def generate_launch_description():
 
             include_launch('rover_drive', 'twist_mux.launch.py'),
 
-            # Owns motors + controller activation. Not in joy.launch.py on
-            # purpose: the ground station must be able to power the drive with
-            # no gamepad plugged into the rover.
             include_launch('rover_drive', 'drive_manager.launch.py'),
 
             _lora_fallback(), # Publishes cmd_vel_lora, which twist_mux carries below cmd_vel_ext.

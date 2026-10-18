@@ -30,7 +30,14 @@ from rover_teleop.drive_kinematics import (
     KinematicsParams,
     twist_from_input,
 )
-from rover_teleop.joy_input import ButtonToggle, apply_deadzone, trigger_diff, triggers_held
+from rover_teleop.joy_input import (
+    DISABLED,
+    ButtonToggle,
+    apply_deadzone,
+    shared_buttons,
+    trigger_diff,
+    triggers_held,
+)
 from rover_teleop.service_call import GuardedCall
 from rover_teleop.teleop_state import JoyWatchdog
 
@@ -47,10 +54,12 @@ STATE_QOS = QoSProfile(
 )
 
 
-class JoystickInterpreterNode(Node):
+class GamepadInterpreterNode(Node):
 
-    def __init__(self):
-        super().__init__('joystick_interpreter')
+    def __init__(self, node_name: str = 'gamepad_interpreter', **node_kwargs):
+        # node_name / node_kwargs: keyboard_teleop_node runs a second instance
+        # in its own process, with its own name, parameters and remappings.
+        super().__init__(node_name, **node_kwargs)
 
         def declare_and_get(name, default):
             self.declare_parameter(name, default)
@@ -132,7 +141,10 @@ class JoystickInterpreterNode(Node):
             )
         }
 
-        self._led = ControllerLed(self.get_logger())
+        # Off for keyboard_teleop_node: there is no gamepad to paint, and one
+        # plugged into the same laptop belongs to another interpreter.
+        self._led = (ControllerLed(self.get_logger())
+                     if bool(declare_and_get('controller_led', True)) else None)
         # Recomputes the colour each tick, so this also carries state changes
         # that no button press announces.
         self._led_timer = self.create_timer(LED_REPAINT_PERIOD, self._refresh_led)
@@ -142,38 +154,47 @@ class JoystickInterpreterNode(Node):
         self._publish_timer = self.create_timer(
             1.0 / max(0.001, self._cmd_pub_rate), self._publish_timer_cb)
 
-        self._toggles = [
-            ButtonToggle(declare_and_get('vy_toggle_button', 8), self._on_vy_toggle_pressed),
-            ButtonToggle(declare_and_get('motor_toggle_button', 9),
-                         lambda: self._request('drive/power/toggle')),
-            ButtonToggle(declare_and_get('raw_twist_mode_button', 3),
-                         self._on_raw_twist_mode_toggle_pressed),
-            ButtonToggle(declare_and_get('compact_mode_button', 1),
-                         lambda: self._request('drive/compact/toggle')),
-            ButtonToggle(declare_and_get('granny_button', 10), self._on_granny_toggle_pressed),
-            ButtonToggle(declare_and_get('spotlight_button', 4),
-                         lambda: self._request('lights/spotlight/toggle')),
-            ButtonToggle(declare_and_get('beautiful_button', 5),
-                         lambda: self._request('lights/beautiful/toggle')),
-            ButtonToggle(declare_and_get('active_toggle_button', 2), self._on_active_toggle_pressed),
-            ButtonToggle(declare_and_get('clear_errors_button', 20),
-                         lambda: self._request('drive/clear_errors')),
-            ButtonToggle(declare_and_get('dataset_capture_button', 14),
-                         lambda: self._request('cameras/capture')),
-            ButtonToggle(declare_and_get('dataset_record_button', 15),
-                         lambda: self._request('cameras/record/toggle')),
-        ]
+        # Button layout comes only from gamepad.yaml: a function the yaml does
+        # not give a button (or gives -1) is off, so niche ones cost nothing
+        # on a pad with few buttons. No fallback indices here on purpose -
+        # they drifted from the yaml and nobody noticed.
+        bindings = {
+            'vy_toggle_button': self._on_vy_toggle_pressed,
+            'motor_toggle_button': lambda: self._request('drive/power/toggle'),
+            'raw_twist_mode_button': self._on_raw_twist_mode_toggle_pressed,
+            'compact_mode_button': lambda: self._request('drive/compact/toggle'),
+            'granny_button': self._on_granny_toggle_pressed,
+            'spotlight_button': lambda: self._request('lights/spotlight/toggle'),
+            'beautiful_button': lambda: self._request('lights/beautiful/toggle'),
+            'active_toggle_button': self._on_active_toggle_pressed,
+            'clear_errors_button': lambda: self._request('drive/clear_errors'),
+            'dataset_capture_button': lambda: self._request('cameras/capture'),
+            'dataset_record_button': lambda: self._request('cameras/record/toggle'),
+        }
+        layout = {name: int(declare_and_get(name, DISABLED)) for name in bindings}
+        self._toggles = [ButtonToggle(layout[name], on_press)
+                         for name, on_press in bindings.items()]
+        self._log_layout(layout)
 
         self.get_logger().info(
-            f'JoystickInterpreter started — '
-            f'vy_toggle_button={self._toggles[0].button_index}, '
-            f'motor_toggle_button={self._toggles[1].button_index}, '
+            f'GamepadInterpreter started — '
             f'vy_enabled={self._vy_enabled}, '
             f'deadzone={self._deadzone}'
         )
 
         self._publish_active()
         self._refresh_led()
+
+    def _log_layout(self, layout: dict):
+        bound = ', '.join(f'{name}={index}' for name, index in layout.items() if index >= 0)
+        off = ', '.join(name for name, index in layout.items() if index < 0)
+        self.get_logger().info(f'Buttons: {bound or "none"}')
+        if off:
+            self.get_logger().info(f'Not bound (off): {off}')
+        for index, names in shared_buttons(layout).items():
+            self.get_logger().warn(
+                f'Button {index} is bound to several functions, one press fires '
+                f'all of them: {", ".join(names)}')
 
     # =======================================================================
     # Input
@@ -244,6 +265,10 @@ class JoystickInterpreterNode(Node):
         if tick.publish_zero:
             self._publish_cmd(0.0, 0.0, 0.0)
 
+    def publish_stop(self):
+        """One zero twist, e.g. from keyboard_teleop_node on its way out."""
+        self._publish_cmd(0.0, 0.0, 0.0)
+
     def _publish_cmd(self, vx: float, vy: float, wz: float):
         out = Twist()
         out.linear.x = vx
@@ -277,7 +302,8 @@ class JoystickInterpreterNode(Node):
             self.get_logger().error(f'{name} call failed: {exc!r}')
             return
 
-        # Separate call sites: rclpy pins a severity to each line (see _dataset_log).
+        # Separate call sites: rclpy pins a severity to each one and raises if the
+        # same line logs at another.
         if result.success:
             self.get_logger().info(f'{name}: {result.message}')
         else:
@@ -315,7 +341,8 @@ class JoystickInterpreterNode(Node):
         self._refresh_led()
 
     def mark_led_offline(self):
-        self._led.set(LED_NODE_DOWN)
+        if self._led is not None:
+            self._led.set(LED_NODE_DOWN)
 
     def _refresh_led(self):
         """Paint the controller's light bar with the current drive state.
@@ -324,6 +351,8 @@ class JoystickInterpreterNode(Node):
         the default message reads motors-off, and the bar goes red — which is
         the truth: no controller has been activated, so the rover cannot move.
         """
+        if self._led is None:
+            return
         self._led.set(led_colour(
             motors_enabled=self._drive_state.motors_enabled,
             motors_inhibited=self._drive_state.motors_inhibited,
@@ -337,7 +366,7 @@ class JoystickInterpreterNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = JoystickInterpreterNode()
+    node = GamepadInterpreterNode()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
