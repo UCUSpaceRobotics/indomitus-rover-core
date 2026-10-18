@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>indomitus_desktop</name>
+  <version>0.0.0</version>
+  <description>
+    Metapackage: a developer laptop / PC — everything in indomitus_robot plus
+    simulation, visualization and arm tasks.
+    colcon build --packages-up-to indomitus_desktop
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>indomitus_robot</exec_depend>
+
+  <exec_depend>rover_sim</exec_depend>
+  <exec_depend>rover_viz</exec_depend>
+  <exec_depend>arm_sim</exec_depend>
+  <exec_depend>arm_viz</exec_depend>
+  <exec_depend>arm_tasks</exec_depend>
+  <exec_depend>panel_sim</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
