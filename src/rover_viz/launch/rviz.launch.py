@@ -68,12 +68,21 @@ def launch_nodes(context: LaunchContext,
         config_name = 'navigation.rviz' if use_nav else 'robot.rviz'
         rviz_config_file = os.path.join(rviz_dir, config_name)
         rviz_args = ['-d', rviz_config_file] if os.path.exists(rviz_config_file) else []
+        # Ogre renders through GLX only, so on Wayland Qt must be forced onto
+        # XWayland - otherwise Ogre gets a Wayland window handle and fails with
+        # "Invalid parentWindowHandle (wrong server or screen)". An explicit
+        # QT_QPA_PLATFORM (e.g. offscreen) is left alone.
+        rviz_env = {}
+        on_wayland = os.environ.get('XDG_SESSION_TYPE', '') == 'wayland' or os.environ.get('WAYLAND_DISPLAY')
+        if on_wayland and 'QT_QPA_PLATFORM' not in os.environ:
+            rviz_env['QT_QPA_PLATFORM'] = 'xcb'
         nodes.append(Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
             output='screen',
             arguments=rviz_args,
+            additional_env=rviz_env,
         ))
 
     return nodes
