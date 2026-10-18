@@ -31,7 +31,7 @@
       spotlight_button: "f"
       beautiful_button: "b"
       clear_errors_button: "X"      # capital on purpose: a recovery action
-      # Off: the camera servers are on the rover, and gamepad.yaml's
-      # dataset_host (127.0.0.1) would point at this laptop instead.
+      # Off by default, like on the gamepad. Bind a key to call
+      # cameras/capture / cameras/record/toggle on the rover from here.
       dataset_capture_button: ""
       dataset_record_button: ""

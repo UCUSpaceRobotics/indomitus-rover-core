@@ -146,6 +146,7 @@ RoverSwerveControllerTest::on_activate(const rclcpp_lifecycle::State & /*previou
 
     shape_smoother_->reset();
     magnitude_limiter_.reset(0.0);
+    effective_magnitude_ = 0.0;
     target_shape_ = TwistShape{};
 
     idle_       = false;
@@ -353,12 +354,6 @@ RoverSwerveControllerTest::update(
         nominal_speeds[i]    = take_alt ? -s0 : s0;
     }
 
-    // Below park_speed the wheels still track the commanded angle but the
-    // drives are held at zero — this is what lets a near-zero Twist act as a
-    // pure "point the wheels here" command with the rover standing still.
-    const double speed_gain =
-        (std::abs(magnitude) < park_speed_) ? 0.0 : (magnitude / nominal);
-
     // Step 4: Step the steering joints toward target, rate-limited.
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
         current_angles_[i] = step_angle(
@@ -406,9 +401,24 @@ RoverSwerveControllerTest::update(
             "[SwerveControllerTest] Non-finite steering feedback; drives held at zero.");
     }
 
+    // Step 5b: The alignment cut is instant — a misaligned wheel must stop
+    // pushing now — but the way back up is held to max_accel. Kept apart from
+    // the limiter's own state so a steady small misalignment scales the speed
+    // rather than compounding into a decay.
+    const double effective = std::min(
+        std::abs(magnitude) * align_scale,
+        std::abs(effective_magnitude_) + max_accel_ * dt);
+    effective_magnitude_ = std::copysign(effective, magnitude);
+
+    // Below park_speed the wheels still track the commanded angle but the
+    // drives are held at zero — this is what lets a near-zero Twist act as a
+    // pure "point the wheels here" command with the rover standing still.
+    const double speed_gain =
+        (std::abs(magnitude) < park_speed_) ? 0.0 : (effective_magnitude_ / nominal);
+
     WheelData speeds;
     for (std::size_t i = 0; i < NUM_WHEELS; ++i) {
-        speeds[i] = nominal_speeds[i] * speed_gain * align_scale * drive_sign[i];
+        speeds[i] = nominal_speeds[i] * speed_gain * drive_sign[i];
     }
 
     write_drive_commands(speeds);

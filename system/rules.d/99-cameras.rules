@@ -1,0 +1,9 @@
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="4950", ATTRS{product}=="Arducam_fr_bottom", ATTR{index}=="0", SYMLINK+="arducam-front-bottom"
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="4950", ATTRS{product}=="Arducam_mast", ATTR{index}=="0", SYMLINK+="arducam-mast"
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="4950", ATTRS{product}=="Arducam_rear", ATTR{index}=="0", SYMLINK+="arducam-rear"
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="4950", ATTRS{product}=="Arducam_backup", ATTR{index}=="0", SYMLINK+="arm-camera"
+
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="0002", ATTRS{idProduct}=="afa1", ATTR{index}=="0", SYMLINK+="thermal-camera"
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="0603", ATTRS{idProduct}=="8612", ATTR{index}=="0", SYMLINK+="spectral-camera"
+# SUBSYSTEM=="video4linux", ATTRS{idVendor}=="0ede", ATTRS{idProduct}=="8093", ATTR{index}=="0", SYMLINK+="arm-camera"
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="2b03", ATTRS{idProduct}=="f880", ATTR{index}=="0", SYMLINK+="zed2i-stereo-camera"

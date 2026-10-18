@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -809,6 +810,49 @@ TEST_F(SwerveControllerTestFixture, DriveCommandStaysContinuousThroughTheDirecti
             previous[w] = drive_cmd_[w];
         }
     }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Re-acceleration after the wheels line up
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_F(SwerveControllerTestFixture, AccelerationAfterAlignmentIsBounded)
+{
+    // Steering joints slower than max_steer_rate_deg says (worn gearbox, sand,
+    // a cold motor): the wheels lag, cos⁴ holds the drives down, and meanwhile
+    // the magnitude limiter keeps winding up towards the command. When the
+    // wheels finally line up the body must still pick up speed at max_accel —
+    // not at whatever rate the steering error happens to close.
+    constexpr double kHwAccel = 0.6;   // production limits, not the fixture's
+    configure_and_activate({
+        rclcpp::Parameter("max_accel", kHwAccel),
+        rclcpp::Parameter("max_decel", 1.2),
+    });
+
+    send_cmd_vel(0.0, 0.8, 0.0);
+
+    const double real_steer_step = 50.0 * M_PI / 180.0 * kDt;
+    double previous    = 0.0;
+    double worst_accel = 0.0;
+    for (int i = 0; i < 500; ++i) {
+        for (std::size_t w = 0; w < NUM_WHEELS; ++w) {
+            steer_pos_[w] += std::clamp(steer_cmd_[w] - steer_pos_[w],
+                                        -real_steer_step, real_steer_step);
+            drive_vel_[w] = drive_cmd_[w];
+        }
+        now_ = now_ + rclcpp::Duration::from_seconds(kDt);
+        ASSERT_EQ(controller_->update(now_, rclcpp::Duration::from_seconds(kDt)),
+                  controller_interface::return_type::OK);
+
+        const double speed = max_abs_drive_cmd() * kWheelRadius;
+        worst_accel = std::max(worst_accel, (speed - previous) / kDt);
+        previous = speed;
+    }
+
+    EXPECT_LE(worst_accel, kHwAccel * 1.05)
+        << "re-accelerated faster than max_accel once the wheels lined up";
+    EXPECT_GT(previous, 0.7) << "never got up to speed";
 }
 
 

@@ -1,7 +1,13 @@
 """One camera: GStreamer capture, MJPEG over HTTP to the GS, Image topics on the rover.
 
-    ~/image_raw    sensor_msgs/Image, stamped with the capture time
-    ~/camera_info  sensor_msgs/CameraInfo (K = 0 when there is no calibration)
+    ~/image_raw      sensor_msgs/Image, stamped with the capture time
+    ~/camera_info    sensor_msgs/CameraInfo (K = 0 when there is no calibration)
+    ~/capture        std_srvs/Trigger: save the next frame; message = its path
+    ~/record         std_srvs/SetBool: save one frame every record_interval s, or stop
+    ~/dataset_state  indomitus_interfaces/DatasetState, latched, on every change
+
+Dataset frames go to <save_dir>/<date>/<name>/ at save_quality. dataset_node
+calls ~/capture and ~/record of every camera for "all cameras at once".
 
 The video the operators watch never goes through DDS (images over DDS on the
 Wi-Fi lagged badly): it is the HTTP MJPEG of mjpeg_http.py, same URLs as the
@@ -26,14 +32,26 @@ gi.require_version('GstVideo', '1.0')
 from gi.repository import GLib, Gst, GstVideo  # noqa: E402
 
 import rclpy  # noqa: E402
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup  # noqa: E402
+from rclpy.executors import MultiThreadedExecutor  # noqa: E402
 from rclpy.signals import SignalHandlerOptions  # noqa: E402
 from rclpy.node import Node  # noqa: E402
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy  # noqa: E402
+from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,  # noqa: E402
+                       ReliabilityPolicy)
 from rclpy.time import Time  # noqa: E402
 from sensor_msgs.msg import CameraInfo, Image  # noqa: E402
+from std_srvs.srv import SetBool, Trigger  # noqa: E402
+
+from indomitus_interfaces.msg import DatasetState  # noqa: E402
 
 from rover_cameras import calibration, modes, pipeline  # noqa: E402
 from rover_cameras.mjpeg_http import Dataset, FrameStore, serve  # noqa: E402
+
+
+# Latched: a late subscriber (dataset_node, the GS) gets the current state.
+STATE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                       history=HistoryPolicy.KEEP_LAST,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 class CameraNode(Node):
@@ -103,11 +121,19 @@ class CameraNode(Node):
 
         self.stream = FrameStore(lambda on: self._set_valve('stream', on))
         self.save = FrameStore(lambda on: self._set_valve('save', on))
+        self.state_pub = self.create_publisher(DatasetState, '~/dataset_state', STATE_QOS)
         self.dataset = Dataset(self.cam_name, self.save, save_dir, record_interval,
-                               self.get_logger().info)
+                               self.get_logger().info, on_change=self._publish_state)
+        self._publish_state()
+        # Own group: a capture waits up to 3 s for a frame and must not hold up
+        # _supervise. Dataset is thread-safe (the HTTP threads used it before).
+        services = MutuallyExclusiveCallbackGroup()
+        self.create_service(Trigger, '~/capture', self._on_capture_srv, callback_group=services)
+        self.create_service(SetBool, '~/record', self._on_record_srv, callback_group=services)
+
         self.http = None
         if port:
-            self.http = serve(bind, port, self.stream, self.dataset, self.health)
+            self.http = serve(bind, port, self.stream, self.health)
             self.get_logger().info('serving http://%s:%d/%s?action=stream'
                                    % (bind, port, self.cam_name))
 
@@ -167,6 +193,7 @@ class CameraNode(Node):
             self._close('cannot start: %s' % (msg.parse_error()[0].message if msg else '?'))
             return
         self.get_logger().info('capturing %s from %s (%s)' % (self.mode, self.device, note))
+        self._publish_state()
 
     def _close(self, reason):
         self.get_logger().warn('closing %s: %s' % (self.device, reason))
@@ -176,6 +203,7 @@ class CameraNode(Node):
             pipe.set_state(Gst.State.NULL)
         self.mode = 'closed'
         self._retry_at = time.monotonic() + self.reopen_delay
+        self._publish_state()
 
     def _supervise(self):
         if self.pipe is None:
@@ -289,6 +317,33 @@ class CameraNode(Node):
         info.p = fields['p']
         return info
 
+    # ------------------------------------------------------------- dataset --
+
+    def _on_capture_srv(self, request, response):
+        if self.pipe is None:
+            response.success, response.message = False, 'not capturing'
+            return response
+        path = self.dataset.capture()
+        response.success = path is not None
+        response.message = path if path is not None else 'no frame'
+        return response
+
+    def _on_record_srv(self, request, response):
+        self.dataset.set_recording(request.data)
+        response.success = True
+        response.message = 'recording %s' % ('ON' if self.dataset.recording else 'OFF')
+        return response
+
+    def _publish_state(self):
+        # Also called from Dataset's writer thread, which can outlive shutdown.
+        if not rclpy.ok():
+            return
+        msg = DatasetState()
+        msg.recording = self.dataset.recording
+        msg.cameras_live = int(self.pipe is not None)
+        msg.saved = self.dataset.saved
+        self.state_pub.publish(msg)
+
     # ---------------------------------------------------------------- misc --
 
     def health(self):
@@ -324,8 +379,10 @@ def main(args=None):
     signal.signal(signal.SIGINT, _interrupt)
     signal.signal(signal.SIGTERM, _interrupt)
     node = CameraNode()
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:

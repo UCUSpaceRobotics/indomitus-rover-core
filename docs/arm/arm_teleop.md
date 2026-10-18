@@ -27,7 +27,7 @@ xhost +local:docker
 
 ```bash
 # host
-./scripts/setup_host.sh local --can   # once
+./scripts/setup_host.sh local --udev can   # once
 sudo ip link set can0 up type can bitrate 1000000
 sudo ip link set can0 txqueuelen 1000
 ```

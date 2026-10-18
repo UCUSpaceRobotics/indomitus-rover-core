@@ -157,6 +157,13 @@ private:
     /// vx/vy/wz are never smoothed individually.
     SCurveLimiter magnitude_limiter_{0.2, 0.5};
 
+    /// What the drives are actually given: the limiter's magnitude cut by the
+    /// cos⁴ alignment scale, and allowed to climb back no faster than
+    /// max_accel. The limiter keeps winding up while the wheels are still
+    /// swinging, so cos⁴ alone would hand that over at whatever rate the
+    /// steering error closes.
+    double effective_magnitude_{0.0};
+
     // Runtime state
     WheelData current_angles_{WheelData::filled(0.0)};   ///< integrated steering command
     WheelData measured_angles_{WheelData::filled(0.0)};  ///< steering feedback [rad]

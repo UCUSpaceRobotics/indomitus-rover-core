@@ -78,17 +78,13 @@
     clear_errors_button: 13   # ↑
 
     # --- DATASET ---
-    # Frames are saved by the camera servers (indomitus-ground-station/cameras/
-    # camera_mjpeg_server.py) on the rover's disk, at full JPEG quality; these
-    # buttons only ask. Capture saves one frame from every running camera,
-    # record toggles saving one per second. The ground station UI drives the
-    # same servers, and both read the state back, so they never disagree.
+    # rover_cameras' dataset_node (cameras/capture, cameras/record/toggle):
+    # capture saves one frame from every camera, record toggles saving one per
+    # second (on unless any camera records).
     # Off by default (-1): niche, and the competition needs the buttons. For
     # dataset collection set them (they used to be 14 / 15).
     dataset_capture_button: -1
     dataset_record_button: -1
-    dataset_host: 127.0.0.1   # host networking: the servers are on loopback
-    dataset_camera_ports: [8090, 8091, 8092, 8093, 8094, 8095, 8096, 8097]
 
     # --- TIMEOUT / PUBLISH RATE ---
     cmd_timeout: 0.2

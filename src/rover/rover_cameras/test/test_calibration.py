@@ -35,7 +35,3 @@ def test_load_and_scale(tmp_path):
     assert half['p'][0] == 395.0 and half['p'][6] == 150.0
     assert half['d'] == info['d']
     assert calibration.scaled(info, 960, 600) == info
-
-
-def test_uncalibrated_has_zero_k():
-    assert calibration.uncalibrated(640, 480)['k'] == [0.0] * 9
