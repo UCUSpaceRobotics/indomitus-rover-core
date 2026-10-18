@@ -17,6 +17,7 @@
   <!-- rover -->
   <exec_depend>rover_aruco</exec_depend>
   <exec_depend>rover_bringup</exec_depend>
+  <exec_depend>rover_cameras</exec_depend>
   <exec_depend>rover_comms</exec_depend>
   <exec_depend>rover_controller</exec_depend>
   <exec_depend>rover_costmap_plugins</exec_depend>
