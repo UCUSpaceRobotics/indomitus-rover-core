@@ -6,10 +6,10 @@ could move. The rules that matter are the pessimistic ones — every state here
 gates something an operator reads as "ready", and a state that over-claims is
 a rover that looks drivable and is not.
 
-No ROS import anywhere in here — drive_power_state is deliberately standalone.
+No ROS import anywhere in here — drive_manager_state is deliberately standalone.
 """
 
-from rover_teleop.drive_power_state import (
+from rover_drive.drive_manager_state import (
     DrivePower,
     after_compact_result,
     after_controller_result,

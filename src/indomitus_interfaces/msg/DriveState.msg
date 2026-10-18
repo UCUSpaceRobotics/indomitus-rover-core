@@ -1,4 +1,4 @@
-# What the rover's drive is actually capable of right now, as drive_power_node
+# What the rover's drive is actually capable of right now, as drive_manager_node
 # last confirmed it with controller_manager and the hardware interface.
 #
 # Published latched on drive/state. Both operators read it instead of keeping

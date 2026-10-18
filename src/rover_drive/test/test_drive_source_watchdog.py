@@ -3,10 +3,10 @@
 DriveSourceWatchdog has no ROS in it and takes its clock as an argument
 precisely so these can be tested here - same split and same reason as
 test_link_state.py / test_gs_link_watchdog.py. The priorities/timeouts below
-mirror rover_bringup/config/twist_mux.yaml at the time this was written.
+mirror rover_drive/config/twist_mux.yaml at the time this was written.
 """
 
-from rover_teleop.drive_source_watchdog import DriveSourceWatchdog, Source
+from rover_drive.drive_source_watchdog import DriveSourceWatchdog, Source
 
 
 class FakeClock:

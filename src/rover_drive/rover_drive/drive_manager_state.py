@@ -7,7 +7,7 @@ ground station commanding the same hardware, one owner has to hold this and
 publish it; these are that owner's transition rules, with the ROS calls taken
 out so the ordering can be tested without a controller_manager.
 
-No ROS import anywhere in here — drive_power_state is deliberately standalone.
+No ROS import anywhere in here — drive_manager_state is deliberately standalone.
 """
 
 from dataclasses import dataclass, replace

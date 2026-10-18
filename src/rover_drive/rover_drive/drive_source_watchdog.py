@@ -3,7 +3,7 @@
 
 twist_mux always outputs the highest-priority input that has not timed out,
 independent of whatever the others are doing - see
-rover_bringup/config/twist_mux.yaml, which the priorities and timeouts here
+rover_drive/config/twist_mux.yaml, which the priorities and timeouts here
 must keep matching. This mirrors that rule rather than reading it back off
 twist_mux, which exposes it only through free-text /diagnostics fields, not a
 stable machine-readable one.

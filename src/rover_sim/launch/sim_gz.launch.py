@@ -410,11 +410,11 @@ def generate_launch_description() -> LaunchDescription:
             OpaqueFunction(function=make_control_launch,
                            kwargs={"controllers_yaml_path": controllers_yaml_path}),
 
-            include_launch("rover_bringup", "twist_mux.launch.py", {
+            include_launch("rover_drive", "twist_mux.launch.py", {
                 "use_sim_time": "true",
             }),
 
-            include_launch("rover_teleop", "drive_power.launch.py", {
+            include_launch("rover_drive", "drive_manager.launch.py", {
                 "use_sim_time": "true",
                 "controller_name": LaunchConfiguration("swerve_controller"),
             }),

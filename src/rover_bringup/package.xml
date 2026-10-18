@@ -26,8 +26,8 @@
   <!-- CAN -->
   <exec_depend>ros2_socketcan</exec_depend>
 
-  <!-- cmd_vel multiplexer -->
-  <exec_depend>twist_mux</exec_depend>
+  <!-- twist_mux, drive manager, drive source lamp -->
+  <exec_depend>rover_drive</exec_depend>
 
   <!-- URDF -->
   <exec_depend>xacro</exec_depend>

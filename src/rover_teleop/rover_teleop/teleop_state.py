@@ -82,29 +82,3 @@ class JoyWatchdog:
 
         self._zeros_left -= 1
         return WatchdogTick(went_stale=went_stale, publish_zero=True)
-
-
-class GenerationGuard:
-    """Lets only the reply to the newest request write back state.
-
-    Service replies can land out of order, and an old one must not be allowed
-    to overwrite state the newer request has already settled — that is how the
-    light bar ends up green with the controller actually inactive.
-    """
-
-    def __init__(self):
-        self._generation = 0
-
-    @property
-    def generation(self) -> int:
-        return self._generation
-
-    def start(self) -> int:
-        """Claim the newest generation. Hand the value to the reply callback."""
-        self._generation += 1
-        return self._generation
-
-    def is_current(self, generation: int) -> bool:
-        """True when `generation` is still the newest request in flight."""
-        return generation == self._generation
-

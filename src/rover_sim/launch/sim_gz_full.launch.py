@@ -220,11 +220,11 @@ def generate_launch_description() -> LaunchDescription:
             include_launch('rover_localization', 'ekf.launch.py', {
                 'use_sim_time': 'true',
             }),
-            include_launch('rover_bringup', 'twist_mux.launch.py'),
+            include_launch('rover_drive', 'twist_mux.launch.py'),
 
             # Serves the joystick's motor / compact / clear-errors buttons, and the
             # same services the ground station calls.
-            include_launch('rover_teleop', 'drive_power.launch.py', {
+            include_launch('rover_drive', 'drive_manager.launch.py', {
                 'use_sim_time': 'true',
                 'controller_name': 'swerve_controller_test',
             }),

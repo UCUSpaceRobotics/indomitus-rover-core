@@ -52,7 +52,7 @@
     vy_toggle_button: 4   # Share button
 
     # --- DRIVE POWER / COMPACT MODE ---
-    # Both are hardware state owned by drive_power_node — these buttons only
+    # Both are hardware state owned by drive_manager_node — these buttons only
     # ask it to invert what it holds, so the ground station can command the
     # same things from its switches without the two drifting apart.
     motor_toggle_button: 6   # Options button

@@ -53,7 +53,7 @@ White is painted as the node shuts down.
 
 Magenta appears after the clear-errors button: the faults are gone, but the hardware will not drive again until the motor button is cycled off and on.
 
-The drive state itself is read off `drive/state`, which `drive_power_node` publishes — the joystick no longer keeps its own copy, so the bar tracks the drive even when the ground station is the one commanding it. With `drive_power_node` not running nothing arrives on that topic and the bar stays red, which is the truth: no controller has been activated, so the rover cannot move.
+The drive state itself is read off `drive/state`, which `drive_manager_node` publishes — the joystick no longer keeps its own copy, so the bar tracks the drive even when the ground station is the one commanding it. With `drive_manager_node` not running nothing arrives on that topic and the bar stays red, which is the truth: no controller has been activated, so the rover cannot move.
 
 ## Unplugging the Joystick
 

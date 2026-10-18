@@ -16,9 +16,9 @@ def generate_launch_description():
     joystick's motor and compact buttons have to reach something.
     """
     config = os.path.join(
-        get_package_share_directory('rover_teleop'),
+        get_package_share_directory('rover_drive'),
         'config',
-        'drive_power.yaml',
+        'drive_manager.yaml',
     )
 
     return LaunchDescription([
@@ -32,9 +32,9 @@ def generate_launch_description():
             description='Swerve controller that drive/power activates and deactivates.'),
 
         Node(
-            package='rover_teleop',
-            executable='drive_power_node',
-            name='drive_power',
+            package='rover_drive',
+            executable='drive_manager_node',
+            name='drive_manager',
             parameters=[config, {
                 'use_sim_time': LaunchConfiguration('use_sim_time'),
                 'controller_name': LaunchConfiguration('controller_name'),

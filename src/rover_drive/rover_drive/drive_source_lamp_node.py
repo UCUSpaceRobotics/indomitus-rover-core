@@ -3,7 +3,7 @@
 
 Watches the same command topics twist_mux does (cmd_vel_joy, cmd_vel_gs,
 cmd_vel_nav, cmd_vel_ext, cmd_vel_lora) and picks the same winner it would,
-using the priorities/timeouts mirrored from rover_bringup/config/twist_mux.yaml
+using the priorities/timeouts mirrored from rover_drive/config/twist_mux.yaml
 in DriveSourceWatchdog - see that module for why this reimplements the rule
 rather than reading it back off twist_mux's /diagnostics.
 
@@ -19,10 +19,10 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from indomitus_interfaces.srv import SetTrafficLight
 
-from rover_teleop.drive_source_watchdog import DriveSourceWatchdog, Source
-from rover_teleop.service_call import GuardedCall
+from rover_drive.drive_source_watchdog import DriveSourceWatchdog, Source
+from rover_drive.service_call import GuardedCall
 
-# Mirrors rover_bringup/config/twist_mux.yaml. Keep both in sync by hand -
+# Mirrors rover_drive/config/twist_mux.yaml. Keep both in sync by hand -
 # there is nothing at runtime enforcing the match, same contract as the LoRa
 # wire scale between lora_rover_node and lora_gateway_node.
 DEFAULT_SOURCES = (

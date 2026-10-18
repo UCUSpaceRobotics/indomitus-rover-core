@@ -6,7 +6,7 @@ Turns a DualSense into a twist on cmd_vel_joy, and its buttons into requests
 somebody else acts on. What this node owns is exactly what shapes its own
 output — strafe, granny, curvature vs raw twist, and whether it is publishing
 at all. Everything that is hardware state is owned elsewhere and read back:
-drive_power_node holds motors and the controller, lights_can_node holds the
+drive_manager_node holds motors and the controller, lights_can_node holds the
 lights. That split is what lets the ground station drive the same rover
 without the two operators' idea of the state drifting apart.
 """
@@ -87,7 +87,7 @@ class JoystickInterpreterNode(Node):
         self._raw_twist_mode = True
         self._active = bool(declare_and_get('active_default', True))
 
-        # --- drive state, owned by drive_power_node and read back for the LED.
+        # --- drive state, owned by drive_manager_node and read back for the LED.
         self._drive_state = DriveState()
 
         self._input = JoyInput()
@@ -320,7 +320,7 @@ class JoystickInterpreterNode(Node):
     def _refresh_led(self):
         """Paint the controller's light bar with the current drive state.
 
-        With drive_power_node not running nothing ever arrives on drive/state,
+        With drive_manager_node not running nothing ever arrives on drive/state,
         the default message reads motors-off, and the bar goes red — which is
         the truth: no controller has been activated, so the rover cannot move.
         """

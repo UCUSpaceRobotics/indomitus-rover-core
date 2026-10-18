@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rover_drive</name>
+  <version>0.0.0</version>
+  <description>
+    The rover's drive command path, everything between the operators and the
+    swerve controller: twist_mux (which cmd_vel_* input drives), the drive
+    manager (switches the RoverHardware component and the swerve controller
+    together, compact mode, clearing drive faults, publishes drive/state) and
+    the tower lamp showing whether an autonomous or a manual source is driving.
+    Used by the onboard joystick and the ground station alike; runs on the
+    rover in hardware and in simulation.
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>controller_manager_msgs</depend>
+  <depend>lifecycle_msgs</depend>
+  <depend>indomitus_interfaces</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>twist_mux</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
