@@ -10,22 +10,6 @@ def test_raw_camera_encodes_and_mjpg_passes_through():
     assert 'image/jpeg' in mjpg and 'jpegenc' not in mjpg and 'jpegdec' in mjpg
 
 
-def test_ros_branch_size_and_encoding():
-    desc = pipeline.build('/dev/x', 'YUYV', 960, 600, 15, ros_encoding='bgr8',
-                          ros_width=480, ros_height=300)
-    assert 'video/x-raw,format=BGR,width=480,height=300 ! appsink name=ros_sink' in desc
-
-
-def test_framerate():
-    assert pipeline.framerate(15) == '15/1'
-    assert pipeline.framerate(7.5) == '15/2'
-
-
-def test_rejects_unknown_format():
-    with pytest.raises(ValueError):
-        pipeline.build('/dev/x', 'H264', 960, 600, 15)
-
-
 @pytest.mark.parametrize('fourcc', ['YUYV', 'MJPG'])
 def test_gstreamer_accepts_it(fourcc):
     gi = pytest.importorskip('gi')

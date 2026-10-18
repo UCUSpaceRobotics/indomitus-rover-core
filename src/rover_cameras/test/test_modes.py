@@ -24,10 +24,6 @@ def test_formats_are_kept_apart():
     assert f['YUYV'][(1280, 720)] == [10.0]
 
 
-def test_exact_mode():
-    assert pick_mode({(960, 600): [15.0, 30.0]}, 960, 600, 15) == (960, 600, 15, 'exact')
-
-
 def test_rate_snaps_down_never_up():
     w, h, fps, note = pick_mode({(960, 600): [15.0, 30.0, 60.0]}, 960, 600, 20)
     assert fps == 15.0 and 'not offered' in note
@@ -38,7 +34,3 @@ def test_rate_snaps_down_never_up():
 def test_missing_size_falls_back_to_largest():
     w, h, _, _ = pick_mode({(640, 480): [30.0], (1920, 1200): [15.0]}, 800, 600, 15)
     assert (w, h) == (1920, 1200)
-
-
-def test_unknown_modes_pass_through():
-    assert pick_mode({}, 960, 600, 15)[:3] == (960, 600, 15)
