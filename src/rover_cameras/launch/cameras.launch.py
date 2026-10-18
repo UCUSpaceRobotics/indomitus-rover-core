@@ -2,7 +2,8 @@
 
 Each serves MJPEG over HTTP to the ground station (same URLs as the GS's
 start-cameras.sh) and publishes cameras/<name>/image_raw + camera_info for
-nodes on the rover. See rover_cameras/camera_node.py.
+nodes on the rover. See rover_cameras/camera_node.py. dataset_node adds
+cameras/capture and cameras/record[/toggle] for all started cameras at once.
 
 Stop the GS's camera servers first (`start-cameras.sh --stop`): a V4L2 camera
 streams to one process only.
@@ -74,11 +75,12 @@ def _nodes(context):
     calibration_dir = os.path.join(
         get_package_share_directory('rover_cameras'), 'config', 'calibration')
 
-    nodes = []
+    nodes, ros_names = [], []
     for name, cam in cameras.items():
         if wanted and name not in wanted:
             continue
         ros_name, params = camera_params(name, cam, conf.get('defaults'), calibration_dir)
+        ros_names.append(ros_name)
         nodes.append(Node(
             package='rover_cameras',
             executable='camera_node',
@@ -89,6 +91,18 @@ def _nodes(context):
             respawn=True,
             respawn_delay=2.0,
         ))
+
+    # cameras/capture, cameras/record[/toggle] for all of them at once.
+    nodes.append(Node(
+        package='rover_cameras',
+        executable='dataset_node',
+        name='dataset',
+        namespace='cameras',
+        output='screen',
+        parameters=[{'cameras': ros_names or ['']}],
+        respawn=True,
+        respawn_delay=2.0,
+    ))
 
     namespace = LaunchConfiguration('rover_namespace').perform(context)
     return [GroupAction(([PushRosNamespace(namespace)] if namespace else []) + nodes)]

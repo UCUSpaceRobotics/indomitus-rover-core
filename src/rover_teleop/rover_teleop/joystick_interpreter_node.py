@@ -127,6 +127,8 @@ class JoystickInterpreterNode(Node):
                 'drive/clear_errors',
                 'lights/spotlight/toggle',
                 'lights/beautiful/toggle',
+                'cameras/capture',
+                'cameras/record/toggle',
             )
         }
 
@@ -156,6 +158,10 @@ class JoystickInterpreterNode(Node):
             ButtonToggle(declare_and_get('active_toggle_button', 2), self._on_active_toggle_pressed),
             ButtonToggle(declare_and_get('clear_errors_button', 20),
                          lambda: self._request('drive/clear_errors')),
+            ButtonToggle(declare_and_get('dataset_capture_button', 14),
+                         lambda: self._request('cameras/capture')),
+            ButtonToggle(declare_and_get('dataset_record_button', 15),
+                         lambda: self._request('cameras/record/toggle')),
         ]
 
         self.get_logger().info(

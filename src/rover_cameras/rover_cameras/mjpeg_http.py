@@ -1,13 +1,14 @@
 """MJPEG over HTTP for the ground station, plus dataset capture. No ROS, no GStreamer.
 
-Same API as indomitus-ground-station/cameras/camera_mjpeg_server.py, so the GS
-UI tiles and rover_teleop's dataset_trigger work unchanged:
+Same video URLs as indomitus-ground-station/cameras/camera_mjpeg_server.py, so
+the GS UI tiles work unchanged:
 
     /<name>?action=stream  multipart/x-mixed-replace MJPEG
     /?action=snapshot      the newest JPEG
-    /capture               save one frame (save_quality) on the rover
-    /record?on=1|0         save one frame every record_interval seconds, or stop
     /health                one line of key=value, for scripts
+
+Dataset capture (Dataset) is driven over ROS services by camera_node, not over
+HTTP: see camera_node.py and dataset_node.py.
 
 A FrameStore holds the newest JPEG of one pipeline branch and counts its users;
 the node closes the branch's valve when the count drops to zero, so nothing is
@@ -84,7 +85,7 @@ class Dataset:
     capture takes. Disk writes run on a worker thread, never in GStreamer's.
     """
 
-    def __init__(self, name, frames, save_dir, interval, log):
+    def __init__(self, name, frames, save_dir, interval, log, on_change=None):
         self.name = name
         self.frames = frames
         self.save_dir = os.path.expanduser(save_dir)
@@ -92,6 +93,7 @@ class Dataset:
         self.recording = False
         self.saved = 0
         self._log = log
+        self._on_change = on_change or (lambda: None)
         self._since = 0
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -122,6 +124,7 @@ class Dataset:
         self._log('recording %s (every %gs to %s)'
                   % ('ON' if on else 'OFF', self.interval, self.save_dir))
         self._wake.set()
+        self._on_change()
 
     def _recorder(self):
         while True:
@@ -159,10 +162,12 @@ class Dataset:
                 self.saved += 1
             except OSError as exc:
                 self._log('cannot save %s: %s' % (path, exc))
+                continue
+            self._on_change()
 
 
 class Handler(BaseHTTPRequestHandler):
-    """Reads `self.server.stream` (FrameStore), `.dataset`, `.health()`."""
+    """Reads `self.server.stream` (FrameStore) and `.health()`."""
 
     protocol_version = 'HTTP/1.0'
 
@@ -175,19 +180,6 @@ class Handler(BaseHTTPRequestHandler):
         action = query.get('action', [''])[0]
         if parsed.path == '/health':
             self._text(200, self.server.health() + '\n')
-        elif parsed.path == '/capture':
-            path = self.server.dataset.capture()
-            if path is None:
-                self._text(503, 'error no frame\n')
-            else:
-                self._text(200, 'ok saved=%s\n' % path)
-        elif parsed.path == '/record':
-            on = query.get('on', [''])[0]
-            if on not in ('0', '1'):
-                self._text(400, 'error on must be 1 or 0\n')
-                return
-            self.server.dataset.set_recording(on == '1')
-            self._text(200, 'ok recording=%d\n' % self.server.dataset.recording)
         elif action == 'snapshot':
             self._snapshot()
         elif action == 'stream' or parsed.path in ('/', '/stream'):
@@ -201,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/plain')
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
-        # The GS UI reads these cross-origin (its dataset controls, saveFrame).
+        # The GS UI reads these cross-origin.
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(body)
@@ -253,12 +245,11 @@ class Handler(BaseHTTPRequestHandler):
             stream.release()
 
 
-def serve(bind, port, stream, dataset, health):
+def serve(bind, port, stream, health):
     """Start the HTTP server on a daemon thread; returns the server."""
     server = ThreadingHTTPServer((bind, port), Handler)
     server.daemon_threads = True
     server.stream = stream
-    server.dataset = dataset
     server.health = health
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

@@ -33,3 +33,20 @@ def test_capture_writes_the_next_frame(tmp_path):
             break
         threading.Event().wait(0.02)
     assert open(path, 'rb').read() == b'jpeg'
+
+
+def test_on_change_fires_on_recording_change_and_on_save(tmp_path):
+    changes = []
+    store = FrameStore()
+    ds = Dataset('cam', store, str(tmp_path), 0.01, lambda *_: None,
+                 on_change=lambda: changes.append((ds.recording, ds.saved)))
+    ds.set_recording(True)
+    ds.set_recording(True)          # no change, no call
+    assert changes == [(True, 0)]
+    store.push(b'jpeg')
+    for _ in range(100):
+        if ds.saved:
+            break
+        threading.Event().wait(0.02)
+    ds.set_recording(False)
+    assert changes[1][1] == 1 and changes[-1] == (False, ds.saved)

@@ -33,6 +33,7 @@ setup(
     entry_points={
         'console_scripts': [
             f'camera_node = {package_name}.camera_node:main',
+            f'dataset_node = {package_name}.dataset_node:main',
         ],
     },
 )
