@@ -12,6 +12,7 @@ alias nl="ros2 node list"
 alias te="ros2 topic echo"
 
 alias launch_rover="ros2 launch rover_bringup rover.launch.py"
+alias launch_arm="ros2 launch arm_bringup arm.launch.py"
 alias launch_gamepad="ros2 launch rover_teleop gamepad.launch.py"
 alias launch_navigation="ros2 launch rover_bringup navigation.launch.py"
 alias launch_nav="ros2 launch rover_bringup navigation.launch.py"
