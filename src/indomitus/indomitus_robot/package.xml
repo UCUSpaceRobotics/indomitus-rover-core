@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>indomitus_robot</name>
+  <version>0.0.0</version>
+  <description>
+    Metapackage: everything that runs on the rover's Jetson (no simulation).
+    colcon build --packages-up-to indomitus_robot
+  </description>
+  <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>indomitus_interfaces</exec_depend>
+
+  <!-- rover -->
+  <exec_depend>rover_aruco</exec_depend>
+  <exec_depend>rover_bringup</exec_depend>
+  <exec_depend>rover_cameras</exec_depend>
+  <exec_depend>rover_comms</exec_depend>
+  <exec_depend>rover_controller</exec_depend>
+  <exec_depend>rover_costmap_plugins</exec_depend>
+  <exec_depend>rover_description</exec_depend>
+  <exec_depend>rover_diagnostics</exec_depend>
+  <exec_depend>rover_drive</exec_depend>
+  <exec_depend>rover_hardware_interface</exec_depend>
+  <exec_depend>rover_localization</exec_depend>
+  <exec_depend>rover_navigation</exec_depend>
+  <exec_depend>rover_peripherals</exec_depend>
+  <exec_depend>rover_sensors</exec_depend>
+  <exec_depend>rover_teleop</exec_depend>
+
+  <!-- arm (arm_bringup also pulls in arm_tasks) -->
+  <exec_depend>arm_bringup</exec_depend>
+  <exec_depend>arm_description</exec_depend>
+  <exec_depend>arm_hardware_interface</exec_depend>
+  <exec_depend>arm_moveit_config</exec_depend>
+  <exec_depend>arm_peripherals</exec_depend>
+  <exec_depend>arm_sensors</exec_depend>
+  <exec_depend>arm_teleop</exec_depend>
+
+  <!-- panel task -->
+  <exec_depend>panel_bringup</exec_depend>
+  <exec_depend>panel_description</exec_depend>
+  <exec_depend>panel_perception</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

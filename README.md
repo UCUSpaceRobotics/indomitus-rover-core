@@ -124,7 +124,7 @@ Follow these steps to power on and operate the rover using a laptop:
 
 7. **Start the joystick nodes:** Run the following command inside the laptop's container to start the nodes responsible for handling joystick input:
     ```bash
-    ros2 launch rover_teleop joy.launch.py
+    ros2 launch rover_teleop gamepad.launch.py   # laptop gamepad: source:=remote (default)
     ```
 
 8.  **Control the rover:** You are now ready to drive the rover using the joystick.

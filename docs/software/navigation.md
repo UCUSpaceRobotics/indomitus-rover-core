@@ -4,8 +4,8 @@ How to launch autonomous navigation (LiDAR + SLAM + Nav2) — on the physical ro
 
 ## 1. What needs to be connected
 
-* **RPLIDAR S2** — connected via USB, recognized at `/dev/rplidar-s2` (udev rule, see [`rplidar_s2.md`](../../src/rover_sensors/docs/rplidar_s2.md)).
-* **ZED2i stereo camera** — connected via USB, host udev rule (`99-slabs.rules`) and GPU passthrough set up (see [`zed2i.md`](../../src/rover_sensors/docs/zed2i.md)). Must already be running in `nav` mode before `navigation.launch.py`'s waits will succeed — it does not start the camera itself.
+* **RPLIDAR S2** — connected via USB, recognized at `/dev/rplidar-s2` (udev rule, see [`rplidar_s2.md`](../../src/rover/rover_sensors/docs/rplidar_s2.md)).
+* **ZED2i stereo camera** — connected via USB, host udev rule (`99-slabs.rules`) and GPU passthrough set up (see [`zed2i.md`](../../src/rover/rover_sensors/docs/zed2i.md)). Must already be running in `nav` mode before `navigation.launch.py`'s waits will succeed — it does not start the camera itself.
 
 ## 2. Launch commands
 
@@ -44,7 +44,7 @@ Other `world_name` option: `nav2_test_world`. Also accepts `map_year`, `map_reso
 3. Waits until `/zed2i/points` and `/zed2i/odom` are actually publishing.
 4. Once both are confirmed live, starts:
    * **SLAM** (`slam_toolbox`, async) — publishes `map -> odom` TF.
-   * **Nav2** (`planner_server`, `controller_server`, `bt_navigator`, `behavior_server`, `waypoint_follower`, `lifecycle_manager`) — publishes velocity commands to `cmd_vel_nav`, routed into `/cmd_vel` by `twist_mux` (priority 50). The onboard joystick at priority 100 can always override it; the **ground station at priority 10 cannot** — during an autonomy run the gamepad is the only manual override. See the header of `rover_bringup/config/twist_mux.yaml` for why, and what has to change on the ground station side first.
+   * **Nav2** (`planner_server`, `controller_server`, `bt_navigator`, `behavior_server`, `waypoint_follower`, `lifecycle_manager`) — publishes velocity commands to `cmd_vel_nav`, routed into `/cmd_vel` by `twist_mux` (priority 50). The onboard joystick at priority 100 can always override it; the **ground station at priority 10 cannot** — during an autonomy run the gamepad is the only manual override. See the header of `rover_drive/config/twist_mux.yaml` for why, and what has to change on the ground station side first.
 
 If either sensor wait is killed or fails, SLAM/Nav2 are never started.
 
@@ -58,6 +58,6 @@ If either sensor wait is killed or fails, SLAM/Nav2 are never started.
 | SLAM | `rover_localization/config/slam_toolbox_params.yaml` |
 | Nav2 | `rover_navigation/config/nav2_params.yaml` |
 | EKF (`/odom`) | `rover_localization/config/ekf.yaml` |
-| `cmd_vel` routing | `rover_bringup/config/twist_mux.yaml` |
+| `cmd_vel` routing | `rover_drive/config/twist_mux.yaml` |
 
 Each can be overridden via launch arguments: `rplidar_params_file`, `scan_filter_params_file`, `nav2_params_file`, `slam_params_file` on `navigation.launch.py`; `config_path` on `zed2i.launch.py` (via `rover.launch.py`).

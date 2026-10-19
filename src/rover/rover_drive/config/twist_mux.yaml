@@ -1,0 +1,33 @@
+/**/twist_mux:
+  ros__parameters:
+    use_stamped: false
+    topics:
+      joystick:
+        topic:   "cmd_vel_joy"
+        timeout: 0.5
+        priority: 100
+      
+      ground_station:
+        topic:   "cmd_vel_gs"
+        timeout: 0.5
+        priority: 50
+
+      remote:
+        topic:   "cmd_vel_remote"
+        timeout: 0.5
+        priority: 30
+
+      nav2:
+        topic:   "cmd_vel_nav"
+        timeout: 1.0
+        priority: 20
+
+      external:
+        topic:   "cmd_vel_ext"
+        timeout: 0.5
+        priority: 10
+
+      lora:
+        topic:   "cmd_vel_lora"
+        timeout: 1.0
+        priority: 5

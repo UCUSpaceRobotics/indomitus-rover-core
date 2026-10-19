@@ -85,8 +85,8 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # Default false: collision_link_reporter lives in arm_tasks, which is
-    # excluded from the Jetson production image (see docker/Dockerfile's
-    # SIMULATION_PKGS — arm_tasks's remaining nodes are pure network clients
+    # not in indomitus_robot, so not in the Jetson production image
+    # (arm_tasks's remaining nodes are pure network clients
     # meant to run from a dev/ground-station container, not on the Jetson
     # itself). A plain Jetson run of this launch file must not try to spawn
     # a node from a package that was never built into that image; opt in
