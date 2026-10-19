@@ -51,7 +51,7 @@
       floor_alignment: false # Enable to automatically calculate camera/floor offset
       initial_base_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # Initial position of the `camera_link` frame in the map -> [X, Y, Z, R, P, Y]
       two_d_mode: true # Force navigation on a plane. If true the Z value will be fixed to 'fixed_z_value', roll and pitch to zero
-      fixed_z_value: 0.61 # Value to be used for Z coordinate if `two_d_mode` is true
+      fixed_z_value: 0.529 # Value to be used for Z coordinate if `two_d_mode` is true
       transform_time_offset: 0.0 # The value added to the timestamp of `map->odom` and `odom->camera_link` transform being generated
       publish_odom_pose: true # Advertise the odometry and pose topics that are published only if a node subscribes to them
       publish_pose_cov: false # Advertise the pose with covariance topic that is published only if a node subscribes to it

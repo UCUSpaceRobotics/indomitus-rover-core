@@ -16,10 +16,11 @@ This document outlines the configuration, launch instructions, and data capabili
 
 The camera is initialized using a custom launch file that wraps the official `zed_camera.launch.py` and applies specific topic remappings to fit the rover's architecture.
 
-The launch file takes a `mode` argument that picks which config to load. Every mode always loads `rover_sensors/config/zed2i_common.yaml` first (the `general`/`video`/`sensors` settings shared by both modes), then merges the mode-specific file on top at launch time, so the shared settings aren't duplicated between mode files:
+The launch file takes a `mode` argument that picks which config to load. Every mode always loads `rover_sensors/config/zed2i_common.yaml` first (the `general`/`video`/`sensors` settings shared by all modes), then merges the mode-specific file on top at launch time, so the shared settings aren't duplicated between mode files:
 
 * `mode:=rgb` *(default)* — only the rectified color feed is enabled, for the operator view. Merges in `rover_sensors/config/zed2i_rgb.yaml`.
 * `mode:=nav` — additionally enables the point cloud and positional tracking (VIO) used by the navigation stack. Merges in `rover_sensors/config/zed2i_nav.yaml`.
+* `mode:=record` — traversability dataset recording. Merges in `rover_sensors/config/zed2i_record.yaml` on top of common
 
 ```bash
 # RGB feed only (operator view)
@@ -27,6 +28,9 @@ ros2 launch rover_sensors zed2i.launch.py mode:=rgb
 
 # Point cloud + VIO for navigation
 ros2 launch rover_sensors zed2i.launch.py mode:=nav
+
+# Traversability dataset recording
+ros2 launch rover_sensors zed2i.launch.py mode:=record
 ```
 
 On the real rover, this launch file is normally started via `rover_bringup/launch/rover.launch.py`'s `zed2i_mode` argument rather than invoked directly — see [`nodes_overview.md`](../../../../docs/software/nodes_overview.md). `config_path` can still be set explicitly to override the default file chosen by `mode` - in that case the file is used as-is and `zed2i_common.yaml` is not merged in.
@@ -73,8 +77,8 @@ Depth, point cloud, and positional tracking (VIO) are only enabled in `mode:=nav
 | **Depth Map** | `/zed2i/depth/depth_registered`<br> | `depth.publish_depth_map: true`<br> | `nav` only |
 | **Depth Camera Info** | `/zed2i/depth/camera_info`<br> | `depth.publish_depth_map: true`<br> | `nav` only |
 | **3D Point Cloud** | `/zed2i/points`<br> | `depth.publish_point_cloud: true`<br> | `nav` only |
-| **Visual Odometry** | `/zed2i/odom`<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav` only |
-| **Camera Pose** | `/zed2i/pose`<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav` only |
+| **Visual Odometry** | `/zed2i/odom` (relayed from `/zed2i/zed_node/odom` by `topic_tools relay`: a plain remap would stop the wrapper publishing it)<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav` only |
+| **Camera Pose** | `/zed2i/pose` (relayed from `/zed2i/zed_node/pose` by `topic_tools relay`: a plain remap would stop the wrapper publishing it)<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav` only |
 
 
 ---

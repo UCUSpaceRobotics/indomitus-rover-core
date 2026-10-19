@@ -6,7 +6,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, LogInfo
 from launch.conditions import IfCondition
 from launch.substitutions import (
-    EnvironmentVariable, LaunchConfiguration, Command #, NotEqualsSubstitution
+    EnvironmentVariable, LaunchConfiguration, Command, NotEqualsSubstitution
 )
 from launch_ros.actions import PushRosNamespace
 from rover_bringup.launch_utils import include_launch
@@ -58,15 +58,16 @@ def generate_launch_description():
         description='Device path for the rover-side gamepad; only used when use_joy:=true',
     )
 
-    # zed2i_mode_arg = DeclareLaunchArgument(
-    #     'zed2i_mode', default_value='',
-    #     description=(
-    #         "ZED2i stereo camera mode: 'rgb' for the operator color feed, 'nav' for the "
-    #         "point cloud and VIO used by navigation. Leave empty to not launch the camera at all."
-    #     ),
-    #     choices=['', 'rgb', 'nav'],
-    # )
-    # zed2i_mode_val = LaunchConfiguration('zed2i_mode')
+    zed2i_mode_arg = DeclareLaunchArgument(
+        'zed2i_mode', default_value='',
+        description=(
+            "ZED2i stereo camera mode: 'rgb' for the operator color feed, 'nav' for the "
+            "point cloud and VIO used by navigation, 'record' for traversability-dataset recording. "
+            "Leave empty to not launch the camera at all."
+        ),
+        choices=['', 'rgb', 'nav', 'record'],
+    )
+    zed2i_mode_val = LaunchConfiguration('zed2i_mode')
 
     robot_description = Command([
         'xacro ',
@@ -80,7 +81,7 @@ def generate_launch_description():
         interface_arg,
         use_joy_arg,
         joy_dev_arg,
-        # zed2i_mode_arg,
+        zed2i_mode_arg,
 
         GroupAction([
             PushRosNamespace(namespace_val),
@@ -98,9 +99,9 @@ def generate_launch_description():
                 'interface': LaunchConfiguration('interface'),
             }),
 
-            # include_launch('rover_sensors', 'zed2i.launch.py', {
-            #     'mode': zed2i_mode_val,
-            # }, condition=IfCondition(NotEqualsSubstitution(zed2i_mode_val, ''))),
+            include_launch('rover_sensors', 'zed2i.launch.py', {
+                'mode': zed2i_mode_val,
+            }, condition=IfCondition(NotEqualsSubstitution(zed2i_mode_val, ''))),
 
             include_launch('rover_description', 'robot_state_publisher.launch.py', {
                 'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
@@ -135,6 +136,6 @@ def generate_launch_description():
 
             include_launch('rover_peripherals', 'power_monitor_node.launch.py'),
 
-            # include_launch('rover_localization', 'ekf.launch.py'),
+            include_launch('rover_localization', 'ekf.launch.py'),
         ]),
     ])

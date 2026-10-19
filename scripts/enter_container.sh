@@ -41,6 +41,7 @@ run_local() {
   local COMPOSE_FILE="docker-compose.yaml"
   local ROS_DISTRO="humble"
   local WORKSPACE_DIR="/opt/ws"
+  local HARDWARE_WORKSPACE_DIR="/opt/hw_ws"
 
   show_local_help() {
     cat << EOF
@@ -98,7 +99,7 @@ EOF
   echo -e "Type \e[33mexit\e[0m to leave."
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
-  docker exec -it "$CONTAINER_NAME" bash -lc "source /opt/ros/${ROS_DISTRO}/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && exec bash -i"
+  docker exec -it "$CONTAINER_NAME" bash -lc "source /opt/ros/${ROS_DISTRO}/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && source ${HARDWARE_WORKSPACE_DIR}/install/setup.bash && exec bash -i"
 
   echo -e "\n\e[32m[DONE]\e[0m Session closed."
 }
@@ -116,6 +117,7 @@ run_rover() {
   local CONTAINER_NAME="rover_prod"
   local COMPOSE_FILE="docker-compose.prod.yaml"
   local WORKSPACE_DIR="/opt/ws"
+  local HARDWARE_WORKSPACE_DIR="/opt/hw_ws"
   local WIFI_SSID="ERC_UCUSpaceRobotics_A"
   local WIFI_PASS="19283746"
   local USE_ETH=false
@@ -201,7 +203,7 @@ EOF
   echo -e "Type \e[33mexit\e[0m to leave."
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
-  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -lc 'source /opt/ros/humble/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && exec bash -i'"
+  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -lc 'source /opt/ros/humble/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && source ${HARDWARE_WORKSPACE_DIR}/install/setup.bash && exec bash -i'"
 
   echo -e "\n\e[32m[DONE]\e[0m Session closed."
 }

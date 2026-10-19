@@ -245,3 +245,6 @@ AMENT_IGNORE
 
 #test change
 .vscode/
+
+# AI context
+ai-context/
