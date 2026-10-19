@@ -48,6 +48,12 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
       - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
+
+      # Uncomment and set your username to save ROS2 bags recorded in the container on the host
+      # - /home/username/bags:/bags:rw 
+
+    # Uncomment the block below to use an NVIDIA GPU in the container
+    # (requires extra setup on the host, see docker/README.md)
     # deploy:
     #   resources:
     #     reservations:
