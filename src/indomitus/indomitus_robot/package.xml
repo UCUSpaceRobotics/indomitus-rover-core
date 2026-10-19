@@ -15,7 +15,7 @@
   <exec_depend>indomitus_interfaces</exec_depend>
 
   <!-- rover -->
-  <exec_depend>rover_aruco</exec_depend>
+  <!-- <exec_depend>rover_aruco</exec_depend> -->   <!-- Temporary ignored -->
   <exec_depend>rover_bringup</exec_depend>
   <exec_depend>rover_cameras</exec_depend>
   <exec_depend>rover_comms</exec_depend>
