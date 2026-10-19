@@ -22,6 +22,10 @@
   <exec_depend>arm_tasks</exec_depend>
   <exec_depend>panel_sim</exec_depend>
 
+  <!-- Debugging tools -->
+  <exec_depend>gstreamer1.0-tools</exec_depend>
+  <exec_depend>rqt_image_view</exec_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>
