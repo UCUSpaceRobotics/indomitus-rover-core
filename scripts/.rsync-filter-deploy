@@ -9,9 +9,6 @@
 - panel_sim/
 
 # Temporary ignored packages
-# - rover_localization/
-# - rover_navigation/
-# - rover_costmap_plugins/
 - rover_aruco/
 
 # Python & Linting Caches
