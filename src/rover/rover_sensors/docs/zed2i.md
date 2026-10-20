@@ -77,8 +77,8 @@ Depth, point cloud, and positional tracking (VIO) are only enabled in `mode:=nav
 | **Depth Map** | `/zed2i/depth/depth_registered`<br> | `depth.publish_depth_map: true`<br> | `nav` only |
 | **Depth Camera Info** | `/zed2i/depth/camera_info`<br> | `depth.publish_depth_map: true`<br> | `nav` only |
 | **3D Point Cloud** | `/zed2i/points`<br> | `depth.publish_point_cloud: true`<br> | `nav` only |
-| **Visual Odometry** | `/zed2i/odom` (relayed from `/zed2i/zed_node/odom` by `topic_tools relay`: a plain remap would stop the wrapper publishing it)<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav` only |
-| **Camera Pose** | `/zed2i/pose` (relayed from `/zed2i/zed_node/pose` by `topic_tools relay`: a plain remap would stop the wrapper publishing it)<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav` only |
+| **Visual Odometry** | `/zed2i/odom` (relayed from `/zed2i/zed_node/odom` by `topic_tools relay`: a plain remap would stop the wrapper publishing it)<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav`, `record` |
+| **Camera Pose** | `/zed2i/pose` (relayed from `/zed2i/zed_node/pose` by `topic_tools relay`: a plain remap would stop the wrapper publishing it)<br> | `pos_tracking.pos_tracking_enabled: true`, `publish_odom_pose: true`<br> | `nav`, `record` |
 
 
 ---
