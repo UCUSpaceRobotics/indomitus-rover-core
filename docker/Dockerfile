@@ -5,6 +5,7 @@ ARG BASE_IMAGE="stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04"
 ARG ROBOT_META="indomitus_robot"
 ARG DESKTOP_META="indomitus_desktop"
 ARG WS="/opt/ws"
+ARG HW_WS="/opt/hw_ws"
 
 ####################
 # CACHER
