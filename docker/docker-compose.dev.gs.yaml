@@ -12,7 +12,6 @@ services:
         BASE_IMAGE: ${BASE_IMAGE:-stereolabs/zed:5.4-runtime-cuda12.8-ubuntu22.04}
         UBUNTU_VERSION: ${UBUNTU_VERSION:-22.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-humble}
-        INSTALL_SIM_TOOLS: "false"
 
     image: ${IMAGE_NAME:-ghcr.io/ucuspacerobotics/indomitus-rover-core}:${IMAGE_TAG:-local-dev}
     pull_policy: never

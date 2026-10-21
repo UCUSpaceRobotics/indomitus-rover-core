@@ -165,7 +165,6 @@ ENTRYPOINT ["/entrypoint.bash"]
 # DEV
 ####################
 FROM base AS dev
-ARG INSTALL_SIM_TOOLS=false
 ARG DESKTOP_META
 
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
@@ -175,12 +174,6 @@ RUN apt-get update && \
     rosdep install --from-paths $(colcon list --packages-up-to ${DESKTOP_META} --paths-only) \
         --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y && \
     rm -rf /var/lib/apt/lists/*
-
-RUN if [ "$INSTALL_SIM_TOOLS" = "true" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends \
-        libgl1 libglib2.0-0 && \
-        rm -rf /var/lib/apt/lists/*; \
-    fi
 
 CMD ["bash"]
 
