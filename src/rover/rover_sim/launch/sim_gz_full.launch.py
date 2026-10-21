@@ -14,6 +14,7 @@ from launch.substitutions import (
 )
 from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.parameter_descriptions import ParameterValue
+from indomitus_launch_utils.graphics import configure_gazebo_environment
 from rover_bringup.launch_utils import include_launch
 
 
@@ -141,6 +142,8 @@ def make_panel_nodes(panel_description_share: str) -> list:
 
 
 def generate_launch_description() -> LaunchDescription:
+    configure_gazebo_environment()
+
     rover_description_share = get_package_share_directory('rover_description')
     rover_sim_share = get_package_share_directory('rover_sim')
     panel_description_share = get_package_share_directory('panel_description')

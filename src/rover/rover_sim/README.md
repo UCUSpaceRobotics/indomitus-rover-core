@@ -53,6 +53,26 @@ Launches the Gazebo world, spawns the rover, and starts its base stack: `ros_gz_
 ros2 launch rover_sim sim_gz.launch.py
 ```
 
+### Wayland and Distrobox
+
+All Gazebo and RViz launches (`rover_sim`, `arm_sim`, `panel_sim`,
+`rover_viz`) adapt the graphics setup automatically through
+`indomitus_launch_utils.graphics`, so the same launch works on X11 and Wayland,
+natively or inside Distrobox/Docker:
+
+- **Wayland:** the Gazebo GUI is forced onto XWayland (`QT_QPA_PLATFORM=xcb`).
+  Gazebo's render window needs a GLX context and crashes on native Wayland
+  (`QOpenGLContext::doneCurrent()` segfault in `libMinimalScene.so`).
+- **NVIDIA:** the NVIDIA GLX/EGL vendor is selected only when the kernel driver
+  actually reports a GPU (`/dev/nvidia0` and `/proc/driver/nvidia/gpus/*`).
+  The ZED-based images ship the NVIDIA vendor JSON, and `/dev/nvidiactl` can
+  exist on machines without a usable NVIDIA GPU. Selecting it there causes
+  the same segfault. For NVIDIA acceleration in Distrobox, create the box with
+  `distrobox create --nvidia ...`.
+- Everything else uses the container's Mesa drivers (Intel/AMD hardware
+  acceleration, llvmpipe as fallback). To force software rendering, export
+  `LIBGL_ALWAYS_SOFTWARE=1` before launching.
+
 Legacy/fallback (2025 map):
 
 ```bash

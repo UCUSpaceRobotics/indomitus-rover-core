@@ -8,6 +8,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command
 from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
+from indomitus_launch_utils.graphics import configure_gazebo_environment
 
 WORLD_NAME = "panel_sim_world"  # must match the <world name="..."> in worlds/empty.sdf
 PANEL_SPAWN_Z = "0.2"  # passed to both the spawn and the xacro robot_description below,
@@ -16,6 +17,8 @@ PANEL_SPAWN_Z = "0.2"  # passed to both the spawn and the xacro robot_descriptio
 
 
 def generate_launch_description() -> LaunchDescription:
+    configure_gazebo_environment()
+
     panel_description_dir = get_package_share_directory("panel_description")
     panel_sim_dir = get_package_share_directory("panel_sim")
     ros_gz_sim_dir = get_package_share_directory("ros_gz_sim")
