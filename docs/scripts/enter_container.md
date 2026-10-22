@@ -21,6 +21,16 @@ Enter the remote production container on the rover computer:
 ./scripts/enter_container.sh rover
 ```
 
+## tmux sessions on the rover
+
+- `./scripts/enter_container.sh rover arm` → tmux session `arm` in `rover_prod` (created if missing; `tmux new-session -A`).
+- `-r` / `--read-only` → watch only (session must exist).
+- No session name → plain shell, no tmux.
+- Sessions = one terminal per subsystem (`core`, `arm`, `cameras`, …) or personal (`yurii`); launches keep running when the laptop disconnects.
+- Detach: `Ctrl-b d`. `exit` closes the session.
+- Inside the container: `tmux ls`, `Ctrl-b s` (switch session).
+- Config: [`docker/tmux.conf`](../../docker/tmux.conf). Autostart at boot: [`system/systemd/rover-launch-*.service`](../../system/README.md).
+
 ## Configuration Flags & Defaults
 
 The script accepts the following flags to override defaults depending on the subcommand used.
@@ -38,6 +48,7 @@ The script accepts the following flags to override defaults depending on the sub
 | **`--dir`** | `rover` | Remote deployment directory | `/home/${JETSON_USER}/indomitus-rover-core/` |
 | **`--ssid`** | `rover` | Wi-Fi SSID of the Jetson hotspot | `ERC_UCUSpaceRobotics_A` |
 | **`--pass`** | `rover` | Wi-Fi password for the hotspot | `19283746` |
+| **`-r, --read-only`** | `rover` | With a session name: attach read-only | `off` |
 | **`-h, --help`** | `local`, `rover` | Display help and exit | N/A |
 
 ## Notes

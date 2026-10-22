@@ -122,15 +122,22 @@ run_rover() {
   local WIFI_PASS="19283746"
   local USE_ETH=false
   local NO_WIFI=false
+  local SESSION=""
+  local READ_ONLY=false
 
   show_rover_help() {
     cat << EOF
-Usage: $0 rover [OPTIONS]
+Usage: $0 rover [SESSION] [OPTIONS]
 
 Connects to the rover computer, starts the production Docker container (if needed),
 and opens an interactive terminal inside the remote container.
 
+SESSION               Attach to tmux session SESSION in the container (e.g. core, arm,
+                      cameras), creating it if it does not exist. Detach with Ctrl-b d -
+                      'exit' closes the session. Without SESSION: plain shell, no tmux.
+
 Options:
+  -r, --read-only       With SESSION: attach read-only (the session must already exist).
   --eth                 Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
   --no-wifi, -n          Skip the Wi-Fi auto-connect and ssh straight to the Jetson
                          (already on the network, or connected some other way).
@@ -158,11 +165,17 @@ EOF
       --workspace) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WORKSPACE_DIR="$2"; shift 2;;
       --ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
       --pass) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
-      --help) show_rover_help; exit 0;;
-      *) error "Unknown option: $1\nRun '$0 rover --help' for usage." ;;
+      -r|--read-only) READ_ONLY=true; shift 1;;
+      -h|--help) show_rover_help; exit 0;;
+      -*) error "Unknown option: $1\nRun '$0 rover --help' for usage." ;;
+      *)
+        [[ -z "$SESSION" ]] || error "Only one SESSION can be given (got '$SESSION' and '$1')."
+        [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]] || error "Invalid session name: '$1' (letters, digits, _ and - only)."
+        SESSION="$1"; shift 1;;
     esac
   done
 
+  [[ "$READ_ONLY" = false || -n "$SESSION" ]] || error "--read-only needs a SESSION."
   REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core/}"
 
   local TARGET="${JETSON_USER}@${JETSON_IP}"
@@ -196,6 +209,19 @@ EOF
     echo "[JETSON] INFO: Container '${CONTAINER_NAME}' is already running."
   fi
 EOF
+
+  if [ -n "$SESSION" ]; then
+    step "Attaching to tmux session '${SESSION}'..."
+    echo -e "Detach with \e[33mCtrl-b d\e[0m - typing exit closes the session."
+    # S is passed via -e so the script below needs no local quoting/expansion.
+    local TMUX_SCRIPT='if ! tmux has-session -t "$S" 2>/dev/null; then echo "[tmux] Session $S does not exist yet - creating it. Existing: $(tmux ls -F "#S" 2>/dev/null | tr "\n" " ")"; fi; exec tmux new-session -A -s "$S"'
+    if [ "$READ_ONLY" = true ]; then
+      TMUX_SCRIPT='exec tmux attach-session -r -t "$S"'
+    fi
+    ssh -t -q "${TARGET}" "docker exec -it -e S='${SESSION}' '${CONTAINER_NAME}' sh -c '${TMUX_SCRIPT}'"
+    echo -e "\n\e[32m[DONE]\e[0m Detached from '${SESSION}'."
+    return
+  fi
 
   step "Opening Interactive Terminal..."
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"

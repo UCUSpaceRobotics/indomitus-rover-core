@@ -1,0 +1,21 @@
+# Types the launch command into tmux session "core" inside rover_prod, as if
+# someone entered it by hand: attach with `enter_container.sh rover core`,
+# Ctrl-C / up-arrow work as usual. Installed stopped + disabled; enable to
+# start this subsystem at boot. Don't start it if the subsystem is already
+# running in the session - the command would be typed into the running launch.
+[Unit]
+Description=Rover core (CAN, control, drive, teleop, lamps) in tmux session "core"
+After=rover.service
+BindsTo=rover.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=120
+ExecStartPre=/bin/sh -c 'until docker exec rover_prod true 2>/dev/null; do sleep 2; done'
+ExecStart=/usr/bin/docker exec rover_prod sh -c 'tmux has-session -t core 2>/dev/null || tmux new-session -d -s core'
+ExecStart=/usr/bin/docker exec rover_prod tmux send-keys -t core 'ros2 launch rover_bringup rover.launch.py' Enter
+ExecStop=-/usr/bin/docker exec rover_prod tmux send-keys -t core C-c
+
+[Install]
+WantedBy=rover.service
