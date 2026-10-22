@@ -29,6 +29,7 @@ Enter the remote production container on the rover computer:
 - Sessions = one terminal per subsystem (`core`, `arm`, `nav`, …) or personal (`yurii`); launches keep running when the laptop disconnects.
 - Detach: `Ctrl-b d`. `exit` closes the session.
 - Inside the container: `tmux ls`, `Ctrl-b s` (switch session).
+- Without this script (plain ssh / docker / tmux): [ssh.md](../networking/ssh.md#container-and-tmux-sessions-without-scripts).
 - Config: [`docker/tmux.conf`](../../docker/tmux.conf). Autostart at boot: [`system/systemd/rover-launch-*.service`](../../system/README.md).
 
 ## Configuration Flags & Defaults
