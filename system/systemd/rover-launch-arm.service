@@ -1,10 +1,3 @@
-# Types the launch command into tmux session "arm" inside rover_prod, as if
-# someone entered it by hand: attach with `enter_container.sh rover arm`,
-# Ctrl-C / up-arrow work as usual. Waits in the background (for CAN_IFACE to be up, then
-# the container) without holding up boot. Installed stopped + disabled;
-# enable to start this subsystem at boot. Don't start it if the subsystem is
-# already running in the session - the command would be typed into the
-# running launch.
 [Unit]
 Description=Arm (MoveIt, servo, controllers) in tmux session "arm"
 After=docker.service
