@@ -28,7 +28,7 @@ def generate_launch_description():
         # Simulation can spawn either swerve controller, so bringup has to be
         # able to say which one drive/power activates.
         DeclareLaunchArgument(
-            'controller_name', default_value='swerve_controller_test',
+            'controller_name', default_value='swerve_controller',
             description='Swerve controller that drive/power activates and deactivates.'),
 
         Node(

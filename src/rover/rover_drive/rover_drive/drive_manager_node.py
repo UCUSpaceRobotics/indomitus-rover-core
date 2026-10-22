@@ -79,7 +79,7 @@ class DrivePowerNode(Node):
             return self.get_parameter(name).value
 
         self._controller_name = str(
-            declare_and_get('controller_name', 'swerve_controller_test'))
+            declare_and_get('controller_name', 'swerve_controller'))
         self._hardware_name = str(declare_and_get('hardware_name', 'RoverHardware'))
         # Capped low on purpose: drive/state crosses the Wi-Fi link to the
         # ground station, and nothing downstream needs it faster than the

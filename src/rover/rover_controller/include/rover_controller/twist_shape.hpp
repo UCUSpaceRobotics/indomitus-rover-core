@@ -25,9 +25,8 @@ namespace rover_controller {
  *
  * Smoothing those separately is what stops the wheels twitching when only the
  * speed changes: (theta, phi) sit perfectly still while m ramps. Smoothing
- * vx/vy/wz independently instead — as swerve_controller.cpp does — lets their
- * ratios wander during the ramp, and the ratios are precisely what the
- * steering angles are made of.
+ * vx/vy/wz independently instead lets their ratios wander during the ramp, and
+ * the ratios are precisely what the steering angles are made of.
  *
  * The shape is a unit vector on a sphere, in spherical coordinates whose pole
  * is spin-in-place:

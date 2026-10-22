@@ -39,10 +39,11 @@ Loaded as a ros2_control hardware plugin (`rover_hardware_interface/RoverHardwar
 ## 3. `rover_controller` (C++)
 ros2_control controller plugins implementing swerve-drive kinematics and odometry.
 
-**`swerve_controller_test` is the swerve controller.** It is the only one launched, on hardware and in simulation. `swerve_controller` is kept in the tree — plugin, source and parameter blocks — purely as a regression fallback, not as a runtime alternative: the two are never spawned together and are never switched between while running.
-
-- **`swerve_controller_test`** — receives `geometry_msgs/Twist` on `/cmd_vel` and computes per-wheel velocity and steering angle targets, smoothing the twist as *shape + magnitude* rather than vx/vy/wz separately, so a throttle change leaves the steering angles alone. Also reads the drive joints' velocity state, which it uses to detect a real standstill. On hardware it is spawned **inactive** and `drive_manager_node` activates it when the drive is powered, from either operator (`controller_name` in `rover_drive/config/drive_manager.yaml`); that ordering is deliberate, since it makes the controller seed its steering integrator from live encoder readings rather than from placeholder zeros. In simulation it is spawned active.
-- **`swerve_controller`** — the controller it replaced, retained in case a regression sends us back to it. Falling back is a launch-time change, never a runtime one: in simulation, `ros2 launch rover_sim sim_gz.launch.py swerve_controller:=swerve_controller`; on hardware, an edit to `rover.launch.py`.
+- **`swerve_controller`** (`RoverSwerveController`) — `/cmd_vel` → per-wheel steering angle + drive velocity.
+  - Smooths the twist as *shape + magnitude*, so a throttle change leaves steering angles alone.
+  - Reads drive velocity state to detect real standstill.
+  - Hardware: spawned **inactive**; `drive_manager_node` activates it on drive power (seeds steering
+    from live encoders). Simulation: spawned active.
 - **`odometry_controller`** — reads wheel feedback and publishes odometry
 - **`ackermann_controller`** *(planned)* — Ackermann steering with fixed rear wheels, only front wheels steer
 - **`dual_ackermann_controller`** *(planned)* — Ackermann steering with symmetric front and rear wheel steering
