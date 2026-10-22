@@ -157,6 +157,7 @@ RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then source /opt/
 
 COPY docker/entrypoint.bash /entrypoint.bash
 COPY docker/.bash_aliases /root/.bash_aliases
+COPY docker/tmux.conf /root/.tmux.conf
 RUN chmod +x /entrypoint.bash
 ENTRYPOINT ["/entrypoint.bash"]
 
