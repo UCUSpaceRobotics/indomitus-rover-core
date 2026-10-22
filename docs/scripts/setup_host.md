@@ -54,8 +54,8 @@ from distrobox use `distrobox-host-exec ./scripts/setup_host.sh local ...`.
 ## Examples
 
 ```
-./scripts/setup_host.sh rover --udev can --service rover
+./scripts/setup_host.sh rover --udev can --service rover-launch-core
 ./scripts/setup_host.sh local --udev can,playstation-led
-./scripts/setup_host.sh rover -i 10.42.0.5 -u myuser --service rover
+./scripts/setup_host.sh rover -i 10.42.0.5 -u myuser --service rover-launch-core
 ./scripts/setup_host.sh rover --all
 ```

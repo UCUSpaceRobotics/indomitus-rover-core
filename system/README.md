@@ -5,6 +5,11 @@ This directory contains configs, services, rulles and other stuff for the NVIDIA
 ## Subsystem autostart (`systemd/rover-launch-*.service`)
 
 - Each unit types its `ros2 launch …` into tmux session `core` / `arm` / `cameras` in `rover_prod`, as if typed by hand.
+- Waits in the background (boot not delayed) for its hardware, then for the container:
+  - `core`: CAN `can_rover` up (`Environment=CAN_IFACE=`, = `rover.launch.py` default `interface`);
+  - `arm`: CAN `can0` up (= `arm_macro.xacro` default `can_interface`);
+  - `cameras`: nothing — `camera_node` waits for missing cameras and reopens re-plugged ones itself.
+- Container itself comes back at boot via `restart: unless-stopped` (not after `docker compose down`).
 - Install: `system/setup.sh --service rover-launch-core,rover-launch-arm,rover-launch-cameras` (installed stopped + disabled).
 - Autostart at boot: `sudo systemctl enable rover-launch-arm`; dev: `disable` and launch by hand.
 - Watch / Ctrl-C / re-run: `./scripts/enter_container.sh rover arm`.

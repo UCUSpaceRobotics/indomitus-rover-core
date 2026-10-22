@@ -53,7 +53,7 @@ Connection:
     -h, --help        Display this help message and exit
 
 Examples:
-    $0 rover --udev can --service rover
+    $0 rover --udev can --service rover-launch-core
     $0 local --udev can,playstation-led
     $0 rover --all
 EOF
