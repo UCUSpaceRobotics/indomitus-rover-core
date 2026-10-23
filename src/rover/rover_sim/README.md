@@ -38,7 +38,6 @@ Launches the Gazebo world, spawns the rover, and starts its base stack: `ros_gz_
 
 | Argument | Default | Description |
 |---|---|---|
-| `swerve_controller` | `swerve_controller_test` | Which swerve controller comes up active (`swerve_controller`, `swerve_controller_test`). |
 | `world_name` | `mars_yard` | World to load: `mars_yard`, `nav2_test_world`. |
 | `map_year` | `2026` | `mars_yard` map year: `2025`, `2026`. |
 | `map_resolution` | `high` | `mars_yard` (2025) mesh resolution: `low`, `medium`, `high`. Ignored for 2026/other worlds. |

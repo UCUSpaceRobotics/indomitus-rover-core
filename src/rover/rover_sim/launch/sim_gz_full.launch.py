@@ -226,7 +226,7 @@ def generate_launch_description() -> LaunchDescription:
             # same services the ground station calls.
             include_launch('rover_drive', 'drive_manager.launch.py', {
                 'use_sim_time': 'true',
-                'controller_name': 'swerve_controller_test',
+                'controller_name': 'swerve_controller',
             }),
         ]),
 

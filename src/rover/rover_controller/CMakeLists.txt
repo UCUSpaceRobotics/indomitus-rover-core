@@ -21,7 +21,6 @@ find_package(tf2_ros REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/swerve_controller.cpp
-  src/swerve_controller_test.cpp
   src/odometry_controller.cpp
 )
 
@@ -97,12 +96,12 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
 
   # Spins real executors and threads, so it needs headroom over the 60 s default.
-  ament_add_gtest(test_swerve_controller_test
-    test/test_swerve_controller_test.cpp
+  ament_add_gtest(test_swerve_controller
+    test/test_swerve_controller.cpp
     TIMEOUT 180
   )
-  target_link_libraries(test_swerve_controller_test ${PROJECT_NAME})
-  ament_target_dependencies(test_swerve_controller_test
+  target_link_libraries(test_swerve_controller ${PROJECT_NAME})
+  ament_target_dependencies(test_swerve_controller
     rclcpp
     rclcpp_lifecycle
     hardware_interface
