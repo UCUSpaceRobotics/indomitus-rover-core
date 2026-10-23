@@ -14,6 +14,13 @@
 - **Run**: `ros2 launch rover_cameras cameras.launch.py [cameras:=arducam-mast,arm-camera]`; stop the
   GS's `start-cameras.sh` first (a camera serves one process). Test without hardware:
   `device: videotestsrc`.
+- **Stereo** (ZED 2i as UVC, sensors side by side): `stereo: left|right` keeps one sensor for every
+  output, `both` (default) the joined frame. `res` stays the joined size; `ros_res` and the
+  calibration are for what is kept.
+- **ZED 2i: this or `rover_sensors/zed2i.launch.py`, never both.** Both open the same device and the
+  second one fails. The `zed2i` entry starts with every camera, so leave it out
+  (`cameras:=arducam-mast,...`) when the ZED SDK runs (nav, VIO, depth); see
+  [zed2i.md](../rover_sensors/docs/zed2i.md#zed-2i-already-in-use-by-rover_cameras).
 - **Calibration**: `config/calibration/<name>.yaml`; without it `camera_info` has K = 0.
 - **Not done**: not in `rover.launch.py`; no camera frames in the URDF; exposure / white balance on
   auto; not run on the Jetson yet.

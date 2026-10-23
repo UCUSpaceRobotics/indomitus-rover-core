@@ -72,6 +72,7 @@ class CameraNode(Node):
         self.ros_h = p('ros_height', 0).value
         self.ros_encoding = p('ros_encoding', 'rgb8').value
         self.rotate_180 = bool(p('rotate_180', False).value)
+        self.stereo = p('stereo', 'both').value.lower()
         self.frame_id = p('frame_id', 'camera_optical_frame').value
         self.camera_info_file = p('camera_info_file', '').value
         port = p('port', 0).value
@@ -165,7 +166,7 @@ class CameraNode(Node):
             self.device, self.fourcc, w, h, fps, quality=self.quality,
             save_quality=self.save_quality, jpeg_encoder=self.jpeg_encoder,
             ros_encoding=self.ros_encoding, ros_width=self.ros_w, ros_height=self.ros_h,
-            rotate_180=self.rotate_180)
+            rotate_180=self.rotate_180, stereo=self.stereo)
         try:
             pipe = Gst.parse_launch(desc)
         except GLib.Error as exc:
@@ -190,6 +191,8 @@ class CameraNode(Node):
         self._last_frame = time.monotonic()     # stall grace starts now
         self.pipe = pipe
         self.mode = '%s %dx%d@%g' % (self.fourcc, w, h, fps)
+        if self.stereo != 'both':
+            self.mode += ' ' + self.stereo
         if pipe.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
             msg = pipe.get_bus().pop_filtered(Gst.MessageType.ERROR)
             self._close('cannot start: %s' % (msg.parse_error()[0].message if msg else '?'))
