@@ -23,6 +23,7 @@ from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_move_group_launch
+from indomitus_launch_utils.graphics import configure_gazebo_environment
 
 
 def _arg_from_argv(name: str, default: str) -> str:
@@ -38,6 +39,8 @@ def _arg_from_argv(name: str, default: str) -> str:
 
 
 def generate_launch_description() -> LaunchDescription:
+    configure_gazebo_environment()
+
     arm_description_dir = get_package_share_directory("arm_description")
     arm_sim_dir = get_package_share_directory("arm_sim")
     ros_gz_sim_dir = get_package_share_directory("ros_gz_sim")

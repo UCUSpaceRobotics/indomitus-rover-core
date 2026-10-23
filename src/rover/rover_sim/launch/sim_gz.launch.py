@@ -24,6 +24,7 @@ from launch.substitutions import (
     NotEqualsSubstitution,
 )
 from launch_ros.actions import Node, PushRosNamespace
+from indomitus_launch_utils.graphics import configure_gazebo_environment
 from rover_bringup.launch_utils import include_launch
 
 BASE_CONTROLLERS = [
@@ -99,25 +100,6 @@ def check_git_lfs(rover_sim_share: str) -> None:
         "=" * 70,
     ]
     raise RuntimeError("\n".join(lines))
-
-
-def setup_environment() -> list:
-    """Auto-detects host OS graphics and network issues, applying fixes instantly to the Python environment."""
-
-    # IPC / Networking Fix (Forces local ZeroMQ. Prevents GUI black screen & spawner deaf loops)
-    os.environ["GZ_IP"] = "127.0.0.1"
-    os.environ["IGN_IP"] = "127.0.0.1"
-
-    # Wayland GUI Crash Workaround (Forces X11 backend for Qt)
-    if os.environ.get("XDG_SESSION_TYPE", "") == "wayland" or os.environ.get("WAYLAND_DISPLAY"):
-        os.environ["QT_QPA_PLATFORM"] = "xcb"
-
-    # Nvidia Optimus & EGL Deadlock Workaround (Prevents EGL dri2 crash)
-    nvidia_egl_path = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
-    if os.path.exists(nvidia_egl_path):
-        os.environ["__NV_PRIME_RENDER_OFFLOAD"] = "1"
-        os.environ["__GLX_VENDOR_LIBRARY_NAME"] = "nvidia"
-        os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] = nvidia_egl_path
 
 
 def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
@@ -285,7 +267,7 @@ def setup_dynamic_map(context, rover_sim_share: str, launch_tmp_dir: str, world_
 
 
 def generate_launch_description() -> LaunchDescription:
-    setup_environment()
+    configure_gazebo_environment()
 
     rover_description_share = get_package_share_directory("rover_description")
     zed_description_share = get_package_share_directory("zed_description")
