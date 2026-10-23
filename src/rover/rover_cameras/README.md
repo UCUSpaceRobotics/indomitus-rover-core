@@ -11,16 +11,19 @@
     (SetBool), `/rover/cameras/record/toggle` (Trigger), `/rover/cameras/dataset_state` (latched);
   - one camera: `/rover/cameras/<name>/capture`, `…/record`, `…/dataset_state`;
   - gamepad buttons 14 (capture) / 15 (record toggle).
-- **Run**: `ros2 launch rover_cameras cameras.launch.py [cameras:=arducam-mast,arm-camera]`; stop the
-  GS's `start-cameras.sh` first (a camera serves one process). Test without hardware:
-  `device: videotestsrc`.
+- **Run**: `ros2 launch rover_cameras cameras.launch.py [cameras:=arducam-mast,arm-camera]
+  [include:=zed2i] [exclude:=arm-camera]`; stop the GS's `start-cameras.sh` first (a camera serves one process). Test
+  without hardware: `device: videotestsrc`.
+- **Which cameras start**: all with `autostart: true` (the default); `cameras:=a,b` names exactly the
+  ones to start instead, `cameras:=all` starts every camera (`autostart: false` ones included);
+  `include:=` adds cameras to that, `exclude:=` drops them. Unknown names fail the launch.
 - **Stereo** (ZED 2i as UVC, sensors side by side): `stereo: left|right` keeps one sensor for every
   output, `both` (default) the joined frame. `res` stays the joined size; `ros_res` and the
   calibration are for what is kept.
 - **ZED 2i: this or `rover_sensors/zed2i.launch.py`, never both.** Both open the same device and the
-  second one fails. The `zed2i` entry starts with every camera, so leave it out
-  (`cameras:=arducam-mast,...`) when the ZED SDK runs (nav, VIO, depth); see
+  second one fails. So `zed2i` has `autostart: false` and starts only when asked for
+  (`include:=zed2i`, `cameras:=zed2i` or `cameras:=all`); don't while the ZED SDK runs (nav, VIO,
+  depth); see
   [zed2i.md](../rover_sensors/docs/zed2i.md#zed-2i-already-in-use-by-rover_cameras).
 - **Calibration**: `config/calibration/<name>.yaml`; without it `camera_info` has K = 0.
-- **Not done**: not in `rover.launch.py`; no camera frames in the URDF; exposure / white balance on
-  auto; not run on the Jetson yet.
+- **Not done**: not in `rover.launch.py`; no camera frames in the URDF; exposure / white balance on auto.

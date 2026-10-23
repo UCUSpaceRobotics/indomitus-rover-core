@@ -124,11 +124,12 @@ The ZED 2i can also be streamed as a plain UVC camera by `rover_cameras` (entry 
 serves one process at a time, so **`zed2i.launch.py` and `rover_cameras` with `zed2i` exclude each
 other**: whichever starts second cannot open the camera.
 
-* Need the SDK (`mode:=nav`, VIO, depth, IMU): start `rover_cameras` without the ZED,
-  `ros2 launch rover_cameras cameras.launch.py cameras:=arducam-mast,arducam-front-bottom,...`
-  (all names except `zed2i`), or stop it before launching `zed2i.launch.py`.
+* Need the SDK (`mode:=nav`, VIO, depth, IMU): nothing to do by default. The `zed2i` entry has
+  `autostart: false`, so `cameras.launch.py` (and `rover.launch.py use_cameras:=true`) leave the ZED
+  alone. Just don't ask for it (`include:=zed2i`, `cameras:=zed2i` or `cameras:=all`).
 * Need the UVC stream: stop `zed2i.launch.py` (and `rover.launch.py` if it started the ZED via
-  `zed2i_mode`) first.
+  `zed2i_mode`) first, then start it with the other cameras
+  (`ros2 launch rover_cameras cameras.launch.py include:=zed2i`) or on its own (`cameras:=zed2i`).
 
 ### udev Rule (sensor MCU permission denied)
 
