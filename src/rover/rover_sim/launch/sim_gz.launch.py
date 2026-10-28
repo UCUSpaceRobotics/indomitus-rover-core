@@ -120,7 +120,7 @@ def setup_environment() -> list:
         os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] = nvidia_egl_path
 
 
-def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
+def make_control_launch(context, controllers_yaml_path: str) -> list[GroupAction]:
     swerve_controller = LaunchConfiguration("swerve_controller").perform(context)
 
     return [include_launch("rover_controller", "control.launch.py", {
