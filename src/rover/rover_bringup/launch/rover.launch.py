@@ -103,8 +103,8 @@ def generate_launch_description():
                 'robot_description': robot_description,
                 'controllers_yaml': os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
                 'controllers': 'joint_state_broadcaster odometry_controller '
-                               'swerve_controller_test',
-                'inactive_controllers': 'swerve_controller_test',
+                               'swerve_controller',
+                'inactive_controllers': 'swerve_controller',
             }),
 
             include_launch('rover_drive', 'twist_mux.launch.py'),
