@@ -4,7 +4,7 @@
 # <ros2_control> block declared anywhere in the combined URDF -- both the
 # rover's (rover.ros2_control.xacro) and the mounted arm's (arm_macro.xacro,
 # mount_arm:=true) -- so a single controller_manager here has to list every
-# controller from both rover_sim/config/controllers.yaml and
+# controller from both rover_bringup/config/controllers_sim.yaml and
 # arm_sim/config/ros2_controllers.yaml. Keep these three files in sync by
 # hand until someone automates the merge.
 /**/controller_manager:

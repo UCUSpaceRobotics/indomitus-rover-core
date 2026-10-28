@@ -48,10 +48,10 @@ ros2_control controller plugins implementing swerve-drive kinematics and odometr
 - **`ackermann_controller`** *(planned)* — Ackermann steering with fixed rear wheels, only front wheels steer
 - **`dual_ackermann_controller`** *(planned)* — Ackermann steering with symmetric front and rear wheel steering
 
-Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for real hardware, one in `rover_sim/config` for simulation), spawned by `control.launch.py` — not launched directly.
+Loaded as plugins via `rover_bringup/config/controllers.yaml` (real hardware) or `controllers_sim.yaml` (simulation), spawned by `control.launch.py` — not launched directly.
 
 **Launch files:**
-- `control.launch.py` — shared controller-manager/spawner logic; used by both `rover.launch.py` (real) and `rover_sim/launch/sim_gz.launch.py` (sim), toggled via a `use_sim` argument
+- `control.launch.py` — shared controller-manager/spawner logic, toggled via a `use_sim` argument (sim: no `ros2_control_node`, Gazebo hosts the controller_manager); used by `rover.launch.py` and `rover_sim/launch/sim_gz_full.launch.py`. Spawners run with `--unload-on-kill`, so the stack can restart against a running Gazebo
 
 ---
 
@@ -59,12 +59,13 @@ Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for
 Main launch and configuration package for the real rover.
 
 **Launch files:**
-- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `rover_controller`'s `control.launch.py`, `rover_drive`'s `twist_mux.launch.py` and `drive_manager.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. Also conditionally includes `rover_sensors`' `zed2i.launch.py` via the `zed2i_mode` argument (`rgb`/`nav`/`record`/unset — unset skips launching the camera entirely)
+- `rover.launch.py` — top-level bringup; `use_sim:=true` runs only the software stack (controllers, EKF, `twist_mux`, `drive_manager`) against a running `rover_sim/sim_gz.launch.py`, skipping hardware nodes and `robot_state_publisher`. Otherwise real hardware: composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `rover_controller`'s `control.launch.py`, `rover_drive`'s `twist_mux.launch.py` and `drive_manager.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. Also conditionally includes `rover_sensors`' `zed2i.launch.py` via the `zed2i_mode` argument (`rgb`/`nav`/`record`/unset — unset skips launching the camera entirely)
 - `can.launch.py` — configures and brings up the CAN bus interface
 - `power_monitor.launch.py` — brings up power monitoring (pairs with `rover_peripherals`' power node)
 
 **Config:**
 - `controllers.yaml` — ros2_control controller parameters (real hardware)
+- `controllers_sim.yaml` — ros2_control controller parameters (sim; also loaded by `gz_ros2_control`)
 
 **Python module:**
 - `rover_bringup/launch_utils.py` — shared launch-file helpers used across packages; `include_launch` wraps each include in a scoped `GroupAction`, so its arguments don't leak into the caller
@@ -148,7 +149,7 @@ State estimation.
 - **`ekf_node`** (from `robot_localization`) — sensor fusion for odometry, config `config/ekf_filter.yaml`
 
 **Launch files:**
-- `launch/ekf.launch.py` — included by both `rover_bringup/rover.launch.py` (real) and `rover_sim/sim_gz.launch.py` (sim), with `use_sim_time` set accordingly
+- `launch/ekf.launch.py` — included by `rover_bringup/rover.launch.py` (real and `use_sim:=true`), with `use_sim_time` set accordingly
 
 ---
 
@@ -156,14 +157,13 @@ State estimation.
 Gazebo simulation support.
 
 **Launch files:**
-- `launch/sim_gz.launch.py` — top-level sim bringup; spawns Gazebo, includes `robot_state_publisher.launch.py` (with `use_sim:=true`), bridges Gazebo↔ROS2 topics, spawns the robot entity, and includes `control.launch.py` (with `use_sim:=true`)
+- `launch/sim_gz.launch.py` — simulation only; spawns Gazebo, includes `robot_state_publisher.launch.py` (with `use_sim:=true`), bridges Gazebo↔ROS2 topics, spawns the robot entity. Hosts the controller_manager (`gz_ros2_control`) and spawns only `diff_bar_effort_controller` (stand-in for the passive diff bar) — run `rover_bringup rover.launch.py use_sim:=true` alongside
 
 **World:**
 - `worlds/world_demo.sdf`
 
 **Config:**
 - `config/bridge_gz.yaml` — template for `ros_gz_bridge` topic mappings (rendered per-world/model at launch time)
-- `config/controllers.yaml` — ros2_control controller parameters (sim variant)
 
 **Controllers:**
 - **`rocker_diff_controller`** — simulates passive differential bar suspension behaviour

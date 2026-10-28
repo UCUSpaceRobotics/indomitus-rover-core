@@ -28,7 +28,10 @@ ros2 launch rover_bringup navigation.launch.py
 Separate from the above — no hardware needed. Spawns the rover in Gazebo with simulated LiDAR + depth camera, then starts SLAM/Nav2 against that simulated data:
 
 ```bash
+# terminal 1
 ros2 launch rover_sim sim_gz_nav2.launch.py world_name:=mars_yard
+# terminal 2 - controllers, EKF, twist_mux (Nav2's cmd_vel_nav goes through it)
+ros2 launch rover_bringup rover.launch.py use_sim:=true
 ```
 
 Other `world_name` option: `nav2_test_world`. Also accepts `map_year`, `map_resolution`, `model_name`, `spawn_x`/`spawn_y`/`spawn_z`, and the same `scan_filter_params_file`/`nav2_params_file`/`slam_params_file` overrides as real navigation. Unlike `navigation.launch.py`, it doesn't wait on real sensor topics — it starts the scan filter, SLAM, and Nav2 (all with `use_sim_time:=true`) after a fixed 10s delay for the simulated robot to spawn.
