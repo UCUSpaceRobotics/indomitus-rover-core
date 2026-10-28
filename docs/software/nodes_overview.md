@@ -47,7 +47,10 @@ ros2_control controller plugins implementing swerve-drive kinematics and odometr
 - **`ackermann_controller`** *(planned)* — Ackermann steering with fixed rear wheels, only front wheels steer
 - **`dual_ackermann_controller`** *(planned)* — Ackermann steering with symmetric front and rear wheel steering
 
-Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for real hardware, one in `rover_sim/config` for simulation), spawned by `rover_bringup/launch/control.launch.py` — not launched directly.
+Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for real hardware, one in `rover_sim/config` for simulation), spawned by `control.launch.py` — not launched directly.
+
+**Launch files:**
+- `control.launch.py` — shared controller-manager/spawner logic; used by both `rover.launch.py` (real) and `rover_sim/launch/sim_gz.launch.py` (sim), toggled via a `use_sim` argument
 
 ---
 
@@ -55,16 +58,15 @@ Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for
 Main launch and configuration package for the real rover.
 
 **Launch files:**
-- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `control.launch.py`, `rover_drive`'s `twist_mux.launch.py` and `drive_manager.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. Also conditionally includes `rover_sensors`' `zed2i.launch.py` via the `zed2i_mode` argument (`rgb`/`nav`/`record`/unset — unset skips launching the camera entirely)
+- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `rover_controller`'s `control.launch.py`, `rover_drive`'s `twist_mux.launch.py` and `drive_manager.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. Also conditionally includes `rover_sensors`' `zed2i.launch.py` via the `zed2i_mode` argument (`rgb`/`nav`/`record`/unset — unset skips launching the camera entirely)
 - `can.launch.py` — configures and brings up the CAN bus interface
-- `control.launch.py` — shared controller-manager/spawner logic; used by both `rover.launch.py` (real) and `rover_sim/launch/sim_gz.launch.py` (sim), toggled via a `use_sim` argument
 - `power_monitor.launch.py` — brings up power monitoring (pairs with `rover_peripherals`' power node)
 
 **Config:**
 - `controllers.yaml` — ros2_control controller parameters (real hardware)
 
 **Python module:**
-- `rover_bringup/launch_utils.py` — shared launch-file helpers (e.g. `include_launch`) used across packages
+- `rover_bringup/launch_utils.py` — shared launch-file helpers used across packages; `include_launch` wraps each include in a scoped `GroupAction`, so its arguments don't leak into the caller
 
 > Note: `gamepad.launch.py` and `container.launch.py` now live in `rover_teleop` and `rover_peripherals` respectively, not here.
 

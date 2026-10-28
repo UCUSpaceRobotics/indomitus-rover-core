@@ -1,4 +1,4 @@
-# rover_bringup/launch/control.launch.py
+# rover_controller/launch/control.launch.py
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import UnlessCondition

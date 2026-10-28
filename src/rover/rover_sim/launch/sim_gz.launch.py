@@ -120,10 +120,10 @@ def setup_environment() -> list:
         os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] = nvidia_egl_path
 
 
-def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
+def make_control_launch(context, controllers_yaml_path: str) -> list[GroupAction]:
     swerve_controller = LaunchConfiguration("swerve_controller").perform(context)
 
-    return [include_launch("rover_bringup", "control.launch.py", {
+    return [include_launch("rover_controller", "control.launch.py", {
         "use_sim": "true",
         "controllers_yaml": controllers_yaml_path,
         "controllers": f"{swerve_controller} " + " ".join(BASE_CONTROLLERS),
@@ -400,10 +400,7 @@ def generate_launch_description() -> LaunchDescription:
 
             TimerAction(
                 period=LaunchConfiguration("spawn_delay"),
-                actions=[GroupAction([
-                    PushRosNamespace(LaunchConfiguration("rover_namespace")),
-                    make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub),
-                ])]
+                actions=[make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub)]
             ),
 
             include_launch("rover_localization", "ekf.launch.py", {

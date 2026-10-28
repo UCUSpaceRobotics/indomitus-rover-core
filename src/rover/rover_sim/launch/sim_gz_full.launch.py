@@ -207,7 +207,7 @@ def generate_launch_description() -> LaunchDescription:
             OpaqueFunction(function=generate_rover_bridge_config, kwargs={'rover_sim_share': rover_sim_share}),
             make_rover_spawn_node(),
 
-            include_launch('rover_bringup', 'control.launch.py', {
+            include_launch('rover_controller', 'control.launch.py', {
                 'use_sim': 'true',
                 'controllers_yaml': controllers_yaml_path,
                 'controllers': (
