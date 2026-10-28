@@ -1,6 +1,6 @@
 import os
 from ament_index_python.packages import (
-    PackageNotFoundError, get_package_share_directory
+    get_package_share_directory
 )
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, LogInfo
@@ -10,24 +10,6 @@ from launch.substitutions import (
 )
 from launch_ros.actions import PushRosNamespace
 from rover_bringup.launch_utils import include_launch
-
-
-def _lora_fallback():
-    """Include the LoRa fallback link, or log why it is missing.
-
-    include_launch() resolves the package share directory while the launch
-    description is being built, so a rover_comms that is not built raises and
-    takes the whole of bringup down with it. A backup command path must never
-    be the reason the rover refuses to start - the same reason the node itself
-    opens its serial port in a worker thread rather than in its constructor.
-    """
-    try:
-        get_package_share_directory('rover_comms')
-    except PackageNotFoundError:
-        return LogInfo(msg='rover_comms is not built - starting without the '
-                           'LoRa fallback. The rover has no backup command '
-                           'path if Wi-Fi drops.')
-    return include_launch('rover_comms', 'lora.launch.py')
 
 
 def generate_launch_description():
@@ -131,7 +113,7 @@ def generate_launch_description():
 
             include_launch('rover_drive', 'drive_manager.launch.py'),
 
-            _lora_fallback(), # Publishes cmd_vel_lora, which twist_mux carries below cmd_vel_ext.
+            include_launch('rover_comms', 'lora.launch.py'),
 
             include_launch('rover_diagnostics', 'fault_logger.launch.py'),
 
