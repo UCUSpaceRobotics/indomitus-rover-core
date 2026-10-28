@@ -400,10 +400,7 @@ def generate_launch_description() -> LaunchDescription:
 
             TimerAction(
                 period=LaunchConfiguration("spawn_delay"),
-                actions=[GroupAction([
-                    PushRosNamespace(LaunchConfiguration("rover_namespace")),
-                    make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub),
-                ])]
+                actions=[make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub)]
             ),
 
             include_launch("rover_localization", "ekf.launch.py", {
