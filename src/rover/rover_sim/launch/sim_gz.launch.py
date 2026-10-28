@@ -123,7 +123,7 @@ def setup_environment() -> list:
 def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
     swerve_controller = LaunchConfiguration("swerve_controller").perform(context)
 
-    return [include_launch("rover_bringup", "control.launch.py", {
+    return [include_launch("rover_controller", "control.launch.py", {
         "use_sim": "true",
         "controllers_yaml": controllers_yaml_path,
         "controllers": f"{swerve_controller} " + " ".join(BASE_CONTROLLERS),

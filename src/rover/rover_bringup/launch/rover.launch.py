@@ -92,20 +92,15 @@ def generate_launch_description():
         GroupAction([
             PushRosNamespace(namespace_val),
 
-            # Own GroupAction: include arguments leak into the enclosing scope.
-            GroupAction([
-                include_launch('rover_teleop', 'gamepad.launch.py', {
-                    'rover_namespace': '',   # already pushed by this group
-                    'source': 'rover',       # the default is a laptop gamepad
-                    'joy_dev': LaunchConfiguration('joy_dev'),
-                }),
-            ], condition=IfCondition(LaunchConfiguration('use_joy'))),
+            include_launch('rover_teleop', 'gamepad.launch.py', {
+                'rover_namespace': '',   # already pushed by this group
+                'source': 'rover',       # the default is a laptop gamepad
+                'joy_dev': LaunchConfiguration('joy_dev'),
+            }, condition=IfCondition(LaunchConfiguration('use_joy'))),
 
-            GroupAction([
-                include_launch('rover_cameras', 'cameras.launch.py', {
-                    'rover_namespace': '',   # already pushed by this group
-                }),
-            ], condition=IfCondition(LaunchConfiguration('use_cameras'))),
+            include_launch('rover_cameras', 'cameras.launch.py', {
+                'rover_namespace': '',   # already pushed by this group
+            }, condition=IfCondition(LaunchConfiguration('use_cameras'))),
 
             include_launch('rover_bringup', 'can.launch.py', {
                 'interface': LaunchConfiguration('interface'),
@@ -123,7 +118,7 @@ def generate_launch_description():
                 ]
             }),
 
-            include_launch('rover_bringup', 'control.launch.py', {
+            include_launch('rover_controller', 'control.launch.py', {
                 'use_sim': 'false',
                 'robot_description': robot_description,
                 'controllers_yaml': os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
