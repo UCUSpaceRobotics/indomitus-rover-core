@@ -10,6 +10,8 @@ defaults:
   ros_encoding: rgb8
   save_dir: ~/dataset
   rotate_180: false   # true for a camera mounted upside down
+  stereo: both        # side-by-side stereo camera: left or right sensor only, or both (joined)
+  autostart: true     # false: only with include:=<name>, cameras:=<name> or cameras:=all
 
 cameras:
   # Arducam B0495, YUYV only:
@@ -48,3 +50,16 @@ cameras:
     res: 640x480
     fps: 10
     quality: 40
+
+  # ZED 2i as a plain UVC camera, YUYV only, both sensors side by side in one
+  # frame: 4416x1242 @15, 3840x1080 @30/15, 2560x720 @60/30/15, 1344x376 @100/60/30/15.
+  # `res` is the joined size; `stereo: left|right` halves the width after capture.
+  # Excludes rover_sensors/zed2i.launch.py (the ZED SDK opens the same device),
+  # so it starts only when asked for: include:=zed2i (with the others) or cameras:=zed2i.
+  zed2i:
+    autostart: false
+    device: /dev/zed2i-stereo-camera
+    port: 8098   # http://10.42.0.1:8098/zed2i?action=stream
+    res: 2560x720
+    fps: 15
+    stereo: left

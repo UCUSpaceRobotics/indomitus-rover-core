@@ -117,6 +117,20 @@ The ZED SDK and ROS 2 wrapper support extracting significantly more data, which 
 
 ## 5. Troubleshooting
 
+### ZED 2i already in use by `rover_cameras`
+
+The ZED 2i can also be streamed as a plain UVC camera by `rover_cameras` (entry `zed2i` in
+[`cameras.yaml`](../../rover_cameras/config/cameras.yaml), MJPEG to the GS without the SDK). The camera
+serves one process at a time, so **`zed2i.launch.py` and `rover_cameras` with `zed2i` exclude each
+other**: whichever starts second cannot open the camera.
+
+* Need the SDK (`mode:=nav`, VIO, depth, IMU): nothing to do by default. The `zed2i` entry has
+  `autostart: false`, so `cameras.launch.py` (and `rover.launch.py use_cameras:=true`) leave the ZED
+  alone. Just don't ask for it (`include:=zed2i`, `cameras:=zed2i` or `cameras:=all`).
+* Need the UVC stream: stop `zed2i.launch.py` (and `rover.launch.py` if it started the ZED via
+  `zed2i_mode`) first, then start it with the other cameras
+  (`ros2 launch rover_cameras cameras.launch.py include:=zed2i`) or on its own (`cameras:=zed2i`).
+
 ### udev Rule (sensor MCU permission denied)
 
 The ZED SDK installer bakes a udev rule (`/etc/udev/rules.d/99-slabs.rules`) into the Docker image at build time, granting non-root access to the camera's USB/HID device nodes. If the camera opens but the sensor module doesn't, you'll see:

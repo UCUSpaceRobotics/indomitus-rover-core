@@ -15,6 +15,8 @@
   capture time is what the image header has to carry.
 - `jpeg_encoder` is a plain element name, so a hardware encoder (nvjpegenc)
   can be swapped in by config once the board has one.
+- A side-by-side stereo camera (ZED 2i as UVC) can be cut to one sensor with
+  `stereo`; the crop sits before the tee, so every branch sees the same half.
 """
 
 from fractions import Fraction
@@ -33,6 +35,9 @@ ROS_ENCODINGS = {
     'bgr8': 'BGR',
     'mono8': 'GRAY8',
 }
+
+# Which part of a side-by-side stereo frame to keep; 'both' = the whole frame.
+STEREO_VIEWS = ('both', 'left', 'right')
 
 TEST_DEVICE = 'videotestsrc'
 
@@ -61,6 +66,13 @@ def _source(device, fourcc, width, height, fps):
     return 'v4l2src device=%s ! video/x-raw,format=%s,%s' % (device, RAW_FORMATS[fourcc], size)
 
 
+def _stereo_crop(view, width):
+    """videocrop keeping one sensor of a side-by-side frame `width` px wide."""
+    # Cut the other sensor's half off; the left one is on the left.
+    cut = 'right' if view == 'left' else 'left'
+    return ' ! videocrop %s=%d' % (cut, width // 2)
+
+
 def _jpeg_branch(name, fourcc, encoder, quality):
     encode = '' if fourcc == 'MJPG' else ' ! videoconvert ! %s quality=%d' % (encoder, quality)
     return ('t. ! %s ! valve name=%s_valve drop=true drop-mode=forward-sticky-events%s '
@@ -78,7 +90,7 @@ def _ros_branch(fourcc, encoding, width, height):
 
 def build(device, fourcc, width, height, fps, *, quality=60, save_quality=95,
           jpeg_encoder='jpegenc', ros_encoding='rgb8', ros_width=0, ros_height=0,
-          rotate_180=False):
+          rotate_180=False, stereo='both'):
     """The gst-launch string for one camera; see the module docstring."""
     if fourcc != 'MJPG' and fourcc not in RAW_FORMATS:
         raise ValueError('unsupported format %r (have MJPG, %s)'
@@ -86,13 +98,19 @@ def build(device, fourcc, width, height, fps, *, quality=60, save_quality=95,
     if ros_encoding not in ROS_ENCODINGS:
         raise ValueError('unsupported ros_encoding %r (have %s)'
                          % (ros_encoding, ', '.join(ROS_ENCODINGS)))
+    if stereo not in STEREO_VIEWS:
+        raise ValueError('unsupported stereo %r (have %s)'
+                         % (stereo, ', '.join(STEREO_VIEWS)))
     source = _source(device, fourcc, width, height, fps)
-    # A camera mounted upside down. MJPG has to be decoded to be turned, and
-    # the branches then see raw frames and encode them like a YUYV camera's.
     branch_fourcc = fourcc
-    if rotate_180:
-        source += '%s ! videoflip method=rotate-180' % (' ! jpegdec' if fourcc == 'MJPG' else '')
+    if stereo != 'both' or rotate_180:
+        if fourcc == 'MJPG':
+            source += ' ! jpegdec'
         branch_fourcc = 'RAW'
+    if stereo != 'both':
+        source += _stereo_crop(stereo, width)
+    if rotate_180:
+        source += ' ! videoflip method=rotate-180'
     return ' '.join([
         source, '! tee name=t',
         _jpeg_branch('stream', branch_fourcc, jpeg_encoder, quality),

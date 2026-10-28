@@ -12,8 +12,15 @@ Namespace: pushes rover_namespace (default $ROVER_NAMESPACE or 'rover'), so it
 works when run on its own; a launch that already pushed it includes this with
 rover_namespace:=''.
 
+Which cameras start: every entry without `autostart: false`; `cameras:=a,b`
+names exactly the ones to start instead, `cameras:=all` every entry (autostart
+or not); `include:=a,b` adds to that and `exclude:=a,b` then drops from it.
+Unknown names are an error, so a typo never silently skips a camera.
+
     ros2 launch rover_cameras cameras.launch.py
     ros2 launch rover_cameras cameras.launch.py cameras:=arducam-front,arm-camera
+    ros2 launch rover_cameras cameras.launch.py cameras:=all
+    ros2 launch rover_cameras cameras.launch.py include:=zed2i exclude:=arm-camera
 """
 import os
 
@@ -24,9 +31,14 @@ from launch.actions import DeclareLaunchArgument, GroupAction, OpaqueFunction
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node, PushRosNamespace
 
-# cameras.yaml keys passed to the node as parameters of the same name.
+# cameras.yaml keys passed to the node as parameters of the same name. Others
+# (res, ros_res, calibration, frame_id, autostart) are read here.
+
+# `cameras:=all`: every entry, so no camera may be called that.
+ALL = 'all'
 PASSTHROUGH = ('device', 'format', 'fps', 'port', 'quality', 'save_quality',
-               'jpeg_encoder', 'ros_fps', 'ros_encoding', 'save_dir', 'rotate_180')
+               'jpeg_encoder', 'ros_fps', 'ros_encoding', 'save_dir', 'rotate_180',
+               'stereo')
 
 
 def _size(value, key, name):
@@ -37,6 +49,25 @@ def _size(value, key, name):
         return int(w), int(h)
     except ValueError:
         raise RuntimeError(f'cameras.yaml: {name}.{key} must be WxH, got {value!r}') from None
+
+
+def _names(value):
+    return [n.strip() for n in value.split(',') if n.strip()]
+
+
+def select_cameras(cameras, defaults, wanted, included, excluded):
+    """Names of cameras.yaml entries to start, in file order; see the docstring."""
+    if ALL in cameras:
+        raise RuntimeError(f"a camera cannot be called '{ALL}' (it means every camera)")
+    if wanted == [ALL]:
+        wanted = list(cameras)
+    unknown = [n for n in wanted + included + excluded if n not in cameras]
+    if unknown:
+        raise RuntimeError(f'no such camera {unknown} (have {list(cameras)})')
+    if not wanted:
+        wanted = [n for n in cameras
+                  if dict(defaults or {}, **(cameras[n] or {})).get('autostart', True)]
+    return [n for n in cameras if (n in wanted or n in included) and n not in excluded]
 
 
 def camera_params(name, cam, defaults, calibration_dir):
@@ -64,22 +95,23 @@ def camera_params(name, cam, defaults, calibration_dir):
 
 def _nodes(context):
     config = LaunchConfiguration('config').perform(context)
-    wanted = [n for n in LaunchConfiguration('cameras').perform(context).split(',') if n]
     with open(config) as f:
         conf = yaml.safe_load(f) or {}
     cameras = conf.get('cameras') or {}
-    unknown = [n for n in wanted if n not in cameras]
-    if unknown:
-        raise RuntimeError(f'cameras.launch.py: not in {config}: {unknown} '
-                           f'(have {list(cameras)})')
+    try:
+        selected = select_cameras(cameras, conf.get('defaults'),
+                                  _names(LaunchConfiguration('cameras').perform(context)),
+                                  _names(LaunchConfiguration('include').perform(context)),
+                                  _names(LaunchConfiguration('exclude').perform(context)))
+    except RuntimeError as exc:
+        raise RuntimeError(f'cameras.launch.py: {config}: {exc}') from None
     calibration_dir = os.path.join(
         get_package_share_directory('rover_cameras'), 'config', 'calibration')
 
     nodes, ros_names = [], []
-    for name, cam in cameras.items():
-        if wanted and name not in wanted:
-            continue
-        ros_name, params = camera_params(name, cam, conf.get('defaults'), calibration_dir)
+    for name in selected:
+        ros_name, params = camera_params(name, cameras[name], conf.get('defaults'),
+                                         calibration_dir)
         ros_names.append(ros_name)
         nodes.append(Node(
             package='rover_cameras',
@@ -121,6 +153,13 @@ def generate_launch_description():
             description='Camera list (see the file for its keys)'),
         DeclareLaunchArgument(
             'cameras', default_value='',
-            description="Comma-separated camera names to start; '' = all in config"),
+            description="Comma-separated camera names to start; '' = all with autostart, "
+                        "'all' = every camera"),
+        DeclareLaunchArgument(
+            'include', default_value='',
+            description='Comma-separated camera names to start as well'),
+        DeclareLaunchArgument(
+            'exclude', default_value='',
+            description='Comma-separated camera names not to start'),
         OpaqueFunction(function=_nodes),
     ])
