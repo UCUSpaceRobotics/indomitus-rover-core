@@ -4,17 +4,6 @@ Keyboard teleop for the rover, from a terminal (ground station laptop).
 
     ros2 run rover_teleop keyboard_teleop_node
 
-Keys are read from THIS terminal only (stdin), so typing in another window
-never moves the rover. They become the same sensor_msgs/Joy the DualSense
-produces (keyboard_input.KeyboardJoy) and go into a gamepad_interpreter
-running in this process, so the keyboard shares every mode, toggle and safety
-rule of the gamepad. The interpreter's parameters come from the same
-config/gamepad.yaml, except the button layout: which key presses which
-function is config/keyboard.yaml, and the keys drive their own virtual
-buttons, whatever the gamepad has on or off.
-
-Must be started with ros2 run, not ros2 launch: launch does not hand the
-terminal to its children. Namespace: $ROVER_NAMESPACE, default 'rover'.
 """
 
 import os

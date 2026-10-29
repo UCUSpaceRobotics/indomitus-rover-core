@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://docs.ros.org/en/jazzy/"><img alt="ROS 2 Jzzy" src="https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white"></a>
+  <a href="https://docs.ros.org/en/jazzy/"><img alt="ROS 2 Jazzy" src="https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white"></a>
   <a href="https://releases.ubuntu.com/24.04/"><img alt="Ubuntu 24.04" src="https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-amd64%20%7C%20arm64-informational">
 </p>
@@ -17,7 +17,7 @@
   <a href="https://github.com/yuriifito/indomitus-rover-core-ai/actions/workflows/publish_image.yaml?query=branch%3Amain"><img alt="main build" src="https://img.shields.io/github/actions/workflow/status/yuriifito/indomitus-rover-core-ai/publish_image.yaml?branch=main&label=main%20build&logo=github"></a>
   <a href="https://github.com/yuriifito/indomitus-rover-core-ai/actions/workflows/publish_image.yaml?query=branch%3Adevelop"><img alt="develop build" src="https://img.shields.io/github/actions/workflow/status/yuriifito/indomitus-rover-core-ai/publish_image.yaml?branch=develop&label=develop%20build&logo=github"></a>
   <a href="https://github.com/yuriifito/indomitus-rover-core-ai/releases/latest"><img alt="main release" src="https://img.shields.io/github/v/release/yuriifito/indomitus-rover-core-ai?label=main&color=green"></a>
-  <a href="https://github.com/yuriifito/indomitus-rover-core-ai/releases"><img alt="develop release" src="https://img.shields.io/github/v/release/yuriifito/indomitus-rover-core-ai?include_prereleases&sort=date&label=develop"></a>
+  <a href="https://github.com/yuriifito/indomitus-rover-core-ai/releases"><img alt="develop release" src="https://img.shields.io/github/v/release/yuriifito/indomitus-rover-core-ai?include_prereleases&label=develop"></a>
 </p>
 
 ---
@@ -124,7 +124,7 @@ Follow these steps to power on and operate the rover using a laptop:
 
 7. **Start the joystick nodes:** Run the following command inside the laptop's container to start the nodes responsible for handling joystick input:
     ```bash
-    ros2 launch rover_teleop gamepad.launch.py
+    ros2 launch rover_teleop gamepad.launch.py   # laptop gamepad: source:=remote (default)
     ```
 
 8.  **Control the rover:** You are now ready to drive the rover using the joystick.
@@ -251,10 +251,10 @@ Next, you need the Docker image. You can either pull a pre-built image or build 
 For example, pull the image from `develop`:
 
 ```bash
-docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:develop-dev
+docker pull ghcr.io/yuriifito/indomitus-rover-core-ai:develop-dev
 ```
 
-> **Pro Tip:** The images for the `develop` and `main` branches are built automatically, but you can also build an image for any branch. To do so, open the [GitHub Actions page](https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml). Press the gray button on the right, select the branch for which you want to build an image, and click **Run workflow**. When the image is built, you can pull it with the command `docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:<branch-name>-dev` (ensuring any slashes in your branch name are replaced with dashes, like `feature-shared-some-feature-dev`).
+> **Pro Tip:** The images for the `develop` and `main` branches are built automatically, but you can also build an image for any branch. To do so, open the [GitHub Actions page](https://github.com/yuriifito/indomitus-rover-core-ai/actions/workflows/publish_image.yaml). Press the gray button on the right, select the branch for which you want to build an image, and click **Run workflow**. When the image is built, you can pull it with the command `docker pull ghcr.io/yuriifito/indomitus-rover-core-ai:<branch-name>-dev` (ensuring any slashes in your branch name are replaced with dashes, like `feature-shared-some-feature-dev`).
 
 **Option B: Build the image locally**
 
@@ -290,20 +290,6 @@ docker compose build
    ```bash
    cd /opt/ws && colcon build --symlink-install && source install/setup.bash
    ```
-
-> **Note: Simulation Package Build Errors** At this stage, you might encounter build errors related to the `rover_viz` or `rover_sim` packages. This typically occurs because your current Docker container was built without the necessary visualization and simulation dependencies (controlled by the `INSTALL_SIM_TOOLS` variable in `docker-compose.yaml`).
-
-Depending on your requirements, choose one of the following solutions:
-
-**Option A: Skip the packages (If you do not need simulations)**
-You can instruct `colcon` to ignore the failing packages and safely build the rest of the workspace:
-```bash
-colcon build --symlink-install --packages-ignore rover_viz rover_sim arm_viz arm_sim panel_sim && source install/setup.bash
-```
-
-**Option B: Fix the dependencies (If you need simulations)**
-You must either manually install the missing dependencies inside your running Docker container or rebuild the entire Docker image with the simulation tools enabled.
-
 
 ### Image Tags
 
@@ -347,7 +333,7 @@ To pull the latest image built by the CI pipeline on the `develop` branch, and t
 ./scripts/deploy_to_rover.sh pull
 ```
 
-The images for the `develop` and `main` branches are built automatically, but you can also use GitHub Actions to build an image for any other branch. To do so, open the [GitHub Actions page](https://github.com/UCUSpaceRobotics/indomitus-rover-core/actions/workflows/publish_image.yaml). Press the gray button on the right, select the branch for which you want to build an image, and click **Run workflow**. When the image is built, you can deploy it with the following command:
+The images for the `develop` and `main` branches are built automatically, but you can also use GitHub Actions to build an image for any other branch. To do so, open the [GitHub Actions page](https://github.com/yuriifito/indomitus-rover-core-ai/actions/workflows/publish_image.yaml). Press the gray button on the right, select the branch for which you want to build an image, and click **Run workflow**. When the image is built, you can deploy it with the following command:
 
 ```bash
 ./scripts/deploy_to_rover.sh pull --tag <branch-name>-prod

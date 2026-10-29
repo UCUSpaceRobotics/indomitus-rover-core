@@ -11,6 +11,7 @@
   - [Github Agent Forwarding](#github-agent-forwarding)
   - [Configure the SSH Shortcut \& Tunnel](#configure-the-ssh-shortcut--tunnel)
     - [The New Workflow](#the-new-workflow)
+  - [Container and tmux Sessions Without Scripts](#container-and-tmux-sessions-without-scripts)
 
 SSH is a very useful tool to remotely access the Jetson on the rover, enter the Docker containers running on it, or deploy code to it.
 
@@ -203,3 +204,40 @@ ssh rover
 ```
 
 > **Note:** The same command will work for both ethernet and hotspot connection. If you connected to Jetson with both ethernet cable and hotspot the ethernet will win when running the command above and you will ssh into the Jetson via ethernet.
+
+
+## Container and tmux Sessions Without Scripts
+
+Same as `./scripts/enter_container.sh rover [SESSION]`, by hand. Examples use `ssh rover`; `ssh indomitus-rover@10.42.0.1` works too.
+
+**Shell in the container, then a tmux session**
+
+```bash
+ssh rover                          # on the laptop
+docker ps                          # on the Jetson: rover_prod should be "Up"
+docker exec -it rover_prod bash    # on the Jetson: ROS + workspaces are sourced by .bashrc
+
+# additional
+tmux ls                            # in the container: which sessions exist
+tmux new -A -s core                # in the container: enter session core (created if missing)
+```
+
+- `rover_prod` stopped: `docker start rover_prod`.
+- `rover_prod` missing (after `docker compose down`): `cd ~/indomitus-rover-core && IMAGE_TAG=<tag> docker compose up -d --no-build`
+  - `<tag>` = the deployed image, e.g. `develop-prod` (`docker images`);
+  - without `IMAGE_TAG`, compose looks for `local-prod` and starts building the image on the Jetson.
+
+**tmux sessions** (inside `rover_prod`; one session per subsystem: `core`, `arm`, `nav`, … or your own)
+
+| Action | Command |
+| --- | --- |
+| List sessions | `tmux ls` |
+| Enter a session (created if missing) | `tmux new -A -s core` |
+| Watch only | `tmux attach -r -t core` |
+| Detach (everything keeps running) | `Ctrl-b d` |
+| Switch session | `Ctrl-b s` |
+| Scroll back | `Ctrl-b [`, then arrows / PgUp, `q` to quit |
+| Stop the launch in a session | `Ctrl-c` in it; up-arrow + Enter to rerun |
+
+- `exit` closes the session - use `Ctrl-b d` to leave it.
+- Launches in a session survive a dropped Wi-Fi / closed laptop; reconnect and enter the session again.

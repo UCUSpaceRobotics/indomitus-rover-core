@@ -1,8 +1,3 @@
-# Keyboard teleop (keyboard_teleop_node, `ros2 run`) on an operator's laptop -
-# the `remote` control source, see docs/software/control_sources.md.
-# Everything else - speeds, modes, timeouts - is the interpreter's and comes
-# from gamepad.yaml.
-
 /**/remote_keyboard_joy:
   ros__parameters:
     cmd_vel_topic: cmd_vel_remote   # laptop operators' twist_mux input, shared with
@@ -15,12 +10,6 @@
     initial_hold: 0.6
     repeat_hold: 0.15
 
-    # function: key. One character, in quotes. "" or a missing line = no key.
-    # The help printed at startup is generated from this list.
-    # Taken by driving and not bindable: w x a d q e z c j l (move),
-    # s and space (stop), 0-9 (speed).
-    # The keyboard has its own virtual buttons, so a function that is off on
-    # the gamepad (-1 in gamepad.yaml) still works from here.
     keys:
       motor_toggle_button: "m"
       raw_twist_mode_button: "t"
@@ -30,8 +19,6 @@
       active_toggle_button: "o"
       spotlight_button: "f"
       beautiful_button: "b"
-      clear_errors_button: "X"      # capital on purpose: a recovery action
-      # Off by default, like on the gamepad. Bind a key to call
-      # cameras/capture / cameras/record/toggle on the rover from here.
+      clear_errors_button: "X" # capital on purpose
       dataset_capture_button: ""
       dataset_record_button: ""

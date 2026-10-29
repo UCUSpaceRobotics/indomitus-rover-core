@@ -109,9 +109,9 @@ jobs:
           platforms: linux/arm64
           push: false
           build-args: |
+            BASE_IMAGE_HW_BUILDER=dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04
             BASE_IMAGE=dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04
-            UBUNTU_VERSION=24.04
-            TARGET_ROS_DISTRO=jazzy
+            ZED_SDK_URL=https://download.stereolabs.com/zedsdk/5.4/l4t36.4/jetsons
           cache-from: |
             type=registry,ref=${{ env.REGISTRY }}/${{ needs.detect-changes.outputs.image_name }}-cache:pr-${{ github.event.pull_request.number }}-prod
             type=registry,ref=${{ env.REGISTRY }}/${{ needs.detect-changes.outputs.image_name }}-cache:prod-arm64
@@ -173,10 +173,8 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            INSTALL_SIM_TOOLS=true
-            BASE_IMAGE=ros:jazzy-ros-base
-            UBUNTU_VERSION=24.04
-            TARGET_ROS_DISTRO=jazzy
+            BASE_IMAGE_HW_BUILDER=stereolabs/zed:5.4-devel-cuda12.8-ubuntu24.04
+            BASE_IMAGE=stereolabs/zed:5.4-runtime-cuda12.8-ubuntu24.04
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |

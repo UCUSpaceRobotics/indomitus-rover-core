@@ -10,8 +10,8 @@
     world_frame: odom
 
     odom0: wheels/odom
-    odom0_config: [true,  true,  false,  # x, y, z
-                   false, false, true,   # roll, pitch, yaw
+    odom0_config: [false,  false,  false,  # x, y, z
+                   false, false, false,   # roll, pitch, yaw
                    true,  true,  false,  # vx, vy, vz
                    false, false, true,   # vroll, vpitch, vyaw
                    false, false, false]  # ax, ay, az

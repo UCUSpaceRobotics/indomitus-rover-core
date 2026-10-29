@@ -1,7 +1,3 @@
-"""Out-of-order service replies: two controller switches whose replies race.
-
-No ROS import anywhere in here."""
-
 from rover_drive.service_call import GenerationGuard
 
 

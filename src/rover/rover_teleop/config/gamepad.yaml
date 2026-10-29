@@ -1,12 +1,3 @@
-# Buttons: every *_button below is the only place a function gets a button -
-# the node has no fallback layout. -1 (or leaving the key out) turns the
-# function off, so niche features don't take one of the pad's few buttons.
-# The node logs the layout at startup and warns if two functions share a button.
-# keyboard_teleop_node ignores these indices: its keys are in keyboard.yaml.
-
-# `/**` rather than the node's name: gamepad.launch.py names the interpreter
-# gamepad_interpreter or remote_gamepad_interpreter depending on `source`, and
-# this file is only ever handed to the interpreter.
 /**:
   ros__parameters:
     axis_linear:
@@ -18,14 +9,11 @@
 
     # --- ANGULAR CONTROLS (Right Stick) ---
     axis_angular:
-      yaw: 2 # Right stick horizontal (rotation clockwise/counterclockwise)
+      yaw: 2 # Right stick horizontal
     scale_angular:
       yaw: 1.0
 
-    # Stick deadzone. Applied here, NOT in the joy driver — game_controller_node
-    # stops publishing /joy entirely when its own deadzone swallows resting-stick
-    # noise (ros-drivers/joystick_drivers#304), so gamepad.launch.py keeps the driver
-    # deadzone at 0.0 and this node filters instead.
+    # Stick deadzone. Applied here, NOT in the joy driver as it has a bug
     deadzone: 0.05
 
     # --- SPIN IN PLACE (L2 / R2) ---
@@ -78,11 +66,7 @@
     clear_errors_button: 13   # ↑
 
     # --- DATASET ---
-    # rover_cameras' dataset_node (cameras/capture, cameras/record/toggle):
-    # capture saves one frame from every camera, record toggles saving one per
-    # second (on unless any camera records).
-    # Off by default (-1): niche, and the competition needs the buttons. For
-    # dataset collection set them (they used to be 14 / 15).
+    # rover_cameras' dataset_node calls
     dataset_capture_button: -1
     dataset_record_button: -1
 
@@ -93,12 +77,8 @@
     cmd_pub_rate: 20.0
 
     # Zero twists published when /joy goes stale, before this node goes quiet
-    # and lets twist_mux fall through to the ground station. Not a stream:
-    # cmd_vel_joy has the highest priority in the mux, so holding it with zeros
-    # would mean an unplugged gamepad locks out the only operator left.
     timeout_zero_burst: 3
 
     # --- LIGHTS ---
-    # State lives in lights_can_node; these ask it to invert a light.
     spotlight_button: 9   # L1
-    beautiful_button: 10   # R1
+    beautiful_button: 10  # R1

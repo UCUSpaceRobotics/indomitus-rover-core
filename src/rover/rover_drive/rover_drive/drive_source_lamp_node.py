@@ -1,33 +1,38 @@
 #!/usr/bin/env python3
 """Lights the tower red for autonomous, green for manual drive.
 
-Watches the same command topics twist_mux does and picks the same winner it
-would. Topics, priorities and timeouts are read from the twist_mux config
-itself (parameter twist_mux_config, default this package's
-config/twist_mux.yaml, the file twist_mux.launch.py loads); which of them count
-as autonomous is the autonomous_topics parameter. See DriveSourceWatchdog for
-why this reimplements the rule rather than reading it back off twist_mux's
-/diagnostics.
+Watches the same command topics twist_mux does (cmd_vel_joy, cmd_vel_gs,
+cmd_vel_remote, cmd_vel_nav, cmd_vel_ext, cmd_vel_lora) and picks the same winner it would,
+using the priorities/timeouts mirrored from rover_drive/config/twist_mux.yaml
+in DriveSourceWatchdog - see that module for why this reimplements the rule
+rather than reading it back off twist_mux's /diagnostics.
 
 Drives lights/traffic_light (indomitus_interfaces/srv/SetTrafficLight),
 setting red/green and leaving blue at KEEP so this never disturbs
 gs_link_lamp_node's blue-on-GS-connection lamp.
 """
 
-import os
-
-import yaml
-
 import rclpy
-from ament_index_python.packages import get_package_share_directory
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 from geometry_msgs.msg import Twist
 from indomitus_interfaces.srv import SetTrafficLight
 
-from rover_drive.drive_source_watchdog import DriveSourceWatchdog, sources_from_twist_mux
+from rover_drive.drive_source_watchdog import DriveSourceWatchdog, Source
 from rover_drive.service_call import GuardedCall
+
+# Mirrors rover_drive/config/twist_mux.yaml. Keep both in sync by hand -
+# there is nothing at runtime enforcing the match, same contract as the LoRa
+# wire scale between lora_rover_node and lora_gateway_node.
+DEFAULT_SOURCES = (
+    Source('cmd_vel_joy', priority=100, timeout=0.5, autonomous=False),
+    Source('cmd_vel_gs', priority=50, timeout=0.5, autonomous=False),
+    Source('cmd_vel_remote', priority=30, timeout=0.5, autonomous=False),
+    Source('cmd_vel_nav', priority=20, timeout=1.0, autonomous=True),
+    Source('cmd_vel_ext', priority=10, timeout=0.5, autonomous=False),
+    Source('cmd_vel_lora', priority=5, timeout=1.0, autonomous=False),
+)
 
 KEEP = SetTrafficLight.Request.KEEP
 OFF = SetTrafficLight.Request.OFF
@@ -40,17 +45,8 @@ class DriveSourceLampNode(Node):
         super().__init__('drive_source_lamp_node')
 
         self.declare_parameter('poll_rate_hz', 5.0)
-        self.declare_parameter('twist_mux_config', os.path.join(
-            get_package_share_directory('rover_drive'), 'config', 'twist_mux.yaml'))
-        self.declare_parameter('autonomous_topics', ['cmd_vel_nav'])
 
-        config_path = str(self.get_parameter('twist_mux_config').value)
-        with open(config_path) as f:
-            sources = sources_from_twist_mux(
-                yaml.safe_load(f),
-                self.get_parameter('autonomous_topics').value)
-
-        self.watchdog = DriveSourceWatchdog(sources)
+        self.watchdog = DriveSourceWatchdog(DEFAULT_SOURCES)
         # Unknown until the first service call succeeds, so startup always
         # issues at least one SetTrafficLight rather than trusting the lamp's
         # current hardware state.
@@ -58,7 +54,7 @@ class DriveSourceLampNode(Node):
         self._call = GuardedCall(
             self.create_client(SetTrafficLight, 'lights/traffic_light'))
 
-        for source in sources:
+        for source in DEFAULT_SOURCES:
             self.create_subscription(
                 Twist, source.name, self._make_on_msg(source.name), 10)
 
@@ -67,7 +63,7 @@ class DriveSourceLampNode(Node):
 
         self.get_logger().info(
             f'drive_source_lamp_node: watching '
-            f'{", ".join(s.name for s in sources)} (from {config_path})')
+            f'{", ".join(s.name for s in DEFAULT_SOURCES)}')
 
     def _make_on_msg(self, name):
         def _on_msg(_msg):

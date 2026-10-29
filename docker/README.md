@@ -35,8 +35,8 @@ sudo usermod -aG docker $USER           # run docker without sudo (re-login requ
 
 | image | base | GPU |
 |---|---|---|
-| `…-dev` (amd64, laptops, sim) | `ros:jazzy-ros-base` | none |
-| `…-prod` (arm64, Jetson) | `dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04` + ROS 2 Jazzy from apt | CUDA 12.8, cuDNN 9.7, TensorRT 10.7, onnxruntime |
+| `…-dev` (amd64, laptops, sim) | `stereolabs/zed:5.4-runtime-cuda12.8-ubuntu24.04` + ROS 2 Jazzy from apt | CUDA 12.8, ZED SDK |
+| `…-prod` (arm64, Jetson) | `dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04` + ROS 2 Jazzy from apt + ZED SDK (`ZED_SDK_URL`, `docker/install_zed_sdk.sh`) | CUDA 12.8, cuDNN 9.7, TensorRT 10.7, onnxruntime, ZED SDK |
 
 The Jetson runs JetPack 6.2 (Ubuntu 22.04, L4T r36.4) on the host; the container is Ubuntu
 24.04 for ROS 2 Jazzy. The GPU driver comes from the host (`runtime: nvidia` in
@@ -49,6 +49,8 @@ JetPack 6.2's driver through `/usr/local/cuda/compat`).
 - `dustynv/ros:jazzy-*` does not fit either: its ROS is built from source, so rosdep and apt ROS
   packages (ros2_control, MoveIt, ...) do not mix with it. The Dockerfile installs ROS from apt
   when the base image has none.
+- Stereolabs ships no Ubuntu 24.04 image for JetPack 6 (`stereolabs/zed:*-l4t-r36.4` is 22.04),
+  so the Dockerfile installs the ZED SDK for L4T 36.4 into the 24.04 base from `ZED_SDK_URL`.
 - jetson-containers keep Python packages in `/opt/venv`; the Dockerfile makes them visible to
   `/usr/bin/python3` (which ROS nodes use) through a `.pth` file and takes the venv off `PATH`.
 

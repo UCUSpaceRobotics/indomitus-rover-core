@@ -21,13 +21,25 @@ Enter the remote production container on the rover computer:
 ./scripts/enter_container.sh rover
 ```
 
+## tmux sessions
+
+- `./scripts/enter_container.sh rover arm` → tmux session `arm` in `rover_prod` (created if missing; `tmux new-session -A`).
+- `./scripts/enter_container.sh local sim` → same in the local `rover_dev` (e.g. `sim`, `nav`, `rviz`).
+- `-r` / `--read-only` → watch only (session must exist).
+- No session name → plain shell, no tmux.
+- Sessions = one terminal per subsystem (`core`, `arm`, `nav`, …) or personal (`yurii`); launches keep running when the laptop disconnects.
+- Detach: `Ctrl-b d`. `exit` closes the session.
+- Inside the container: `tmux ls`, `Ctrl-b s` (switch session).
+- Without this script (plain ssh / docker / tmux): [ssh.md](../networking/ssh.md#container-and-tmux-sessions-without-scripts).
+- Config: [`docker/tmux.conf`](../../docker/tmux.conf). Autostart at boot: [`system/systemd/rover-launch-*.service`](../../system/README.md).
+
 ## Configuration Flags & Defaults
 
 The script accepts the following flags to override defaults depending on the subcommand used.
 
 | Flag | Applies To | Description | Default |
 | --- | --- | --- | --- |
-| **`--name`** | `local`, `rover` | Docker container name | `rover_dev` (local), `rover_ai` (rover) |
+| **`--name`** | `local`, `rover` | Docker container name | `rover_dev` (local), `rover_prod` (rover) |
 | **`--compose`** | `local`, `rover` | Compose file path | `docker-compose.yaml` (local), `docker-compose.prod.yaml` (rover) |
 | **`--ros-distro`** | `local` | ROS 2 distribution name | `jazzy` |
 | **`--workspace`** | `local`, `rover` | ROS 2 workspace path inside container | `/opt/ws` |
@@ -35,9 +47,10 @@ The script accepts the following flags to override defaults depending on the sub
 | **`--ip`** | `rover` | Jetson target IP/hostname | `10.42.0.1` |
 | **`--eth`** | `rover` | Use Ethernet target and skip hotspot auto-connect | `off` |
 | **`--no-wifi`, `-n`** | `rover` | Skip the Wi-Fi auto-connect and ssh straight to the Jetson (already on the network, or connected some other way) | `off` |
-| **`--dir`** | `rover` | Remote deployment directory | `/home/${JETSON_USER}/indomitus-rover-core-ai/` |
+| **`--dir`** | `rover` | Remote deployment directory | `/home/${JETSON_USER}/indomitus-rover-core/` |
 | **`--ssid`** | `rover` | Wi-Fi SSID of the Jetson hotspot | `ERC_UCUSpaceRobotics_A` |
 | **`--pass`** | `rover` | Wi-Fi password for the hotspot | `19283746` |
+| **`-r, --read-only`** | `rover` | With a session name: attach read-only | `off` |
 | **`-h, --help`** | `local`, `rover` | Display help and exit | N/A |
 
 ## Notes

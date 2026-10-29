@@ -14,9 +14,11 @@ source_if_exists() {
 # -------------------- ROS2 Workspace Setup --------------------
 
 TARGET_ROS_DISTRO="${TARGET_ROS_DISTRO:-jazzy}"
+HW_WS="${HW_WS:-/opt/hw_ws}"
 WS="${WS:-/opt/ws}"
 
 source_if_exists "/opt/ros/${TARGET_ROS_DISTRO}/setup.bash"
+source_if_exists "${HW_WS}/install/setup.bash"
 source_if_exists "${WS}/install/setup.bash"
 
 echo "[ROS] SUCCESS: Environment ready (${TARGET_ROS_DISTRO})."
@@ -27,14 +29,7 @@ if [ "${1}" = "autolaunch" ]; then
     ros2 launch rover_bringup rover.launch.py &
     PID1=$!
 
-    export LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/tegra:$LD_LIBRARY_PATH
-
-    echo "[ROVER] Starting launch file 2..."
-    ros2 launch rover_teleop gamepad.launch.py &
-    PID2=$!
-
-    # wait -n $PID1
-    wait -n $PID1 $PID2
+    wait -n $PID1
     exit $?
 fi
 

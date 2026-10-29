@@ -45,9 +45,6 @@ def triggers_held(axes, l2_index: int, r2_index: int, deadzone: float) -> bool:
     return max(abs(value(l2_index)), abs(value(r2_index))) > deadzone
 
 
-# A *_button parameter set to this means "no button does this". Buttons are
-# scarce on a gamepad, so the layout lives only in gamepad.yaml and every
-# function is off unless the yaml gives it a button.
 DISABLED = -1
 
 

@@ -19,11 +19,10 @@ Located at [`/etc/udev/rules.d/can.rules`](../system/rules.d/can.rules).
 
 Automatically configures and brings up `can0` when the CAN adapter is detected.
 
-### systemd Service
+### Container autostart
 
-Located at [`/etc/systemd/system/rover.service`](../system/systemd/rover.service).
-
-Starts the production Docker container once both Docker and `can0` are available.
+- `rover_prod` comes back at boot via `restart: unless-stopped` in [`docker-compose.prod.yaml`](../../docker/docker-compose.prod.yaml) (not after `docker compose down`).
+- Launches: [`system/systemd/rover-launch-*.service`](../../system/README.md).
 
 ## Manual / Laptop Setup
 

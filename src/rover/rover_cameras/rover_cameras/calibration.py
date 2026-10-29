@@ -28,7 +28,9 @@ def uncalibrated(width, height):
     """CameraInfo fields for a camera with no calibration: K = 0 says so."""
     return {
         'width': width, 'height': height, 'distortion_model': '',
-        'd': [], 'k': [0.0] * 9, 'r': [1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0], 'p': [0.0] * 12,
+        # floats only: Humble's CameraInfo rejects int elements.
+        'd': [], 'k': [0.0] * 9, 'r': [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        'p': [0.0] * 12,
     }
 
 

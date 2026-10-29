@@ -15,11 +15,11 @@ Tests should generally be executed inside the development Docker container to en
 3. Prepare the workspace:
 ```bash
 colcon build --symlink-install
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ```
 
-> Note: if you are using other ROS 2 distribution rather than humble you will need to specify it in the command
+> Note: if you are using other ROS 2 distribution rather than jazzy you will need to specify it in the command
 
 
 **Run all tests:**

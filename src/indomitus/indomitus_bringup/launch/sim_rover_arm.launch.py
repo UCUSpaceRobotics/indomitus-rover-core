@@ -110,13 +110,12 @@ def make_rover_rsp(context, rover_description_share: str, controllers_yaml_path:
     ])]
 
 
-def make_rover_control(context, controllers_yaml_path: str, base_controllers: list) -> list:
+def make_rover_control(context, controllers_yaml_path: str, swerve_controller: str, base_controllers: list) -> list:
     """sim_gz.launch.py's controller set, with a longer switch timeout: the
     simulation is held while the second gz_ros2_control plugin starts up."""
-    swerve_controller = LaunchConfiguration("swerve_controller").perform(context)
     return [GroupAction([
         PushRosNamespace(ROVER_NAMESPACE),
-        include_launch("rover_bringup", "control.launch.py", {
+        include_launch("rover_controller", "control.launch.py", {
             "use_sim": "true",
             "controllers_yaml": controllers_yaml_path,
             "controllers": f"{swerve_controller} " + " ".join(base_controllers),
@@ -267,11 +266,6 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            "swerve_controller",
-            default_value=rover_sim.DEFAULT_SWERVE_CONTROLLER,
-            choices=list(rover_sim.SWERVE_CONTROLLERS),
-            description="Which swerve controller to spawn active."),
-        DeclareLaunchArgument(
             "world_name", default_value="mars_yard", choices=rover_sim.SUPPORTED_WORLDS,
             description="Gazebo world from rover_sim/worlds (without .sdf)."),
         DeclareLaunchArgument(
@@ -347,6 +341,7 @@ def generate_launch_description() -> LaunchDescription:
         # twist_mux and drive_manager, as in sim_gz.launch.py.
         OpaqueFunction(function=make_rover_control, kwargs={
             "controllers_yaml_path": controllers_yaml_path,
+            "swerve_controller": rover_sim.SWERVE_CONTROLLER,
             "base_controllers": rover_sim.BASE_CONTROLLERS,
         }),
         GroupAction([
@@ -359,7 +354,7 @@ def generate_launch_description() -> LaunchDescription:
             PushRosNamespace(ROVER_NAMESPACE),
             include_launch("rover_drive", "drive_manager.launch.py", {
                 "use_sim_time": "true",
-                "controller_name": LaunchConfiguration("swerve_controller"),
+                "controller_name": rover_sim.SWERVE_CONTROLLER,
             }),
         ]),
 

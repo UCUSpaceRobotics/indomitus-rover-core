@@ -1,0 +1,56 @@
+---
+# record mode-specific overrides only (traversability dataset recording) - the shared
+# general/video/sensors block lives in zed2i_common.yaml and is merged with this file at
+# launch time by zed2i.launch.py. Independent of zed2i_nav.yaml.
+/**/zed_node:
+  ros__parameters:
+    general:
+      grab_resolution: 'HD720' # The native camera grab resolution. 'HD2K', 'HD1080', 'HD720', 'VGA', 'AUTO'
+      grab_frame_rate: 30 # ZED SDK internal grabbing rate
+      pub_resolution: 'CUSTOM' # The resolution used for image and depth map publishing. 'NATIVE' to use the same `general.grab_resolution` - `CUSTOM` to apply the `general.pub_downscale_factor` downscale factory to reduce bandwidth in transmission
+      pub_downscale_factor: 2.0 # rescale factor used to rescale image before publishing when 'pub_resolution' is 'CUSTOM'
+      pub_frame_rate: 7.0 # [DYNAMIC] Frequency of publishing of visual images and depth data (not the Point Cloud, see 'depth.point_cloud_freq'). This value must be <= the camera framerate. Set to 0 for no limit (= grab_frame_rate).
+
+    sensors:
+      sensors_pub_rate: 100.0 # frequency of publishing of sensors data. MAX: 400. - MIN: grab rate
+
+    region_of_interest:
+      automatic_roi: false # Enable the automatic ROI generation to automatically detect part of the robot in the FoV and remove them from the processing. Note: if enabled the value of `manual_polygon` is ignored
+
+    depth:
+      depth_mode: 'NEURAL_LIGHT' # Matches the ZED SDK setting: 'NONE', 'NEURAL_LIGHT', 'NEURAL', 'NEURAL_PLUS' - Note: if 'NONE' all the modules that requires depth extraction are disabled by default (Pos. Tracking, Obj. Detection, Mapping, ...)
+      min_depth: 0.01 # Min: 0.01, Max: 3.0
+      max_depth: 8.0 # Min: 0.5, Max: 20.0
+      depth_stabilization: -1 # Negative value takes SDK default, 0 is disabled - Range: [0,100]
+      depth_confidence: 95 # [DYNAMIC]
+      depth_texture_conf: 100 # [DYNAMIC]
+      remove_saturated_areas: true # [DYNAMIC]
+      publish_depth_map: true # Advertise the depth map topics that are published only if a node subscribes to them
+      publish_depth_info: false # Advertise the depth info topic that is published only if a node subscribes to it
+      publish_point_cloud: false # Advertise the point cloud topic that is published only if a node subscribes to it
+      publish_depth_confidence: false # Advertise the depth confidence topic that is published only if a node subscribes to it
+      publish_disparity: false # Advertise the disparity topic that is published only if a node subscribes to it
+
+    pos_tracking:
+      pos_tracking_enabled: true # True to enable positional tracking from start
+      pos_tracking_mode: 'AUTO' # 'AUTO' uses the SDK default; also supports 'GEN_1', 'GEN_3'
+      imu_fusion: true # enable/disable IMU fusion. When set to false, only the optical odometry will be used.
+      publish_tf: false # [overwritten by launch file options] publish `odom -> camera_link` TF
+      publish_map_tf: false # [overwritten by launch file options] publish `map -> odom` TF
+      map_frame: 'map'
+      odometry_frame: 'odom'
+      area_memory: false # Enable to detect loop closure
+      enable_localization_only: false # If true, the camera will only localize in the loaded area memory without updating the map with new information.
+      reset_odom_with_loop_closure: false # Re-initialize odometry to the last valid pose when loop closure happens (reset camera odometry drift)
+      depth_min_range: 0.05 # Set this value for removing fixed zones of the robot in the FoV of the camerafrom the visual odometry evaluation
+      set_gravity_as_origin: true # If 'true' align the positional tracking world to imu gravity measurement. Keep the yaw from the user initial pose.
+      floor_alignment: false # Enable to automatically calculate camera/floor offset
+      initial_base_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # Initial position of the `camera_link` frame in the map -> [X, Y, Z, R, P, Y]
+      two_d_mode: true # Force navigation on a plane. If true the Z value will be fixed to 'fixed_z_value', roll and pitch to zero
+      fixed_z_value: 0.529 # Value to be used for Z coordinate if `two_d_mode` is true
+      transform_time_offset: 0.0 # The value added to the timestamp of `map->odom` and `odom->camera_link` transform being generated
+      publish_odom_pose: true # Advertise the odometry and pose topics that are published only if a node subscribes to them
+      publish_pose_cov: false # Advertise the pose with covariance topic that is published only if a node subscribes to it
+
+    debug:
+      sdk_verbose: 1 # Set the verbose level of the ZED SDK

@@ -69,7 +69,7 @@ STATE_QOS = QoSProfile(
 )
 
 
-class DriveManagerNode(Node):
+class DrivePowerNode(Node):
 
     def __init__(self):
         super().__init__('drive_manager')
@@ -79,7 +79,7 @@ class DriveManagerNode(Node):
             return self.get_parameter(name).value
 
         self._controller_name = str(
-            declare_and_get('controller_name', 'swerve_controller_test'))
+            declare_and_get('controller_name', 'swerve_controller'))
         self._hardware_name = str(declare_and_get('hardware_name', 'RoverHardware'))
         # Capped low on purpose: drive/state crosses the Wi-Fi link to the
         # ground station, and nothing downstream needs it faster than the
@@ -152,7 +152,7 @@ class DriveManagerNode(Node):
         self._publish_state()
 
         self.get_logger().info(
-            f'drive_manager started — controller={self._controller_name}, '
+            f'DrivePower started — controller={self._controller_name}, '
             f'hardware={self._hardware_name}\n'
             f'  drive/power           (Service) - SetBool, absolute\n'
             f'  drive/power/toggle    (Service) - Trigger, invert\n'
@@ -466,7 +466,7 @@ class DriveManagerNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = DriveManagerNode()
+    node = DrivePowerNode()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

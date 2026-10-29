@@ -1,0 +1,19 @@
+[Unit]
+Description=Arm (MoveIt, servo, controllers) in tmux session "arm"
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+RemainAfterExit=yes
+# arm_macro.xacro's default can_interface (arm.launch.py passes none) - keep in sync.
+Environment=CAN_IFACE=can0
+ExecStart=/bin/sh -c '\
+    until ip -o link show dev "$$CAN_IFACE" 2>/dev/null | grep -q "[<,]UP[,>]"; do sleep 2; done; \
+    until docker exec rover_prod true 2>/dev/null; do sleep 2; done; \
+    docker exec rover_prod sh -c "tmux has-session -t arm 2>/dev/null || tmux new-session -d -s arm"; \
+    docker exec rover_prod tmux send-keys -t arm "ros2 launch arm_bringup arm.launch.py use_fake_hardware:=false" Enter'
+    ExecStop=-/usr/bin/docker exec rover_prod tmux send-keys -t arm C-c
+
+[Install]
+WantedBy=multi-user.target

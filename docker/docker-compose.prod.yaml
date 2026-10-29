@@ -1,12 +1,5 @@
-# indomitus-rover-core-ai on the Jetson: lives in ~/indomitus-rover-core-ai next to the
-# team's ~/indomitus-rover-core and runs as its own container (rover_ai), from this
-# fork's CI image (ROS 2 Jazzy). IMAGE_NAME / IMAGE_TAG come from the .env file
-# next to this compose file, written by scripts/deploy_to_rover.sh.
-#
-# rover_prod and rover_ai can both exist, but run nodes in only one of them at a
-# time: both use host networking, the same ROS_DOMAIN_ID and the same CAN buses.
 services:
-  rover_ai:
+  rover_prod:
     platform: linux/arm64
     runtime: nvidia
     build:
@@ -14,13 +7,15 @@ services:
       dockerfile: docker/Dockerfile
       target: prod
       args:
+        BASE_IMAGE_HW_BUILDER: ${BASE_IMAGE_HW_BUILDER:-dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04}
         BASE_IMAGE: ${BASE_IMAGE:-dustynv/onnxruntime:1.22-r36.4.0-cu128-24.04}
+        ZED_SDK_URL: ${ZED_SDK_URL:-https://download.stereolabs.com/zedsdk/5.4/l4t36.4/jetsons}
         UBUNTU_VERSION: ${UBUNTU_VERSION:-24.04}
         TARGET_ROS_DISTRO: ${TARGET_ROS_DISTRO:-jazzy}
 
-    image: ${IMAGE_NAME:-ghcr.io/yuriifito/indomitus-rover-core-ai}:${IMAGE_TAG:-develop-prod}
+    image: ${IMAGE_NAME:-ghcr.io/yuriifito/indomitus-rover-core-ai}:${IMAGE_TAG:-local-prod}
     pull_policy: never
-    container_name: rover_ai
+    container_name: rover_prod
     command: tail -f /dev/null # command: autolaunch
     network_mode: host
     privileged: true
@@ -46,15 +41,9 @@ services:
       - SDL_VIDEODRIVER=dummy
       - SDL_AUDIODRIVER=dummy
     volumes:
-      # Relative to this compose file, i.e. the project directory on the Jetson.
-      - ./src:/opt/ws/src:rw
-      # Build output on the host: survives container re-creation, and hides the
-      # image's own build/ (made from the team's source tree, whose CMake caches
-      # point at different package paths).
-      - ./build:/opt/ws/build:rw
-      - ./install:/opt/ws/install:rw
-      - ./log:/opt/ws/log:rw
+      - /home/indomitus-rover/indomitus-rover-core/src:/opt/ws/src:rw
       - /dev:/dev:rw
       - /run/udev:/run/udev:ro
-      # - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
-      # - /usr/local/zed/resources/:/usr/local/zed/resources/:rw
+      - /home/indomitus-rover/bags:/bags:rw
+      - /usr/local/zed/settings/:/usr/local/zed/settings/:rw
+      - /usr/local/zed/resources/:/usr/local/zed/resources/:rw

@@ -14,11 +14,7 @@ map
                 │         ├── zed2i_camera_link
                 │         │    └── ... -> zed2i_left_camera_frame
                 │         │         └── zed2i_imu_link
-                │         ├── laser_link
-                │         └── arm_mount_link  (only when the arm is mounted)
-                │              └── arm_base_link -> ... -> arm_end_effector_link
-                │                   ├── arm_tcp_link
-                │                   └── arm_camera_link -> arm_camera_optical_frame
+                │         └── laser_link
                 ├── fl_wheel_mount_link -> fl_wheel_link
                 ├── fr_wheel_mount_link -> fr_wheel_link
                 ├── bl_wheel_mount_link -> bl_wheel_link
@@ -41,12 +37,10 @@ ownership table below and the rationale in `rover.urdf.xacro`.
 | --- | --- | --- | --- |
 | `map -> odom` | `async_slam_toolbox_node` | `slam_toolbox` | Launched via `rover_localization/launch/slam.launch.py` using `slam_toolbox_params.yaml`. |
 | `odom -> base_footprint` | `ekf_filter_node` (`robot_localization`) | `rover_localization` | **Real Hardware:** `config/ekf.yaml` (fuses `/wheels/odom` + `/zed2i/odom`; `two_d_mode: true`). **Simulation:** `config/ekf_sim.yaml` (fuses only `/wheels/odom`; `two_d_mode: true`). Both configurations set `publish_tf: true`, `odom_frame: odom`, `base_link_frame: base_footprint`. Deliberately no IMU/tilt input — this filter only ever tracks `(x, y, yaw)`, keeping `base_footprint` flat per REP 105/120. |
-| `base_footprint -> base_link` | `tilt_broadcaster_node` | `rover_localization` | Subscribes `/zed2i/imu/data`. Launched via `launch/ekf.launch.py`. For each IMU message, looks up the *live* static transform `child_frame (base_link) -> msg.header.frame_id` (the IMU's actual mount frame), and removes that mounting rotation from the raw reading before extracting roll/pitch, so it stays correct regardless of where the IMU is actually mounted in the URDF. Yaw is then discarded and hard-coded to `0.0` when rebuilding the quaternion, and the transform is broadcast via `tf2_ros::TransformBroadcaster` — `x`/`y` fixed at `0`, `z` fixed at the `ground_height` parameter (`0.4597`, must be kept in sync by hand with `base_link_ground_height` in `rover_description/urdf/properties.xacro`)|
+| `base_footprint -> base_link` | `tilt_broadcaster_node` | `rover_localization` | Subscribes `/zed2i/imu/data`. Launched via `launch/ekf.launch.py`. For each IMU message, looks up the latest mount transform `child_frame (base_link) -> msg.header.frame_id` (the IMU's actual mount frame; rigid, so not looked up at the message stamp), and removes that mounting rotation from the raw reading before extracting roll/pitch, so it stays correct regardless of where the IMU is actually mounted in the URDF. Yaw is then discarded and hard-coded to `0.0` when rebuilding the quaternion, and the transform is broadcast via `tf2_ros::TransformBroadcaster` — `x`/`y` fixed at `0`, `z` fixed at the `ground_height` parameter (`0.4597`, must be kept in sync by hand with `base_link_ground_height` in `rover_description/urdf/properties.xacro`)|
 | `base_link -> *` *(all static & dynamic links, except the one row below)* | `robot_state_publisher` | `rover_description` | Driven by `/joint_states` + `rover.urdf.xacro`. Launched via `robot_state_publisher.launch.py`. `base_link` is the sole URDF root — `base_footprint` is intentionally not declared as a URDF link (see tree note above). |
-| `main_body_link -> arm_mount_link -> arm_*` *(arm mounted on the rover)* | `robot_state_publisher` (`/arm`) | `indomitus_description` | Driven by `/arm/joint_states` + `arm_on_rover.urdf.xacro`, whose root `main_body_link` is an empty link: `/rover/robot_state_publisher` owns it, the `/arm` one only adds the edges below it. The mount pose lives only in `indomitus_description/urdf/mount.xacro`. Launched via `arm_bringup/launch/stack.launch.py` (from `indomitus_bringup/sim_rover_arm.launch.py`). |
-| `world -> arm_mount_link -> arm_*` *(arm alone)* | `robot_state_publisher` (`/arm`) | `arm_description` | Driven by `/arm/joint_states` + `arm_standalone.urdf.xacro` (root `world`). Arm-only sim (`arm_sim/arm_gz.launch.py`) and arm hardware (`arm_bringup/arm.launch.py`). |
-| `zed2i_left_camera_frame -> zed2i_imu_link` | `zed_node` | `zed_wrapper` (`rover_sensors/launch/zed2i.launch.py`) | **Exception** to "`zed_node` owns no TF" below: `zed_description` never defines an IMU link. Enabled via `sensors.publish_imu_tf`. Published once as a static transform on startup. `tilt_broadcaster_node` depends on this edge. |
-| `world -> panel/panel_base_link -> *` (panel base + switch/breaker links) | `robot_state_publisher` | `panel_description` | Driven by `/joint_states` + `panel_standalone.urdf.xacro`; verified via `panel_bringup/panel_standalone.launch.py` (there, unprefixed: `world -> panel_base_link`, since standalone has no namespace to collide with). When spawned inside `indomitus_bringup/sim_rover_arm.launch.py` (`spawn_panel:=true`) it runs under a `panel` namespace with `frame_prefix:='panel/'` set (so frame IDs are actually `panel/panel_base_link` etc., not just the topics) and `tf`/`tf_static` remapped back onto the global `/tf`/`/tf_static` topics, so the prefixed frames land on the one shared TF tree. The `world -> panel/panel_base_link` pose is generated from the same `panel_x`/`panel_y`/`panel_z`/`panel_yaw` launch args passed to the Gazebo spawn, so the two stay in sync -- **not yet verified end-to-end in Gazebo** (blocked on the Gazebo version issue in [`panel_sim.md`](https://www.google.com/search?q=../panel/panel_sim.md)), but the frame-naming and pose-sync code path is in place. |
+| `zed2i_left_camera_frame -> zed2i_imu_link` | `zed_node` | `zed_wrapper` (`rover_sensors/launch/zed2i.launch.py`) | **Exception** to "`zed_node` owns no TF" below: `zed_description` never defines an IMU link. Enabled via `sensors.publish_imu_tf`. With intra-process comms enabled (the wrapper default) it is re-published on `/tf` every IMU cycle, stamped at send time; otherwise once on `/tf_static`. `tilt_broadcaster_node` depends on this edge. |
+| `world -> panel/panel_base_link -> *` (panel base + switch/breaker links) | `robot_state_publisher` | `panel_description` | Driven by `/joint_states` + `panel_standalone.urdf.xacro`; verified via `panel_bringup/panel_standalone.launch.py` (there, unprefixed: `world -> panel_base_link`, since standalone has no namespace to collide with). When spawned inside `rover_sim/sim_gz_full.launch.py` it runs under a `panel` namespace with `frame_prefix:='panel/'` set (so frame IDs are actually `panel/panel_base_link` etc., not just the topics) and `tf`/`tf_static` remapped back onto the global `/tf`/`/tf_static` topics, so the prefixed frames land on the one shared TF tree. The `world -> panel/panel_base_link` pose is generated from the same `panel_x`/`panel_y`/`panel_z`/`panel_yaw` launch args passed to the Gazebo spawn, so the two stay in sync -- **not yet verified end-to-end in Gazebo** (blocked on the Gazebo version issue in [`panel_sim.md`](https://www.google.com/search?q=../panel/panel_sim.md)), but the frame-naming and pose-sync code path is in place. |
 
 ### The rover's own `rover` namespace
 
@@ -64,51 +58,6 @@ every hardcoded `base_footprint`/`base_link` default and the nav2/EKF/
 slam_toolbox config files. Only topics/services/actions are namespaced (e.g.
 `odom` -> `/rover/odom`); `map`, `odom`, `base_footprint`, `base_link` and
 `/tf`/`/tf_static` remain global regardless.
-
-### Several robot_state_publishers, one tree
-
-With the arm mounted there are exactly **two** `robot_state_publisher`s, one
-per subsystem, both publishing into the same global `/tf`/`/tf_static`:
-`/rover/robot_state_publisher` (`base_link -> ... -> main_body_link`) and
-`/arm/robot_state_publisher` (`main_body_link -> arm_mount_link -> ...`).
-Each reads its own namespaced `joint_states` (`/rover/joint_states`,
-`/arm/joint_states`). Nothing runs a `robot_state_publisher` on the combined
-Gazebo model (`indomitus_gz.urdf.xacro`) — that would publish every edge a
-second time. `ros2 topic info /tf -v` must show only these two (plus the
-panel's when it is spawned).
-
-## Rover + arm: entry points and rules
-
-The same pieces run three ways:
-
-| Entry point | What runs |
-| --- | --- |
-| `ros2 launch rover_sim sim_gz.launch.py` | Rover only, under `/rover`. |
-| `ros2 launch arm_sim arm_gz.launch.py` | Arm only, under `/arm` (same as arm hardware), model fixed to `world`. |
-| `ros2 launch indomitus_bringup sim_rover_arm.launch.py` | Arm mounted on the rover in one Gazebo model: `/rover` stack + `arm_bringup/stack.launch.py` with `arm_on_rover.urdf.xacro`. |
-
-In the combined sim, the spawned model carries two `gz_ros2_control` plugins
-(`<ros><namespace>` `/rover` and `/arm`), so there are two independent
-`controller_manager`s, each claiming only the joints of its own
-`<ros2_control>` block. Each reads that block from its own namespace's
-`robot_description` (published by that subsystem's `robot_state_publisher`);
-the spawned model itself has no `<ros2_control>` blocks.
-
-Rules:
-
-* The namespace is pushed only in entry points; included modules (e.g.
-  `arm_bringup/stack.launch.py`) use relative names. Never combine a pushed
-  namespace with a node that hardcodes it (`gamepad_servo.launch.py` sets
-  `namespace='arm'` itself), or you get `/arm/arm/...`.
-* Joint names are unique robot-wide: arm joints are `arm_*`, arm code and
-  configs reference only `arm_*` frames (planning/servo frame `arm_mount_link`).
-* Controller yaml keys use `/**/` (`/**/controller_manager:`) so a file works
-  under any namespace.
-* `rover_*` never references `arm_*`, `indomitus_description` or
-  `indomitus_bringup`, and `arm_*` never references `rover_*` (both may use
-  `indomitus_interfaces`). `arm_bringup` keeps its own copies of
-  `rover_bringup`'s `can.launch.py` and `include_launch`. Anything that needs
-  both lives in `indomitus_description` / `indomitus_bringup`.
 
 ## Non-owners (explicitly verified)
 

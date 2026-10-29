@@ -6,7 +6,7 @@
   <description>
     The rover's drive command path, everything between the operators and the
     swerve controller: twist_mux (which cmd_vel_* input drives), the drive
-    power owner (switches the RoverHardware component and the swerve controller
+    manager (switches the RoverHardware component and the swerve controller
     together, compact mode, clearing drive faults, publishes drive/state) and
     the tower lamp showing whether an autonomous or a manual source is driving.
     Used by the onboard joystick and the ground station alike; runs on the
@@ -26,7 +26,6 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>python3-yaml</exec_depend>
   <exec_depend>twist_mux</exec_depend>
 
   <test_depend>python3-pytest</test_depend>

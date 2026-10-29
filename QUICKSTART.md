@@ -8,7 +8,7 @@ Follow these steps to power on and operate the rover:
 
 > **Note:** All commands below need to be run from the root of the `indomitus-rover-core` repository. If you haven't already, clone the repository to your laptop:
 > ```bash
-> git clone git@github.com:UCUSpaceRobotics/indomitus-rover-core.git
+> git clone git@github.com:yuriifito/indomitus-rover-core-ai.git
 > cd indomitus-rover-core
 > ```
 
@@ -26,6 +26,8 @@ Follow these steps to power on and operate the rover:
    ros2 launch rover_bringup rover.launch.py
    ```
 
+   > Tip: `./scripts/enter_container.sh rover core` opens a tmux session instead - the launch survives a dropped connection; detach with `Ctrl-b d`. See [enter_container.md](docs/scripts/enter_container.md#tmux-sessions-on-the-rover).
+
    > **⚠️ Important:** Open a new terminal on your laptop for all subsequent steps, and ensure you navigate back to the root of the `indomitus-rover-core` repository.
 
 5. **Pull the latest code:** Run the following command to switch to the `develop` branch and pull the latest changes from it:
@@ -35,7 +37,7 @@ Follow these steps to power on and operate the rover:
 
 6. **Pull the Docker image for the laptop from GitHub:** Run the following command to pull the image from GitHub to the laptop:
    ```bash
-   docker pull ghcr.io/ucuspacerobotics/indomitus-rover-core:develop-dev
+   docker pull ghcr.io/yuriifito/indomitus-rover-core-ai:develop-dev
    ```
 
    > **Note:** This step only needs to be done once. If you already have the image, you can skip it.
@@ -68,7 +70,7 @@ Follow these steps to power on and operate the rover:
 
 13. **Start the joystick nodes:** Run the following command inside the laptop's container to start the nodes responsible for handling joystick input:
     ```bash
-    ros2 launch rover_teleop gamepad.launch.py
+    ros2 launch rover_teleop gamepad.launch.py   # laptop gamepad: source:=remote (default)
     ```
 
 14. **Control the rover:** You are now ready to drive the rover using the joystick.

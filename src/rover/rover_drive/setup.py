@@ -21,7 +21,7 @@ setup(
     zip_safe=True,
     maintainer='yurifi',
     maintainer_email='fito.pn@ucu.edu.ua',
-    description='Rover drive command path: twist_mux, drive power owner, drive-source lamp.',
+    description='Drive command path: twist_mux, drive power owner, drive source lamp.',
     license='MIT',
     extras_require={
         'test': [

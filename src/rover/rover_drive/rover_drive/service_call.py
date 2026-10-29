@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Async service calls that cannot pile up on each other, and replies that
-land out of order.
-
-GuardedCall is a copy of rover_teleop's (helpers are copied between packages,
-not shared).
+"""Async service calls that cannot pile up on each other.
 
 A button held down, a switch bounced, or a service that has gone quiet will all
 otherwise queue request after request, and the replies then land in an order

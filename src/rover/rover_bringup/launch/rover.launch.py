@@ -1,33 +1,13 @@
 import os
-from ament_index_python.packages import (
-    PackageNotFoundError, get_package_share_directory
-)
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, LogInfo
+from launch.actions import DeclareLaunchArgument, GroupAction
 from launch.conditions import IfCondition
 from launch.substitutions import (
-    EnvironmentVariable, LaunchConfiguration, Command #, NotEqualsSubstitution
+    EnvironmentVariable, LaunchConfiguration, Command, NotEqualsSubstitution
 )
 from launch_ros.actions import PushRosNamespace
 from rover_bringup.launch_utils import include_launch
-
-
-def _lora_fallback():
-    """Include the LoRa fallback link, or log why it is missing.
-
-    include_launch() resolves the package share directory while the launch
-    description is being built, so a rover_comms that is not built raises and
-    takes the whole of bringup down with it. A backup command path must never
-    be the reason the rover refuses to start - the same reason the node itself
-    opens its serial port in a worker thread rather than in its constructor.
-    """
-    try:
-        get_package_share_directory('rover_comms')
-    except PackageNotFoundError:
-        return LogInfo(msg='rover_comms is not built - starting without the '
-                           'LoRa fallback. The rover has no backup command '
-                           'path if Wi-Fi drops.')
-    return include_launch('rover_comms', 'lora.launch.py')
 
 
 def generate_launch_description():
@@ -58,15 +38,21 @@ def generate_launch_description():
         description='Device path for the rover-side gamepad; only used when use_joy:=true',
     )
 
-    # zed2i_mode_arg = DeclareLaunchArgument(
-    #     'zed2i_mode', default_value='',
-    #     description=(
-    #         "ZED2i stereo camera mode: 'rgb' for the operator color feed, 'nav' for the "
-    #         "point cloud and VIO used by navigation. Leave empty to not launch the camera at all."
-    #     ),
-    #     choices=['', 'rgb', 'nav'],
-    # )
-    # zed2i_mode_val = LaunchConfiguration('zed2i_mode')
+    use_cameras_arg = DeclareLaunchArgument(
+        'use_cameras', default_value='true',
+        description='rover_cameras: MJPEG streams to the ground station + image_raw topics',
+    )
+
+    zed2i_mode_arg = DeclareLaunchArgument(
+        'zed2i_mode', default_value='',
+        description=(
+            "ZED2i stereo camera mode: 'rgb' for the operator color feed, 'nav' for the "
+            "point cloud and VIO used by navigation, 'record' for traversability-dataset recording. "
+            "Leave empty to not launch the camera at all."
+        ),
+        choices=['', 'rgb', 'nav', 'record'],
+    )
+    zed2i_mode_val = LaunchConfiguration('zed2i_mode')
 
     robot_description = Command([
         'xacro ',
@@ -80,29 +66,29 @@ def generate_launch_description():
         interface_arg,
         use_joy_arg,
         joy_dev_arg,
-        # zed2i_mode_arg,
+        use_cameras_arg,
+        zed2i_mode_arg,
 
         GroupAction([
             PushRosNamespace(namespace_val),
 
-            # Own group: an include's launch_arguments leak into the rest of the
-            # enclosing scope, and rover_namespace:='' would reach the
-            # robot_state_publisher include below.
-            GroupAction([
-                include_launch('rover_teleop', 'gamepad.launch.py', {
-                    'rover_namespace': '',   # already pushed by this group
-                    'source': 'rover',       # the default is a laptop gamepad
-                    'joy_dev': LaunchConfiguration('joy_dev'),
-                }),
-            ], condition=IfCondition(LaunchConfiguration('use_joy'))),
+            include_launch('rover_teleop', 'gamepad.launch.py', {
+                'rover_namespace': '',   # already pushed by this group
+                'source': 'rover',       # the default is a laptop gamepad
+                'joy_dev': LaunchConfiguration('joy_dev'),
+            }, condition=IfCondition(LaunchConfiguration('use_joy'))),
+
+            include_launch('rover_cameras', 'cameras.launch.py', {
+                'rover_namespace': '',   # already pushed by this group
+            }, condition=IfCondition(LaunchConfiguration('use_cameras'))),
 
             include_launch('rover_bringup', 'can.launch.py', {
                 'interface': LaunchConfiguration('interface'),
             }),
 
-            # include_launch('rover_sensors', 'zed2i.launch.py', {
-            #     'mode': zed2i_mode_val,
-            # }, condition=IfCondition(NotEqualsSubstitution(zed2i_mode_val, ''))),
+            include_launch('rover_sensors', 'zed2i.launch.py', {
+                'mode': zed2i_mode_val,
+            }, condition=IfCondition(NotEqualsSubstitution(zed2i_mode_val, ''))),
 
             include_launch('rover_description', 'robot_state_publisher.launch.py', {
                 'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
@@ -112,23 +98,20 @@ def generate_launch_description():
                 ]
             }),
 
-            include_launch('rover_bringup', 'control.launch.py', {
+            include_launch('rover_controller', 'control.launch.py', {
                 'use_sim': 'false',
                 'robot_description': robot_description,
                 'controllers_yaml': os.path.join(rover_bringup_share, 'config', 'controllers.yaml'),
                 'controllers': 'joint_state_broadcaster odometry_controller '
-                               'swerve_controller_test',
-                'inactive_controllers': 'swerve_controller_test',
+                               'swerve_controller',
+                'inactive_controllers': 'swerve_controller',
             }),
 
             include_launch('rover_drive', 'twist_mux.launch.py'),
 
-            # Owns motors + controller activation. Not in gamepad.launch.py on
-            # purpose: the ground station must be able to power the drive with
-            # no gamepad plugged into the rover.
             include_launch('rover_drive', 'drive_manager.launch.py'),
 
-            _lora_fallback(), # Publishes cmd_vel_lora, which twist_mux carries below cmd_vel_ext.
+            include_launch('rover_comms', 'lora.launch.py'),
 
             include_launch('rover_diagnostics', 'fault_logger.launch.py'),
 
@@ -140,6 +123,6 @@ def generate_launch_description():
 
             include_launch('rover_peripherals', 'power_monitor_node.launch.py'),
 
-            # include_launch('rover_localization', 'ekf.launch.py'),
+            include_launch('rover_localization', 'ekf.launch.py'),
         ]),
     ])

@@ -12,8 +12,6 @@ Custom ROS2 messages, services, and actions used across all packages.
 **Messages:**
 - **`ChassisStatus`** — complete status report from all motors
 - **`MotorStatus`** — individual motor state (kinematic and electrical data)
-- **`DriveState`** — latched `drive/state` from `rover_drive`'s `drive_manager_node`
-- **`ArmState`** — latched `/arm/state` from `arm_power`
 
 **Services:**
 - `GetWeight`, `SetSteerZero`, `SetTrafficLight`
@@ -41,15 +39,19 @@ Loaded as a ros2_control hardware plugin (`rover_hardware_interface/RoverHardwar
 ## 3. `rover_controller` (C++)
 ros2_control controller plugins implementing swerve-drive kinematics and odometry.
 
-**`swerve_controller_test` is the swerve controller.** It is the only one launched, on hardware and in simulation. `swerve_controller` is kept in the tree — plugin, source and parameter blocks — purely as a regression fallback, not as a runtime alternative: the two are never spawned together and are never switched between while running.
-
-- **`swerve_controller_test`** — receives `geometry_msgs/Twist` on `/cmd_vel` and computes per-wheel velocity and steering angle targets, smoothing the twist as *shape + magnitude* rather than vx/vy/wz separately, so a throttle change leaves the steering angles alone. Also reads the drive joints' velocity state, which it uses to detect a real standstill. On hardware it is spawned **inactive** and `drive_manager_node` activates it when the drive is powered, from either operator (`controller_name` in `rover_drive/config/drive_manager.yaml`); that ordering is deliberate, since it makes the controller seed its steering integrator from live encoder readings rather than from placeholder zeros. In simulation it is spawned active.
-- **`swerve_controller`** — the controller it replaced, retained in case a regression sends us back to it. Falling back is a launch-time change, never a runtime one: in simulation, `ros2 launch rover_sim sim_gz.launch.py swerve_controller:=swerve_controller`; on hardware, an edit to `rover.launch.py`.
+- **`swerve_controller`** (`RoverSwerveController`) — `/cmd_vel` → per-wheel steering angle + drive velocity.
+  - Smooths the twist as *shape + magnitude*, so a throttle change leaves steering angles alone.
+  - Reads drive velocity state to detect real standstill.
+  - Hardware: spawned **inactive**; `drive_manager_node` activates it on drive power (seeds steering
+    from live encoders). Simulation: spawned active.
 - **`odometry_controller`** — reads wheel feedback and publishes odometry
 - **`ackermann_controller`** *(planned)* — Ackermann steering with fixed rear wheels, only front wheels steer
 - **`dual_ackermann_controller`** *(planned)* — Ackermann steering with symmetric front and rear wheel steering
 
-Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for real hardware, one in `rover_sim/config` for simulation), spawned by `rover_bringup/launch/control.launch.py` — not launched directly.
+Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for real hardware, one in `rover_sim/config` for simulation), spawned by `control.launch.py` — not launched directly.
+
+**Launch files:**
+- `control.launch.py` — shared controller-manager/spawner logic; used by both `rover.launch.py` (real) and `rover_sim/launch/sim_gz.launch.py` (sim), toggled via a `use_sim` argument
 
 ---
 
@@ -57,18 +59,17 @@ Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for
 Main launch and configuration package for the real rover.
 
 **Launch files:**
-- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `control.launch.py`, `rover_drive`'s `twist_mux.launch.py`, `drive_manager.launch.py` and `drive_source_lamp.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. Also conditionally includes `rover_sensors`' `zed2i.launch.py` via the `zed2i_mode` argument (`rgb`/`nav`/unset — unset skips launching the camera entirely, e.g. for test runs where it isn't connected)
+- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `rover_controller`'s `control.launch.py`, `rover_drive`'s `twist_mux.launch.py` and `drive_manager.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. Also conditionally includes `rover_sensors`' `zed2i.launch.py` via the `zed2i_mode` argument (`rgb`/`nav`/`record`/unset — unset skips launching the camera entirely)
 - `can.launch.py` — configures and brings up the CAN bus interface
-- `control.launch.py` — shared controller-manager/spawner logic; used by both `rover.launch.py` (real) and `rover_sim/launch/sim_gz.launch.py` (sim), toggled via a `use_sim` argument
 - `power_monitor.launch.py` — brings up power monitoring (pairs with `rover_peripherals`' power node)
 
 **Config:**
 - `controllers.yaml` — ros2_control controller parameters (real hardware)
 
 **Python module:**
-- `rover_bringup/launch_utils.py` — shared launch-file helpers (e.g. `include_launch`) used across packages
+- `rover_bringup/launch_utils.py` — shared launch-file helpers used across packages; `include_launch` wraps each include in a scoped `GroupAction`, so its arguments don't leak into the caller
 
-> Note: `gamepad.launch.py` and `container.launch.py` now live in `rover_teleop` and `rover_peripherals` respectively, and `twist_mux.launch.py`/`twist_mux.yaml` in `rover_drive`, not here.
+> Note: `gamepad.launch.py` and `container.launch.py` now live in `rover_teleop` and `rover_peripherals` respectively, not here.
 
 ---
 
@@ -89,35 +90,21 @@ URDF/xacro robot description files and 3D meshes. Sim/real-agnostic — differen
 ---
 
 ## 6. `rover_teleop` (Python)
-Teleoperation nodes.
+Teleoperation. How sources coexist: [control_sources.md](control_sources.md).
 
-- **`gamepad_interpreter_node`** — maps raw joystick input (`sensor_msgs/Joy`) to `Twist` commands on `/cmd_vel` (remapped to `cmd_vel_joy` or `cmd_vel_remote` by `gamepad.launch.py`'s `source`). Owns only what shapes its own twist: strafe, granny, curvature vs raw twist, and whether it is publishing at all. Its buttons are momentary, so everything else they touch is a `Trigger` call asking an owner to invert state — `drive_manager_node` for the drive, `lights_can_node` for the lights. Paints the controller light bar from `drive/state`, and publishes `teleop/joystick_active` so the ground station can see when this node is holding the mux.
-
-  When `/joy` goes stale it publishes a short burst of zeros (`timeout_zero_burst`, default 3) and then **stops publishing**. `cmd_vel_joy` has the highest priority in twist_mux, so a node that kept publishing zeros would hold that priority forever and lock the ground station out of a rover nobody is driving.
-
-- **`keyboard_teleop_node`** — drive the rover from a terminal on an operator laptop (the `remote` control source, see [control_sources.md](control_sources.md)): `ros2 run rover_teleop keyboard_teleop_node` (namespace from `$ROVER_NAMESPACE`, default `rover`). Keys are read from **that terminal only** (stdin), so typing in another window never moves the rover. They become the same `sensor_msgs/Joy` the DualSense produces and go into a second `gamepad_interpreter` instance in the same process (`remote_keyboard_interpreter`, parameters from `config/gamepad.yaml`), so every mode, toggle and the stale-input release work as with the gamepad. The button layout is the exception: which key presses which function is `config/keyboard.yaml` (`keys:`, `function: "key"`, `""` = off; the startup help is generated from it), and the keys drive the keyboard's own virtual buttons, so a function the gamepad has off (`-1`) still works from the keyboard. Raw input `/rover/remote/keyboard/joy`, output `cmd_vel_remote` (keyboard.yaml `cmd_vel_topic`) — shared with a laptop gamepad, one laptop operator at a time; its active flag is `remote_keyboard_interpreter/active`. Driving keys (fixed): `w/x` forward/back, `a/d` turn, `q/e/z/c` diagonals, `j/l` strafe (vy mode), `s` or space stop, `1..9,0` speed 10–100 %. Default function keys (keyboard.yaml): `m` motors, `t` raw/curvature, `g` granny, `v` vy, `p` compact, `o` active, `f`/`b` lights, `X` clear motor errors. A terminal reports no key release, so a key counts as held for 0.6 s after its first character (autorepeat delay) and 0.15 s after each repeat; only one movement key at a time. Must be started with `ros2 run`, not `ros2 launch` (launch gives its nodes no terminal).
-
-**Launch files:**
-- `launch/gamepad.launch.py` — joystick driver + interpreter. `source:=remote` (default: a laptop gamepad, `/rover/remote/joy` → `cmd_vel_remote`) or `source:=rover` (the wired rover gamepad, `/rover/joy` → `cmd_vel_joy`, passed by `rover.launch.py`); each source gets its own topics and node names
-
-**Config:**
-- `config/keyboard.yaml` — `keyboard_teleop_node`: its key layout (function → key, `""` = off; refused at startup if a key is taken twice or is a driving key), speed and key-hold timing
-- `config/gamepad.yaml` — joystick driver config and the **button layout**. A function gets a button only here (the node has no fallback indices); `-1` or a missing key turns it off, so niche features (dataset capture/record, off by default) don't take one of the pad's few buttons. The layout is logged at startup, with a warning if two functions share a button.
+- **`gamepad_interpreter_node`** — `Joy` → `Twist` (`cmd_vel_joy` or `cmd_vel_remote`); buttons are `Trigger` requests to `drive_manager_node` / lights; paints the light bar from `drive/state`; on stale `/joy` sends a few zeros, then goes quiet.
+- **`keyboard_teleop_node`** — laptop keyboard, `ros2 run` only (reads its own terminal); feeds a second interpreter → `cmd_vel_remote`. Keys: `config/keyboard.yaml`.
+- `launch/gamepad.launch.py` — `source:=remote` (default, laptop: `/rover/remote/joy`) or `source:=rover` (wired: `/rover/joy`, from `rover.launch.py`).
+- `config/gamepad.yaml` — button layout, the only place a function gets a button (`-1` = off; dataset buttons off).
 
 ---
 
-## 6b. `rover_drive` (Python)
-The drive command path between the operators and the swerve controller:
-which `cmd_vel_*` input drives (twist_mux), the drive's power, and the lamp
-that shows who is driving. Hardware state, not teleop: it runs with every
-bringup (hardware and simulation) and both operators (the onboard joystick,
-the ground station) only publish to it or call its services.
-
-- **`twist_mux`** (upstream node, `launch/twist_mux.launch.py`, `config/twist_mux.yaml`) — picks the highest-priority `cmd_vel_*` input that has not timed out and outputs it on `cmd_vel`.
+## 6a. `rover_drive` (Python)
+The drive command path between the operators and the swerve controller. Used by the onboard joystick, the ground station and Nav2 alike; runs in hardware and in simulation.
 
 - **`drive_manager_node`** — owns motors, swerve-controller activation, compact mode, and the post-clear-errors inhibit, and publishes them latched on `drive/state`. Each is offered twice: `SetBool` for the ground station's latching switches, `Trigger` on `.../toggle` for the joystick's momentary buttons. `drive/power` does the hardware-component transition and the controller switch as one operation, so no caller has to sequence them.
 
-  Launched from `rover_bringup/launch/rover.launch.py`, **not** from `gamepad.launch.py`: the ground station has to be able to power the drive with no gamepad plugged into the rover.
+  Launched from `rover_bringup/launch/rover.launch.py` and the sim launches, **not** from `gamepad.launch.py`: the ground station has to be able to power the drive with no gamepad plugged into the rover.
 
 | Service | Type |
 |---|---|
@@ -127,16 +114,17 @@ the ground station) only publish to it or call its services.
 | `/drive/compact/toggle` | `std_srvs/Trigger` |
 | `/drive/clear_errors` | `std_srvs/Trigger` |
 
-- **`drive_source_lamp_node`** — tower lamp: red while an autonomous input (`autonomous_topics`, default `cmd_vel_nav`) is the one twist_mux outputs, green while a manual one is, both off when every input is stale. Recomputes twist_mux's choice from the same `config/twist_mux.yaml` (parameter `twist_mux_config`), so the two cannot drift. Sets red/green via `lights/traffic_light`, leaves blue to `rover_comms`' `gs_link_lamp_node`. Real rover only (no lights in sim).
+- **`twist_mux`** — picks which `cmd_vel_*` input reaches `/cmd_vel` (priorities and timeouts in `config/twist_mux.yaml`).
+- **`drive_source_lamp_node`** — tower lamp: red = an autonomous source is driving, green = manual, off = nothing.
 
 **Launch files:**
-- `launch/twist_mux.launch.py` — velocity command multiplexer (included by every bringup)
-- `launch/drive_manager.launch.py` — the drive power owner (included by `rover.launch.py` and `rover_sim`'s `sim_gz.launch.py`)
-- `launch/drive_source_lamp.launch.py` — the drive-source lamp (included by `rover.launch.py`)
+- `launch/drive_manager.launch.py` — the drive manager (included by rover and sim bringup)
+- `launch/twist_mux.launch.py`
+- `launch/drive_source_lamp.launch.py`
 
 **Config:**
-- `config/twist_mux.yaml` — inputs, priorities, timeouts; also read by `drive_source_lamp_node`
 - `config/drive_manager.yaml` — controller name, hardware component, clear-errors service
+- `config/twist_mux.yaml` — `cmd_vel_*` priorities and timeouts
 
 ---
 
@@ -204,9 +192,8 @@ Visualization tooling.
 - **`arm_moveit_config`** — MoveIt2 configuration only: SRDF, kinematics, joint limits, controllers, Servo config; Setup-Assistant-generated launch files (`move_group`, controller spawning, virtual joint TFs, setup assistant, warehouse DB). No `rviz2` dependency and no hand-written bringup/CAN logic — that lives in `arm_bringup` now, kept separate so this package stays safe to regenerate.
 - **`arm_peripherals`** (Python) — `end_effector_can_node`: bridges the end-effector tool's CAN traffic (`can_msgs/Frame` over `ros2_socketcan`) to `end_effector_controller/{command,state}`, same pattern as `rover_peripherals`'s lighting node.
 - **`arm_sim`** — simulation support for the arm (structure only; no launch/config files yet)
-- **`arm_tasks`** (Python) — `teach_poses`, `panel_align_node`, `collision_link_reporter`: pure ROS clients against the `/arm` stack, no direct hardware access. Excluded from the Jetson production image (see `docker/Dockerfile`'s `SIMULATION_PKGS`) — run from a dev/ground-station container instead.
-- **`arm_power`** (Python) — `arm_power` node, the arm's counterpart of `rover_drive`'s `drive_manager_node`: owns the motors' power. `/arm/power` (`std_srvs/SetBool`): true turns `ArmSystem` and the arm's controllers on; false is Release, refused unless the arm rests in the park pose (poses.json `park`) and is still. Publishes latched `/arm/state` (`indomitus_interfaces/ArmState`: motors, controller, stiffness ramp over, in park pose, busy, last error). Started by `arm_bringup/stack.launch.py` for hardware, mock and Gazebo alike.
-- **`arm_teleop`** (Python) — `keyboard_servo_node`/`gamepad_servo_node`: direct keyboard/gamepad control, mirrors rover_teleop's split from task nodes. `servo_controller.py` (Servo, controller switching, planned moves incl. Park), `keyboard_input.py`, `gamepad_input.py`, `end_effector_client.py`; entry points `keyboard_teleop_node.py`, `gamepad_teleop_node.py`. Motors on / Release go through `arm_power`.
-- **`arm_viz`** — RViz configs + launch files: bare `rviz.launch.py`, `urdf_preview.launch.py` (pure URDF/TF preview, no ros2_control/CAN), and `moveit_rviz.launch.py` (Motion Planning panel against an already-running `/arm` stack). Stripped from Jetson production builds (see `docker/Dockerfile`'s `SIMULATION_PKGS`).
+- **`arm_tasks`** (Python) — `teach_poses`, `panel_align_node`, `collision_link_reporter`: pure ROS clients against the `/arm` stack, no direct hardware access. Not in `indomitus_robot`, so not in the Jetson production image — run from a dev/ground-station container instead.
+- **`arm_teleop`** (Python) — `keyboard_servo_node`/`gamepad_servo_node`: direct keyboard/gamepad control, mirrors rover_teleop's split from task nodes.
+- **`arm_viz`** — RViz configs + launch files: bare `rviz.launch.py`, `urdf_preview.launch.py` (pure URDF/TF preview, no ros2_control/CAN), and `moveit_rviz.launch.py` (Motion Planning panel against an already-running `/arm` stack). Not in `indomitus_robot` (desktop only).
 
 ---

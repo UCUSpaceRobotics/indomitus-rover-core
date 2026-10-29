@@ -8,6 +8,8 @@
     map_frame: map
     base_frame: base_footprint
     scan_topic: rplidar/scan_filtered
+    # Humble defaults this to the absolute "/map", which escapes the rover namespace.
+    map_name: map
 
     mode: mapping
     solver_plugin: solver_plugins::CeresSolver

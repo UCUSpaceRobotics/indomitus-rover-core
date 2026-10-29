@@ -32,10 +32,7 @@ BASE_CONTROLLERS = [
     "diff_bar_effort_controller",
 ]
 
-LEGACY_SWERVE_CONTROLLER = "swerve_controller"
-SHAPE_SWERVE_CONTROLLER = "swerve_controller_test"
-SWERVE_CONTROLLERS = [LEGACY_SWERVE_CONTROLLER, SHAPE_SWERVE_CONTROLLER]
-DEFAULT_SWERVE_CONTROLLER = SHAPE_SWERVE_CONTROLLER
+SWERVE_CONTROLLER = "swerve_controller"
 
 # List of available worlds.
 SUPPORTED_WORLDS = ["mars_yard", "nav2_test_world"]
@@ -129,13 +126,11 @@ def setup_environment() -> list:
         os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] = nvidia_egl_path
 
 
-def make_control_launch(context, controllers_yaml_path: str) -> list[IncludeLaunchDescription]:
-    swerve_controller = LaunchConfiguration("swerve_controller").perform(context)
-
-    return [include_launch("rover_bringup", "control.launch.py", {
+def make_control_launch(context, controllers_yaml_path: str) -> list[GroupAction]:
+    return [include_launch("rover_controller", "control.launch.py", {
         "use_sim": "true",
         "controllers_yaml": controllers_yaml_path,
-        "controllers": f"{swerve_controller} " + " ".join(BASE_CONTROLLERS),
+        "controllers": " ".join([SWERVE_CONTROLLER, *BASE_CONTROLLERS]),
         "inactive_controllers": "",
     })]
 
@@ -331,12 +326,6 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            "swerve_controller",
-            default_value=DEFAULT_SWERVE_CONTROLLER,
-            choices=list(SWERVE_CONTROLLERS),
-            description="Which swerve controller to spawn. It comes up active; "
-                        "the other is not loaded at all."),
-        DeclareLaunchArgument(
             "world_name",
             default_value="mars_yard",
             choices=["", *SUPPORTED_WORLDS],
@@ -429,7 +418,7 @@ def generate_launch_description() -> LaunchDescription:
 
             include_launch("rover_drive", "drive_manager.launch.py", {
                 "use_sim_time": "true",
-                "controller_name": LaunchConfiguration("swerve_controller"),
+                "controller_name": SWERVE_CONTROLLER,
             }),
         ]),
 

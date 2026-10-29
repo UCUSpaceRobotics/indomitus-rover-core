@@ -12,14 +12,6 @@ own node names and its own twist_mux input, so two of them never share a topic:
       /rover/joy, /rover/joy_node, /rover/gamepad_interpreter -> cmd_vel_joy
       (top twist_mux priority); rover.launch.py passes this explicitly
 
-The default is the laptop on purpose: a forgotten argument typed by hand on a
-laptop must not land on the rover gamepad's topics, where both interpreters
-would act on every button press.
-
-Namespace: pushes rover_namespace (default $ROVER_NAMESPACE or 'rover'),
-so it works when run on its own. A launch that already pushed the namespace
-includes it with rover_namespace:='' (see rover_bringup/rover.launch.py).
-
 On an operator's laptop:
     ros2 launch rover_teleop gamepad.launch.py
 """
@@ -32,9 +24,6 @@ from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
-# source -> (name prefix, raw Joy topic, twist_mux input, active flag topic).
-# Only the rover gamepad's flag is read (drive_manager folds it into
-# drive/state); the others publish theirs under the node's own name.
 SOURCES = {
     'rover': ('', 'joy', 'cmd_vel_joy', 'teleop/joystick_active'),
     'remote': ('remote_', 'remote/joy', 'cmd_vel_remote', '~/active'),

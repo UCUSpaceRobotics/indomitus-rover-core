@@ -13,22 +13,16 @@ source "${SCRIPT_DIR}/utils.sh"
 cd "$REPO_ROOT" || { echo -e "\e[31m[ERROR]\e[0m Failed to navigate to repository root."; exit 1; }
 
 # DEFAULT VARIABLES
+ROS_DISTRO="jazzy"
 JETSON_USER="indomitus-rover"
 JETSON_HOTSPOT_IP="10.42.0.1"
 JETSON_ETHERNET_IP="indomitus-rover-computer.local"
 JETSON_IP="${JETSON_HOTSPOT_IP}"
 REMOTE_DIR=""
-# Image: unset = keep the one in the Jetson's .env, else our CI image
-# ${PULL_IMAGE_NAME}:${DEFAULT_IMAGE_TAG} (see resolve_image()).
-IMAGE_NAME=""
+IMAGE_NAME="ghcr.io/yuriifito/indomitus-rover-core-ai"
 IMAGE_TAG=""
 IMAGE_COMMIT=""
-# Published by this fork's .github/workflows/publish_image.yaml (ROS 2 Jazzy).
-PULL_IMAGE_NAME="ghcr.io/yuriifito/indomitus-rover-core-ai"
-DEFAULT_IMAGE_TAG="develop-prod"
-BUILD_IMAGE_NAME="indomitus-rover-core-ai"
-CONTAINER_NAME="rover_ai"
-MAIN_CONTAINER_NAME="rover_prod"
+CONTAINER_NAME="rover_prod"
 DOCKERFILE="docker/Dockerfile"
 COMPOSE_FILE="docker/docker-compose.prod.yaml"
 WIFI_SSID="ERC_UCUSpaceRobotics_A"
@@ -48,17 +42,13 @@ show_help() {
     cat << EOF
 Usage: $0 [MODE] [OPTIONS]
 
-Deploys indomitus-rover-core-ai to the Jetson: ~/indomitus-rover-core-ai, container
-'${CONTAINER_NAME}', next to (and independent of) the team's ~/indomitus-rover-core /
-'${MAIN_CONTAINER_NAME}'. Images come from this fork's CI (${PULL_IMAGE_NAME}, ROS 2 Jazzy).
+Deploys code to the Jetson. 
 
 Modes (REQUIRED - You must specify exactly one):
     remote-build                REMOTE BUILD: Syncs the entire local repository to the Jetson, builds the image natively, and restarts.
-    sync-src                    SYNC SRC: Syncs 'src' (+ compose), starts the container if needed and compiles inside it.
-                                    This is also the first-time setup.
+    sync-src                    SYNC SRC: Syncs ONLY 'src' and auto-compiles inside the running container.
     sync-docker-compose         SYNC COMPOSE: Syncs ONLY the compose file and restarts the container.
-    pull                        PULL MODE: Pulls a published (team) image from GHCR and switches the container to it.
-                                    Our 'src' is kept - the image only provides the system dependencies.
+    pull                        PULL MODE: Pulls a published image from GHCR and deploys it.
     local-build                 LOCAL BUILD: Cross-compiles a new ARM64 image locally, then deploys it.
                                     ATTENTION: This is a deprecated mode and is not guaranteed to work. If you still want to use it, 
                                     turn off address space randomization before deployment with command "sudo sysctl kernel.randomize_va_space=0". 
@@ -68,10 +58,9 @@ Options:
     --eth                       Use wired Ethernet connection (${JETSON_ETHERNET_IP}) instead of hotspot.
     --ip IP                     Jetson IP address (Default: ${JETSON_IP})
     --user USER                 Jetson SSH username (Default: ${JETSON_USER})
-    --dir DIR                   Remote deployment directory on the Jetson. (Default: /home/\${JETSON_USER}/indomitus-rover-core-ai/)
-    --image-name NAME           Docker image name. Default: pull=${PULL_IMAGE_NAME}, builds=${BUILD_IMAGE_NAME},
-                                    otherwise the Jetson's .env, else ${PULL_IMAGE_NAME}:${DEFAULT_IMAGE_TAG}.
-    --tag TAG                   Docker image tag (e.g., develop-prod, sha-1a2b3c4-prod). pull default: ${DEFAULT_IMAGE_TAG}.
+    --dir DIR                   Remote deployment directory on the Jetson. (Default: /home/\${JETSON_USER}/indomitus-rover-core/)
+    --image-name NAME           Docker image name (Default: ${IMAGE_NAME})
+    --tag TAG                   Docker image tag (e.g., develop-prod, feature-branch-prod).
     --commit SHA                Git commit SHA (7+ hex chars) to pull. Overrides --tag in pull mode.
     --container-name NAME       Docker container name (Default: ${CONTAINER_NAME})
     --dockerfile FILE           Path to the Dockerfile (Default: ${DOCKERFILE})
@@ -128,7 +117,7 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core-ai/}"
+REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core/}"
 
 
 # ==========================================
@@ -157,12 +146,17 @@ if [ ! -f "$FILTER_FILE" ] && [ "$SYNC_COMPOSE_MODE" = false ]; then
     error "rsync filter file not found: $FILTER_FILE"
 fi
 
-if [ "$LOCAL_BUILD_MODE" = true ] || [ "$REMOTE_BUILD_MODE" = true ]; then
-    IMAGE_NAME="${IMAGE_NAME:-${BUILD_IMAGE_NAME}}"
-    IMAGE_TAG="${IMAGE_TAG:-local-prod}"
-elif [ "$PULL_MODE" = true ]; then
-    IMAGE_NAME="${IMAGE_NAME:-${PULL_IMAGE_NAME}}"
-    [ -n "$IMAGE_COMMIT" ] || IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_IMAGE_TAG}}"
+# ENFORCE TAG OR COMMIT IN PULL MODE
+if [ "$PULL_MODE" = true ] && [ -z "$IMAGE_TAG" ] && [ -z "$IMAGE_COMMIT" ]; then
+    error "The --tag (or --commit) flag is mandatory when using pull mode."
+fi
+
+if [ -z "$IMAGE_TAG" ] && [ -z "$IMAGE_COMMIT" ]; then
+    if [ "$LOCAL_BUILD_MODE" = true ] || [ "$REMOTE_BUILD_MODE" = true ]; then
+        IMAGE_TAG="local-prod"
+    else
+        IMAGE_TAG="develop-prod"
+    fi
 fi
 
 TARGET="${JETSON_USER}@${JETSON_IP}"
@@ -201,38 +195,12 @@ connect_to_jetson() {
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "mkdir -p -- \"${REMOTE_DIR}\""
 }
 
-is_container_running() {
-    ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker inspect -f '{{.State.Running}}' '$1' 2>/dev/null | grep -q true"
-}
-
-# rover_prod (the team's code) and rover_ai can both exist, but must not run nodes at
-# the same time: host networking, same ROS_DOMAIN_ID, same CAN buses.
-warn_if_main_running() {
-    if is_container_running "${MAIN_CONTAINER_NAME}"; then
-        warning "'${MAIN_CONTAINER_NAME}' (the team's ~/indomitus-rover-core) is also running on the Jetson.
-          Do not launch nodes in both containers at once. Stop it with:
-          ssh ${TARGET} 'cd ~/indomitus-rover-core && docker compose down'"
+ensure_container_running() {
+    if ! ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker inspect -f '{{.State.Running}}' ${CONTAINER_NAME} 2>/dev/null | grep -q true"; then
+        error "Container '${CONTAINER_NAME}' is not running on the Jetson. Cannot compile."
     fi
 }
 
-# Sets IMAGE_NAME/IMAGE_TAG when not given on the command line: keep the image
-# in the Jetson's .env, else our CI image (which must already be on the Jetson).
-resolve_image() {
-    if [ -n "$IMAGE_NAME" ] && [ -n "$IMAGE_TAG" ]; then return; fi
-    local current
-    current=$(ssh -q "${SSH_OPTS[@]}" "${TARGET}" "cd \"${REMOTE_DIR}\" 2>/dev/null && [ -f .env ] && . ./.env && echo \"\${IMAGE_NAME}:\${IMAGE_TAG}\"" || true)
-    if [ -z "$current" ] || [ "$current" = ":" ]; then
-        current="${PULL_IMAGE_NAME}:${DEFAULT_IMAGE_TAG}"
-        ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker image inspect '${current}' >/dev/null 2>&1" \
-            || error "Image ${current} is not on the Jetson yet. Run '$0 pull' first (or remote-build)."
-        echo "Using ${current}"
-    fi
-    IMAGE_NAME="${IMAGE_NAME:-${current%:*}}"
-    IMAGE_TAG="${IMAGE_TAG:-${current##*:}}"
-}
-
-# Writes the Jetson's .env (the image docker compose uses) and restarts the
-# container on it. On failure, restores the previous .env and container.
 restart_with_rollback() {
     local remote_dir="$1"
     local image_name="$2"
@@ -247,52 +215,31 @@ IMAGE_TAG="$3"
 
 cd "$REMOTE_DIR"
 
-rm -f .env.prev
-[ -f .env ] && cp .env .env.prev
-printf 'IMAGE_NAME=%s\nIMAGE_TAG=%s\n' "$IMAGE_NAME" "$IMAGE_TAG" > .env
+PREV_TAG=$(
+    docker inspect --format='{{index .Config.Image}}' \
+        "$(docker compose ps -q 2>/dev/null | head -1)" 2>/dev/null \
+    | sed 's/.*://' \
+) || PREV_TAG=""
 
 rollback() {
     echo "[ROLLBACK] Startup failed. Attempting to restore previous container..." >&2
-    if [ -f .env.prev ]; then
-        cp .env.prev .env
-        docker compose up -d --wait --no-build --pull never \
-            && echo "[ROLLBACK] Restored: $(tr '\n' ' ' < .env)" >&2 \
+    if [ -n "$PREV_TAG" ]; then
+        IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$PREV_TAG" docker compose up -d --wait --no-build --pull never \
+            && echo "[ROLLBACK] Restored to image tag: ${PREV_TAG}" >&2 \
             || echo "[ROLLBACK] Restore also failed — manual intervention required." >&2
     else
-        echo "[ROLLBACK] No previous .env — cannot auto-restore." >&2
+        echo "[ROLLBACK] No previous tag recorded — cannot auto-restore." >&2
     fi
 }
 
 trap rollback ERR
 
-docker compose down
-docker compose up -d --wait --no-build --pull never
+IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" docker compose down
+IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" docker compose up -d --wait --no-build --pull never
 
 trap - ERR
-echo "[OK] Container is up on ${IMAGE_NAME}:${IMAGE_TAG}"
+echo "[OK] Container is up on tag: ${IMAGE_TAG}"
 REMOTE_EOF
-}
-
-# build/ install/ log/ are host directories that outlive the image, so after a
-# switch to an image with another ROS distro (e.g. Humble -> Jazzy) they hold
-# stale CMake caches and Python bytecode: clear them once, tracked by a marker.
-build_in_container() {
-    echo "Triggering colcon build inside '${CONTAINER_NAME}'..."
-    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c '
-        set -e
-        source /opt/ros/\$TARGET_ROS_DISTRO/setup.bash
-        cd /opt/ws
-        if [ \"\$(cat install/.ros_distro 2>/dev/null)\" != \"\$TARGET_ROS_DISTRO\" ]; then
-            echo \"[JETSON] Build output is not from ROS \$TARGET_ROS_DISTRO - clearing build/ install/ log/\"
-            find build install log -mindepth 1 -delete
-        fi
-        colcon build --symlink-install
-        echo \"\$TARGET_ROS_DISTRO\" > install/.ros_distro
-    '"; then
-        success "Code successfully compiled on the Jetson!"
-    else
-        error "Compilation failed."
-    fi
 }
 
 run_remote_build_mode() {
@@ -319,13 +266,9 @@ run_remote_build_mode() {
     step "Restarting Container on Jetson (Safe Mode with Rollback)..."
 
     restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
-    warn_if_main_running
 
     step "Pruning dangling images on Jetson..."
     ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker image prune -f"
-
-    step "Compiling code on Jetson (into the mounted build/install)..."
-    build_in_container
 
     echo -e "\n\e[32m[DONE]\e[0m Full Repo Sync & Native Build Complete!"
     exit 0
@@ -337,23 +280,23 @@ run_sync_src_mode() {
     
     step "SYNC SRC: Syncing local 'src' directory via rsync..."
     if [ ! -d "src" ]; then error "No 'src' directory found in the repository root."; fi
-    if [ ! -f "$COMPOSE_FILE" ]; then error "Local compose file not found: $COMPOSE_FILE"; fi
     
     rsync -avz --delete --info=progress2 \
         --filter="merge ${FILTER_FILE}" \
         -e "ssh -q ${SSH_OPTS[*]}" \
         src/ "${TARGET}:${REMOTE_DIR}/src/"
-    rsync -az -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
-
-    if ! is_container_running "${CONTAINER_NAME}"; then
-        step "Container '${CONTAINER_NAME}' is not running - starting it..."
-        resolve_image
-        restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
-    fi
-    warn_if_main_running
     
     step "Compiling code on Jetson (Inside Docker container)..."
-    build_in_container
+    ensure_container_running
+    
+    echo -n "Triggering colcon build inside '${CONTAINER_NAME}'..."
+    echo ""
+    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "docker exec ${CONTAINER_NAME} bash -c 'source /opt/ros/${ROS_DISTRO}/setup.bash && cd /opt/ws && colcon build --symlink-install'"; then
+        success "Code successfully compiled on the Jetson!"
+    else
+        echo -e "\e[31m[ERROR]\e[0m Compilation failed."
+        exit 1
+    fi
     
     echo -e "\n\e[32m[DONE]\e[0m Source Sync Complete!"
     exit 0
@@ -369,9 +312,7 @@ run_sync_compose_mode() {
     rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
     
     step "Restarting Container on Jetson (waiting for readiness)..."
-    resolve_image
     restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
-    warn_if_main_running
     
     echo -e "\n\e[32m[DONE]\e[0m Compose Sync Complete!"
     exit 0
@@ -383,14 +324,24 @@ resolve_pull_target() {
         if [[ ! "$IMAGE_COMMIT" =~ ^[0-9a-f]+$ ]]; then
             error "Invalid --commit '${IMAGE_COMMIT}': contains non-hex characters."
         fi
-        PULL_IMAGE_TAG="sha-${IMAGE_COMMIT:0:7}-prod"
+
+        local SHORT_SHA="${IMAGE_COMMIT:0:7}"
+        PULL_IMAGE_TAG="sha-${SHORT_SHA}-prod"
+
+        echo "Resolving commit via GitHub API..."
+        local API_URL="https://api.github.com/repos/ucuspacerobotics/indomitus-rover-core/commits/${SHORT_SHA}"
+        local FULL_SHA
+        FULL_SHA=$(curl -sf "$API_URL" | python3 -c "import sys,json; print(json.load(sys.stdin)['sha'])" 2>/dev/null) \
+            || error "Could not resolve SHA '${SHORT_SHA}' via GitHub API. Check your internet connection or that the commit exists."
+
+        PULL_GIT_REF="$FULL_SHA"
     else
         PULL_IMAGE_TAG="$IMAGE_TAG"
+        PULL_GIT_REF=""
     fi
 }
 
 
-# Only the image changes: our src/ on the Jetson is kept and rebuilt on top of it.
 run_pull_mode() {
     step "PULL MODE: Validating target..."
     resolve_pull_target
@@ -429,6 +380,42 @@ Make sure a CI run completed successfully for this tag."
         docker rmi -f "$OLD_IMAGE_ID" >/dev/null 2>&1 || true
     fi
 
+    if [ -z "$PULL_GIT_REF" ]; then
+        step "Extracting Git Commit SHA from Docker image metadata..."
+        local EXTRACTED_SHA
+        EXTRACTED_SHA=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${IMAGE_NAME}:${PULL_IMAGE_TAG}" 2>/dev/null || echo "")
+
+        if [ -n "$EXTRACTED_SHA" ] && [ "$EXTRACTED_SHA" != "<no value>" ]; then
+            PULL_GIT_REF="$EXTRACTED_SHA"
+            success "Image was built from commit: ${PULL_GIT_REF:0:7}"
+        else
+            warning "No standard OCI revision label found in the image."
+            PULL_GIT_REF="${IMAGE_TAG%-prod}"
+            echo "Falling back to dynamic branch inference: '${PULL_GIT_REF}'"
+        fi
+    fi
+
+    local TEMP_REPO_DIR
+    TEMP_REPO_DIR=$(mktemp -d)
+    CLEANUP_FILES+=("$TEMP_REPO_DIR")
+
+    local REPO_URL="https://github.com/ucuspacerobotics/indomitus-rover-core.git"
+
+    step "Fetching clean source (ref: ${PULL_GIT_REF}) from GitHub..."
+    if git clone --depth 1 --branch "$PULL_GIT_REF" "$REPO_URL" "$TEMP_REPO_DIR" > /dev/null 2>&1; then
+        success "Source cloned successfully."
+    else
+        local BARE_DIR
+        BARE_DIR=$(mktemp -d)
+        CLEANUP_FILES+=("$BARE_DIR")
+        git clone --no-checkout "$REPO_URL" "$BARE_DIR" > /dev/null 2>&1 \
+            || error "Failed to clone repository. Check internet connection."
+        git -C "$BARE_DIR" checkout "$PULL_GIT_REF" -- . > /dev/null 2>&1 \
+            || error "Commit '${PULL_GIT_REF}' not found in repository."
+        cp -a "$BARE_DIR/." "$TEMP_REPO_DIR/"
+        success "Source checked out at commit ${PULL_GIT_REF:0:7}."
+    fi
+
     step "Exporting Image to ${ARCHIVE_NAME}..."
     echo -n "Exporting archive..."
     (docker save -o "${ARCHIVE_NAME}" "${IMAGE_NAME}:${PULL_IMAGE_TAG}") &
@@ -439,8 +426,12 @@ Make sure a CI run completed successfully for this tag."
 
     connect_to_jetson
 
-    step "Transferring image + compose to ${TARGET}:${REMOTE_DIR}..."
-    rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${COMPOSE_FILE}" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
+    step "Transferring Clean Payload to ${TARGET}:${REMOTE_DIR}..."
+    rsync -avz --delete --info=progress2 \
+        --filter="merge ${FILTER_FILE}" \
+        -e "ssh -q ${SSH_OPTS[*]}" \
+        "${TEMP_REPO_DIR}/src/" "${TARGET}:${REMOTE_DIR}/src/"
+    rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${TEMP_REPO_DIR}/docker/docker-compose.prod.yaml" "${TARGET}:${REMOTE_DIR}/docker-compose.yaml"
     rsync -az --info=progress2 -e "ssh -q ${SSH_OPTS[*]}" "${ARCHIVE_NAME}" "${TARGET}:${REMOTE_DIR}/"
 
     step "Loading Image on Jetson..."
@@ -451,16 +442,8 @@ Make sure a CI run completed successfully for this tag."
 
     step "Restarting Container on Jetson (waiting for readiness)..."
     restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${PULL_IMAGE_TAG}"
-    warn_if_main_running
 
-    if ssh -q "${SSH_OPTS[@]}" "${TARGET}" "[ -d \"${REMOTE_DIR}/src\" ]"; then
-        step "Rebuilding our src against the new image..."
-        build_in_container
-    else
-        warning "No src/ in ${REMOTE_DIR} yet - run sync-src to deploy the code."
-    fi
-
-    echo -e "\n\e[32m[DONE]\e[0m Pull Complete! (image: ${IMAGE_NAME}:${PULL_IMAGE_TAG})"
+    echo -e "\n\e[32m[DONE]\e[0m Pull & Deploy Complete! (ref: ${PULL_GIT_REF:0:7}, image: ${PULL_IMAGE_TAG})"
     exit 0
 }
 
@@ -515,10 +498,6 @@ run_local_build_mode() {
 
     step "Restarting Container on Jetson (waiting for readiness)..."
     restart_with_rollback "${REMOTE_DIR}" "${IMAGE_NAME}" "${IMAGE_TAG}"
-    warn_if_main_running
-
-    step "Compiling code on Jetson (into the mounted build/install)..."
-    build_in_container
 
     echo -e "\n\e[32m[DONE]\e[0m Deployment complete!"
     exit 0

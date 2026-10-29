@@ -1,9 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// test_swerve_controller_test.cpp
+// test_swerve_controller.cpp
 //
-// Tests for RoverSwerveControllerTest, the experimental shape/magnitude swerve
-// controller. The name is unfortunate but honest: it is the test suite for the
-// controller whose class name ends in "Test".
+// Tests for RoverSwerveController, the shape/magnitude swerve controller.
 //
 // The fixture drives the controller the way controller_manager does — assign
 // loaned interfaces, activate, call update() in a loop — with the plant faked
@@ -33,7 +31,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 
-#include "rover_controller/swerve_controller_test.hpp"
+#include "rover_controller/swerve_controller.hpp"
 
 // ControllerInterfaceBase::init() was reworked between the distros this package
 // builds on: Humble takes (name, namespace, node_options); Jazzy and later take
@@ -48,11 +46,11 @@
 #endif
 
 using rover_controller::NUM_WHEELS;
-using rover_controller::RoverSwerveControllerTest;
+using rover_controller::RoverSwerveController;
 
 namespace {
 
-constexpr const char * kControllerName = "swerve_controller_test";
+constexpr const char * kControllerName = "swerve_controller";
 
 const std::array<std::string, NUM_WHEELS> kSteerJoints = {
     "fl_wheel_mount_joint", "fr_wheel_mount_joint",
@@ -78,7 +76,7 @@ constexpr unsigned int kUpdateRate = 100;    // Hz — the same figure, as init(
 
 /// init() across distros. See the header note above.
 controller_interface::return_type init_controller(
-    RoverSwerveControllerTest & controller,
+    RoverSwerveController & controller,
     const std::string & name,
     const rclcpp::NodeOptions & options)
 {
@@ -128,12 +126,12 @@ std::vector<rclcpp::Parameter> default_parameters()
 }  // namespace
 
 
-class SwerveControllerTestFixture : public ::testing::Test
+class SwerveControllerFixture : public ::testing::Test
 {
 protected:
     void SetUp() override
     {
-        controller_ = std::make_shared<RoverSwerveControllerTest>();
+        controller_ = std::make_shared<RoverSwerveController>();
     }
 
     void TearDown() override
@@ -277,8 +275,8 @@ protected:
 
     /// One control cycle. Advances the fake clock by kDt, ticks the plant, then
     /// calls update().
-    controller_interface::return_type step(void (SwerveControllerTestFixture::*plant)() =
-                                               &SwerveControllerTestFixture::perfect_tracking)
+    controller_interface::return_type step(void (SwerveControllerFixture::*plant)() =
+                                               &SwerveControllerFixture::perfect_tracking)
     {
         (this->*plant)();
         now_ = now_ + rclcpp::Duration::from_seconds(kDt);
@@ -286,8 +284,8 @@ protected:
     }
 
     void step_for(double seconds,
-                  void (SwerveControllerTestFixture::*plant)() =
-                      &SwerveControllerTestFixture::perfect_tracking)
+                  void (SwerveControllerFixture::*plant)() =
+                      &SwerveControllerFixture::perfect_tracking)
     {
         const int cycles = static_cast<int>(std::round(seconds / kDt));
         for (int i = 0; i < cycles; ++i) {
@@ -368,7 +366,7 @@ protected:
     std::vector<hardware_interface::CommandInterface> command_storage_;
     std::vector<hardware_interface::StateInterface>   state_storage_;
 
-    std::shared_ptr<RoverSwerveControllerTest> controller_;
+    std::shared_ptr<RoverSwerveController> controller_;
 
     rclcpp::Node::SharedPtr helper_node_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
@@ -386,18 +384,18 @@ protected:
 // Parameter validation
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_F(SwerveControllerTestFixture, ConfiguresWithDefaults)
+TEST_F(SwerveControllerFixture, ConfiguresWithDefaults)
 {
     EXPECT_EQ(configure(), controller_interface::CallbackReturn::SUCCESS);
 }
 
-TEST_F(SwerveControllerTestFixture, RejectsNonPositiveMaxLinearSpeed)
+TEST_F(SwerveControllerFixture, RejectsNonPositiveMaxLinearSpeed)
 {
     EXPECT_EQ(configure({rclcpp::Parameter("max_linear_speed", -1.0)}),
               controller_interface::CallbackReturn::ERROR);
 }
 
-TEST_F(SwerveControllerTestFixture, RejectsNonFiniteGeometry)
+TEST_F(SwerveControllerFixture, RejectsNonFiniteGeometry)
 {
     EXPECT_EQ(
         configure({rclcpp::Parameter(
@@ -405,7 +403,7 @@ TEST_F(SwerveControllerTestFixture, RejectsNonFiniteGeometry)
         controller_interface::CallbackReturn::ERROR);
 }
 
-TEST_F(SwerveControllerTestFixture, RejectsInfiniteRateLimit)
+TEST_F(SwerveControllerFixture, RejectsInfiniteRateLimit)
 {
     EXPECT_EQ(
         configure({rclcpp::Parameter(
@@ -413,20 +411,20 @@ TEST_F(SwerveControllerTestFixture, RejectsInfiniteRateLimit)
         controller_interface::CallbackReturn::ERROR);
 }
 
-TEST_F(SwerveControllerTestFixture, RejectsZeroWheelRadius)
+TEST_F(SwerveControllerFixture, RejectsZeroWheelRadius)
 {
     EXPECT_EQ(configure({rclcpp::Parameter("wheel_radius", 0.0)}),
               controller_interface::CallbackReturn::ERROR);
 }
 
-TEST_F(SwerveControllerTestFixture, AcceptsNegativeIdleHomeDelayAsDisabled)
+TEST_F(SwerveControllerFixture, AcceptsNegativeIdleHomeDelayAsDisabled)
 {
     // Negative is the documented "never home" setting, not a mistake.
     EXPECT_EQ(configure({rclcpp::Parameter("idle_home_delay", -1.0)}),
               controller_interface::CallbackReturn::SUCCESS);
 }
 
-TEST_F(SwerveControllerTestFixture, ClaimsDriveVelocityStateInterfaces)
+TEST_F(SwerveControllerFixture, ClaimsDriveVelocityStateInterfaces)
 {
     ASSERT_EQ(configure(), controller_interface::CallbackReturn::SUCCESS);
 
@@ -443,7 +441,7 @@ TEST_F(SwerveControllerTestFixture, ClaimsDriveVelocityStateInterfaces)
 // Non-finite input
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_F(SwerveControllerTestFixture, NonFiniteTwistIsRejectedBeforeKinematics)
+TEST_F(SwerveControllerFixture, NonFiniteTwistIsRejectedBeforeKinematics)
 {
     configure_and_activate();
 
@@ -469,7 +467,7 @@ TEST_F(SwerveControllerTestFixture, NonFiniteTwistIsRejectedBeforeKinematics)
     }
 }
 
-TEST_F(SwerveControllerTestFixture, NonFiniteSteeringFeedbackHoldsDrivesAtZero)
+TEST_F(SwerveControllerFixture, NonFiniteSteeringFeedbackHoldsDrivesAtZero)
 {
     configure_and_activate();
 
@@ -492,7 +490,7 @@ TEST_F(SwerveControllerTestFixture, NonFiniteSteeringFeedbackHoldsDrivesAtZero)
         << "no trustworthy steering feedback means no idea which way to drive";
 }
 
-TEST_F(SwerveControllerTestFixture, NonFiniteDriveFeedbackNeverDeclaresStandstill)
+TEST_F(SwerveControllerFixture, NonFiniteDriveFeedbackNeverDeclaresStandstill)
 {
     configure_and_activate();
 
@@ -526,7 +524,7 @@ TEST_F(SwerveControllerTestFixture, NonFiniteDriveFeedbackNeverDeclaresStandstil
 // Standstill: no snap, no homing while still rolling
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_F(SwerveControllerTestFixture, CoastingDoesNotHomeTheWheels)
+TEST_F(SwerveControllerFixture, CoastingDoesNotHomeTheWheels)
 {
     // idle_home_delay 0.0 is the setting the review flagged: with the old
     // limiter-based test, zero cmd_vel homed the wheels the instant the
@@ -555,7 +553,7 @@ TEST_F(SwerveControllerTestFixture, CoastingDoesNotHomeTheWheels)
     }
 }
 
-TEST_F(SwerveControllerTestFixture, HomesOnlyAfterMeasuredStandstillHolds)
+TEST_F(SwerveControllerFixture, HomesOnlyAfterMeasuredStandstillHolds)
 {
     configure_and_activate();
 
@@ -580,7 +578,7 @@ TEST_F(SwerveControllerTestFixture, HomesOnlyAfterMeasuredStandstillHolds)
     }
 }
 
-TEST_F(SwerveControllerTestFixture, NoSnapWhileRollingEvenOnALargeShapeChange)
+TEST_F(SwerveControllerFixture, NoSnapWhileRollingEvenOnALargeShapeChange)
 {
     configure_and_activate();
 
@@ -616,7 +614,7 @@ TEST_F(SwerveControllerTestFixture, NoSnapWhileRollingEvenOnALargeShapeChange)
 // Shape / magnitude separation
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_F(SwerveControllerTestFixture, ThrottleOnlyChangeLeavesSteeringUntouched)
+TEST_F(SwerveControllerFixture, ThrottleOnlyChangeLeavesSteeringUntouched)
 {
     // The reason this controller exists. Halving the twist while keeping its
     // ratios changes m alone; theta and phi — and so every steering angle —
@@ -638,7 +636,7 @@ TEST_F(SwerveControllerTestFixture, ThrottleOnlyChangeLeavesSteeringUntouched)
     EXPECT_GT(max_abs_drive_cmd(), 0.0) << "still expected to be driving";
 }
 
-TEST_F(SwerveControllerTestFixture, PureSpinProducesTangentialWheelVelocities)
+TEST_F(SwerveControllerFixture, PureSpinProducesTangentialWheelVelocities)
 {
     configure_and_activate();
 
@@ -672,7 +670,7 @@ TEST_F(SwerveControllerTestFixture, PureSpinProducesTangentialWheelVelocities)
     }
 }
 
-TEST_F(SwerveControllerTestFixture, TransitionIntoAndOutOfSpinStaysContinuous)
+TEST_F(SwerveControllerFixture, TransitionIntoAndOutOfSpinStaysContinuous)
 {
     configure_and_activate();
 
@@ -700,7 +698,7 @@ TEST_F(SwerveControllerTestFixture, TransitionIntoAndOutOfSpinStaysContinuous)
     expect_all_finite();
 }
 
-TEST_F(SwerveControllerTestFixture, ForwardToReverseKeepsSteeringSteady)
+TEST_F(SwerveControllerFixture, ForwardToReverseKeepsSteeringSteady)
 {
     // Reversing along the same arc is a sign flip on m, not a 180° sweep of
     // the wheels: the antipodal shape has identical steering angles.
@@ -723,7 +721,7 @@ TEST_F(SwerveControllerTestFixture, ForwardToReverseKeepsSteeringSteady)
     EXPECT_GT(max_abs_drive_cmd(), 0.05);
 }
 
-TEST_F(SwerveControllerTestFixture, NearZeroTwistSteersWithoutDriving)
+TEST_F(SwerveControllerFixture, NearZeroTwistSteersWithoutDriving)
 {
     // The "point the wheels here" command: a twist far below park_speed still
     // carries a direction, and normalising recovers it at any scale.
@@ -747,7 +745,7 @@ TEST_F(SwerveControllerTestFixture, NearZeroTwistSteersWithoutDriving)
 // Steering feedback lag
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_F(SwerveControllerTestFixture, LaggingSteeringFeedbackCutsDrive)
+TEST_F(SwerveControllerFixture, LaggingSteeringFeedbackCutsDrive)
 {
     // A hard crab: the wheels must swing ~90°. With feedback that never
     // arrives, the settled state is a 90° measured error, where cos⁴ is zero
@@ -755,7 +753,7 @@ TEST_F(SwerveControllerTestFixture, LaggingSteeringFeedbackCutsDrive)
     configure_and_activate();
 
     send_cmd_vel(0.0, 0.8, 0.0);
-    step_for(3.0, &SwerveControllerTestFixture::frozen_steering_feedback);
+    step_for(3.0, &SwerveControllerFixture::frozen_steering_feedback);
 
     EXPECT_LT(max_abs_drive_cmd(), 0.01)
         << "drove with the wheels reported 90° off-target";
@@ -766,7 +764,7 @@ TEST_F(SwerveControllerTestFixture, LaggingSteeringFeedbackCutsDrive)
     }
 }
 
-TEST_F(SwerveControllerTestFixture, SameCommandDrivesNormallyWhenFeedbackTracks)
+TEST_F(SwerveControllerFixture, SameCommandDrivesNormallyWhenFeedbackTracks)
 {
     // The control for the test above: identical command, working feedback.
     // Without this, "drives are zero" could just mean the command was wrong.
@@ -779,7 +777,7 @@ TEST_F(SwerveControllerTestFixture, SameCommandDrivesNormallyWhenFeedbackTracks)
         << "should be driving at close to the commanded speed";
 }
 
-TEST_F(SwerveControllerTestFixture, DriveCommandStaysContinuousThroughTheDirectionFlip)
+TEST_F(SwerveControllerFixture, DriveCommandStaysContinuousThroughTheDirectionFlip)
 {
     // With the scale taken from feedback and the sign from the integrated
     // command, the sign flipped where the scale was still large and the drive
@@ -817,7 +815,7 @@ TEST_F(SwerveControllerTestFixture, DriveCommandStaysContinuousThroughTheDirecti
 // Re-acceleration after the wheels line up
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_F(SwerveControllerTestFixture, AccelerationAfterAlignmentIsBounded)
+TEST_F(SwerveControllerFixture, AccelerationAfterAlignmentIsBounded)
 {
     // Steering joints slower than max_steer_rate_deg says (worn gearbox, sand,
     // a cold motor): the wheels lag, cos⁴ holds the drives down, and meanwhile
@@ -860,7 +858,7 @@ TEST_F(SwerveControllerTestFixture, AccelerationAfterAlignmentIsBounded)
 // cmd_vel timeout
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_F(SwerveControllerTestFixture, StaleCommandStopsTheDrives)
+TEST_F(SwerveControllerFixture, StaleCommandStopsTheDrives)
 {
     // Short run so the fake clock and the node clock (which stamps /cmd_vel)
     // stay close enough to compare — see the note on cmd_vel_timeout_s above.
@@ -879,7 +877,7 @@ TEST_F(SwerveControllerTestFixture, StaleCommandStopsTheDrives)
 // Concurrency — the real handoffs, on real threads
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_F(SwerveControllerTestFixture, ConcurrentCmdVelUpdatesStayWithinLimits)
+TEST_F(SwerveControllerFixture, ConcurrentCmdVelUpdatesStayWithinLimits)
 {
     // The whole point of the RealtimeBuffer. A publisher thread alternates
     // between two twists whose shapes are far apart; update() runs flat out on
@@ -928,7 +926,7 @@ TEST_F(SwerveControllerTestFixture, ConcurrentCmdVelUpdatesStayWithinLimits)
     writer.join();
 }
 
-TEST_F(SwerveControllerTestFixture, CompactModeChangeWhileActiveIsRateLimited)
+TEST_F(SwerveControllerFixture, CompactModeChangeWhileActiveIsRateLimited)
 {
     configure_and_activate();
     run_executor();
@@ -981,7 +979,7 @@ TEST_F(SwerveControllerTestFixture, CompactModeChangeWhileActiveIsRateLimited)
     EXPECT_GT(folded, 1.0) << "compact mode never took effect";
 }
 
-TEST_F(SwerveControllerTestFixture, CompactModeRequestBeforeActivationIsHonoured)
+TEST_F(SwerveControllerFixture, CompactModeRequestBeforeActivationIsHonoured)
 {
     ASSERT_EQ(configure(), controller_interface::CallbackReturn::SUCCESS);
     ensure_helper_node();
