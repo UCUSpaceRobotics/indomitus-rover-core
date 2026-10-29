@@ -31,13 +31,16 @@ jobs:
           REPO="${{ github.repository }}"
           echo "name=${REPO,,}" >> "$GITHUB_OUTPUT"
 
+  # Only main/develop get a version tag + release; manual runs elsewhere just build images.
   tag:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     uses: UCUSpaceRobotics/.github/.github/workflows/version-tag.yml@main
     permissions:
       contents: write
 
   build-and-push-prod-arm64:
     needs: [tag, meta]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-22.04-arm
     timeout-minutes: 90
     permissions:
@@ -102,6 +105,7 @@ jobs:
 
   build-and-push-dev-amd64:
     needs: [tag, meta]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     permissions:
