@@ -122,11 +122,11 @@ def generate_launch_description() -> LaunchDescription:
             "below."
     )
 
-    # This launch file no longer starts the ZED2i camera itself (see rover.launch.py's
+    # This launch file no longer starts the ZED2i camera itself (see cameras.launch.py's
     # `zed2i_mode` argument) - it only waits for the topics the camera produces in 'nav' mode.
     zed2i_reminder = LogInfo(
         msg="[navigation] Expecting the ZED2i camera to already be running in 'nav' mode "
-            "(rover.launch.py zed2i_mode:=nav). Waiting for its topics below."
+            "(cameras.launch.py zed2i_mode:=nav). Waiting for its topics below."
     )
 
     wait_for_lidar = ExecuteProcess(
@@ -144,7 +144,7 @@ def generate_launch_description() -> LaunchDescription:
             namespace_val,
             ["zed2i/points", "zed2i/odom"],
             "[navigation] Waiting for ZED2i topics (zed2i/points, zed2i/odom) "
-            "- is rover.launch.py running with zed2i_mode:=nav?",
+            "- is cameras.launch.py running with zed2i_mode:=nav?",
             "3",  # seconds between messages
         ),
         output="screen",

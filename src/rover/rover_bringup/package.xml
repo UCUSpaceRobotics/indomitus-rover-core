@@ -22,6 +22,7 @@
   <exec_depend>rover_peripherals</exec_depend>
   <exec_depend>rover_diagnostics</exec_depend>
   <exec_depend>rover_cameras</exec_depend>
+  <exec_depend>rover_sensors</exec_depend>
   <exec_depend>rover_comms</exec_depend>
   <exec_depend>rover_teleop</exec_depend>
   <exec_depend>rover_drive</exec_depend>
