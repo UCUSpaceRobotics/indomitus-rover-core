@@ -21,6 +21,13 @@ Custom ROS2 messages, services, and actions used across all packages.
 
 ---
 
+## 1a. `indomitus_can`
+Shared CAN bridge (rover + arm), so arm doesn't depend on `rover_bringup`.
+
+- `can.launch.py` — `ros2_socketcan` sender/receiver lifecycle nodes on `/to_can_bus` / `/from_can_bus`; fails if `interface` isn't UP; `receiver_filters` per caller (rover `300:700`, arm its tool IDs)
+
+---
+
 ## 2. `rover_hardware_interface` (C++)
 ros2_control `SystemInterface` plugin responsible for low-level communication with motors over CAN bus.
 
@@ -59,9 +66,8 @@ Loaded as plugins via `controllers.yaml` (one copy in `rover_bringup/config` for
 Main launch and configuration package for the real rover.
 
 **Launch files:**
-- `rover.launch.py` — top-level real-hardware bringup; composes `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `rover_controller`'s `control.launch.py`, `rover_drive`'s `twist_mux.launch.py` and `drive_manager.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. No cameras - see `cameras.launch.py`
+- `rover.launch.py` — top-level real-hardware bringup; composes `indomitus_can`'s `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `rover_controller`'s `control.launch.py`, `rover_drive`'s `twist_mux.launch.py` and `drive_manager.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. No cameras - see `cameras.launch.py`
 - `cameras.launch.py` — `rover_cameras`' `cameras.launch.py` (`use_cameras`, `cameras`) + `rover_sensors`' `zed2i.launch.py` via `zed2i_mode` (`rgb`/`nav`/`record`/unset — unset skips the ZED). Separate from `rover.launch.py` so cameras restart without stopping drive
-- `can.launch.py` — configures and brings up the CAN bus interface
 - `power_monitor.launch.py` — brings up power monitoring (pairs with `rover_peripherals`' power node)
 
 **Config:**

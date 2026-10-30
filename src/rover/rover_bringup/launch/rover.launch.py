@@ -61,7 +61,7 @@ def generate_launch_description():
                 'joy_dev': LaunchConfiguration('joy_dev'),
             }, condition=IfCondition(LaunchConfiguration('use_joy'))),
 
-            include_launch('rover_bringup', 'can.launch.py', {
+            include_launch('indomitus_can', 'can.launch.py', {
                 'interface': LaunchConfiguration('interface'),
             }),
 
