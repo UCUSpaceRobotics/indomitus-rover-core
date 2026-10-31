@@ -4,14 +4,17 @@ After=docker.service
 Requires=docker.service
 
 [Service]
+# simple, not oneshot: start waits for hardware + the container, and a oneshot
+# would hold boot (multi-user.target) until it is done.
 Type=simple
 RemainAfterExit=yes
+TimeoutStopSec=45
 # No hardware wait: camera nodes respawn until their /dev/<camera> shows up.
-ExecStart=/bin/sh -c '\
-    until docker exec rover_prod true 2>/dev/null; do sleep 2; done; \
-    docker exec rover_prod sh -c "tmux has-session -t cameras 2>/dev/null || tmux new-session -d -s cameras"; \
-    docker exec rover_prod tmux send-keys -t cameras "ros2 launch rover_bringup cameras.launch.py" Enter'
-ExecStop=-/usr/bin/docker exec rover_prod tmux send-keys -t cameras C-c
+# LAUNCH_ARGS: the mission's extra launch args, written by rover-mission (/run wins).
+EnvironmentFile=-/etc/rover/cameras.env
+EnvironmentFile=-/run/rover/cameras.env
+ExecStart=/usr/local/bin/rover-session start cameras ros2 launch rover_bringup cameras.launch.py $LAUNCH_ARGS
+ExecStop=-/usr/local/bin/rover-session stop cameras
 
 [Install]
 WantedBy=multi-user.target

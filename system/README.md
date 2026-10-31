@@ -2,18 +2,23 @@
 
 This directory contains configs, services, rulles and other stuff for the NVIDIA Jetson used on the rover
 
-## Subsystem autostart (`systemd/rover-launch-*.service`)
+## Subsystems and missions (`systemd/rover-launch-*.service`, `rover-mission`)
 
-- Each unit types its `ros2 launch …` into tmux session `core` / `cameras` / `arm` in `rover_prod`, as if typed by hand.
-- Waits in the background (boot not delayed) for its hardware, then for the container:
-  - `core`: CAN `can_rover` up (`Environment=CAN_IFACE=`, = `rover.launch.py` default `interface`);
-  - `arm`: CAN `can0` up (= `arm_macro.xacro` default `can_interface`);
-  - `cameras`: nothing (camera nodes respawn until their `/dev/<camera>` appears);
-- Container itself comes back at boot via `restart: unless-stopped` (not after `docker compose down`).
-- Install: `system/setup.sh --service rover-launch-core,rover-launch-cameras,rover-launch-arm` (installed stopped + disabled).
-- Autostart at boot: `sudo systemctl enable rover-launch-arm`; dev: `disable` and launch by hand.
-- Watch / Ctrl-C / re-run: `./scripts/enter_container.sh rover arm`.
-- `systemctl stop` = Ctrl-C in the session.
-- Don't `start` a unit whose subsystem already runs in its session: the command gets typed into the running launch and runs after it exits.
-- Cameras run in `cameras` (`rover_bringup cameras.launch.py`), not `core`: restart / switch `zed2i_mode` without stopping drive.
-- Launch args: edit the `ExecStart=… send-keys` line in the unit.
+- One unit per subsystem; each runs its `ros2 launch …` in tmux session `core` / `cameras` / `nav` / `arm` in `rover_prod`, as if typed by hand.
+- Unit → [`rover-session`](rover-session.sh) (`/usr/local/bin/`; also by hand: `rover-session status core`, `rover-session stop core`):
+  - start: waits for its CAN (`Environment=CAN_IFACE=`) and the container, stops whatever runs in the session, types the launch;
+  - stop: Ctrl-C, waits up to 30 s for the prompt, then kills the session (leftover nodes possible - check `ps`);
+  - log per start: `/bags/logs/<session>_<date>_<boot-id>.log` (host `~/bags/logs`; no RTC → date repeats across boots).
+- Hardware waits: `core` → `can_rover` (= `rover.launch.py` `interface`), `arm` → `can0` (= `arm_macro.xacro` `can_interface`), `cameras` / `nav` → none (they wait / respawn themselves).
+- `Type=simple` + `RemainAfterExit`: waiting doesn't hold boot; unit stays `active` after the launch is typed.
+- Missions: [`rover-mission`](rover-mission.sh) (`/usr/local/bin/`; from a laptop `scripts/mission.sh`):
+  - `rover-mission nav` - start the mission's subsystems, stop the rest; running ones with unchanged args untouched;
+  - `rover-mission nav --default` - same + enable exactly these units at boot;
+  - `stop`, `restart cameras`, `status`, `list`;
+  - missions: [`missions/<mission>.conf`](missions/) → `/etc/rover/missions/` - one `subsystem [extra launch args]` per line, in start order (e.g. `cameras zed2i_mode:=nav`);
+  - subsystems: whatever `rover-launch-*.service` units are installed - a new one = a new unit, nothing else.
+- Per-mission args → `LAUNCH_ARGS` in `/run/rover/<subsystem>.env` (this boot) over `/etc/rover/<subsystem>.env` (`--default`), appended to the unit's launch.
+- Container itself comes back at boot via `restart: unless-stopped` (not after `docker compose down`). Restarted container → units still `active`; `rover-mission` checks the session, re-run the mission.
+- Install: `scripts/setup_host.sh rover --service rover-launch-core,rover-launch-cameras,rover-launch-nav,rover-launch-arm` (also installs both scripts + `missions/`; units stopped + disabled).
+- Watch / Ctrl-C / re-run by hand: `./scripts/enter_container.sh rover core`.
+- Fixed launch args: edit `ExecStart=` in the unit.
