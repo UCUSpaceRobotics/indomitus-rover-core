@@ -1,0 +1,25 @@
+[Unit]
+# One instance per subsystem: rover-launch@core.service, rover-launch@nav.service, ...
+# What runs: indomitus_robot/subsystems/%i.conf; missions: rover-mission (same scripts dir).
+Description=Rover subsystem %i in tmux session "%i" in rover_prod
+After=docker.service
+Requires=docker.service
+# Scripts come from the repo the deploy syncs to the Jetson (deploy_to_rover.sh REMOTE_DIR).
+ConditionPathExists=/home/indomitus-rover/indomitus-rover-core/src/indomitus/indomitus_robot/subsystems/%i.conf
+
+[Service]
+# simple, not oneshot: start waits for hardware, and a oneshot would hold boot
+# (multi-user.target) until it is done.
+Type=simple
+RemainAfterExit=yes
+TimeoutStopSec=45
+# Skipped (not failed) unless rover_prod runs within 30 s: the Jetson also hosts other projects.
+ExecCondition=/home/indomitus-rover/indomitus-rover-core/src/indomitus/indomitus_robot/scripts/rover-session wait-container 30
+# LAUNCH_ARGS: the mission's extra launch args, written by rover-mission (/run wins).
+EnvironmentFile=-/etc/rover/%i.env
+EnvironmentFile=-/run/rover/%i.env
+ExecStart=/home/indomitus-rover/indomitus-rover-core/src/indomitus/indomitus_robot/scripts/rover-session start %i
+ExecStop=-/home/indomitus-rover/indomitus-rover-core/src/indomitus/indomitus_robot/scripts/rover-session stop %i
+
+[Install]
+WantedBy=multi-user.target

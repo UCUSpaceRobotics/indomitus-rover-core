@@ -55,6 +55,8 @@
 
 # Logging & Crash Dumps
 - *.log
+# indomitus_robot/subsystems/core.conf is config, not a crash dump (first match wins)
++ subsystems/*.conf
 - core.*
 
 # ROS 2 Data & Bags

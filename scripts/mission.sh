@@ -1,6 +1,6 @@
 #!/bin/bash
-# Runs rover-mission (system/rover-mission.sh, installed on the Jetson by
-# setup_host.sh) over ssh. On the Jetson itself, call rover-mission directly.
+# Runs rover-mission (src/indomitus/indomitus_robot/scripts/rover-mission, run from the
+# repo the deploy syncs to the Jetson) over ssh. On the Jetson itself, call it directly.
 
 set -euo pipefail
 
@@ -18,6 +18,7 @@ WIFI_SSID="ERC_UCUSpaceRobotics_A"
 WIFI_PASS="19283746"
 USE_ETH=false
 NO_WIFI=false
+REMOTE_DIR=""
 MISSION_ARGS=()
 
 error() { echo -e "\e[31m[ERROR]\e[0m $1"; exit 1; }
@@ -42,6 +43,7 @@ Connection:
   --ip IP          Jetson IP (${JETSON_IP})
   --ssid SSID      Hotspot SSID (${WIFI_SSID})
   --pass PASS      Hotspot password (${WIFI_PASS})
+  --dir DIR        Repo dir on the Jetson (~USER/indomitus-rover-core)
   -h, --help       Show this help
 
 Examples:
@@ -60,6 +62,7 @@ while [[ "$#" -gt 0 ]]; do
         --ip)   [[ "$#" -ge 2 ]] || error "$1 requires an argument."; JETSON_IP="$2"; shift 2;;
         --ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
         --pass) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
+        --dir)  [[ "$#" -ge 2 ]] || error "$1 requires an argument."; REMOTE_DIR="$2"; shift 2;;
         -h|--help) show_help; exit 0;;
         *) MISSION_ARGS+=("$1"); shift 1;;
     esac
@@ -73,4 +76,5 @@ fi
 wait_for_ssh "$TARGET" 30 "$USE_ETH"
 
 # -t: rover-mission re-runs itself under sudo, which asks for the password.
-ssh -t -q "$TARGET" "rover-mission $(printf '%q ' "${MISSION_ARGS[@]}")"
+REMOTE_DIR="${REMOTE_DIR:-/home/${JETSON_USER}/indomitus-rover-core}"
+ssh -t -q "$TARGET" "${REMOTE_DIR}/src/indomitus/indomitus_robot/scripts/rover-mission $(printf '%q ' "${MISSION_ARGS[@]}")"

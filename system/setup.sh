@@ -74,15 +74,6 @@ for rule in "${RULES[@]}"; do
     run_sudo udevadm settle
 done
 
-if [ "${#UNITS[@]}" -gt 0 ]; then
-    echo ">>> Installing rover-session (used by the units) and rover-mission to /usr/local/bin..."
-    run_sudo install -D -m 0755 "$CONFIG_DIR/rover-session.sh" /usr/local/bin/rover-session
-    run_sudo install -D -m 0755 "$CONFIG_DIR/rover-mission.sh" /usr/local/bin/rover-mission
-    echo ">>> Installing missions to /etc/rover/missions (mirrors system/missions/)..."
-    run_sudo rm -rf /etc/rover/missions
-    run_sudo install -D -m 0644 -t /etc/rover/missions "$CONFIG_DIR"/missions/*.conf
-fi
-
 for unit in "${UNITS[@]}"; do
     name=$(basename "$unit")
     echo ">>> Installing systemd unit $name (left stopped and disabled)..."

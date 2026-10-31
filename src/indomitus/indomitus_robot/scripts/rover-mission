@@ -1,32 +1,31 @@
 #!/bin/bash
-# rover-mission - start/stop rover subsystems (rover-launch-*.service) per mission.
-# Installed to /usr/local/bin/rover-mission by setup.sh; from a laptop: scripts/mission.sh.
+# rover-mission - start/stop rover subsystems (rover-launch@<subsystem>.service) per mission.
+# Runs on the Jetson host; from a laptop: scripts/mission.sh.
 #
-# Subsystems = installed rover-launch-<subsystem>.service units.
-# Missions   = /etc/rover/missions/<mission>.conf (system/missions/ in the repo):
-#              one "subsystem [extra launch args]" per line, in start order.
+# Subsystems = ../subsystems/<subsystem>.conf (what runs, CAN to wait for).
+# Missions   = ../missions/<mission>.conf: one "subsystem [extra launch args]" per line, in start order.
 set -euo pipefail
 
-MISSION_DIR=/etc/rover/missions
+ROBOT_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+SUB_DIR=$ROBOT_DIR/subsystems
+MISSION_DIR=$ROBOT_DIR/missions
+SESSION=$ROBOT_DIR/scripts/rover-session
 RUN_DIR=/run/rover   # until reboot (apply)
 ETC_DIR=/etc/rover   # every boot (apply --default)
-SESSION=/usr/local/bin/rover-session
 
 MISSION_SUBS=()            # load_mission: subsystems in start order
 declare -A MISSION_ARGS=() # load_mission: subsystem -> extra launch args
 
 die() { echo -e "\e[31m[ERROR]\e[0m $*" >&2; exit 1; }
-unit() { echo "rover-launch-$1.service"; }
+unit() { echo "rover-launch@$1.service"; }
 
-subsystems() {
-    systemctl list-unit-files --no-legend 'rover-launch-*.service' \
-        | awk '{ sub(/^rover-launch-/, "", $1); sub(/\.service$/, "", $1); print $1 }'
-}
-missions() {
+names() {
     local f
-    for f in "$MISSION_DIR"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done
+    for f in "$1"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done
 }
-is_subsystem() { subsystems | grep -qx "$1"; }
+subsystems() { names "$SUB_DIR"; }
+missions() { names "$MISSION_DIR"; }
+is_subsystem() { [[ -f $SUB_DIR/$1.conf ]]; }
 is_mission() { [[ -f $MISSION_DIR/$1.conf ]]; }
 in_mission() { [[ -v MISSION_ARGS[$1] ]]; }
 
@@ -37,7 +36,7 @@ load_mission() {
     while read -r s args; do
         [[ -z $s || $s == \#* ]] && continue
         args=${args%%#*}; args=${args%"${args##*[![:space:]]}"}   # drop comment, trailing spaces
-        is_subsystem "$s" || die "$file: no unit $(unit "$s")"
+        is_subsystem "$s" || die "$file: no $SUB_DIR/$s.conf"
         MISSION_SUBS+=("$s"); MISSION_ARGS[$s]=$args
     done < "$file"
 }
@@ -53,8 +52,9 @@ Usage: rover-mission COMMAND
   stop                    stop every subsystem
   restart SUBSYSTEM...    restart these
   status                  mission, and per subsystem: unit state, boot, what runs, args
-  list                    missions ($MISSION_DIR) and their subsystems
+  list                    missions and their subsystems
 
+Missions: $MISSION_DIR   Subsystems: $SUB_DIR
 Watch / Ctrl-C a subsystem: scripts/enter_container.sh rover <subsystem>
 EOF
 }
