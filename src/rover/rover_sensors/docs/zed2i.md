@@ -33,7 +33,7 @@ ros2 launch rover_sensors zed2i.launch.py mode:=nav
 ros2 launch rover_sensors zed2i.launch.py mode:=record
 ```
 
-On the real rover, this launch file is normally started via `rover_bringup/launch/rover.launch.py`'s `zed2i_mode` argument rather than invoked directly — see [`nodes_overview.md`](../../../../docs/software/nodes_overview.md). `config_path` can still be set explicitly to override the default file chosen by `mode` - in that case the file is used as-is and `zed2i_common.yaml` is not merged in.
+On the real rover, this launch file is normally started via `rover_bringup/launch/cameras.launch.py`'s `zed2i_mode` argument rather than invoked directly — see [`nodes_overview.md`](../../../../docs/software/nodes_overview.md). `config_path` can still be set explicitly to override the default file chosen by `mode` - in that case the file is used as-is and `zed2i_common.yaml` is not merged in.
 
 
 ---
@@ -125,9 +125,9 @@ serves one process at a time, so **`zed2i.launch.py` and `rover_cameras` with `z
 other**: whichever starts second cannot open the camera.
 
 * Need the SDK (`mode:=nav`, VIO, depth, IMU): nothing to do by default. The `zed2i` entry has
-  `autostart: false`, so `cameras.launch.py` (and `rover.launch.py use_cameras:=true`) leave the ZED
+  `autostart: false`, so `cameras.launch.py` (and `rover_bringup cameras.launch.py`) leave the ZED
   alone. Just don't ask for it (`include:=zed2i`, `cameras:=zed2i` or `cameras:=all`).
-* Need the UVC stream: stop `zed2i.launch.py` (and `rover.launch.py` if it started the ZED via
+* Need the UVC stream: stop `zed2i.launch.py` (and `rover_bringup cameras.launch.py` if it started the ZED via
   `zed2i_mode`) first, then start it with the other cameras
   (`ros2 launch rover_cameras cameras.launch.py include:=zed2i`) or on its own (`cameras:=zed2i`).
 

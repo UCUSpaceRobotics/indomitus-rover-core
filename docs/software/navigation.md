@@ -9,10 +9,11 @@ How to launch autonomous navigation (LiDAR + SLAM + Nav2) — on the physical ro
 
 ## 2. Launch commands
 
-Start the camera (and rest of the rover) first:
+Start the rover and the camera first:
 
 ```bash
-ros2 launch rover_bringup rover.launch.py zed2i_mode:=nav
+ros2 launch rover_bringup rover.launch.py
+ros2 launch rover_bringup cameras.launch.py zed2i_mode:=nav
 ```
 
 Then start navigation:
@@ -35,7 +36,9 @@ Other `world_name` option: `nav2_test_world`. Also accepts `map_year`, `map_reso
 
 ## 4. What gets launched
 
-**`rover.launch.py`** — CAN bus, `robot_state_publisher` (TF tree), drivetrain control, `twist_mux`, `drive_power`, LoRa fallback, fault logger, lighting, power monitor, EKF (`/wheels/odom` + `/zed2i/odom` → `/odom`), and — because of `zed2i_mode:=nav` — the ZED2i camera in nav mode.
+**`rover.launch.py`** — CAN bus, `robot_state_publisher` (TF tree), drivetrain control, `twist_mux`, `drive_power`, LoRa fallback, fault logger, lighting, power monitor, EKF (`/wheels/odom` + `/zed2i/odom` → `/odom`).
+
+**`cameras.launch.py`** — `rover_cameras` streams and, because of `zed2i_mode:=nav`, the ZED2i camera in nav mode.
 
 **`navigation.launch.py`**, in order:
 

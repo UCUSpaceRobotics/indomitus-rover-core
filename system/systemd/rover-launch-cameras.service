@@ -1,0 +1,17 @@
+[Unit]
+Description=Rover cameras (rover_cameras streams, ZED2i) in tmux session "cameras"
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+RemainAfterExit=yes
+# No hardware wait: camera nodes respawn until their /dev/<camera> shows up.
+ExecStart=/bin/sh -c '\
+    until docker exec rover_prod true 2>/dev/null; do sleep 2; done; \
+    docker exec rover_prod sh -c "tmux has-session -t cameras 2>/dev/null || tmux new-session -d -s cameras"; \
+    docker exec rover_prod tmux send-keys -t cameras "ros2 launch rover_bringup cameras.launch.py" Enter'
+ExecStop=-/usr/bin/docker exec rover_prod tmux send-keys -t cameras C-c
+
+[Install]
+WantedBy=multi-user.target
