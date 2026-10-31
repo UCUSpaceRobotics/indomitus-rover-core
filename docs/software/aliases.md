@@ -18,6 +18,7 @@ To speed up development and standardize common workflows, our development contai
 | **`launch_cameras`** | `ros2 launch rover_bringup cameras.launch.py` | Launches the rover cameras (streams + ZED2i). E.g. `zed2i_mode:=nav`, `use_cameras:=false`. |
 | **`launch_gamepad`** | `ros2 launch rover_teleop gamepad.launch.py` | Launches the joystick teleop nodes. |
 | **`launch_navigation`**, **`launch_nav`** | `ros2 launch rover_bringup navigation.launch.py` | Launches the navigation stack (LiDAR, SLAM, Nav2). Both aliases perform the exact same action. Requires the ZED2i to already be running in `nav` mode via `launch_cameras zed2i_mode:=nav` — this file does not start the camera itself. |
+| **`rover-mission`**, **`rover-session`** | `src/indomitus/indomitus_robot/scripts/` (on `PATH`, not aliases) | Start / stop the rover's tmux sessions per mission, enter a session: `rover-mission nav`, `rover-mission enter core`. See [indomitus_robot](../../src/indomitus/indomitus_robot/README.md). |
 | **`kill_node`** | *(Custom Bash Function)* | Shuts down a target node, escalating `SIGINT` (5 s) → `SIGTERM` (3 s) → `SIGKILL` (2 s) until it exits, then verifies nothing matching is left (non-zero exit code if it is). Matches the executable name or a remapped `__node:=<name>` exactly, not as a substring. Usage: `kill_node <node_or_executable_name>`. |
 
 ---

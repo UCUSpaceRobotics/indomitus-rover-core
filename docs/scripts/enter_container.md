@@ -31,7 +31,7 @@ Enter the remote production container on the rover computer:
 - Detach: `Ctrl-b d`. `exit` closes the session.
 - Inside the container: `tmux ls`, `Ctrl-b s` (switch session).
 - Without this script (plain ssh / docker / tmux): [ssh.md](../networking/ssh.md#container-and-tmux-sessions-without-scripts).
-- Config: [`docker/tmux.conf`](../../docker/tmux.conf). Autostart at boot: [`system/systemd/rover-launch-*.service`](../../system/README.md).
+- Config: [`docker/tmux.conf`](../../docker/tmux.conf). Missions / autostart at boot: [`rover-mission`](../../src/indomitus/indomitus_robot/README.md) (also `rover-mission enter core` inside the container).
 
 ## Configuration Flags & Defaults
 

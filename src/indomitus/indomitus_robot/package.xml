@@ -6,8 +6,7 @@
   <description>
     Metapackage: everything that runs on the rover's Jetson (no simulation).
     colcon build --packages-up-to indomitus_robot
-    Also: which subsystems run on the rover and per mission (subsystems/, missions/, scripts/;
-    see system/README.md).
+    Also: what runs per mission (missions/, scripts/; see README.md).
   </description>
   <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
   <license>MIT</license>

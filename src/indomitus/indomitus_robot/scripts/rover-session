@@ -1,90 +1,87 @@
 #!/bin/sh
-# rover-session - a subsystem's launch in its own tmux session in rover_prod. Runs on the
-# Jetson host (docker exec); used by rover-launch@.service, rover-mission and by hand.
+# rover-session - one launch per tmux session, inside the rover container (dev and prod).
+# Used by rover-mission and by hand.
 #
-#   rover-session start NAME [COMMAND...]   stop what runs in session NAME, then type COMMAND
-#                                           (default: subsystems/NAME.conf COMMAND + $LAUNCH_ARGS;
-#                                           first waits for the conf's CAN_IFACE to be UP)
-#   rover-session stop NAME                 Ctrl-C, wait for the shell prompt
-#   rover-session status NAME               foreground command ("bash" = idle, "-" = no session)
-#   rover-session wait-container [SECONDS]  exit 1 if rover_prod isn't running by then
+#   rover-session start NAME [can=IFACE] COMMAND...
+#                              stop what runs in session NAME, then type COMMAND there
+#                              (can=: the session first waits for IFACE to be UP)
+#   rover-session stop NAME    Ctrl-C, wait for the shell prompt (kill the session after 30 s)
+#   rover-session enter NAME [-r]
+#                              attach (-r: read-only); detach with Ctrl-b d
+#   rover-session status NAME  foreground command: bash = idle, sh = waiting for CAN,
+#                              - = no session
+#   rover-session command NAME COMMAND it was last started with (empty: not started by us)
+#   rover-session can NAME     its can= IFACE (empty: none)
+#   rover-session wait-can IFACE
+#                              block until IFACE is UP (typed by start)
 #
-# By hand it bypasses systemd: `systemctl status rover-launch@NAME` won't know.
-# Env: ROVER_CONTAINER (rover_prod), ROVER_LOG_DIR (/bags/logs, path inside the container)
+# Env: ROVER_LOG_DIR (/bags/logs)
 set -u
 
-SUB_DIR="$(cd "$(dirname "$(readlink -f "$0")")/../subsystems" && pwd)"
-C="${ROVER_CONTAINER:-rover_prod}"
 LOG_DIR="${ROVER_LOG_DIR:-/bags/logs}"
 IDLE=bash        # docker/tmux.conf: default-shell /bin/bash
 STOP_TICKS=60    # 0.5 s each; ros2 launch escalates SIGINT -> SIGTERM -> SIGKILL itself within ~10 s
 
-t() { docker exec "$C" tmux "$@"; }
-fg_cmd() { t display -p -t "$1" '#{pane_current_command}' 2>/dev/null || echo -; }
-container_up() { docker exec "$C" true 2>/dev/null; }
+usage() { sed -n '/^#   rover-session start/,/^#$/s/^# \{0,1\}//p' "$0" >&2; exit 2; }
+has() { tmux has-session -t "$1" 2>/dev/null; }
+fg_cmd() { has "$1" && tmux display -p -t "$1" '#{pane_current_command}' 2>/dev/null || echo -; }
 
-# conf_get NAME KEY - value of KEY= in subsystems/NAME.conf, comment and trailing spaces dropped
-conf_get() {
-    sed -n "s/^$2=//p" "$SUB_DIR/$1.conf" 2>/dev/null | tail -1 | sed 's/[[:space:]]*#.*//; s/[[:space:]]*$//'
-}
+# network_mode: host, so /sys/class/net shows the Jetson's interfaces; bit 0 = IFF_UP
+can_up() { [ $(( $(cat "/sys/class/net/$1/flags" 2>/dev/null || echo 0) & 1 )) -eq 1 ]; }
 
 stop_session() {
-    t has-session -t "$1" 2>/dev/null || return 0
+    has "$1" || return 0
     [ "$(fg_cmd "$1")" = "$IDLE" ] && return 0
-    t send-keys -t "$1" C-c
+    tmux send-keys -t "$1" C-c
     i=0
     while [ "$i" -lt "$STOP_TICKS" ]; do
         [ "$(fg_cmd "$1")" = "$IDLE" ] && return 0
         sleep 0.5; i=$((i + 1))
     done
     # Last resort: SIGHUP kills ros2 launch without it stopping its nodes, so
-    # leftovers may still hold CAN / cameras - check `ps` in the container.
+    # leftovers may still hold CAN / cameras - check `ps`.
     echo "[rover-session] '$1' did not stop in $((STOP_TICKS / 2)) s - killing the session" >&2
-    t kill-session -t "$1"
+    tmux kill-session -t "$1"
 }
 
 start_session() {
-    s="$1"; shift
-    if [ "$#" -gt 0 ]; then
-        cmd="$*"
-    else
-        [ -f "$SUB_DIR/$s.conf" ] || { echo "[rover-session] no $SUB_DIR/$s.conf" >&2; exit 2; }
-        cmd="$(conf_get "$s" COMMAND)${LAUNCH_ARGS:+ $LAUNCH_ARGS}"
-        [ -n "$cmd" ] || { echo "[rover-session] no COMMAND= in $s.conf" >&2; exit 2; }
-    fi
-
-    can="$(conf_get "$s" CAN_IFACE)"
-    if [ -n "$can" ]; then
-        until ip -o link show dev "$can" 2>/dev/null | grep -q "[<,]UP[,>]"; do sleep 2; done
-    fi
-    until container_up; do sleep 2; done
+    s=$1; shift
+    can=
+    case "${1:-}" in can=*) can=${1#can=}; shift;; esac
+    [ "$#" -gt 0 ] || usage
+    cmd="$*"
 
     stop_session "$s"    # leftovers of a previous run / something started by hand
-    t has-session -t "$s" 2>/dev/null || t new-session -d -s "$s"
+    has "$s" || tmux new-session -d -s "$s"
 
     # One log per start. The Jetson has no RTC, so the date repeats across
     # boots - the boot id keeps the names apart.
-    log="$LOG_DIR/${s}_$(date +%F_%H%M%S)_$(cut -c1-8 /proc/sys/kernel/random/boot_id).log"
-    docker exec "$C" mkdir -p "$LOG_DIR"
-    t pipe-pane -t "$s"
-    t pipe-pane -t "$s" "cat >> '$log'"
+    mkdir -p "$LOG_DIR"
+    tmux pipe-pane -t "$s"
+    tmux pipe-pane -t "$s" "cat >> '$LOG_DIR/${s}_$(date +%F_%H%M%S)_$(cut -c1-8 /proc/sys/kernel/random/boot_id).log'"
 
-    t send-keys -t "$s" "$cmd" Enter
+    # Both live and die with the session; rover-mission compares / restarts from them.
+    tmux set-option -t "$s" @rover_cmd "$cmd"
+    tmux set-option -t "$s" @rover_can "$can"
+    # The CAN wait runs in the session itself: visible there, Ctrl-C cancels it. Absolute
+    # path: the session's login shell may rebuild PATH.
+    tmux send-keys -t "$s" "${can:+$(readlink -f "$0") wait-can $can && }$cmd" Enter
 }
 
 case "${1:-}" in
-    start)  [ "$#" -ge 2 ] || { echo "usage: $0 start NAME [COMMAND...]" >&2; exit 2; }
-            shift; start_session "$@";;
-    stop)   [ "$#" -eq 2 ] || { echo "usage: $0 stop NAME" >&2; exit 2; }
-            container_up || exit 0   # no container, nothing runs
-            stop_session "$2";;
-    status) [ "$#" -eq 2 ] || { echo "usage: $0 status NAME" >&2; exit 2; }
-            fg_cmd "$2";;
-    wait-container)
-            i=0
-            until container_up; do
-                [ "$i" -ge "${2:-30}" ] && { echo "[rover-session] $C is not running" >&2; exit 1; }
-                sleep 1; i=$((i + 1))
-            done;;
-    *)      echo "usage: $0 {start NAME [COMMAND...]|stop NAME|status NAME|wait-container [SECONDS]}" >&2; exit 2;;
+    start)    [ "$#" -ge 3 ] || usage; shift; start_session "$@";;
+    stop)     [ "$#" -eq 2 ] || usage
+              stop_session "$2"
+              tmux set-option -t "$2" -u @rover_cmd 2>/dev/null || true;;
+    enter)    [ "$#" -ge 2 ] || usage
+              has "$2" || { echo "[rover-session] no session '$2' ($(tmux ls -F '#S' 2>/dev/null | xargs))" >&2; exit 1; }
+              if [ "${3:-}" = -r ]; then exec tmux attach -r -t "$2"; else exec tmux attach -t "$2"; fi;;
+    status)   [ "$#" -eq 2 ] || usage; fg_cmd "$2";;
+    command)  [ "$#" -eq 2 ] || usage; tmux show-options -t "$2" -v @rover_cmd 2>/dev/null || true;;
+    can)      [ "$#" -eq 2 ] || usage; tmux show-options -t "$2" -v @rover_can 2>/dev/null || true;;
+    wait-can) [ "$#" -eq 2 ] || usage
+              can_up "$2" && exit 0
+              echo "[rover-session] waiting for $2 to be UP..."
+              until can_up "$2"; do sleep 2; done;;
+    *)        usage;;
 esac

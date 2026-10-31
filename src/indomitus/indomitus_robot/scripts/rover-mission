@@ -1,184 +1,147 @@
 #!/bin/bash
-# rover-mission - start/stop rover subsystems (rover-launch@<subsystem>.service) per mission.
-# Runs on the Jetson host; from a laptop: scripts/mission.sh.
+# rover-mission - start/stop the rover's tmux sessions per mission, inside the rover container
+# (dev and prod). At boot: system/systemd/rover-mission.service runs `rover-mission default`.
+# From a laptop: scripts/mission.sh.
 #
-# Subsystems = ../subsystems/<subsystem>.conf (what runs, CAN to wait for).
-# Missions   = ../missions/<mission>.conf: one "subsystem [extra launch args]" per line, in start order.
+# Missions: ../missions/<mission>.conf - "session [can=IFACE] command" per line, in start order.
+# Default:  ../default-mission - one line, written by --default (kept out of git and the deploy).
+# The current mission and each session's command live in tmux: they go away with the sessions.
 set -euo pipefail
 
 ROBOT_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-SUB_DIR=$ROBOT_DIR/subsystems
 MISSION_DIR=$ROBOT_DIR/missions
+DEFAULT_FILE=$ROBOT_DIR/default-mission
 SESSION=$ROBOT_DIR/scripts/rover-session
-RUN_DIR=/run/rover   # until reboot (apply)
-ETC_DIR=/etc/rover   # every boot (apply --default)
 
-MISSION_SUBS=()            # load_mission: subsystems in start order
-declare -A MISSION_ARGS=() # load_mission: subsystem -> extra launch args
+M_SESSIONS=()                  # load_mission: sessions in start order
+declare -A M_CMD=() M_CAN=()   # load_mission: session -> command / CAN interface
 
 die() { echo -e "\e[31m[ERROR]\e[0m $*" >&2; exit 1; }
-unit() { echo "rover-launch@$1.service"; }
 
-names() {
+missions() {
     local f
-    for f in "$1"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done
+    for f in "$MISSION_DIR"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done
 }
-subsystems() { names "$SUB_DIR"; }
-missions() { names "$MISSION_DIR"; }
-is_subsystem() { [[ -f $SUB_DIR/$1.conf ]]; }
 is_mission() { [[ -f $MISSION_DIR/$1.conf ]]; }
-in_mission() { [[ -v MISSION_ARGS[$1] ]]; }
 
 load_mission() {
-    local file="$MISSION_DIR/$1.conf" s args
+    local file="$MISSION_DIR/$1.conf" s first rest cmd can
     is_mission "$1" || die "Unknown mission '$1' ($(missions | xargs))"
-    MISSION_SUBS=(); MISSION_ARGS=()
-    while read -r s args; do
+    M_SESSIONS=(); M_CMD=(); M_CAN=()
+    while read -r s first rest; do
         [[ -z $s || $s == \#* ]] && continue
-        args=${args%%#*}; args=${args%"${args##*[![:space:]]}"}   # drop comment, trailing spaces
-        is_subsystem "$s" || die "$file: no $SUB_DIR/$s.conf"
-        MISSION_SUBS+=("$s"); MISSION_ARGS[$s]=$args
+        if [[ $first == can=* ]]; then can=${first#can=}; cmd=$rest; else can=; cmd="$first${rest:+ $rest}"; fi
+        cmd=${cmd%%[[:space:]]#*}; cmd=${cmd%"${cmd##*[![:space:]]}"}   # drop " # comment", trailing spaces
+        [[ -n $cmd ]] || die "$file: no command for '$s'"
+        M_SESSIONS+=("$s"); M_CMD[$s]=$cmd; M_CAN[$s]=$can
     done < "$file"
+}
+
+# Sessions started by rover-session (others, e.g. your own `sim`, are never touched).
+managed() {
+    local s
+    for s in $(tmux ls -F '#S' 2>/dev/null); do
+        [[ -n $("$SESSION" command "$s") ]] && echo "$s"
+    done
+}
+is_running() { local fg; fg=$("$SESSION" status "$1"); [[ $fg != - && $fg != bash ]]; }
+
+start() {   # start SESSION CAN CMD
+    echo ">>> start $1${2:+ (waits for $2)}: $3"
+    "$SESSION" start "$1" ${2:+"can=$2"} "$3"
+}
+
+apply() {
+    local mission=$1 s
+    load_mission "$mission"
+
+    # Stop first, in parallel: frees CAN / cameras before anything new grabs them.
+    for s in $(managed); do
+        [[ -v M_CMD[$s] ]] && continue
+        echo ">>> stop $s"; "$SESSION" stop "$s" &
+    done
+    wait
+
+    for s in "${M_SESSIONS[@]}"; do
+        if is_running "$s" && [[ $("$SESSION" command "$s") == "${M_CMD[$s]}" && $("$SESSION" can "$s") == "${M_CAN[$s]}" ]]; then
+            echo ">>> $s already running"; continue
+        fi
+        start "$s" "${M_CAN[$s]}" "${M_CMD[$s]}"
+    done
+    tmux set -g @rover_mission "$mission"
+}
+
+stop_all() {
+    local s
+    for s in $(managed); do echo ">>> stop $s"; "$SESSION" stop "$s" & done
+    wait
+    tmux set -gu @rover_mission 2>/dev/null || true
+}
+
+status() {
+    local s mission default
+    mission=$(tmux show -gv @rover_mission 2>/dev/null || true)
+    default=$(cat "$DEFAULT_FILE" 2>/dev/null || true)
+    echo "mission: ${mission:--}   default (boot): ${default:--}"
+    [[ -n $mission ]] && is_mission "$mission" && load_mission "$mission"
+    printf "%-10s %-14s %s\n" SESSION RUNS COMMAND
+    for s in $( { printf '%s\n' "${M_SESSIONS[@]}"; managed; } | awk 'NF && !seen[$0]++'); do
+        printf "%-10s %-14s %s\n" "$s" "$("$SESSION" status "$s")" "$("$SESSION" command "$s")"
+    done
+}
+
+list() {
+    local m s
+    for m in $(missions); do
+        load_mission "$m"
+        echo "$m:"
+        for s in "${M_SESSIONS[@]}"; do
+            printf "  %-10s %-14s %s\n" "$s" "${M_CAN[$s]:+can=${M_CAN[$s]}}" "${M_CMD[$s]}"
+        done
+    done
 }
 
 show_help() {
     cat << EOF
 Usage: rover-mission COMMAND
 
-  MISSION [--default]     same as: apply MISSION [--default]
-  apply MISSION [--default]
-                          start the mission's subsystems, stop the rest; running ones
-                          with unchanged args are left alone. --default: also at boot
-  stop                    stop every subsystem
-  restart SUBSYSTEM...    restart these
-  status                  mission, and per subsystem: unit state, boot, what runs, args
-  list                    missions and their subsystems
+  MISSION [--default]   start the mission's sessions, stop the other rover sessions;
+                        running ones with the same command are left alone.
+                        --default: also the one 'default' starts (at boot)
+  default               start the default mission (rover-mission.service at boot)
+  stop                  stop every rover session
+  restart SESSION...    restart these with their current command
+  enter SESSION [-r]    attach (-r: read-only); detach with Ctrl-b d
+  status                current / default mission, what runs in each session
+  list                  missions ($MISSION_DIR)
 
-Missions: $MISSION_DIR   Subsystems: $SUB_DIR
-Watch / Ctrl-C a subsystem: scripts/enter_container.sh rover <subsystem>
+Missions: $(missions | xargs)
 EOF
-}
-
-# Args the unit runs (or will run) with: /run overrides /etc, as in the unit.
-current_env() {
-    cat "$RUN_DIR/$1.env" 2>/dev/null || cat "$ETC_DIR/$1.env" 2>/dev/null || echo "LAUNCH_ARGS="
-}
-
-# Unit active and its launch actually up - or still waiting for CAN / the container.
-# systemd alone can't tell: a restarted container leaves the units "active".
-is_running() {
-    local u; u=$(unit "$1")
-    systemctl is-active -q "$u" || return 1
-    [[ $(systemctl show -P SubState "$u") == running ]] && return 0
-    local fg; fg=$("$SESSION" status "$1")
-    [[ $fg != - && $fg != bash ]]
-}
-
-stop_subsystem() {
-    if systemctl is-active -q "$(unit "$1")"; then
-        echo ">>> stop $1"; systemctl stop "$(unit "$1")"
-    fi
-    rm -f "$RUN_DIR/$1.env"
-}
-
-apply() {
-    local mission=$1 default=$2 s
-    load_mission "$mission"
-    mkdir -p "$RUN_DIR"
-
-    # Stop first: frees CAN / cameras before anything new grabs them.
-    for s in $(subsystems | tac); do
-        in_mission "$s" || stop_subsystem "$s"
-    done
-
-    for s in "${MISSION_SUBS[@]}"; do
-        local env="LAUNCH_ARGS=${MISSION_ARGS[$s]}"
-        if is_running "$s" && [[ $(current_env "$s") == "$env" ]]; then
-            echo ">>> $s already running"; continue
-        fi
-        echo "$env" > "$RUN_DIR/$s.env"
-        echo ">>> start $s ${MISSION_ARGS[$s]}"
-        systemctl restart "$(unit "$s")"   # restart: also picks up new args if it was running
-    done
-    echo "$mission" > "$RUN_DIR/mission"
-
-    if [[ $default == true ]]; then
-        mkdir -p "$ETC_DIR"
-        for s in $(subsystems); do
-            if in_mission "$s"; then
-                cp "$RUN_DIR/$s.env" "$ETC_DIR/$s.env"
-                systemctl enable -q "$(unit "$s")"
-            else
-                rm -f "$ETC_DIR/$s.env"
-                systemctl disable -q "$(unit "$s")" 2>/dev/null || true
-            fi
-        done
-        echo "$mission" > "$ETC_DIR/mission"
-        echo ">>> '$mission' starts at boot"
-    fi
-}
-
-stop_all() {
-    local s
-    for s in $(subsystems | tac); do stop_subsystem "$s"; done
-    rm -f "$RUN_DIR/mission"
-}
-
-status() {
-    local now boot s u
-    now=$(cat "$RUN_DIR/mission" 2>/dev/null || echo "-")
-    boot=$(cat "$ETC_DIR/mission" 2>/dev/null || echo "-")
-    echo "mission: $now   at boot: $boot"
-    printf "%-8s %-10s %-9s %-8s %s\n" SUBSYS UNIT BOOT RUNS ARGS
-    for s in $(subsystems); do
-        u=$(unit "$s")
-        printf "%-8s %-10s %-9s %-8s %s\n" "$s" \
-            "$(systemctl is-active "$u" 2>/dev/null || true)" \
-            "$(systemctl is-enabled "$u" 2>/dev/null || true)" \
-            "$("$SESSION" status "$s")" \
-            "$(current_env "$s" | sed 's/^LAUNCH_ARGS=//')"
-    done
-}
-
-list() {
-    local m s line
-    for m in $(missions); do
-        load_mission "$m"
-        line="$m:"
-        for s in "${MISSION_SUBS[@]}"; do
-            line+=" $s"; [[ -n ${MISSION_ARGS[$s]} ]] && line+="(${MISSION_ARGS[$s]})"
-        done
-        echo "$line"
-    done
 }
 
 [[ $# -gt 0 ]] || { show_help; exit 1; }
 cmd=$1; shift
 case $cmd in
-    -h|--help|help) show_help; exit 0;;
-    status) status; exit 0;;
-    list)   list; exit 0;;
-esac
-
-[[ $EUID -eq 0 ]] || exec sudo "$0" "$cmd" "$@"
-
-case $cmd in
-    stop)
-        stop_all;;
+    -h|--help|help) show_help;;
+    status)  status;;
+    list)    list;;
+    stop)    stop_all;;
+    enter)   [[ $# -ge 1 ]] || die "enter needs a SESSION"; exec "$SESSION" enter "$@";;
+    default)
+        [[ -f $DEFAULT_FILE ]] || { echo ">>> no default mission ($DEFAULT_FILE) - nothing started"; exit 0; }
+        apply "$(head -1 "$DEFAULT_FILE" | tr -d '[:space:]')";;
     restart)
-        [[ $# -ge 1 ]] || die "restart needs SUBSYSTEM(s) ($(subsystems | xargs))"
-        for s in "$@"; do
-            is_subsystem "$s" || die "Unknown subsystem '$s' ($(subsystems | xargs))"
-        done
-        for s in "$@"; do echo ">>> restart $s"; systemctl restart "$(unit "$s")"; done;;
+        [[ $# -ge 1 ]] || die "restart needs SESSION(s)"
+        for s in "$@"; do [[ -n $("$SESSION" command "$s") ]] || die "'$s' wasn't started by rover-mission / rover-session"; done
+        for s in "$@"; do start "$s" "$("$SESSION" can "$s")" "$("$SESSION" command "$s")"; done;;
     *)
-        if [[ $cmd == apply ]]; then
-            [[ $# -ge 1 ]] || die "apply needs a MISSION ($(missions | xargs))"
-            cmd=$1; shift
-        fi
         is_mission "$cmd" || die "Unknown command or mission '$cmd' (missions: $(missions | xargs); -h for help)"
         default=false
         [[ ${1:-} == --default ]] && { default=true; shift; }
         [[ $# -eq 0 ]] || die "Unexpected: $*"
-        apply "$cmd" "$default";;
+        apply "$cmd"
+        if [[ $default == true ]]; then
+            echo "$cmd" > "$DEFAULT_FILE"
+            echo ">>> '$cmd' is the default mission"
+        fi;;
 esac
