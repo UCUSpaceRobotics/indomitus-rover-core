@@ -6,7 +6,7 @@ Brings up ros2_socketcan sender and receiver lifecycle nodes.
 Launch arguments:
     interface            (default: can0)   — SocketCAN interface name
     sender_timeout_sec   (default: 0.01)   — sender TX timeout
-    receiver_interval_sec (default: 0.5)   — receiver polling interval
+    receiver_interval_sec (default: 5.0)   — receiver polling interval
     receiver_filters     (default: 300:700) — candump-syntax id:mask filter
 
 Prerequisites (host-side, before launching):
@@ -156,7 +156,7 @@ def generate_launch_description() -> LaunchDescription:
     )
     receiver_interval_arg = DeclareLaunchArgument(
         "receiver_interval_sec",
-        default_value="0.5",
+        default_value="5.0",
         description="CAN socket polling interval for the receiver (seconds)",
     )
 
