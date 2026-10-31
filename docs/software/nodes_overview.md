@@ -68,7 +68,6 @@ Main launch and configuration package for the real rover.
 **Launch files:**
 - `rover.launch.py` — top-level real-hardware bringup; composes `indomitus_can`'s `can.launch.py`, `rover_description`'s `robot_state_publisher.launch.py`, `rover_controller`'s `control.launch.py`, `rover_drive`'s `twist_mux.launch.py` and `drive_manager.launch.py`, plus includes from `rover_peripherals` and `rover_localization`. No cameras - see `cameras.launch.py`
 - `cameras.launch.py` — `rover_cameras`' `cameras.launch.py` (`use_cameras`, `cameras`) + `rover_sensors`' `zed2i.launch.py` via `zed2i_mode` (`rgb`/`nav`/`record`/unset — unset skips the ZED). Separate from `rover.launch.py` so cameras restart without stopping drive
-- `power_monitor.launch.py` — PlotJuggler for the power monitor (under the rover namespace); `power_node` itself runs in `rover.launch.py`
 
 **Config:**
 - `controllers.yaml` — ros2_control controller parameters (real hardware)
@@ -182,7 +181,7 @@ Visualization tooling.
 
 **Launch files:**
 - `launch/rviz.launch.py` — RViz visualization
-- `launch/power_monitor_viz.launch.py` — brings up PlotJuggler for live power monitoring, loading `plotjuggler/power_monitor.xml`
+- `launch/power_monitor_viz.launch.py` — PlotJuggler for live power monitoring under `rover_namespace` (default `$ROVER_NAMESPACE`/`rover`), loading `plotjuggler/power_monitor.xml`
 
 **Config:**
 - `rviz/robot.rviz`
