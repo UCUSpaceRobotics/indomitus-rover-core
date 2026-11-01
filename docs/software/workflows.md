@@ -12,6 +12,11 @@ Triggered automatically on pushes to `main` and `develop`, or manually via `work
   * `latest-prod`: Generated only when pushing to `main`.
   * `<branch>-prod` / `<branch>-dev`: Branch-specific tags.
   * `sha-<commit_sha>-prod` / `sha-<commit_sha>-dev`: Immutable tags for tracking specific commits.
+* **Build images of your own branch (no version tag / release):**
+  * push the branch first (the run uses the pushed commit);
+  * CLI: `gh workflow run publish_image.yaml --ref <branch>`, follow with `gh run watch`;
+  * UI: Actions → *Publish Production And Development Images* → *Run workflow* → pick the branch;
+  * result: `<branch>-prod` / `<branch>-dev` (`/` → `-`, e.g. `feature-shared-mission-script-prod`) + `sha-…` tags.
 
 
 ## 2. PR Pipeline (`pr_pipeline.yaml`)
