@@ -30,10 +30,12 @@ Usage: $0 [OPTIONS] COMMAND
 Starts / stops the rover's tmux sessions per mission (rover-mission in ${CONTAINER_NAME}).
 
 Commands:
-  MISSION [--default]    drive | nav | arm | all; --default: also at boot
-  default                start the default mission
+  MISSION [--default] [--force]
+                         drive | nav | arm | all; --default: also at boot;
+                         --force: also replace commands typed by hand
+  default [--force]      start the default mission
   stop                   stop every rover session
-  restart SESSION...     restart with the current command
+  restart SESSION...     Ctrl-C + rerun the last command there
   enter SESSION [-r]     attach (-r: read-only); detach with Ctrl-b d
   status                 what runs now
   list                   missions and their sessions

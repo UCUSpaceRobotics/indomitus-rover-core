@@ -19,17 +19,21 @@
 ## Commands (in the container, dev and prod - on `PATH` via `docker/Dockerfile`)
 
 - `rover-mission nav` - start the mission's sessions, stop other rover sessions; same command already running → left alone.
+- Command typed by hand in a rover session (not in any mission, e.g. own flags) → left alone with a warning; `--force` replaces / stops it.
 - `rover-mission nav --default` - same + it's the one `rover-mission default` starts (at boot).
-- `rover-mission stop` / `restart cameras` / `status` / `list` / `enter core [-r]`.
-- `rover-session start|stop|enter|status NAME` - one session (used by `rover-mission`, handy by hand).
+- `rover-mission stop` - stops every rover session, hand-typed commands too.
+- `rover-mission restart cameras` - Ctrl-C + `!!` (reruns the last command there, also a hand-typed one).
+- `rover-mission status` / `list` / `enter core [-r]`.
+- `rover-session start|stop|restart|enter|status NAME` - one session (used by `rover-mission`, handy by hand).
 - From a laptop: `scripts/mission.sh nav` (ssh + `docker exec rover_prod rover-mission …`).
 - Run from the bind-mounted `src/`: editing a mission or a script needs no rebuild.
 
 ## State
 
 - Default mission: `default-mission` (one line), written by `--default`; not in git, not overwritten by the deploy (`scripts/.rsync-filter-deploy`).
-- Everything else lives in tmux and goes away with the sessions: current mission (`@rover_mission`), each session's command (`@rover_cmd`, `@rover_can`).
-- Only sessions started by `rover-session` are touched; your own (`sim`, …) never are.
+- Current mission: tmux `@rover_mission`, goes away with the tmux server.
+- What runs in a session: read from its processes (`rover-session status`: shell's child command line, `ros2 launch …`), so hand-typed commands are seen as they are.
+- Rover sessions = names used in any mission; your own (`sim`, …) are never touched.
 
 ## Sessions
 
