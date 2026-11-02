@@ -15,6 +15,10 @@ Motor selection (choose which motors get enabled/commanded):
     --damiao [ID ...]     test damiao motors by CAN ID. No IDs = all 4. E.g. --damiao 10 14
     --steadywin [ID ...]  test steadywin motors by CAN ID. No IDs = all 4. E.g. --steadywin 13
 
+Bus selection (optional):
+    --channel IFACE       SocketCAN interface, default can0.
+    --bitrate BPS         bus bitrate, default 500000
+
 Controls (vim-style) — also shown in the footer:
     e   Enable selected motors
     d   Disable selected motors (ramp down)
@@ -228,14 +232,30 @@ class CanBus:
         self.last_seen: dict[int, float] = {}       # can_id -> monotonic, any decoded frame
         self.last_diag: dict[int, float] = {}       # can_id -> monotonic, diagnostics only
         self.undecoded: dict[int, int] = {}         # can_id -> frames we could not decode
+        self.tx_errors = 0                          # sends the kernel refused
+        self.rx_errors = 0                          # recv() failures that were not shutdown
+        self.last_tx_error: str | None = None
+        self.last_rx_error: str | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._closed = False
         self._thread = threading.Thread(target=self._listen, daemon=True)
         self._thread.start()
 
     def _listen(self):
         while not self._stop.is_set():
-            msg = self.bus.recv(timeout=0.2)
+            try:
+                msg = self.bus.recv(timeout=0.2)
+            except (can.CanError, OSError) as e:
+                # shutdown() closes the socket out from under this recv — that
+                # is the normal way out of this loop, not an error worth noise.
+                if self._stop.is_set():
+                    return
+                with self._lock:
+                    self.rx_errors += 1
+                    self.last_rx_error = str(e)
+                self._stop.wait(0.1)   # don't spin hot on a broken socket
+                continue
             if msg is None:
                 continue
             if msg.arbitration_id in self.steer_ids:
@@ -274,8 +294,20 @@ class CanBus:
             # temperatures in every frame — receiving it *is* the diagnostic.
             self.last_diag[msg.arbitration_id] = now
 
-    def send(self, msg: can.Message):
-        self.bus.send(msg)
+    def send(self, msg: can.Message) -> bool:
+        """Transmit one frame. Never raises: SocketCAN reports a full TX queue
+        (nobody ACKing our frames, or a short txqueuelen) as ENOBUFS, and a
+        motor test is exactly the situation where that is expected. Failures
+        are counted and surfaced in the CAN panel instead of killing the
+        caller's thread. Returns True if the frame was handed to the kernel."""
+        try:
+            self.bus.send(msg)
+            return True
+        except (can.CanError, OSError) as e:
+            with self._lock:
+                self.tx_errors += 1
+                self.last_tx_error = str(e)
+            return False
 
     def snapshot_damiao(self) -> dict[int, dict]:
         with self._lock:
@@ -301,10 +333,26 @@ class CanBus:
         with self._lock:
             return dict(self.undecoded)
 
+    def snapshot_io_errors(self) -> dict:
+        """tx/rx failure counts plus the most recent message for each"""
+        with self._lock:
+            return {
+                "tx_errors": self.tx_errors,
+                "rx_errors": self.rx_errors,
+                "last_tx_error": self.last_tx_error,
+                "last_rx_error": self.last_rx_error,
+            }
+
     def shutdown(self):
+        if self._closed:
+            return
+        self._closed = True
         self._stop.set()
         self._thread.join(timeout=1.0)
-        self.bus.shutdown()
+        try:
+            self.bus.shutdown()
+        except Exception:
+            pass   # already closing down; a failure here has nowhere useful to go
 
 # ── Steadywin diagnostics poller ────────────────────────────────────────────
 
@@ -334,10 +382,9 @@ class DiagnosticsPoller:
             for esc_id in self.steer_ids:
                 if self._stop.is_set():
                     return
-                try:
-                    self.bus.send(sw_status_query(esc_id))
-                except can.CanError:
-                    pass   # bus trouble shows up in the CAN link panel; keep polling
+                # CanBus.send swallows and counts bus trouble; it shows up in
+                # the CAN panel. Keep polling regardless.
+                self.bus.send(sw_status_query(esc_id))
                 self._stop.wait(0.005)   # space the queries out on the bus
             self._stop.wait(period)
 
@@ -482,6 +529,10 @@ class CandumpMonitor:
                 self.lines.put_nowait(line.rstrip("\n"))
             except queue.Full:
                 self.dropped += 1
+                # The UI is already behind, so reading faster helps nobody and
+                # this loop would hold the GIL away from the event loop. Pause
+                # and let the pipe apply backpressure to candump instead.
+                self._stop.wait(0.002)
 
     def drain(self, limit: int = 300) -> list[str]:
         """Pop up to `limit` buffered lines. Capped so one slow frame of the UI
@@ -523,6 +574,7 @@ class MotionController:
         self._stop = threading.Event()
         self._active = threading.Event()
         self._sent_count = 0
+        self.thread_error: str | None = None   # last unexpected failure in _run
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -551,34 +603,35 @@ class MotionController:
     def sent_count(self) -> int:
         return self._sent_count
 
-    def wait_until_settled(self, tol: float = 0.02, timeout: float = 5.0):
+    def wait_until_settled(self, tol: float = 0.02, timeout: float = 5.0,
+                           cancel: threading.Event | None = None):
+        """Block until the ramp reaches its target. `cancel` lets a caller on a
+        worker thread be released immediately when the app is shutting down,
+        instead of holding the process open for the full timeout."""
         start = time.time()
         while time.time() - start < timeout:
+            if cancel is not None and cancel.is_set():
+                return
             with self._lock:
                 done = abs(self.speed_current - self.speed_target) < tol
             if done:
                 return
-            time.sleep(1.0 / CMD_RATE_HZ)
+            if cancel is not None:
+                cancel.wait(1.0 / CMD_RATE_HZ)
+            else:
+                time.sleep(1.0 / CMD_RATE_HZ)
 
     def _run(self):
         dt = 1.0 / CMD_RATE_HZ
         next_tick = time.monotonic()
         while not self._stop.is_set():
-            if self._active.is_set():
-                with self._lock:
-                    diff = self.speed_target - self.speed_current
-                    speeding_up = abs(self.speed_target) > abs(self.speed_current)
-                    limit = (MAX_ACCEL if speeding_up else MAX_DECEL) * dt
-                    step = max(-limit, min(limit, diff))
-                    self.speed_current += step
-                    speed = self.speed_current
-                    angle = self.angle
-
-                for esc_id in self.drive_ids:
-                    self.bus.send(dm_velocity(esc_id, speed))
-                for esc_id in self.steer_ids:
-                    self.bus.send(sw_abs_position(esc_id, angle))
-                self._sent_count += 1
+            try:
+                self._tick(dt)
+            except Exception as e:
+                # bus.send already swallows CAN trouble, so anything landing
+                # here is a bug — record it and keep the loop alive rather than
+                # letting the command stream die silently.
+                self.thread_error = repr(e)
 
             next_tick += dt
             sleep_for = next_tick - time.monotonic()
@@ -587,41 +640,75 @@ class MotionController:
             else:
                 next_tick = time.monotonic()
 
+    def _tick(self, dt: float):
+        """One command-loop iteration: advance the ramp, push the frames out."""
+        if not self._active.is_set():
+            return
+        with self._lock:
+            diff = self.speed_target - self.speed_current
+            speeding_up = abs(self.speed_target) > abs(self.speed_current)
+            limit = (MAX_ACCEL if speeding_up else MAX_DECEL) * dt
+            step = max(-limit, min(limit, diff))
+            self.speed_current += step
+            speed = self.speed_current
+            angle = self.angle
+
+        for esc_id in self.drive_ids:
+            self.bus.send(dm_velocity(esc_id, speed))
+        for esc_id in self.steer_ids:
+            self.bus.send(sw_abs_position(esc_id, angle))
+        self._sent_count += 1
+
     def shutdown(self):
         self._stop.set()
         self._thread.join(timeout=1.0)
 
 # ── High-level actions (blocking — always call from a worker thread) ────────
+#
+# Every one of these takes an optional `cancel` event. They run on worker
+# threads, which Textual runs in the default ThreadPoolExecutor — those threads
+# are *not* daemons, so the interpreter joins them at exit. A worker still
+# sleeping here when the app quits would hold the whole process open, hence the
+# interruptible waits.
 
-def enable_all(bus: CanBus, motion: MotionController):
+def _wait(seconds: float, cancel: threading.Event | None):
+    if cancel is None:
+        time.sleep(seconds)
+    else:
+        cancel.wait(seconds)
+
+def enable_all(bus: CanBus, motion: MotionController,
+               cancel: threading.Event | None = None):
     for esc_id in motion.steer_ids:
-        bus.send(sw_clear_fault(esc_id)); time.sleep(0.02)
+        bus.send(sw_clear_fault(esc_id)); _wait(0.02, cancel)
     for esc_id in motion.steer_ids:
-        bus.send(sw_abs_position(esc_id, 0.0)); time.sleep(0.02)
+        bus.send(sw_abs_position(esc_id, 0.0)); _wait(0.02, cancel)
     for esc_id in motion.drive_ids:
-        bus.send(dm_set_mode(esc_id, 3)); time.sleep(0.02)   # mode 3 = Velocity
-    time.sleep(0.05)
+        bus.send(dm_set_mode(esc_id, 3)); _wait(0.02, cancel)   # mode 3 = Velocity
+    _wait(0.05, cancel)
     for esc_id in motion.drive_ids:
-        bus.send(dm_enable(esc_id)); time.sleep(0.02)
+        bus.send(dm_enable(esc_id)); _wait(0.02, cancel)
     motion.set_speed_target(0.0)
     motion.set_angle(0.0)
     motion.set_active(True)
 
-def disable_all(bus: CanBus, motion: MotionController):
+def disable_all(bus: CanBus, motion: MotionController,
+                cancel: threading.Event | None = None):
     motion.set_speed_target(0.0)
-    motion.wait_until_settled(timeout=5.0)
+    motion.wait_until_settled(timeout=5.0, cancel=cancel)
     motion.set_active(False)
     for esc_id in motion.steer_ids:
         bus.send(sw_abs_position(esc_id, 0.0))
-    time.sleep(0.3)
+    _wait(0.3, cancel)
     for esc_id in motion.steer_ids:
         bus.send(sw_disable(esc_id))
     for esc_id in motion.drive_ids:
         bus.send(dm_disable(esc_id))
 
-def measure_send_rate(motion: MotionController, duration: float = 1.0) -> float:
+def measure_send_rate(motion: MotionController, duration: float = 1.0,
+                      cancel: threading.Event | None = None) -> float:
     before = motion.sent_count()
-    time.sleep(duration)
+    _wait(duration, cancel)
     after = motion.sent_count()
     return (after - before) / duration
 
@@ -643,6 +730,15 @@ def parse_args() -> argparse.Namespace:
         "--all", action="store_true",
         help="Test all motors in the known set"
     )
+    parser.add_argument(
+        "--channel", default=CAN_CHANNEL, metavar="IFACE",
+        help=f"SocketCAN interface to use (default: {CAN_CHANNEL}). "
+             f"A vcan interface works for dry runs without hardware."
+    )
+    parser.add_argument(
+        "--bitrate", type=int, default=CAN_BITRATE, metavar="BPS",
+        help=f"Bus bitrate (default: {CAN_BITRATE})"
+    )
     args = parser.parse_args()
     if not args.all and args.damiao is None and args.steadywin is None:
         parser.error("No motors selected. Use --all, --damiao, or --steadywin.")
@@ -658,6 +754,16 @@ def resolve_selected_ids(args: argparse.Namespace) -> tuple[list[int], list[int]
     if args.steadywin is not None:
         steer_ids = list(args.steadywin) if len(args.steadywin) > 0 else list(STEER_IDS)
     return drive_ids, steer_ids
+
+def plain(text: object) -> str:
+    """Neutralise Textual markup in a string we did not write.
+
+    Error messages routinely contain brackets — "[Errno 9] Bad file descriptor"
+    is the classic — and Textual parses those as style tags. An unparsable one
+    raises MarkupError *inside the render*, which kills the timer that called
+    it and takes the app down with it. Same reason the candump panel is built
+    with markup=False."""
+    return str(text).replace("[", "(").replace("]", ")")
 
 # ── TUI app ─────────────────────────────────────────────────────────────────
 
@@ -733,15 +839,23 @@ class ChassisTUI(App):
         Binding("q", "quit_app", "Quit"),
     ]
 
-    def __init__(self, drive_ids: list[int], steer_ids: list[int]):
+    def __init__(self, drive_ids: list[int], steer_ids: list[int],
+                 channel: str = CAN_CHANNEL, bitrate: int = CAN_BITRATE):
         super().__init__()
         self.drive_ids = drive_ids
         self.steer_ids = steer_ids
+        self.channel = channel
+        self.bitrate = bitrate
         self.bus: CanBus | None = None
         self.motion: MotionController | None = None
         self.link_monitor: CanLinkMonitor | None = None
         self.diag_poller: DiagnosticsPoller | None = None
         self.candump: CandumpMonitor | None = None
+        # Set the moment we start tearing down, on any exit path. Worker
+        # threads poll it so they never outlive the app (see _safe_log).
+        # Not named _shutdown: App._shutdown is Textual's own coroutine.
+        self._shutting_down = threading.Event()
+        self._cleaned_up = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -750,7 +864,8 @@ class ChassisTUI(App):
             yield Static(id="motors_status")
             yield Static(id="motion_status")
         with Horizontal(id="body_row"):
-            yield RichLog(id="log", wrap=True, highlight=True, markup=True)
+            yield RichLog(id="log", wrap=True, highlight=True, markup=True,
+                          max_lines=2000)
             # Raw candump text: no markup (frames contain "[8]", which Textual
             # would try to parse as a tag) and no wrap, so frames stay aligned.
             yield RichLog(id="candump", wrap=False, highlight=False,
@@ -764,11 +879,11 @@ class ChassisTUI(App):
 
         # Link stats poll independently of python-can — useful for diagnosing
         # bus issues even when the python-can bus below fails to open.
-        self.link_monitor = CanLinkMonitor(CAN_CHANNEL)
+        self.link_monitor = CanLinkMonitor(self.channel)
 
-        log.write(f"Opening {CAN_CHANNEL} @ {CAN_BITRATE} bps...")
+        log.write(f"Opening {self.channel} @ {self.bitrate} bps...")
         try:
-            self.bus = CanBus(CAN_CHANNEL, CAN_BITRATE, self.drive_ids, self.steer_ids)
+            self.bus = CanBus(self.channel, self.bitrate, self.drive_ids, self.steer_ids)
             self.motion = MotionController(self.bus, self.drive_ids, self.steer_ids)
             if self.steer_ids:
                 # Steadywin sends nothing diagnostic unless asked — see DiagnosticsPoller
@@ -778,7 +893,7 @@ class ChassisTUI(App):
             else:
                 log.write("[green]Ready.[/green]")
         except Exception as e:
-            log.write(f"[bold red]Failed to open CAN bus: {e}[/bold red]")
+            log.write(f"[bold red]Failed to open CAN bus: {plain(e)}[/bold red]")
 
         self.set_interval(1 / 10, self.update_status)
         self.set_interval(1 / 10, self.drain_candump)
@@ -788,7 +903,7 @@ class ChassisTUI(App):
         can_lines: list[str] = []
         link = self.link_monitor.snapshot() if self.link_monitor else {}
         if link.get("error"):
-            can_lines.append(f"{CAN_CHANNEL}: [red]{link['error']}[/red]")
+            can_lines.append(f"{self.channel}: [red]{plain(link['error'])}[/red]")
         else:
             can_state = link.get("state") or "?"
             color = {
@@ -804,12 +919,22 @@ class ChassisTUI(App):
             rx = link.get("rx", {})
             tx = link.get("tx", {})
             can_lines.append(
-                f"{CAN_CHANNEL}: [{color}]{can_state}[/{color}]  {bitrate_s}  "
+                f"{self.channel}: [{color}]{can_state}[/{color}]  {bitrate_s}  "
                 f"berr(tx={berr_tx} rx={berr_rx})"
             )
             can_lines.append(
                 f"rx: errors={rx.get('errors', '?')} dropped={rx.get('dropped', '?')}   "
                 f"tx: errors={tx.get('errors', '?')} dropped={tx.get('dropped', '?')}"
+            )
+
+        # Socket-level failures we swallowed in CanBus, e.g. ENOBUFS when the
+        # TX queue fills because nobody is ACKing. Only shown once it happens.
+        io = self.bus.snapshot_io_errors() if self.bus else {}
+        if io.get("tx_errors") or io.get("rx_errors"):
+            detail = io.get("last_tx_error") or io.get("last_rx_error") or ""
+            can_lines.append(
+                f"[red]socket: tx_err={io['tx_errors']} rx_err={io['rx_errors']}[/red]"
+                f"  {plain(detail)[:48]}"
             )
         self.query_one("#can_status", Static).update("\n".join(can_lines))
 
@@ -848,6 +973,17 @@ class ChassisTUI(App):
     def log_write(self, msg: str) -> None:
         self.query_one("#log", RichLog).write(msg)
 
+    def _safe_log(self, msg: str) -> None:
+        """log_write() from a worker thread. Drops the message if the app is on
+        its way out: call_from_thread hands the callback to the event loop and
+        blocks on the result, which never arrives once that loop is gone."""
+        if self._shutting_down.is_set():
+            return
+        try:
+            self.call_from_thread(self.log_write, msg)
+        except RuntimeError:
+            pass   # app stopped between the check above and the call
+
     # ── actions ──────────────────────────────────────────────────────────
 
     def action_enable(self) -> None:
@@ -855,21 +991,29 @@ class ChassisTUI(App):
             self.log_write("[red]e: CAN bus not open[/red]")
             return
         self.log_write("[green]e[/green] enabling...")
-        self.run_worker(self._enable_worker, thread=True)
+        self.run_worker(self._enable_worker, thread=True, exit_on_error=False)
 
     def _enable_worker(self) -> None:
-        enable_all(self.bus, self.motion)
-        self.call_from_thread(self.log_write, "  -> enable sequence sent")
+        try:
+            enable_all(self.bus, self.motion, cancel=self._shutting_down)
+        except Exception as e:
+            self._safe_log(f"  [red]-> enable failed: {plain(repr(e))}[/red]")
+            return
+        self._safe_log("  -> enable sequence sent")
 
     def action_disable(self) -> None:
         if not self.motion:
             return
         self.log_write("[yellow]d[/yellow] disabling (ramping down)...")
-        self.run_worker(self._disable_worker, thread=True)
+        self.run_worker(self._disable_worker, thread=True, exit_on_error=False)
 
     def _disable_worker(self) -> None:
-        disable_all(self.bus, self.motion)
-        self.call_from_thread(self.log_write, "  -> all motors disabled")
+        try:
+            disable_all(self.bus, self.motion, cancel=self._shutting_down)
+        except Exception as e:
+            self._safe_log(f"  [red]-> disable failed: {plain(repr(e))}[/red]")
+            return
+        self._safe_log("  -> all motors disabled")
 
     def action_speed_up(self) -> None:
         if not self.motion or not self.motion.drive_ids:
@@ -974,72 +1118,119 @@ class ChassisTUI(App):
 
         panel.display = True
         panel.clear()
-        panel.border_title = f"candump {CAN_CHANNEL}"
-        monitor = CandumpMonitor(CAN_CHANNEL)
+        panel.border_title = f"candump {self.channel}"
+        monitor = CandumpMonitor(self.channel)
         if not monitor.start():
             panel.write(f"cannot start candump: {monitor.error}")
-            self.log_write(f"[red]1: candump failed — {monitor.error}[/red]")
+            self.log_write(f"[red]1: candump failed — {plain(monitor.error)}[/red]")
             return
         self.candump = monitor
-        panel.write("$ " + " ".join(CANDUMP_CMD + [CAN_CHANNEL]))
+        panel.write("$ " + " ".join(CANDUMP_CMD + [self.channel]))
         self.log_write("[magenta]1[/magenta] candump panel on")
 
     def drain_candump(self) -> None:
         if not self.candump:
             return
-        lines = self.candump.drain()
+        panel = self.query_one("#candump", RichLog)
+        if not panel.display:
+            return
+        # Textual's stdout writer queue holds 30 chunks and blocks when full,
+        # so an over-eager drain stalls the whole event loop on a busy bus.
+        # 120 per 100 ms tick is as much as the terminal can usefully absorb;
+        # the rest is dropped by the monitor and counted in the border title.
+        lines = self.candump.drain(limit=120)
         if not lines:
             return
-        panel = self.query_one("#candump", RichLog)
         for line in lines:
             panel.write(line)
         if self.candump.dropped:
-            panel.border_title = (f"candump {CAN_CHANNEL} — "
+            panel.border_title = (f"candump {self.channel} — "
                                   f"{self.candump.dropped} dropped")
 
     def action_measure_rate(self) -> None:
         if not self.motion:
             return
         self.log_write("r: measuring send rate for 1s...")
-        self.run_worker(self._measure_rate_worker, thread=True)
+        self.run_worker(self._measure_rate_worker, thread=True, exit_on_error=False)
 
     def _measure_rate_worker(self) -> None:
-        hz = measure_send_rate(self.motion, duration=1.0)
-        self.call_from_thread(
-            self.log_write, f"   actual rate ~= {hz:.1f} Hz (target {CMD_RATE_HZ:.0f} Hz)"
-        )
+        try:
+            hz = measure_send_rate(self.motion, duration=1.0, cancel=self._shutting_down)
+        except Exception as e:
+            self._safe_log(f"   [red]rate measurement failed: {plain(repr(e))}[/red]")
+            return
+        if self._shutting_down.is_set():
+            return   # cut short by the quit — the number would be meaningless
+        self._safe_log(f"   actual rate ~= {hz:.1f} Hz (target {CMD_RATE_HZ:.0f} Hz)")
 
     def action_quit_app(self) -> None:
+        # Nothing blocking here: this runs on the UI thread, and stalling it
+        # backs up Textual's message and stdout queues. Start the ramp down,
+        # release the workers, and let cleanup_hardware() do the rest once
+        # run() has returned — see main().
         self.log_write("q: shutting down...")
-        self._cleanup_hardware()
-        self.exit()
-
-    def _cleanup_hardware(self) -> None:
-        if self.candump:
-            self.candump.stop()
-            self.candump = None
-        if self.diag_poller:
-            self.diag_poller.shutdown()
+        self._shutting_down.set()
         if self.motion:
             self.motion.set_speed_target(0.0)
-            self.motion.wait_until_settled(timeout=3.0)
-            self.motion.set_active(False)
-            for esc_id in self.motion.drive_ids:
-                self.bus.send(dm_disable(esc_id))
-            for esc_id in self.motion.steer_ids:
-                self.bus.send(sw_disable(esc_id))
-            self.motion.shutdown()
+        self.exit()
+
+    def cleanup_hardware(self) -> None:
+        """Stop the motors and release every resource. Called from main()'s
+        finally block, so it runs on *every* exit path — 'q', ctrl+q, ctrl+c
+        and an unhandled exception alike — not just the one keybinding.
+
+        Each stage is isolated: a failure in one must not skip the rest, and in
+        particular must not leave the motors enabled. The app is gone by now,
+        so progress goes to stdout rather than the RichLog."""
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
+        self._shutting_down.set()
+
+        def stage(name: str, fn):
+            try:
+                fn()
+            except Exception as e:
+                print(f"cleanup: {name} failed: {e!r}", file=sys.stderr)
+
+        if self.candump:
+            stage("candump", self.candump.stop)
+            self.candump = None
+        if self.diag_poller:
+            stage("diag poller", self.diag_poller.shutdown)
+        if self.motion:
+            def stop_motors():
+                self.motion.set_speed_target(0.0)
+                # Ramp down under control before cutting the torque. Not
+                # cancellable by _shutting_down — this is the shutdown.
+                # Only meaningful while the command loop is still running: a
+                # cancelled 'd' worker may already have deactivated it, and
+                # then the ramp cannot move and this would just burn the
+                # timeout before disabling anyway.
+                if self.motion.is_active():
+                    self.motion.wait_until_settled(timeout=3.0)
+                self.motion.set_active(False)
+                for esc_id in self.motion.drive_ids:
+                    self.bus.send(dm_disable(esc_id))
+                for esc_id in self.motion.steer_ids:
+                    self.bus.send(sw_disable(esc_id))
+            stage("motor stop", stop_motors)
+            stage("motion thread", self.motion.shutdown)
         if self.bus:
-            self.bus.shutdown()
+            stage("bus", self.bus.shutdown)
         if self.link_monitor:
-            self.link_monitor.shutdown()
+            stage("link monitor", self.link_monitor.shutdown)
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main():
     args = parse_args()
     drive_ids, steer_ids = resolve_selected_ids(args)
-    ChassisTUI(drive_ids, steer_ids).run()
+    app = ChassisTUI(drive_ids, steer_ids, args.channel, args.bitrate)
+    try:
+        app.run()
+    finally:
+        app.cleanup_hardware()
 
 if __name__ == '__main__':
     main()

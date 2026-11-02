@@ -1,0 +1,24 @@
+/**/remote_keyboard_joy:
+  ros__parameters:
+    cmd_vel_topic: cmd_vel_remote   # laptop operators' twist_mux input, shared with
+                                    # a laptop gamepad (one operator at a time)
+    publish_rate: 20.0
+    speed: 0.5                  # starting stick deflection, 1..9,0 change it
+
+    # A terminal reports no key release: a key counts as held this long after
+    # its first character (bridges the autorepeat delay) and after each repeat.
+    initial_hold: 0.6
+    repeat_hold: 0.15
+
+    keys:
+      motor_toggle_button: "m"
+      raw_twist_mode_button: "t"
+      granny_button: "g"
+      vy_toggle_button: "v"
+      compact_mode_button: "p"
+      active_toggle_button: "o"
+      spotlight_button: "f"
+      beautiful_button: "b"
+      clear_errors_button: "X" # capital on purpose
+      dataset_capture_button: ""
+      dataset_record_button: ""

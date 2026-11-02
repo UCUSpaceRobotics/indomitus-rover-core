@@ -38,7 +38,7 @@ Plug **USB-A** into the Jetson and **USB Type-C** into the joystick. No further 
 
 ## Light Bar
 
-On a PlayStation controller, `joystick_interpreter` paints the light bar with the current drive state. The colours are ordered by severity — the bar always shows the most serious state that applies, so green means the joystick can move the rover *right now*:
+On a PlayStation controller, `gamepad_interpreter` paints the light bar with the current drive state. The colours are ordered by severity — the bar always shows the most serious state that applies, so green means the joystick can move the rover *right now*:
 
 | Color | Meaning |
 |-------|---------|
@@ -47,13 +47,13 @@ On a PlayStation controller, `joystick_interpreter` paints the light bar with th
 | 🟠 Orange | Motors on, controller inactive |
 | 🔵 Blue | Yielding to navigation |
 | 🟢 Green | Joystick in command |
-| ⚪ White | `joystick_interpreter` is not running |
+| ⚪ White | `gamepad_interpreter` is not running |
 
 White is painted as the node shuts down.
 
 Magenta appears after the clear-errors button: the faults are gone, but the hardware will not drive again until the motor button is cycled off and on.
 
-The drive state itself is read off `drive/state`, which `drive_power_node` publishes — the joystick no longer keeps its own copy, so the bar tracks the drive even when the ground station is the one commanding it. With `drive_power_node` not running nothing arrives on that topic and the bar stays red, which is the truth: no controller has been activated, so the rover cannot move.
+The drive state itself is read off `drive/state`, which `drive_manager_node` publishes — the joystick no longer keeps its own copy, so the bar tracks the drive even when the ground station is the one commanding it. With `drive_manager_node` not running nothing arrives on that topic and the bar stays red, which is the truth: no controller has been activated, so the rover cannot move.
 
 ## Unplugging the Joystick
 

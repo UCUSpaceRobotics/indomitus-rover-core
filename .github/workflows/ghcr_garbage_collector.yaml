@@ -11,39 +11,65 @@ jobs:
     permissions:
       packages: write
       contents: read
-      
+
     steps:
-      - name: Lowercase Repository Name
-        id: lowercase-repo
+      - name: Resolve account, token and image name
+        id: cfg
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAS_PAT: ${{ secrets.PACKAGES_PAT != '' }}
         run: |
-          REPO="${{ github.event.repository.name }}"
-          echo "name=${REPO,,}" >> $GITHUB_OUTPUT
+          # github.event.repository is not reliably present on schedule events,
+          # so derive the image name from GITHUB_REPOSITORY instead.
+          REPO="${GITHUB_REPOSITORY#*/}"
+          echo "image=${REPO,,}" >> "$GITHUB_OUTPUT"
+
+          OWNER_TYPE=$(gh api "users/${GITHUB_REPOSITORY_OWNER}" --jq .type)
+          echo "Owner ${GITHUB_REPOSITORY_OWNER} is a ${OWNER_TYPE}"
+
+          if [ "$OWNER_TYPE" = "Organization" ]; then
+            echo "account=${GITHUB_REPOSITORY_OWNER}" >> "$GITHUB_OUTPUT"
+            echo "use_pat=false"                      >> "$GITHUB_OUTPUT"
+            echo "enabled=true"                       >> "$GITHUB_OUTPUT"
+          else
+            echo "account=user"                       >> "$GITHUB_OUTPUT"
+            echo "use_pat=true"                       >> "$GITHUB_OUTPUT"
+            if [ "$HAS_PAT" = "true" ]; then
+              echo "enabled=true"                     >> "$GITHUB_OUTPUT"
+            else
+              echo "enabled=false"                    >> "$GITHUB_OUTPUT"
+              echo "::warning::Personal account detected but secret PACKAGES_PAT is not set (classic PAT with read:packages + delete:packages). Skipping cleanup."
+            fi
+          fi
 
       - name: Clean stale DEV SHA tags
+        if: steps.cfg.outputs.enabled == 'true'
         uses: snok/container-retention-policy@v3.1.0
         with:
-          account: ${{ github.repository_owner }}
-          image-names: ${{ steps.lowercase-repo.outputs.name }}
+          account: ${{ steps.cfg.outputs.account }}
+          image-names: ${{ steps.cfg.outputs.image }}
           image-tags: "sha-*-dev"
           cut-off: 14d
           keep-n-most-recent: 5
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.cfg.outputs.use_pat == 'true' && secrets.PACKAGES_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Clean stale PROD SHA tags
+        if: steps.cfg.outputs.enabled == 'true'
         uses: snok/container-retention-policy@v3.1.0
         with:
-          account: ${{ github.repository_owner }}
-          image-names: ${{ steps.lowercase-repo.outputs.name }}
+          account: ${{ steps.cfg.outputs.account }}
+          image-names: ${{ steps.cfg.outputs.image }}
           image-tags: "sha-*-prod"
           cut-off: 30d
           keep-n-most-recent: 10
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.cfg.outputs.use_pat == 'true' && secrets.PACKAGES_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Delete untagged images
+        if: steps.cfg.outputs.enabled == 'true'
         uses: snok/container-retention-policy@v3.1.0
         with:
-          account: ${{ github.repository_owner }}
-          image-names: ${{ steps.lowercase-repo.outputs.name }}
+          account: ${{ steps.cfg.outputs.account }}
+          image-names: ${{ steps.cfg.outputs.image }}
           image-tags: "!*"
           cut-off: 3d
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.cfg.outputs.use_pat == 'true' && secrets.PACKAGES_PAT || secrets.GITHUB_TOKEN }}

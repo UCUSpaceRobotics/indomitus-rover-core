@@ -84,16 +84,9 @@ def generate_launch_description() -> LaunchDescription:
         description="SocketCAN interface for joints + end-effector; unset uses each component's own default.",
     )
 
-    declare_bring_up_can_bridge_cmd = DeclareLaunchArgument(
-        "bring_up_can_bridge",
-        default_value="true",
-        description="Bring up our own ros2_socketcan bridge; set false if rover.launch.py already did.",
-    )
-    bring_up_can_bridge = LaunchConfiguration("bring_up_can_bridge")
-
     # Default false: collision_link_reporter lives in arm_tasks, which is
-    # excluded from the Jetson production image (see docker/Dockerfile's
-    # SIMULATION_PKGS — arm_tasks's remaining nodes are pure network clients
+    # not in indomitus_robot, so not in the Jetson production image
+    # (arm_tasks's remaining nodes are pure network clients
     # meant to run from a dev/ground-station container, not on the Jetson
     # itself). A plain Jetson run of this launch file must not try to spawn
     # a node from a package that was never built into that image; opt in
@@ -368,7 +361,6 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(declare_use_fake_hardware_cmd)
     ld.add_action(declare_end_effector_cmd)
     ld.add_action(declare_can_interface_cmd)
-    ld.add_action(declare_bring_up_can_bridge_cmd)
     ld.add_action(declare_report_collisions_cmd)
     ld.add_action(declare_bring_up_gamepad_cmd)
     ld.add_action(declare_home_pose_name_cmd)
@@ -385,11 +377,13 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
-    # reuses rover_bringup's ros2_socketcan bridge; filter covers only
+    # reuses indomitus_can's ros2_socketcan bridge; filter covers only
     # jaw/astrobio/drill_sampling cmd/ack pairs (0x1A-0x1F), not joint IDs.
-    # Kept unnamespaced — see arm_group's own comment above.
+    # Always pushed under /arm: end_effector_can_node talks on the absolute
+    # /arm/to_can_bus and /arm/from_can_bus topics, independent of rover's
+    # own unnamespaced bridge.
     can_bridge_condition = IfCondition(PythonExpression([
-        "'", bring_up_can_bridge, "' == 'true' and '", use_fake_hardware, "' != 'true'"
+        "'", use_fake_hardware, "' != 'true'"
     ]))
 
     can_bridge_launch_arguments = {"receiver_filters": "1A:7FE,1C:7FE,1E:7FE"}
@@ -398,13 +392,16 @@ def generate_launch_description() -> LaunchDescription:
 
     can_bridge_include = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory("rover_bringup"),
+            os.path.join(get_package_share_directory("indomitus_can"),
                          "launch", "can.launch.py")
         ),
         launch_arguments=can_bridge_launch_arguments.items(),
         condition=can_bridge_condition,
     )
 
-    ld.add_action(can_bridge_include)
+    ld.add_action(GroupAction([
+        PushRosNamespace("arm"),
+        can_bridge_include,
+    ]))
 
     return ld

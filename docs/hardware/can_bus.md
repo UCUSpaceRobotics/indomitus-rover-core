@@ -19,11 +19,10 @@ Located at [`/etc/udev/rules.d/can.rules`](../system/rules.d/can.rules).
 
 Automatically configures and brings up `can0` when the CAN adapter is detected.
 
-### systemd Service
+### Container autostart
 
-Located at [`/etc/systemd/system/rover.service`](../system/systemd/rover.service).
-
-Starts the production Docker container once both Docker and `can0` are available.
+- `rover_prod` comes back at boot via `restart: unless-stopped` in [`docker-compose.prod.yaml`](../../docker/docker-compose.prod.yaml) (not after `docker compose down`).
+- Launches: [`system/systemd/rover-launch-*.service`](../../system/README.md).
 
 ## Manual / Laptop Setup
 
@@ -37,14 +36,15 @@ sudo ip link set can0 txqueuelen 1000
 Then launch the CAN bridge:
 
 ```bash
-ros2 launch rover_bringup can.launch.py interface:=can0
+ros2 launch indomitus_can can.launch.py interface:=can0
 ```
 
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `interface` | `can0` | SocketCAN interface for ROS nodes |
 | `sender_timeout_sec` | `0.01` | Hardware timeout before retry |
-| `receiver_interval_sec` | `0.01` | Polling interval for receiver socket |
+| `receiver_interval_sec` | `0.5` | Polling interval for receiver socket |
+| `receiver_filters` | `300:700` | candump-syntax `id:mask` filter (hex); arm passes its own |
 
 > **Note:** SocketCAN is Linux-only — will not work on macOS or Windows.
 

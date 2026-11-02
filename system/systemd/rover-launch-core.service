@@ -1,0 +1,19 @@
+[Unit]
+Description=Rover core (CAN, control, drive, teleop, lamps) in tmux session "core"
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+RemainAfterExit=yes
+# rover.launch.py's default interface:=can_rover - keep in sync.
+Environment=CAN_IFACE=can_rover
+ExecStart=/bin/sh -c '\
+    until ip -o link show dev "$$CAN_IFACE" 2>/dev/null | grep -q "[<,]UP[,>]"; do sleep 2; done; \
+    until docker exec rover_prod true 2>/dev/null; do sleep 2; done; \
+    docker exec rover_prod sh -c "tmux has-session -t core 2>/dev/null || tmux new-session -d -s core"; \
+    docker exec rover_prod tmux send-keys -t core "ros2 launch rover_bringup rover.launch.py" Enter'
+ExecStop=-/usr/bin/docker exec rover_prod tmux send-keys -t core C-c
+
+[Install]
+WantedBy=multi-user.target

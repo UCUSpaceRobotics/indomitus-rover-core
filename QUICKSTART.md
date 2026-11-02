@@ -26,6 +26,8 @@ Follow these steps to power on and operate the rover:
    ros2 launch rover_bringup rover.launch.py
    ```
 
+   > Tip: `./scripts/enter_container.sh rover core` opens a tmux session instead - the launch survives a dropped connection; detach with `Ctrl-b d`. See [enter_container.md](docs/scripts/enter_container.md#tmux-sessions-on-the-rover).
+
    > **⚠️ Important:** Open a new terminal on your laptop for all subsequent steps, and ensure you navigate back to the root of the `indomitus-rover-core` repository.
 
 5. **Pull the latest code:** Run the following command to switch to the `develop` branch and pull the latest changes from it:
@@ -68,7 +70,7 @@ Follow these steps to power on and operate the rover:
 
 13. **Start the joystick nodes:** Run the following command inside the laptop's container to start the nodes responsible for handling joystick input:
     ```bash
-    ros2 launch rover_teleop joy.launch.py
+    ros2 launch rover_teleop gamepad.launch.py   # laptop gamepad: source:=remote (default)
     ```
 
 14. **Control the rover:** You are now ready to drive the rover using the joystick.

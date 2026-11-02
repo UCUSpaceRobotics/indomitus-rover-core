@@ -124,7 +124,7 @@ Follow these steps to power on and operate the rover using a laptop:
 
 7. **Start the joystick nodes:** Run the following command inside the laptop's container to start the nodes responsible for handling joystick input:
     ```bash
-    ros2 launch rover_teleop joy.launch.py
+    ros2 launch rover_teleop gamepad.launch.py   # laptop gamepad: source:=remote (default)
     ```
 
 8.  **Control the rover:** You are now ready to drive the rover using the joystick.
@@ -290,20 +290,6 @@ docker compose build
    ```bash
    cd /opt/ws && colcon build --symlink-install && source install/setup.bash
    ```
-
-> **Note: Simulation Package Build Errors** At this stage, you might encounter build errors related to the `rover_viz` or `rover_sim` packages. This typically occurs because your current Docker container was built without the necessary visualization and simulation dependencies (controlled by the `INSTALL_SIM_TOOLS` variable in `docker-compose.yaml`).
-
-Depending on your requirements, choose one of the following solutions:
-
-**Option A: Skip the packages (If you do not need simulations)**
-You can instruct `colcon` to ignore the failing packages and safely build the rest of the workspace:
-```bash
-colcon build --symlink-install --packages-ignore rover_viz rover_sim arm_viz arm_sim panel_sim && source install/setup.bash
-```
-
-**Option B: Fix the dependencies (If you need simulations)**
-You must either manually install the missing dependencies inside your running Docker container or rebuild the entire Docker image with the simulation tools enabled.
-
 
 ### Image Tags
 
