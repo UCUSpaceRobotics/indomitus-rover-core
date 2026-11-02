@@ -13,19 +13,21 @@
   ```
   - `command` is typed into session `<session>` as if by hand;
   - `can=` - the session first waits for that CAN interface to be UP (shown in the session, Ctrl-C cancels);
-  - new mission = new file; names `default`, `stop`, `restart`, `enter`, `status`, `list` are taken.
+  - new mission = new file.
+- Hardware: `drive`, `nav`, `arm`, `all`; simulation (dev container, Gazebo): `drive-sim`, `nav-sim`, `arm-sim`, `all-sim`.
+  - only a naming convention: any mission runs anywhere (`arm` in sim → waits for `can0` forever).
 - Commands live in each mission (no shared definitions): changing e.g. `core`'s launch = every mission that has it.
 
 ## Commands (in the container, dev and prod - on `PATH` via `docker/Dockerfile`)
 
-- `rover-mission nav` - start the mission's sessions, stop other rover sessions; same command already running → left alone.
+- `rover-mission start nav` - start the mission's sessions, stop other rover sessions; same command already running → left alone.
 - Command typed by hand in a rover session (not in any mission, e.g. own flags) → left alone with a warning; `--force` replaces / stops it.
-- `rover-mission nav --default` - same + it's the one `rover-mission default` starts (at boot).
-- `rover-mission stop` - stops every rover session, hand-typed commands too.
-- `rover-mission restart cameras` - Ctrl-C + `!!` (reruns the last command there, also a hand-typed one).
+- `rover-mission start nav --default` - same + it's the one `rover-mission default` starts (at boot).
+- `rover-mission stop [nav]` - stops the mission's sessions / every rover session, hand-typed commands too.
+- `rover-mission restart nav` - stops its sessions, starts them fresh with the mission's commands.
 - `rover-mission status` / `list` / `enter core [-r]`.
-- `rover-session start|stop|restart|enter|status NAME` - one session (used by `rover-mission`, handy by hand).
-- From a laptop: `scripts/mission.sh nav` (ssh + `docker exec rover_prod rover-mission …`).
+- `rover-session start|stop|restart|enter|status NAME` - one session (used by `rover-mission`, handy by hand); `restart` = Ctrl-C + `!!` (reruns the last command there, also a hand-typed one).
+- From a laptop: `scripts/missions.sh {rover,local} start nav` - `rover`: ssh + `docker exec rover_prod`, `local`: `docker exec rover_dev`.
 - Run from the bind-mounted `src/`: editing a mission or a script needs no rebuild.
 
 ## State
