@@ -59,9 +59,6 @@ run_local() {
   # Defaults
   local CONTAINER_NAME="rover_dev"
   local COMPOSE_FILE="docker-compose.yaml"
-  local ROS_DISTRO="humble"
-  local WORKSPACE_DIR="/opt/ws"
-  local HARDWARE_WORKSPACE_DIR="/opt/hw_ws"
   local SESSION=""
   local READ_ONLY=false
 
@@ -81,9 +78,6 @@ Options:
   --name NAME        Container (${CONTAINER_NAME})
   --compose FILE     Compose file, from repo root
                      (${COMPOSE_FILE})
-  --ros-distro DIST  ROS 2 distro (${ROS_DISTRO})
-  --workspace DIR    Workspace in container
-                     (${WORKSPACE_DIR})
   -h, --help         Show this help
 EOF
   }
@@ -92,8 +86,6 @@ EOF
     case $1 in
       --name)       [[ "$#" -ge 2 ]] || error "$1 requires an argument."; CONTAINER_NAME="$2"; shift 2;;
       --compose)    [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
-      --ros-distro) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; ROS_DISTRO="$2"; shift 2;;
-      --workspace)  [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WORKSPACE_DIR="$2"; shift 2;;
       -r|--read-only)  READ_ONLY=true; shift 1;;
       -h|--help)       show_local_help; exit 0;;
       -*)              error "Unknown option: $1\nRun '$0 local --help' for usage." ;;
@@ -144,7 +136,8 @@ EOF
   echo -e "Type \e[33mexit\e[0m to leave."
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
-  docker exec -it "$CONTAINER_NAME" bash -lc "source /opt/ros/${ROS_DISTRO}/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && source ${HARDWARE_WORKSPACE_DIR}/install/setup.bash && exec bash -i"
+  # .bashrc sources ROS + both workspaces, each only if built (dev images ship no install/).
+  docker exec -it "$CONTAINER_NAME" bash -i
 
   echo -e "\n\e[32m[DONE]\e[0m Session closed."
 }
@@ -161,8 +154,6 @@ run_rover() {
   local REMOTE_DIR=""
   local CONTAINER_NAME="rover_prod"
   local COMPOSE_FILE="docker-compose.prod.yaml"
-  local WORKSPACE_DIR="/opt/ws"
-  local HARDWARE_WORKSPACE_DIR="/opt/hw_ws"
   local WIFI_SSID="ERC_UCUSpaceRobotics_A"
   local WIFI_PASS="19283746"
   local USE_ETH=false
@@ -192,8 +183,6 @@ Options:
                    (~USER/indomitus-rover-core/)
   --name NAME      Container (${CONTAINER_NAME})
   --compose FILE   Compose file (${COMPOSE_FILE})
-  --workspace DIR  Workspace in container
-                   (${WORKSPACE_DIR})
   --ssid SSID      Hotspot SSID (${WIFI_SSID})
   --pass PASS      Hotspot password (${WIFI_PASS})
   -h, --help       Show this help
@@ -209,7 +198,6 @@ EOF
       --dir) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; REMOTE_DIR="$2"; shift 2;;
       --name) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; CONTAINER_NAME="$2"; shift 2;;
       --compose) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; COMPOSE_FILE="$2"; shift 2;;
-      --workspace) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WORKSPACE_DIR="$2"; shift 2;;
       --ssid) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_SSID="$2"; shift 2;;
       --pass) [[ "$#" -ge 2 ]] || error "$1 requires an argument."; WIFI_PASS="$2"; shift 2;;
       -r|--read-only) READ_ONLY=true; shift 1;;
@@ -271,7 +259,7 @@ EOF
   echo -e "Type \e[33mexit\e[0m to leave."
   echo -e "\e[90m──────────────────────────────────────────────\e[0m"
 
-  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -lc 'source /opt/ros/humble/setup.bash && source ${WORKSPACE_DIR}/install/setup.bash && source ${HARDWARE_WORKSPACE_DIR}/install/setup.bash && exec bash -i'"
+  ssh -t -q "${TARGET}" "docker exec -it '${CONTAINER_NAME}' bash -i"
 
   echo -e "\n\e[32m[DONE]\e[0m Session closed."
 }

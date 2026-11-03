@@ -73,7 +73,7 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha
-            type=raw,value=${{ needs.tag.outputs.new_tag }}
+            type=raw,value=${{ needs.tag.outputs.new_tag }},enable=${{ needs.tag.outputs.new_tag != '' }}
           labels: |
             org.opencontainers.image.description=Production Image (ARM64) for Indomitus Rover
 
@@ -137,7 +137,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha
-            type=raw,value=${{ needs.tag.outputs.new_tag }}
+            type=raw,value=${{ needs.tag.outputs.new_tag }},enable=${{ needs.tag.outputs.new_tag != '' }}
           labels: |
             org.opencontainers.image.description=Development Image (AMD64) for Indomitus Rover with Simulation Tools
 

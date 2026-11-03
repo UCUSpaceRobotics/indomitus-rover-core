@@ -2,18 +2,9 @@
 
 This directory contains configs, services, rulles and other stuff for the NVIDIA Jetson used on the rover
 
-## Subsystem autostart (`systemd/rover-launch-*.service`)
+## Missions at boot (`systemd/rover-mission.service`)
 
-- Each unit types its `ros2 launch …` into tmux session `core` / `cameras` / `arm` in `rover_prod`, as if typed by hand.
-- Waits in the background (boot not delayed) for its hardware, then for the container:
-  - `core`: CAN `can_rover` up (`Environment=CAN_IFACE=`, = `rover.launch.py` default `interface`);
-  - `arm`: CAN `can0` up (= `arm_macro.xacro` default `can_interface`);
-  - `cameras`: nothing (camera nodes respawn until their `/dev/<camera>` appears);
-- Container itself comes back at boot via `restart: unless-stopped` (not after `docker compose down`).
-- Install: `system/setup.sh --service rover-launch-core,rover-launch-cameras,rover-launch-arm` (installed stopped + disabled).
-- Autostart at boot: `sudo systemctl enable rover-launch-arm`; dev: `disable` and launch by hand.
-- Watch / Ctrl-C / re-run: `./scripts/enter_container.sh rover arm`.
-- `systemctl stop` = Ctrl-C in the session.
-- Don't `start` a unit whose subsystem already runs in its session: the command gets typed into the running launch and runs after it exits.
-- Cameras run in `cameras` (`rover_bringup cameras.launch.py`), not `core`: restart / switch `zed2i_mode` without stopping drive.
-- Launch args: edit the `ExecStart=… send-keys` line in the unit.
+- Runs `rover-mission default` in `rover_prod` at boot, `rover-mission stop` before Docker stops; all logic + missions: [`indomitus_robot`](../src/indomitus/indomitus_robot/README.md).
+- Skipped (not failed) unless `rover_prod` runs within 30 s: the Jetson also hosts other projects.
+- Install once: `scripts/setup_host.sh rover --service rover-mission`, then `sudo systemctl enable rover-mission`; pick the mission: `scripts/missions.sh rover start nav --default`.
+- Replaces `rover-launch-{core,cameras,arm}.service`: on a Jetson that has them, `sudo systemctl disable --now rover-launch-{core,cameras,arm}` and remove them from `/etc/systemd/system/`.

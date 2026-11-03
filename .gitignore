@@ -243,3 +243,6 @@ AMENT_IGNORE
 
 # AI context
 ai-context/
+
+# rover-mission --default, per machine
+src/indomitus/indomitus_robot/default-mission

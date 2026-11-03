@@ -1,0 +1,18 @@
+[Unit]
+# All the logic is rover-mission inside the container (indomitus_robot/scripts); this unit
+# only starts the default mission at boot and stops every session before Docker goes down.
+Description=Rover default mission (rover-mission in rover_prod)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Skipped (not failed) unless rover_prod runs within 30 s: the Jetson also hosts other projects.
+ExecCondition=/bin/sh -c 'for i in $$(seq 30); do docker exec rover_prod true 2>/dev/null && exit 0; sleep 1; done; exit 1'
+ExecStart=/usr/bin/docker exec rover_prod rover-mission default
+ExecStop=-/usr/bin/docker exec rover_prod rover-mission stop
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,106 @@
+#!/bin/sh
+# rover-session - one launch per tmux session, inside the rover container (dev and prod).
+# Used by rover-mission and by hand.
+#
+#   rover-session start NAME [can=IFACE] COMMAND...
+#                              stop what runs in session NAME, then type COMMAND there
+#                              (can=: the session first waits for IFACE to be UP)
+#   rover-session stop NAME    Ctrl-C, wait for the shell prompt (kill the session after 30 s)
+#   rover-session restart NAME stop, then rerun the session's last command (`!!`) - also one
+#                              typed by hand
+#   rover-session enter NAME [-r]
+#                              attach (-r: read-only); detach with Ctrl-b d
+#   rover-session status NAME  what runs there now, read from the processes (so also what
+#                              you typed): its command line, idle, or - (no session)
+#   rover-session wait-can IFACE
+#                              block until IFACE is UP (typed by start)
+#
+# Env: ROVER_LOG_DIR (/bags/logs)
+set -u
+
+LOG_DIR="${ROVER_LOG_DIR:-/bags/logs}"
+IDLE=bash        # docker/tmux.conf: default-shell /bin/bash
+STOP_TICKS=60    # 0.5 s each; ros2 launch escalates SIGINT -> SIGTERM -> SIGKILL itself within ~10 s
+
+usage() { sed -n '/^#   rover-session start/,/^#$/s/^# \{0,1\}//p' "$0" >&2; exit 2; }
+has() { tmux has-session -t "$1" 2>/dev/null; }
+fg_cmd() { has "$1" && tmux display -p -t "$1" '#{pane_current_command}' 2>/dev/null || echo -; }
+
+# Command lines of the shell's children, one per line: "ros2 launch ..." rather than
+# "/usr/bin/python3 /opt/ros/jazzy/bin/ros2 launch ..." (interpreter dropped, program basename).
+running() {
+    pid=$(tmux display -p -t "$1" '#{pane_pid}') || return 0
+    for f in $(grep -l "^PPid:[[:space:]]*$pid\$" /proc/[0-9]*/status 2>/dev/null); do
+        tr '\0' '\n' < "${f%/status}/cmdline" 2>/dev/null | awk '
+            { a[NR] = $0 }
+            END {
+                i = (a[1] ~ /(^|\/)(python[0-9.]*|sh|bash|dash)$/ && a[2] ~ /\//) ? 2 : 1
+                if (i > NR) exit
+                sub(/.*\//, "", a[i]); out = a[i]
+                for (j = i + 1; j <= NR; j++) out = out " " a[j]
+                print out
+            }'
+    done
+}
+
+# network_mode: host, so /sys/class/net shows the Jetson's interfaces; bit 0 = IFF_UP
+can_up() { [ $(( $(cat "/sys/class/net/$1/flags" 2>/dev/null || echo 0) & 1 )) -eq 1 ]; }
+
+stop_session() {
+    has "$1" || return 0
+    [ "$(fg_cmd "$1")" = "$IDLE" ] && return 0
+    tmux send-keys -t "$1" C-c
+    i=0
+    while [ "$i" -lt "$STOP_TICKS" ]; do
+        [ "$(fg_cmd "$1")" = "$IDLE" ] && return 0
+        sleep 0.5; i=$((i + 1))
+    done
+    # Last resort: SIGHUP kills ros2 launch without it stopping its nodes, so
+    # leftovers may still hold CAN / cameras - check `ps`.
+    echo "[rover-session] '$1' did not stop in $((STOP_TICKS / 2)) s - killing the session" >&2
+    tmux kill-session -t "$1"
+    return 1
+}
+
+# One log per start. The Jetson has no RTC, so the date repeats across
+# boots - the boot id keeps the names apart.
+new_log() {
+    mkdir -p "$LOG_DIR"
+    tmux pipe-pane -t "$1"
+    tmux pipe-pane -t "$1" "cat >> '$LOG_DIR/${1}_$(date +%F_%H%M%S)_$(cut -c1-8 /proc/sys/kernel/random/boot_id).log'"
+}
+
+start_session() {
+    s=$1; shift
+    can=
+    case "${1:-}" in can=*) can=${1#can=}; shift;; esac
+    [ "$#" -gt 0 ] || usage
+
+    stop_session "$s"    # leftovers of a previous run / something started by hand
+    has "$s" || tmux new-session -d -s "$s"
+    new_log "$s"
+    # The CAN wait runs in the session itself: visible there, Ctrl-C cancels it. Absolute
+    # path: the session's login shell may rebuild PATH.
+    tmux send-keys -t "$s" "${can:+$(readlink -f "$0") wait-can $can && }$*" Enter
+}
+
+case "${1:-}" in
+    start)    [ "$#" -ge 3 ] || usage; shift; start_session "$@";;
+    stop)     [ "$#" -eq 2 ] || usage; stop_session "$2";;
+    restart)  [ "$#" -eq 2 ] || usage
+              has "$2" || { echo "[rover-session] no session '$2'" >&2; exit 1; }
+              stop_session "$2" || exit 1    # killed: the shell and its history are gone
+              new_log "$2"
+              tmux send-keys -t "$2" '!!' Enter;;
+    enter)    [ "$#" -ge 2 ] || usage
+              has "$2" || { echo "[rover-session] no session '$2' ($(tmux ls -F '#S' 2>/dev/null | xargs))" >&2; exit 1; }
+              if [ "${3:-}" = -r ]; then exec tmux attach -r -t "$2"; else exec tmux attach -t "$2"; fi;;
+    status)   [ "$#" -eq 2 ] || usage
+              has "$2" || { echo -; exit 0; }
+              out=$(running "$2"); echo "${out:-idle}";;
+    wait-can) [ "$#" -eq 2 ] || usage
+              can_up "$2" && exit 0
+              echo "[rover-session] waiting for $2 to be UP..."
+              until can_up "$2"; do sleep 2; done;;
+    *)        usage;;
+esac
