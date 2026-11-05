@@ -15,6 +15,8 @@ moveit_servo:
 
     joint_command_in_topic: servo_node/delta_joint_cmds
 
+    # arm.launch.py replaces this with servo_node/joint_states_cmd
+    # (arm_teleop servo_state_echo) unless servo_command_state:=false.
     joint_topic: joint_states
 
     status_topic: servo_node/status

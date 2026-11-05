@@ -117,6 +117,18 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    declare_servo_command_state_cmd = DeclareLaunchArgument(
+        "servo_command_state",
+        default_value="true",
+        description=(
+            "Servo integrates from its own last command instead of the "
+            "measured joint state (arm_teleop servo_state_echo), so the arm's "
+            "tracking lag stops accumulating into teleop drift. false = stock "
+            "Servo. Read from the command line like use_fake_hardware: it "
+            "picks Servo's joint_topic when this file is generated."
+        ),
+    )
+
     declare_home_pose_name_cmd = DeclareLaunchArgument(
         "home_pose_name",
         default_value="",
@@ -174,6 +186,19 @@ def generate_launch_description() -> LaunchDescription:
     servo_yaml = load_yaml("arm_moveit_config", "config/servo.yaml")
     servo_params = {"moveit_servo": servo_yaml["moveit_servo"]["ros__parameters"]}
 
+    # Plain str for the same reason as use_fake_hardware: Servo's joint_topic
+    # and whether servo_state_echo runs must come from one value, or Servo
+    # waits forever on a topic nobody publishes.
+    servo_command_state = _arg_from_argv("servo_command_state", "true") == "true"
+    if servo_command_state:
+        servo_params["moveit_servo"]["joint_topic"] = "servo_node/joint_states_cmd"
+    servo_state_echo = Node(
+        package="arm_teleop",
+        executable="servo_state_echo",
+        namespace="arm",
+        output="screen",
+    )
+
     # Light smoothing only: heavy coeffs lag the command and, with high MIT
     # kp, the arm overshoots then waits — stop-go buzz at the Servo rate.
     smoothing_params = {"butterworth_filter_coeff": 2.0}
@@ -226,7 +251,7 @@ def generate_launch_description() -> LaunchDescription:
             f"starting servo_node (streams to '{FORWARD_CONTROLLER_NAME}'; "
             f"activate that controller before teleop via gamepad A / start_servo)."
         )
-        return [servo_node]
+        return [servo_node, servo_state_echo] if servo_command_state else [servo_node]
 
     # move_group/moveit_servo are prebuilt binaries (not vendored here), so
     # their own collision-check code can't be patched to print link names —
@@ -363,6 +388,7 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(declare_can_interface_cmd)
     ld.add_action(declare_report_collisions_cmd)
     ld.add_action(declare_bring_up_gamepad_cmd)
+    ld.add_action(declare_servo_command_state_cmd)
     ld.add_action(declare_home_pose_name_cmd)
     ld.add_action(declare_activity_indicator_pre_delay_sec_cmd)
     ld.add_action(arm_group)

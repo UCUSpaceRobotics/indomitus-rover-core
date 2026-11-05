@@ -173,6 +173,12 @@ Servo `publish_period` is **0.03 s (~33 Hz)** so each joint step stays above MIT
 
 Cartesian Servo is open-loop `J⁺ · twist`. Pure XYZ (`ω = 0`) still lets TCP attitude walk (Q/E especially — shoulder/elbow fold). The keyboard node adds a light **orientation hold** on unused rotation axes and does **not** slow XYZ. That is not industrial Cartesian pose-IK; drift can remain on a 6-DOF arm near the home wrist.
 
+Servo integrates from its **own last command**, not the measured pose (`servo_command_state:=true`, default):
+- stock Humble Servo builds each point as measured + Δ; the arm always trails its target (`max_cmd_speed_rad_s` slew limit, MIT sag), so every step re-bases on that lag and the TCP drifts;
+- `arm_teleop servo_state_echo` republishes `/arm/joint_states` as `/arm/servo_node/joint_states_cmd` with the last command on the 6 arm joints; `arm.launch.py` points Servo's `joint_topic` there;
+- falls back to the real state when the forward controller is inactive (home / teach) or a joint's command is > `max_lead_rad` (0.15) from the arm (blocked joint) - warns in the log;
+- `servo_command_state:=false` = stock Servo (command line only, like `use_fake_hardware`).
+
 Servo collision checking is **on** (start-time-only param — see `servo.yaml`). Plan&Execute in `move_group` still checks collisions too. Singularity deceleration thresholds are set very high (NHWA-style) so Jacobian condition number does not freeze +X from home.
 
 Before **Plan & Execute** in RViz: stop teleop (exit the input node) so JTC owns the joints.
