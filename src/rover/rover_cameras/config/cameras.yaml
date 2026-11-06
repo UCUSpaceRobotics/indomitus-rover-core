@@ -9,7 +9,7 @@ defaults:
   ros_fps: 5
   ros_res: ''
   ros_encoding: rgb8
-  save_dir: ~/dataset
+  save_dir: /bags/dataset   # rover_prod: host /home/indomitus-rover/bags/dataset (survives redeploys)
   rotate_180: false   # true for a camera mounted upside down
   stereo: both        # side-by-side stereo camera: left or right sensor only, or both (joined)
   autostart: true     # false: only with include:=<name>, cameras:=<name> or cameras:=all
