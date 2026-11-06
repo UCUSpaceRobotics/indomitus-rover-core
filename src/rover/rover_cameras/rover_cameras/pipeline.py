@@ -1,13 +1,19 @@
 """The GStreamer pipeline of one camera, as a gst-launch string.
 
     source ─ caps ─ tee ─┬─ queue ─ valve ─ [videoconvert ─ jpegenc] ─ appsink  stream
-                         ├─ queue ─ valve ─ [videoconvert ─ jpegenc] ─ appsink  dataset
+                         ├─ queue ─ valve ─ [videoconvert ─ pngenc|jpegenc] ─ appsink  dataset
                          └─ queue ─ [jpegdec] ─ videoconvert ─ videoscale ─ appsink  ros
 
 - A camera that already sends MJPG has its JPEGs passed through to the stream
   and dataset branches as they are (no encode), and decoded only for ROS.
-- The valves keep the JPEG branches from encoding while nobody watches or
-  records; the node opens them on demand. The ROS branch always runs.
+  `save_format: png` does not apply to it: a PNG of a decoded JPEG holds the
+  same pixels, only bigger.
+- Dataset frames from a raw camera are lossless PNG (`save_format: png`, the
+  default: training data) or JPEG at `save_quality`. The GS stream stays JPEG.
+- The valves keep the encoding branches from running while nobody watches or
+  records; the node opens them on demand. The ROS branch always runs. The node
+  also lets only the frames it saves through the dataset valve (pad probe), so
+  PNG is encoded once per saved frame, not at the capture rate.
 - Every branch has a leaky queue, so a slow consumer drops its own frames
   instead of stalling the camera or the other branches.
 - The ROS branch's rate is cut by a pad probe on its queue (in the node), not
@@ -38,6 +44,11 @@ ROS_ENCODINGS = {
 
 # Which part of a side-by-side stereo frame to keep; 'both' = the whole frame.
 STEREO_VIEWS = ('both', 'left', 'right')
+
+SAVE_FORMATS = ('png', 'jpeg')
+# zlib level 0-9 (pngenc default 6): lossless at any level, lower = less CPU,
+# bigger files.
+PNG_COMPRESSION = 3
 
 TEST_DEVICE = 'videotestsrc'
 
@@ -73,10 +84,22 @@ def _stereo_crop(view, width):
     return ' ! videocrop %s=%d' % (cut, width // 2)
 
 
-def _jpeg_branch(name, fourcc, encoder, quality):
-    encode = '' if fourcc == 'MJPG' else ' ! videoconvert ! %s quality=%d' % (encoder, quality)
+def _branch(name, encode):
     return ('t. ! %s ! valve name=%s_valve drop=true drop-mode=forward-sticky-events%s '
             '! appsink name=%s_sink %s' % (BRANCH_QUEUE, name, encode, name, APPSINK_PROPS))
+
+
+def _jpeg_branch(name, fourcc, encoder, quality):
+    encode = '' if fourcc == 'MJPG' else ' ! videoconvert ! %s quality=%d' % (encoder, quality)
+    return _branch(name, encode)
+
+
+def _save_branch(fourcc, save_format, encoder, quality):
+    if save_format == 'jpeg' or fourcc == 'MJPG':
+        return _jpeg_branch('save', fourcc, encoder, quality)
+    # RGB, not pngenc's first pick RGBA: no alpha to store.
+    return _branch('save', ' ! videoconvert ! video/x-raw,format=RGB '
+                           '! pngenc compression-level=%d' % PNG_COMPRESSION)
 
 
 def _ros_branch(fourcc, encoding, width, height):
@@ -89,8 +112,8 @@ def _ros_branch(fourcc, encoding, width, height):
 
 
 def build(device, fourcc, width, height, fps, *, quality=60, save_quality=95,
-          jpeg_encoder='jpegenc', ros_encoding='rgb8', ros_width=0, ros_height=0,
-          rotate_180=False, stereo='both'):
+          save_format='png', jpeg_encoder='jpegenc', ros_encoding='rgb8', ros_width=0,
+          ros_height=0, rotate_180=False, stereo='both'):
     """The gst-launch string for one camera; see the module docstring."""
     if fourcc != 'MJPG' and fourcc not in RAW_FORMATS:
         raise ValueError('unsupported format %r (have MJPG, %s)'
@@ -101,6 +124,9 @@ def build(device, fourcc, width, height, fps, *, quality=60, save_quality=95,
     if stereo not in STEREO_VIEWS:
         raise ValueError('unsupported stereo %r (have %s)'
                          % (stereo, ', '.join(STEREO_VIEWS)))
+    if save_format not in SAVE_FORMATS:
+        raise ValueError('unsupported save_format %r (have %s)'
+                         % (save_format, ', '.join(SAVE_FORMATS)))
     source = _source(device, fourcc, width, height, fps)
     branch_fourcc = fourcc
     if stereo != 'both' or rotate_180:
@@ -114,6 +140,6 @@ def build(device, fourcc, width, height, fps, *, quality=60, save_quality=95,
     return ' '.join([
         source, '! tee name=t',
         _jpeg_branch('stream', branch_fourcc, jpeg_encoder, quality),
-        _jpeg_branch('save', branch_fourcc, jpeg_encoder, save_quality),
+        _save_branch(branch_fourcc, save_format, jpeg_encoder, save_quality),
         _ros_branch(branch_fourcc, ros_encoding, ros_width, ros_height),
     ])

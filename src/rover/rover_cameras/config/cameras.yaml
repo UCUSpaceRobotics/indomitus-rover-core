@@ -3,7 +3,8 @@ defaults:
   res: 960x600
   fps: 15
   quality: 60
-  save_quality: 95
+  save_quality: 95    # dataset JPEG quality, save_format: jpeg only
+  save_format: png    # dataset frames: png (lossless) or jpeg; MJPG cameras keep their own JPEG
   jpeg_encoder: jpegenc
   ros_fps: 5
   ros_res: ''

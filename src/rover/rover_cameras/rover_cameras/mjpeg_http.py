@@ -10,9 +10,10 @@ the GS UI tiles work unchanged:
 Dataset capture (Dataset) is driven over ROS services by camera_node, not over
 HTTP: see camera_node.py and dataset_node.py.
 
-A FrameStore holds the newest JPEG of one pipeline branch and counts its users;
-the node closes the branch's valve when the count drops to zero, so nothing is
-encoded while nobody watches or records.
+A FrameStore holds the newest encoded frame (JPEG, or PNG for the dataset) of
+one pipeline branch and counts its users; the node closes the branch's valve
+when the count drops to zero, so nothing is encoded while nobody watches or
+records.
 """
 
 import os
@@ -23,13 +24,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 BOUNDARY = 'cameramjpegframe'
+PNG_MAGIC = b'\x89PNG'
+# How long the dataset waits for the frame it asked for.
+FRAME_TIMEOUT = 3.0
 
 
 class FrameStore:
-    """The newest frame of one branch, with a user count driving `on_active`."""
+    """The newest frame of one branch, with a user count driving `on_active`.
 
-    def __init__(self, on_active=None):
+    `on_demand` is called by `fresh` before it waits: a branch that only lets
+    frames through on request (the dataset one) lets the next one through.
+    """
+
+    def __init__(self, on_active=None, on_demand=None):
         self._on_active = on_active or (lambda active: None)
+        self._on_demand = on_demand or (lambda: None)
         self._cond = threading.Condition()
         self._frame = None
         self._users = 0
@@ -68,6 +77,7 @@ class FrameStore:
 
     def fresh(self, since, timeout):
         """First frame after sequence `since`, or None on timeout."""
+        self._on_demand()
         deadline = time.monotonic() + timeout
         with self._cond:
             while self.seq <= since:
@@ -79,7 +89,7 @@ class FrameStore:
 
 
 class Dataset:
-    """Writes JPEGs from the save branch to <save_dir>/<date>/<name>/.
+    """Writes frames (PNG or JPEG) from the save branch to <save_dir>/<date>/<name>/.
 
     Holds the branch open (as a user) while recording and for the moment a
     capture takes. Disk writes run on a worker thread, never in GStreamer's.
@@ -94,22 +104,21 @@ class Dataset:
         self.saved = 0
         self._log = log
         self._on_change = on_change or (lambda: None)
-        self._since = 0
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._queue = queue.Queue(maxsize=64)
         threading.Thread(target=self._writer, daemon=True).start()
         threading.Thread(target=self._recorder, daemon=True).start()
 
-    def capture(self, timeout=3.0):
+    def capture(self, timeout=FRAME_TIMEOUT):
         """Save the next frame; its path, or None if none arrived."""
         since = self.frames.seq
         self.frames.acquire()
         try:
-            jpeg = self.frames.fresh(since, timeout)
+            frame = self.frames.fresh(since, timeout)
         finally:
             self.frames.release()
-        return None if jpeg is None else self._enqueue(jpeg)
+        return None if frame is None else self._enqueue(frame)
 
     def set_recording(self, on):
         with self._lock:
@@ -117,7 +126,6 @@ class Dataset:
                 return
             self.recording = on
             if on:
-                self._since = self.frames.seq
                 self.frames.acquire()
             else:
                 self.frames.release()
@@ -128,25 +136,31 @@ class Dataset:
 
     def _recorder(self):
         while True:
-            self._wake.wait(self.interval)
+            self._wake.wait()       # recording switched on
             self._wake.clear()
-            if not self.recording:
-                continue
-            # A frame is only worth saving once.
-            if self.frames.seq > self._since:
-                jpeg, self._since = self.frames.latest(self._since, 0)
-                self._enqueue(jpeg)
+            next_at = time.monotonic()
+            while self.recording:
+                # The next frame, not the newest: the save branch only passes
+                # (and encodes) frames that are asked for.
+                frame = self.frames.fresh(self.frames.seq, FRAME_TIMEOUT)
+                if frame is not None and self.recording:
+                    self._enqueue(frame)
+                # Fallen behind (slow encode, stalled camera): skip, no burst.
+                next_at = max(next_at + self.interval, time.monotonic())
+                if self._wake.wait(next_at - time.monotonic()):
+                    self._wake.clear()
 
-    def _enqueue(self, jpeg):
+    def _enqueue(self, frame):
         # Named at capture time, so a backed-up queue cannot skew the names.
         now = time.time()
         local = time.localtime(now)
         path = os.path.join(
             self.save_dir, time.strftime('%Y-%m-%d', local), self.name,
-            '%s_%s-%03d.jpg' % (self.name, time.strftime('%Y%m%d-%H%M%S', local),
-                                int(now * 1000) % 1000))
+            '%s_%s-%03d.%s' % (self.name, time.strftime('%Y%m%d-%H%M%S', local),
+                               int(now * 1000) % 1000,
+                               'png' if frame.startswith(PNG_MAGIC) else 'jpg'))
         try:
-            self._queue.put_nowait((path, jpeg))
+            self._queue.put_nowait((path, frame))
         except queue.Full:
             self._log('dataset write queue full, dropping %s' % path)
             return None
@@ -154,11 +168,11 @@ class Dataset:
 
     def _writer(self):
         while True:
-            path, jpeg = self._queue.get()
+            path, frame = self._queue.get()
             try:
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, 'wb') as f:
-                    f.write(jpeg)
+                    f.write(frame)
                 self.saved += 1
             except OSError as exc:
                 self._log('cannot save %s: %s' % (path, exc))
