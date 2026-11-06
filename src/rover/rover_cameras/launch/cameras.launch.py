@@ -37,7 +37,7 @@ from launch_ros.actions import Node, PushRosNamespace
 # `cameras:=all`: every entry, so no camera may be called that.
 ALL = 'all'
 PASSTHROUGH = ('device', 'format', 'fps', 'port', 'quality', 'save_quality',
-               'jpeg_encoder', 'ros_fps', 'ros_encoding', 'save_dir', 'rotate_180',
+               'save_format', 'jpeg_encoder', 'ros_fps', 'ros_encoding', 'save_dir', 'rotate_180',
                'stereo')
 
 

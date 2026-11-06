@@ -5,9 +5,28 @@ from rover_cameras import pipeline
 
 def test_raw_camera_encodes_and_mjpg_passes_through():
     raw = pipeline.build('/dev/x', 'YUYV', 960, 600, 15, quality=7)
-    assert 'format=YUY2' in raw and 'jpegenc quality=7' in raw
+    assert 'format=YUY2' in raw and 'jpegenc quality=7' in raw and 'pngenc' in raw
     mjpg = pipeline.build('/dev/x', 'MJPG', 640, 480, 30)
-    assert 'image/jpeg' in mjpg and 'jpegenc' not in mjpg and 'jpegdec' in mjpg
+    assert 'image/jpeg' in mjpg and 'jpegenc' not in mjpg and 'pngenc' not in mjpg
+    assert 'jpegdec' in mjpg
+
+
+def test_gstreamer_saves_png():
+    gi = pytest.importorskip('gi')
+    gi.require_version('Gst', '1.0')
+    from gi.repository import Gst
+    Gst.init(None)
+    pipe = Gst.parse_launch(pipeline.build(pipeline.TEST_DEVICE, 'YUYV', 320, 240, 15))
+    pipe.get_by_name('save_valve').set_property('drop', False)
+    sink = pipe.get_by_name('save_sink')
+    pipe.set_state(Gst.State.PLAYING)
+    try:
+        sample = sink.emit('try-pull-sample', 5 * Gst.SECOND)
+        assert sample is not None
+        buf = sample.get_buffer()
+        assert buf.extract_dup(0, 4) == b'\x89PNG'
+    finally:
+        pipe.set_state(Gst.State.NULL)
 
 
 @pytest.mark.parametrize('fourcc', ['YUYV', 'MJPG'])
@@ -44,7 +63,7 @@ def test_stereo_mjpg_decodes_once_and_reencodes():
     source = desc.split('! tee')[0]
     assert source.count('jpegdec') == 1
     assert source.index('jpegdec') < source.index('videocrop')
-    assert desc.count('jpegenc') == 2
+    assert desc.count('jpegenc') == 1 and desc.count('pngenc') == 1   # stream, dataset
 
 
 def test_stereo_rejects_unknown_view():

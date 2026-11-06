@@ -6,8 +6,10 @@
     ~/record         std_srvs/SetBool: save one frame every record_interval s, or stop
     ~/dataset_state  indomitus_interfaces/DatasetState, latched, on every change
 
-Dataset frames go to <save_dir>/<date>/<name>/ at save_quality. dataset_node
-calls ~/capture and ~/record of every camera for "all cameras at once".
+Dataset frames go to <save_dir>/<date>/<name>/ as lossless PNG
+(save_format: png, MJPG cameras: their own JPEG) or JPEG at save_quality.
+dataset_node calls ~/capture and ~/record of every camera for "all cameras at
+once".
 
 The video the operators watch never goes through DDS (images over DDS on the
 Wi-Fi lagged badly): it is the HTTP MJPEG of mjpeg_http.py, same URLs as the
@@ -79,6 +81,7 @@ class CameraNode(Node):
         bind = p('bind', '0.0.0.0').value
         save_dir = p('save_dir', '~/dataset').value
         self.save_quality = p('save_quality', 95).value
+        self.save_format = p('save_format', 'png').value.lower()
         record_interval = p('record_interval', 1.0).value
         self.warmup_frames = p('warmup_frames', 3).value
         self.stall_timeout = p('stall_timeout', 5.0).value
@@ -122,7 +125,10 @@ class CameraNode(Node):
         self._waiting_logged = False
 
         self.stream = FrameStore(lambda on: self._set_valve('stream', on))
-        self.save = FrameStore(lambda on: self._set_valve('save', on))
+        # Set by the dataset when it wants a frame, cleared by the one let through.
+        self._save_wanted = False
+        self.save = FrameStore(lambda on: self._set_valve('save', on),
+                               on_demand=self._want_save_frame)
         self.state_pub = self.create_publisher(DatasetState, '~/dataset_state', STATE_QOS)
         self.dataset = Dataset(self.cam_name, self.save, save_dir, record_interval,
                                self.get_logger().info, on_change=self._publish_state)
@@ -164,7 +170,8 @@ class CameraNode(Node):
                                               self.want_w, self.want_h, self.want_fps)
         desc = pipeline.build(
             self.device, self.fourcc, w, h, fps, quality=self.quality,
-            save_quality=self.save_quality, jpeg_encoder=self.jpeg_encoder,
+            save_quality=self.save_quality, save_format=self.save_format,
+            jpeg_encoder=self.jpeg_encoder,
             ros_encoding=self.ros_encoding, ros_width=self.ros_w, ros_height=self.ros_h,
             rotate_180=self.rotate_180, stereo=self.stereo)
         try:
@@ -180,6 +187,8 @@ class CameraNode(Node):
         pipe.get_by_name('ros_queue').get_static_pad('sink').add_probe(
             Gst.PadProbeType.BUFFER, self._ros_rate_limit)
         pipe.get_by_name('ros_sink').connect('new-sample', self._on_ros_sample)
+        pipe.get_by_name('save_valve').get_static_pad('src').add_probe(
+            Gst.PadProbeType.BUFFER, self._save_gate)
         for branch, store in (('stream', self.stream), ('save', self.save)):
             pipe.get_by_name(branch + '_sink').connect(
                 'new-sample', self._on_jpeg_sample, store)
@@ -264,6 +273,16 @@ class CameraNode(Node):
         if self._last_ros_pts is not None and pts - self._last_ros_pts < 0.9 * period:
             return Gst.PadProbeReturn.DROP
         self._last_ros_pts = pts
+        return Gst.PadProbeReturn.OK
+
+    def _want_save_frame(self):
+        self._save_wanted = True
+
+    def _save_gate(self, pad, info):
+        """Only the frames the dataset asked for reach the (PNG) encoder."""
+        if not self._save_wanted:
+            return Gst.PadProbeReturn.DROP
+        self._save_wanted = False
         return Gst.PadProbeReturn.OK
 
     def _on_jpeg_sample(self, sink, store):
