@@ -35,7 +35,7 @@
   <exec_depend>moveit_configs_utils</exec_depend>
   <exec_depend>moveit_servo</exec_depend>
   <exec_depend>arm_peripherals</exec_depend>
-  <exec_depend>rover_bringup</exec_depend>
+  <exec_depend>indomitus_can</exec_depend>
   <exec_depend>arm_teleop</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

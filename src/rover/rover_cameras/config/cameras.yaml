@@ -3,12 +3,13 @@ defaults:
   res: 960x600
   fps: 15
   quality: 60
-  save_quality: 95
+  save_quality: 95    # dataset JPEG quality, save_format: jpeg only
+  save_format: png    # dataset frames: png (lossless) or jpeg; MJPG cameras keep their own JPEG
   jpeg_encoder: jpegenc
   ros_fps: 5
   ros_res: ''
   ros_encoding: rgb8
-  save_dir: ~/dataset
+  save_dir: /bags/dataset   # rover_prod: host /home/indomitus-rover/bags/dataset (survives redeploys)
   rotate_180: false   # true for a camera mounted upside down
   stereo: both        # side-by-side stereo camera: left or right sensor only, or both (joined)
   autostart: true     # false: only with include:=<name>, cameras:=<name> or cameras:=all
@@ -20,10 +21,17 @@ cameras:
   arducam-mast:
     device: /dev/arducam-mast
     port: 8091   # http://10.42.0.1:8091/arducam-mast?action=stream
+    res: 1920x1200
+    fps: 15
 
   arducam-front-bottom:
     device: /dev/arducam-front-bottom
     port: 8093   # http://10.42.0.1:8093/arducam-front-bottom?action=stream
+    rotate_180: true
+
+  arducam-rear:
+    device: /dev/arducam-rear
+    port: 8094   # http://10.42.0.1:8094/arducam-rear?action=stream
     rotate_180: true
 
   # Arducam B0495, YUYV only:

@@ -6,7 +6,10 @@
   `/?action=snapshot`, `/health`. Ports are GS UI tile slots (see `cameras.yaml`).
 - **On the rover**: `/rover/cameras/<name>/image_raw` + `camera_info` at `ros_fps` / `ros_res`,
   stamped with the capture time. Not for the GS over Wi-Fi.
-- **Dataset** (ROS services only), saved to `save_dir/<date>/<name>/`:
+- **Dataset** (ROS services only), saved to `save_dir/<date>/<name>/` (`/bags/dataset`: on the rover host `/home/indomitus-rover/bags/dataset`, mounted into `rover_prod`):
+  - format: `save_format: png` (default, lossless, for training) or `jpeg` (`save_quality`);
+    MJPG cameras save their own JPEG as is; the GS stream is JPEG either way;
+  - only saved frames are encoded (one per `record_interval`, default 1 s), not every captured one;
   - all cameras (`dataset_node`): `/rover/cameras/capture` (Trigger), `/rover/cameras/record`
     (SetBool), `/rover/cameras/record/toggle` (Trigger), `/rover/cameras/dataset_state` (latched);
   - one camera: `/rover/cameras/<name>/capture`, `…/record`, `…/dataset_state`;

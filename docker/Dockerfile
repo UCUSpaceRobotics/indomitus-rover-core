@@ -149,6 +149,10 @@ COPY --from=hw-builder ${HW_WS}/src/ ${HW_WS}/src/
 RUN mkdir -p ${WS}/src
 WORKDIR ${WS}
 
+# rover-mission / rover-session, same in dev and prod. Run from the source tree
+# (bind-mounted src/), so editing them or a mission needs no rebuild.
+ENV PATH=${WS}/src/indomitus/indomitus_robot/scripts:${PATH}
+
 RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then source /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash; fi" >> /root/.bashrc && \
     echo "if [ -f /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash; fi" >> /root/.bashrc && \
     echo "if [ -f ${HW_WS}/install/setup.bash ]; then source ${HW_WS}/install/setup.bash; fi" >> /root/.bashrc && \

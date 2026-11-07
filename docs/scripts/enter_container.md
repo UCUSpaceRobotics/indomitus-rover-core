@@ -31,7 +31,7 @@ Enter the remote production container on the rover computer:
 - Detach: `Ctrl-b d`. `exit` closes the session.
 - Inside the container: `tmux ls`, `Ctrl-b s` (switch session).
 - Without this script (plain ssh / docker / tmux): [ssh.md](../networking/ssh.md#container-and-tmux-sessions-without-scripts).
-- Config: [`docker/tmux.conf`](../../docker/tmux.conf). Autostart at boot: [`system/systemd/rover-launch-*.service`](../../system/README.md).
+- Config: [`docker/tmux.conf`](../../docker/tmux.conf). Missions / autostart at boot: [`rover-mission`](../../src/indomitus/indomitus_robot/README.md) (also `rover-mission enter core` inside the container).
 
 ## Configuration Flags & Defaults
 
@@ -41,8 +41,6 @@ The script accepts the following flags to override defaults depending on the sub
 | --- | --- | --- | --- |
 | **`--name`** | `local`, `rover` | Docker container name | `rover_dev` (local), `rover_prod` (rover) |
 | **`--compose`** | `local`, `rover` | Compose file path | `docker-compose.yaml` (local), `docker-compose.prod.yaml` (rover) |
-| **`--ros-distro`** | `local` | ROS 2 distribution name | `humble` |
-| **`--workspace`** | `local`, `rover` | ROS 2 workspace path inside container | `/opt/ws` |
 | **`--user`** | `rover` | Jetson SSH username | `indomitus-rover` |
 | **`--ip`** | `rover` | Jetson target IP/hostname | `10.42.0.1` |
 | **`--eth`** | `rover` | Use Ethernet target and skip hotspot auto-connect | `off` |

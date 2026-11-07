@@ -377,7 +377,7 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
-    # reuses rover_bringup's ros2_socketcan bridge; filter covers only
+    # reuses indomitus_can's ros2_socketcan bridge; filter covers only
     # jaw/astrobio/drill_sampling cmd/ack pairs (0x1A-0x1F), not joint IDs.
     # Always pushed under /arm: end_effector_can_node talks on the absolute
     # /arm/to_can_bus and /arm/from_can_bus topics, independent of rover's
@@ -392,7 +392,7 @@ def generate_launch_description() -> LaunchDescription:
 
     can_bridge_include = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory("rover_bringup"),
+            os.path.join(get_package_share_directory("indomitus_can"),
                          "launch", "can.launch.py")
         ),
         launch_arguments=can_bridge_launch_arguments.items(),

@@ -75,6 +75,8 @@
 
 # Protect Jetson's local repository state
 - .git/
+# rover-mission --default writes it on the Jetson (excluded = not overwritten, not deleted)
+- default-mission
 
 # Protect Compose files and backups from being wiped by root sync
 - docker-compose*.yaml

@@ -4,7 +4,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import (
-    EnvironmentVariable, LaunchConfiguration, Command, NotEqualsSubstitution,
+    EnvironmentVariable, LaunchConfiguration, Command,
     IfElseSubstitution,
 )
 from launch_ros.actions import PushRosNamespace
@@ -37,9 +37,7 @@ def generate_launch_description():
 
     use_joy_arg = DeclareLaunchArgument(
         'use_joy', default_value='true',
-        description='Wired gamepad plugged into the rover itself (cmd_vel_joy, '
-                    'top twist_mux priority) - separate from the ground '
-                    'station (cmd_vel_gs) and operator laptops (cmd_vel_remote)',
+        description='Wired gamepad plugged into the rover itself (cmd_vel_joy)',
     )
 
     joy_dev_arg = DeclareLaunchArgument(
@@ -47,23 +45,6 @@ def generate_launch_description():
         description='Device path for the rover-side gamepad; only used when use_joy:=true',
     )
 
-    use_cameras_arg = DeclareLaunchArgument(
-        'use_cameras', default_value='true',
-        description='rover_cameras: MJPEG streams to the ground station + image_raw topics',
-    )
-
-    zed2i_mode_arg = DeclareLaunchArgument(
-        'zed2i_mode', default_value='',
-        description=(
-            "ZED2i stereo camera mode: 'rgb' for the operator color feed, 'nav' for the "
-            "point cloud and VIO used by navigation, 'record' for traversability-dataset recording. "
-            "Leave empty to not launch the camera at all."
-        ),
-        choices=['', 'rgb', 'nav', 'record'],
-    )
-    zed2i_mode_val = LaunchConfiguration('zed2i_mode')
-
-    # Only for ros2_control_node on hardware; skipped in sim so xacro isn't run for nothing.
     robot_description = IfElseSubstitution(use_sim_val, if_value='', else_value=Command([
         'xacro ',
         os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
@@ -87,9 +68,8 @@ def generate_launch_description():
         interface_arg,
         use_joy_arg,
         joy_dev_arg,
-        use_cameras_arg,
-        zed2i_mode_arg,
 
+        # Cameras / ZED2i: cameras.launch.py (own tmux session, restarts without this one).
         GroupAction([
             PushRosNamespace(namespace_val),
 
@@ -116,6 +96,10 @@ def generate_launch_description():
 
             # Hardware only - in sim, Gazebo stands in for all of these.
             GroupAction([
+                include_launch('indomitus_can', 'can.launch.py', {
+                    'interface': LaunchConfiguration('interface'),
+                }),
+
                 include_launch('rover_teleop', 'gamepad.launch.py', {
                     'rover_namespace': '',   # already pushed by this group
                     'source': 'rover',       # the default is a laptop gamepad
@@ -129,10 +113,6 @@ def generate_launch_description():
                 include_launch('rover_bringup', 'can.launch.py', {
                     'interface': LaunchConfiguration('interface'),
                 }),
-
-                include_launch('rover_sensors', 'zed2i.launch.py', {
-                    'mode': zed2i_mode_val,
-                }, condition=IfCondition(NotEqualsSubstitution(zed2i_mode_val, ''))),
 
                 include_launch('rover_description', 'robot_state_publisher.launch.py', {
                     'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),

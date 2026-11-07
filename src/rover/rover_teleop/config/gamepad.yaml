@@ -66,9 +66,9 @@
     clear_errors_button: 13   # ↑
 
     # --- DATASET ---
-    # rover_cameras' dataset_node calls
-    dataset_capture_button: -1
-    dataset_record_button: -1
+    # rover_cameras' dataset_node calls (/rover/cameras/capture, record/toggle)
+    dataset_capture_button: 14   # one frame from every camera
+    dataset_record_button: 15    # recording on/off, a frame every record_interval s
 
     # --- TIMEOUT / PUBLISH RATE ---
     cmd_timeout: 0.2

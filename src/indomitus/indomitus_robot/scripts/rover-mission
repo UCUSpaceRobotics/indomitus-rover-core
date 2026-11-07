@@ -1,0 +1,220 @@
+#!/bin/bash
+# rover-mission - start/stop the rover's tmux sessions per mission, inside the rover container
+# (dev and prod). At boot: system/systemd/rover-mission.service runs `rover-mission default`.
+# From a laptop: scripts/missions.sh {rover,local} ...
+#
+# Missions: ../missions/<mission>.conf - "session [can=IFACE] command" per line, in start order.
+# Hardware: drive, nav, ...; simulation: drive-sim, nav-sim, ... (just names, nothing enforced).
+# Default:  ../default-mission - one line, written by --default (kept out of git and the deploy).
+# What runs in a session is read from its processes (rover-session status), so launches typed
+# by hand count too; the current mission name lives in tmux (@rover_mission).
+set -euo pipefail
+
+ROBOT_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+MISSION_DIR=$ROBOT_DIR/missions
+DEFAULT_FILE=$ROBOT_DIR/default-mission
+SESSION=$ROBOT_DIR/scripts/rover-session
+
+M_SESSIONS=()                  # load_mission: sessions in start order
+declare -A M_CMD=() M_CAN=()   # load_mission: session -> command / CAN interface
+declare -A KNOWN=()            # load_known: session -> its commands in any mission, one per line
+FORCE=false
+
+die() { echo -e "\e[31m[ERROR]\e[0m $*" >&2; exit 1; }
+
+missions() {
+    local f
+    for f in "$MISSION_DIR"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done
+}
+is_mission() { [[ -f $MISSION_DIR/$1.conf ]]; }
+
+load_mission() {
+    local file="$MISSION_DIR/$1.conf" s first rest cmd can
+    is_mission "$1" || die "Unknown mission '$1' ($(missions | xargs))"
+    M_SESSIONS=(); M_CMD=(); M_CAN=()
+    while read -r s first rest; do
+        [[ -z $s || $s == \#* ]] && continue
+        if [[ $first == can=* ]]; then can=${first#can=}; cmd=$rest; else can=; cmd="$first${rest:+ $rest}"; fi
+        cmd=${cmd%%[[:space:]]#*}; cmd=${cmd%"${cmd##*[![:space:]]}"}   # drop " # comment", trailing spaces
+        [[ -n $cmd ]] || die "$file: no command for '$s'"
+        M_SESSIONS+=("$s"); M_CMD[$s]=$cmd; M_CAN[$s]=$can
+    done < "$file"
+}
+
+# A command as `rover-session status` prints it: quotes resolved, program basename.
+norm() {
+    local -a w
+    mapfile -t w < <(printf '%s' "$1" | xargs printf '%s\n')
+    w[0]=${w[0]##*/}
+    echo "${w[*]}"
+}
+
+load_known() {
+    local m s
+    KNOWN=()
+    for m in $(missions); do
+        load_mission "$m"
+        for s in "${M_SESSIONS[@]}"; do KNOWN[$s]+="$(norm "${M_CMD[$s]}")"$'\n'; done
+    done
+}
+
+# Rover sessions = names used in any mission; others (your own `sim`, ...) are never touched.
+managed() {
+    local s
+    for s in "${!KNOWN[@]}"; do tmux has-session -t "=$s" 2>/dev/null && echo "$s"; done
+}
+
+# Classify what SESSION runs: none | idle | waiting (for CAN) | CMD (the given one) | known
+# (a command of this session in some mission) | custom (typed by hand).
+state() {   # state SESSION [CMD]
+    local run; run=$("$SESSION" status "$1")
+    case $run in
+        -) echo none;;
+        idle) echo idle;;
+        "rover-session wait-can "*) echo waiting;;
+        *) if [[ -n ${2:-} && $run == "$(norm "$2")" ]]; then echo same
+           elif grep -qxF -- "$run" <<< "${KNOWN[$1]:-}"; then echo known
+           else echo custom; fi;;
+    esac
+}
+
+# Typed by hand: never replaced without --force.
+keep_custom() {   # keep_custom SESSION -> 0 if left alone
+    [[ $FORCE == false ]] || return 1
+    echo -e "\e[33m>>> $1 runs a custom command - left alone (--force to replace):\e[0m $("$SESSION" status "$1")"
+}
+
+start() {   # start SESSION CAN CMD
+    echo ">>> start $1${2:+ (waits for $2)}: $3"
+    "$SESSION" start "$1" ${2:+"can=$2"} "$3"
+}
+
+apply() {
+    local mission=$1 s
+    load_known
+    load_mission "$mission"
+
+    # Stop first, in parallel: frees CAN / cameras before anything new grabs them.
+    for s in $(managed); do
+        [[ -v M_CMD[$s] ]] && continue
+        case $(state "$s") in
+            none|idle) continue;;
+            custom) keep_custom "$s" && continue;;
+        esac
+        echo ">>> stop $s"; "$SESSION" stop "$s" &
+    done
+    wait
+
+    for s in "${M_SESSIONS[@]}"; do
+        case $(state "$s" "${M_CMD[$s]}") in
+            same) echo ">>> $s already running"; continue;;
+            custom) keep_custom "$s" && continue;;
+        esac
+        start "$s" "${M_CAN[$s]}" "${M_CMD[$s]}"
+    done
+    tmux set -g @rover_mission "$mission"
+}
+
+stop_sessions() {   # stop_sessions SESSION... - in parallel, hand-typed commands too
+    local s st
+    for s in "$@"; do
+        st=$("$SESSION" status "$s"); [[ $st == idle || $st == - ]] && continue
+        echo ">>> stop $s"; "$SESSION" stop "$s" &
+    done
+    wait
+}
+
+stop() {   # stop [MISSION] - its sessions, or every rover session
+    local current
+    current=$(tmux show -gv @rover_mission 2>/dev/null || true)
+    if [[ -n ${1:-} ]]; then
+        load_mission "$1"; stop_sessions "${M_SESSIONS[@]}"
+        [[ $current == "$1" ]] || return 0
+    else
+        load_known; stop_sessions $(managed)
+    fi
+    tmux set -gu @rover_mission 2>/dev/null || true
+}
+
+status() {
+    local s st mission default
+    mission=$(tmux show -gv @rover_mission 2>/dev/null || true)
+    default=$(cat "$DEFAULT_FILE" 2>/dev/null || true)
+    echo "mission: ${mission:--}   default (boot): ${default:--}"
+    load_known
+    M_SESSIONS=(); M_CMD=()
+    [[ -n $mission ]] && is_mission "$mission" && load_mission "$mission"
+    printf "%-10s %-8s %s\n" SESSION STATE RUNS
+    for s in $( { printf '%s\n' "${M_SESSIONS[@]}"; managed | sort; } | awk 'NF && !seen[$0]++'); do
+        st=$(state "$s" "${M_CMD[$s]:-}")
+        [[ $st == same ]] && st=mission
+        printf "%-10s %-8s %s\n" "$s" "$st" "$("$SESSION" status "$s" | paste -sd ';')"
+    done
+}
+
+list() {
+    local m s
+    for m in $(missions); do
+        load_mission "$m"
+        echo "$m:"
+        for s in "${M_SESSIONS[@]}"; do
+            printf "  %-10s %-14s %s\n" "$s" "${M_CAN[$s]:+can=${M_CAN[$s]}}" "${M_CMD[$s]}"
+        done
+    done
+}
+
+show_help() {
+    cat << EOF
+Usage: rover-mission COMMAND
+
+  start MISSION [--default] [--force]
+                        start the mission's sessions, stop the other rover sessions;
+                        running ones with the same command are left alone, and so are
+                        commands typed by hand (warning) unless --force.
+                        --default: also the one 'default' starts (at boot)
+  stop [MISSION]        stop its sessions / every rover session (also what you typed by hand)
+  restart MISSION       stop its sessions, start them fresh with the mission's commands
+  default [--force]     start the default mission (rover-mission.service at boot)
+  enter SESSION [-r]    attach (-r: read-only); detach with Ctrl-b d
+  status                current / default mission, what runs in each session
+  list                  missions ($MISSION_DIR)
+
+Missions: $(missions | xargs)
+One session: rover-session (restart = Ctrl-C + rerun its last command, e.g. one typed by hand).
+EOF
+}
+
+[[ $# -gt 0 ]] || { show_help; exit 1; }
+cmd=$1; shift
+case $cmd in
+    -h|--help|help) show_help;;
+    status)  status;;
+    list)    list;;
+    stop)    [[ $# -le 1 ]] || die "Unexpected: ${*:2}"; stop "$@";;
+    enter)   [[ $# -ge 1 ]] || die "enter needs a SESSION"; exec "$SESSION" enter "$@";;
+    default)
+        [[ ${1:-} == --force ]] && FORCE=true
+        [[ -f $DEFAULT_FILE ]] || { echo ">>> no default mission ($DEFAULT_FILE) - nothing started"; exit 0; }
+        apply "$(head -1 "$DEFAULT_FILE" | tr -d '[:space:]')";;
+    restart)
+        [[ $# -eq 1 ]] || die "restart needs one MISSION"
+        load_mission "$1"; stop_sessions "${M_SESSIONS[@]}"; apply "$1";;
+    start)
+        [[ $# -ge 1 ]] || die "start needs a MISSION (missions: $(missions | xargs))"
+        mission=$1; shift
+        is_mission "$mission" || die "Unknown mission '$mission' (missions: $(missions | xargs))"
+        default=false
+        for a in "$@"; do
+            case $a in
+                --default) default=true;;
+                --force)   FORCE=true;;
+                *)         die "Unexpected: $a";;
+            esac
+        done
+        apply "$mission"
+        if [[ $default == true ]]; then
+            echo "$mission" > "$DEFAULT_FILE"
+            echo ">>> '$mission' is the default mission"
+        fi;;
+    *)  die "Unknown command '$cmd' (-h for help)";;
+esac

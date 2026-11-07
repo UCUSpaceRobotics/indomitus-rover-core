@@ -22,13 +22,14 @@
   <exec_depend>rover_peripherals</exec_depend>
   <exec_depend>rover_diagnostics</exec_depend>
   <exec_depend>rover_cameras</exec_depend>
+  <exec_depend>rover_sensors</exec_depend>
   <exec_depend>rover_comms</exec_depend>
   <exec_depend>rover_teleop</exec_depend>
   <exec_depend>rover_drive</exec_depend>
   <exec_depend>rover_controller</exec_depend>
 
   <!-- CAN -->
-  <exec_depend>ros2_socketcan</exec_depend>
+  <exec_depend>indomitus_can</exec_depend>
 
   <!-- URDF -->
   <exec_depend>xacro</exec_depend>
@@ -37,7 +38,6 @@
   <exec_depend>joint_state_broadcaster</exec_depend>
 
   <!-- Interfaces -->
-  <exec_depend>lifecycle_msgs</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
