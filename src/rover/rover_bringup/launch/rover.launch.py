@@ -106,14 +106,6 @@ def generate_launch_description():
                     'joy_dev': LaunchConfiguration('joy_dev'),
                 }, condition=IfCondition(LaunchConfiguration('use_joy'))),
 
-                include_launch('rover_cameras', 'cameras.launch.py', {
-                    'rover_namespace': '',   # already pushed by this group
-                }, condition=IfCondition(LaunchConfiguration('use_cameras'))),
-
-                include_launch('rover_bringup', 'can.launch.py', {
-                    'interface': LaunchConfiguration('interface'),
-                }),
-
                 include_launch('rover_description', 'robot_state_publisher.launch.py', {
                     'xacro_file': os.path.join(rover_description_share, 'urdf', 'rover.xacro'),
                     'xacro_args': [
