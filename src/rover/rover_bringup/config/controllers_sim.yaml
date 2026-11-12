@@ -1,4 +1,4 @@
-# rover_sim/parameters/controller.yaml
+# rover_bringup/config/controllers_sim.yaml - loaded by gz_ros2_control (rover_sim/sim_gz.launch.py) and by the spawners (rover.launch.py use_sim:=true)
 /**/controller_manager:
   ros__parameters:
     update_rate: 100

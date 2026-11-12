@@ -12,15 +12,22 @@ def make_controller_spawners(context):
     controllers = LaunchConfiguration('controllers').perform(context).split()
     inactive = set(LaunchConfiguration('inactive_controllers').perform(context).split())
 
+    # One spawner per group, not per controller: with --unload-on-kill each
+    # spawner stays alive until Ctrl+C, then unloads its controllers - so the
+    # software stack can be restarted against an already-running Gazebo.
+    groups = [
+        ([c for c in controllers if c not in inactive], []),
+        ([c for c in controllers if c in inactive], ['--inactive']),
+    ]
+
     spawners = []
-    for name in controllers:
-        args = [name, '--param-file', yaml_path]
-        if name in inactive:
-            args.append('--inactive')
+    for names, extra_args in groups:
+        if not names:
+            continue
         spawners.append(Node(
             package='controller_manager',
             executable='spawner',
-            arguments=args,
+            arguments=[*names, '--param-file', yaml_path, '--unload-on-kill', *extra_args],
             output='screen',
         ))
     return spawners
