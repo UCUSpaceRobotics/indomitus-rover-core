@@ -215,7 +215,6 @@ RoverHardwareInterface::on_configure(const rclcpp_lifecycle::State& /*prev*/)
             auto f3 = damiao_protocol::buildReadRegisterFrame(drive_ids_[i], 80);
             can_bus_.send(f1.id, f1.data.data(), f1.dlc);
             can_bus_.send(f2.id, f2.data.data(), f2.dlc);
-            // Damiao register read uses extended frame (0x7FF workaround)
             can_bus_.send(f3.id, f3.data.data(), f3.dlc, f3.is_extended);
         }
     });

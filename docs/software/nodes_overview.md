@@ -24,6 +24,7 @@ Custom ROS2 messages, services, and actions used across all packages.
 ## 1a. `indomitus_can`
 Shared CAN bridge (rover + arm), so arm doesn't depend on `rover_bringup`.
 
+- `CanBus` library (`indomitus_can/can_bus.hpp`) — SocketCAN transport: RX thread, bus state, TX/RX counters; used by `rover_hardware_interface`
 - `can.launch.py` — `ros2_socketcan` sender/receiver lifecycle nodes on `/to_can_bus` / `/from_can_bus`; fails if `interface` isn't UP; `receiver_filters` per caller (rover `300:700`, arm its tool IDs)
 
 ---

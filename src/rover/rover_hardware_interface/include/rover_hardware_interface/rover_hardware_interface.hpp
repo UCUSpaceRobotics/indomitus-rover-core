@@ -25,13 +25,15 @@
 #include "std_srvs/srv/set_bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
-#include "rover_hardware_interface/can_bus.hpp"
+#include "indomitus_can/can_bus.hpp"
 #include "rover_hardware_interface/constants.hpp"
 #include "rover_hardware_interface/damiao_protocol.hpp"
 #include "rover_hardware_interface/fault_detector.hpp"
 #include "rover_hardware_interface/steadywin_protocol.hpp"
 
 namespace rover_hardware_interface {
+
+using indomitus_can::CanBus;
 
 class RoverHardwareInterface : public hardware_interface::SystemInterface
 {

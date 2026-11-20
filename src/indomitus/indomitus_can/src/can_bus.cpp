@@ -1,9 +1,9 @@
-#include "rover_hardware_interface/can_bus.hpp"
+#include "indomitus_can/can_bus.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 #include <errno.h>
-#include <fcntl.h>
 #include <net/if.h>
 #include <poll.h>
 #include <sys/eventfd.h>
@@ -18,7 +18,7 @@
 #define CAN_ERR_CRTL_ACTIVE 0x40
 #endif
 
-namespace rover_hardware_interface {
+namespace indomitus_can {
 
 namespace {
 
@@ -39,15 +39,14 @@ bool CanBus::open(const std::string& interface_name)
 {
     interface_name_ = interface_name;
 
-    const int fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    const int fd = socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK | SOCK_CLOEXEC, CAN_RAW);
     if (fd < 0) {
         RCLCPP_ERROR(logger_, "[CanBus] socket failed: %s", std::strerror(errno));
         return false;
     }
 
-    can_err_mask_t err_mask = CAN_ERR_TX_TIMEOUT | CAN_ERR_LOSTARB | CAN_ERR_CRTL |
-        CAN_ERR_PROT | CAN_ERR_TRX | CAN_ERR_ACK | CAN_ERR_BUSOFF  |
-        CAN_ERR_BUSERROR | CAN_ERR_RESTARTED;
+    // Only the classes on_can_error() handles
+    can_err_mask_t err_mask = CAN_ERR_CRTL | CAN_ERR_BUSOFF | CAN_ERR_RESTARTED;
     setsockopt(fd, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &err_mask, sizeof(err_mask));
 
     // Bind socket to the named CAN interface
@@ -74,15 +73,6 @@ bool CanBus::open(const std::string& interface_name)
     // Disable loopback so we don't receive our own TX frames
     int loopback = 0;
     setsockopt(fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &loopback, sizeof(loopback));
-
-    // Non-blocking in both directions
-    const int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        RCLCPP_ERROR(logger_,
-            "[CanBus] fcntl(O_NONBLOCK) failed: %s", std::strerror(errno));
-        ::close(fd);
-        return false;
-    }
 
     {
         std::lock_guard<std::mutex> lock(tx_mutex_);
@@ -156,6 +146,8 @@ void CanBus::stop_rx()
 
 CanBus::SendResult CanBus::send(uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended)
 {
+    dlc = std::min<uint8_t>(dlc, CAN_MAX_DLEN);
+
     struct can_frame frame{};
     frame.can_id  = is_extended ? (id | CAN_EFF_FLAG) : (id & CAN_SFF_MASK);
     frame.can_dlc = dlc;
@@ -241,10 +233,9 @@ void CanBus::rx_thread_fn(std::function<void(const struct can_frame &)> on_frame
                 continue;  // don't pass error frames to on_frame
             }
 
-            // Strip flags from CAN ID before dispatch
-            const uint32_t raw_id = frame.can_id & CAN_EFF_MASK;
-            frame.can_id = raw_id;
+            if (frame.can_id & CAN_RTR_FLAG) continue;
 
+            // can_id keeps CAN_EFF_FLAG, so standard and extended IDs stay distinct
             on_frame(frame);
         }
     }
@@ -285,4 +276,4 @@ void CanBus::on_can_error(const struct can_frame & frame)
     }
 }
 
-}  // namespace rover_hardware_interface
+}  // namespace indomitus_can

@@ -11,7 +11,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 
-namespace rover_hardware_interface {
+namespace indomitus_can {
 
 
 class CanBus
@@ -68,4 +68,4 @@ private:
     std::atomic<int> rx_overflow_{0};  ///< frames lost to a full kernel RX queue
 };
 
-}  // namespace rover_hardware_interface
+}  // namespace indomitus_can

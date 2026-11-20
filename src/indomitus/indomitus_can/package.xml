@@ -4,7 +4,9 @@
   <name>indomitus_can</name>
   <version>0.0.0</version>
   <description>
-    ros2_socketcan bridge (/to_can_bus, /from_can_bus) shared by the rover and the arm.
+    CAN shared by the rover and the arm:
+    CanBus SocketCAN transport library (indomitus_can/can_bus.hpp) and the
+    ros2_socketcan bridge (/to_can_bus, /from_can_bus):
     ros2 launch indomitus_can can.launch.py interface:=can0
   </description>
   <maintainer email="indomitus@ucu.edu.ua">UCUSpaceRobotics</maintainer>
@@ -12,10 +14,14 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>rclcpp</depend>
+
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>ros2_socketcan</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

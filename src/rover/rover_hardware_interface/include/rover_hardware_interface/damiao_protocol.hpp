@@ -143,11 +143,10 @@ inline can_msgs::msg::Frame buildPositionVelocityFrame(uint8_t esc_id, float p_r
 //   80 (0x50) = p_m    : real-time motor position (rad, float)
 //   81 (0x51) = xout   : real-time output shaft position (rad, float)
 //   10 (0x0A) = CTRL_MODE : current control mode (uint32)
-// is_extended=true: same ros2_socketcan 0x7FF workaround as buildSetModeFrame.
 inline can_msgs::msg::Frame buildReadRegisterFrame(uint8_t esc_id, uint8_t reg = 80) {
     can_msgs::msg::Frame f;
     f.id          = 0x7FFu;
-    f.is_extended = true;
+    f.is_extended = false;
     f.dlc         = 8;
     f.data.fill(0x00);
     f.data[0] = esc_id & 0xFFu;
@@ -159,13 +158,10 @@ inline can_msgs::msg::Frame buildReadRegisterFrame(uint8_t esc_id, uint8_t reg =
 
 // CAN ID = 0x7FF, register 10 write — sets motor control mode
 // mode: 1=MIT, 2=PositionVelocity, 3=Velocity
-// is_extended=true: ros2_socketcan rejects standard-frame 0x7FF on some versions (>= bug);
-// marking extended bypasses the standard-frame check (0x7FF < 0x1FFFFFFF passes).
-// Damiao motors accept the frame regardless of the EFF flag at this address.
 inline can_msgs::msg::Frame buildSetModeFrame(uint8_t esc_id, uint8_t mode) {
     can_msgs::msg::Frame f;
     f.id          = 0x7FFu;
-    f.is_extended = true;   // workaround: extended-frame check allows 0x7FF
+    f.is_extended = false;
     f.dlc         = 8;
     f.data.fill(0x00);
     f.data[0] = esc_id & 0xFFu;
@@ -180,7 +176,7 @@ inline can_msgs::msg::Frame buildSetModeFrame(uint8_t esc_id, uint8_t mode) {
 inline can_msgs::msg::Frame buildWriteRegisterUint32Frame(uint8_t esc_id, uint8_t reg, uint32_t value) {
     can_msgs::msg::Frame f;
     f.id          = 0x7FFu;
-    f.is_extended = true;
+    f.is_extended = false;
     f.dlc         = 8;
     f.data.fill(0x00);
     f.data[0] = esc_id & 0xFFu;
