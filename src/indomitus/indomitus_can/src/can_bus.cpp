@@ -1,5 +1,6 @@
 #include "indomitus_can/can_bus.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 #include <errno.h>
@@ -156,6 +157,8 @@ void CanBus::stop_rx()
 
 CanBus::SendResult CanBus::send(uint32_t id, const uint8_t * data, uint8_t dlc, bool is_extended)
 {
+    dlc = std::min<uint8_t>(dlc, CAN_MAX_DLEN);
+
     struct can_frame frame{};
     frame.can_id  = is_extended ? (id | CAN_EFF_FLAG) : (id & CAN_SFF_MASK);
     frame.can_dlc = dlc;
@@ -240,6 +243,8 @@ void CanBus::rx_thread_fn(std::function<void(const struct can_frame &)> on_frame
                 on_can_error(frame);
                 continue;  // don't pass error frames to on_frame
             }
+
+            if (frame.can_id & CAN_RTR_FLAG) continue;
 
             // Strip flags from CAN ID before dispatch
             const uint32_t raw_id = frame.can_id & CAN_EFF_MASK;
