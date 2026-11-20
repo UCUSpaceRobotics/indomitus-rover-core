@@ -1,4 +1,4 @@
-#include "rover_hardware_interface/can_bus.hpp"
+#include "indomitus_can/can_bus.hpp"
 
 #include <cstring>
 
@@ -18,7 +18,7 @@
 #define CAN_ERR_CRTL_ACTIVE 0x40
 #endif
 
-namespace rover_hardware_interface {
+namespace indomitus_can {
 
 namespace {
 
@@ -285,4 +285,4 @@ void CanBus::on_can_error(const struct can_frame & frame)
     }
 }
 
-}  // namespace rover_hardware_interface
+}  // namespace indomitus_can

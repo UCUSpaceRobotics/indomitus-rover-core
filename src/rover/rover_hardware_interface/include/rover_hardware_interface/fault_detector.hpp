@@ -11,13 +11,15 @@
 
 #include "indomitus_interfaces/msg/fault_event.hpp"
 
-#include "rover_hardware_interface/can_bus.hpp"
+#include "indomitus_can/can_bus.hpp"
 #include "rover_hardware_interface/constants.hpp"
 #include "rover_hardware_interface/damiao_protocol.hpp"
 #include "rover_hardware_interface/motor_fault.hpp"
 #include "rover_hardware_interface/steadywin_protocol.hpp"
 
 namespace rover_hardware_interface {
+
+using indomitus_can::CanBus;
 
 // Detection is edge-triggered bookkeeping only — no I/O, no ROS publishing.
 
