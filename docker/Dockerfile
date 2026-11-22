@@ -31,8 +31,13 @@ ENV ROS_PYTHON_VERSION=3
 
 RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common curl \
     && add-apt-repository universe \
-    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+        -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) \
+        signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+        http://packages.ros.org/ros2/ubuntu \
+        $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+        | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${TARGET_ROS_DISTRO}-ros-base \
@@ -81,7 +86,8 @@ RUN find src -name ".git" -type d -prune -exec rm -rf '{}' + \
     && find src -name ".gitmodules" -type f -delete \
     && find src -name ".github" -type d -prune -exec rm -rf '{}' +
 
-RUN apt-get update && rosdep install --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
+RUN apt-get update && rosdep install --from-paths src --ignore-src \
+    --rosdistro ${TARGET_ROS_DISTRO} -r -y \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /tmp/fake_gpu \
@@ -119,8 +125,13 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common curl \
     && add-apt-repository universe \
-    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+        -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) \
+        signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+        http://packages.ros.org/ros2/ubuntu \
+        $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+        | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${TARGET_ROS_DISTRO}-ros-base \
@@ -165,10 +176,14 @@ WORKDIR ${WS}
 # (bind-mounted src/), so editing them or a mission needs no rebuild.
 ENV PATH=${WS}/src/indomitus/indomitus_robot/scripts:${PATH}
 
-RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then source /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f ${HW_WS}/install/setup.bash ]; then source ${HW_WS}/install/setup.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f ${WS}/install/setup.bash ]; then source ${WS}/install/setup.bash; fi" >> /root/.bashrc && \
+RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then \
+        source /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash; fi" >> /root/.bashrc && \
+    echo "if [ -f /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then \
+        source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash; fi" >> /root/.bashrc && \
+    echo "if [ -f ${HW_WS}/install/setup.bash ]; then \
+        source ${HW_WS}/install/setup.bash; fi" >> /root/.bashrc && \
+    echo "if [ -f ${WS}/install/setup.bash ]; then \
+        source ${WS}/install/setup.bash; fi" >> /root/.bashrc && \
     echo "if [ -f /root/.bash_aliases ]; then source /root/.bash_aliases; fi" >> /root/.bashrc
 
 COPY docker/entrypoint.bash /entrypoint.bash
@@ -204,7 +219,8 @@ ARG ROBOT_META
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
 # Dependencies of indomitus_robot only: no simulation and visualization.
-RUN apt-get update && rosdep install --from-paths $(colcon list --packages-up-to ${ROBOT_META} --paths-only) \
+RUN apt-get update && rosdep install \
+    --from-paths $(colcon list --packages-up-to ${ROBOT_META} --paths-only) \
     --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
     -t build \
     -t buildtool \
@@ -219,7 +235,8 @@ COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
 ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
 
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
-RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && colcon build --packages-up-to ${ROBOT_META}"
+RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && \
+    colcon build --packages-up-to ${ROBOT_META}"
 
 RUN rm -rf ${WS}/log/
 
