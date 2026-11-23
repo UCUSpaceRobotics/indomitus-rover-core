@@ -242,7 +242,6 @@ COPY src/ ${WS}/src/
 COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
 ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
 
-COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
 RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash \
     && colcon build --packages-up-to ${ROBOT_META}"
 
