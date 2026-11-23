@@ -39,9 +39,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends software-proper
         $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
         | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-${TARGET_ROS_DISTRO}-ros-base \
-    build-essential python3-colcon-common-extensions python3-rosdep git \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ros-${TARGET_ROS_DISTRO}-ros-base \
+        build-essential python3-colcon-common-extensions python3-rosdep git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN rosdep init || true && rosdep update
@@ -86,8 +87,9 @@ RUN find src -name ".git" -type d -prune -exec rm -rf '{}' + \
     && find src -name ".gitmodules" -type f -delete \
     && find src -name ".github" -type d -prune -exec rm -rf '{}' +
 
-RUN apt-get update && rosdep install --from-paths src --ignore-src \
-    --rosdistro ${TARGET_ROS_DISTRO} -r -y \
+RUN apt-get update \
+    && rosdep install \
+        --from-paths src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /tmp/fake_gpu \
@@ -133,14 +135,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends software-proper
         $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
         | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-${TARGET_ROS_DISTRO}-ros-base \
-    locales git curl wget ca-certificates \
-    build-essential python3-pip \
-    python3-colcon-common-extensions python3-rosdep \
-    iputils-ping pkg-config usbutils iproute2 g++ make cmake \
-    can-utils \
-    vim tmux \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ros-${TARGET_ROS_DISTRO}-ros-base \
+        locales git curl wget ca-certificates \
+        build-essential python3-pip \
+        python3-colcon-common-extensions python3-rosdep \
+        iputils-ping pkg-config usbutils iproute2 g++ make cmake \
+        can-utils \
+        vim tmux \
     && rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US.UTF-8
@@ -165,8 +168,10 @@ RUN rosdep init || true && rosdep update
 COPY --from=hw-builder ${HW_WS}/install/ ${HW_WS}/install/
 COPY --from=hw-builder ${HW_WS}/src/ ${HW_WS}/src/
 
-RUN apt-get update && rosdep install --from-paths ${HW_WS}/src --ignore-src \
-    --rosdistro ${TARGET_ROS_DISTRO} -r -y -t exec \
+RUN apt-get update \
+    && rosdep install \
+        --from-paths ${HW_WS}/src --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
+        -t exec \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p ${WS}/src
@@ -220,14 +225,15 @@ ARG ROBOT_META
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
 # Dependencies of indomitus_robot only: no simulation and visualization.
-RUN apt-get update && rosdep install \
-    --from-paths $(colcon list --packages-up-to ${ROBOT_META} --paths-only) \
-    --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
-    -t build \
-    -t buildtool \
-    -t build_export \
-    -t buildtool_export \
-    -t exec \
+RUN apt-get update \
+    && rosdep install \
+        --from-paths $(colcon list --packages-up-to ${ROBOT_META} --paths-only) \
+        --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
+        -t build \
+        -t buildtool \
+        -t build_export \
+        -t buildtool_export \
+        -t exec \
     && rm -rf /var/lib/apt/lists/*
 
 COPY src/ ${WS}/src/
