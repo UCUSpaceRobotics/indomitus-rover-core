@@ -15,8 +15,8 @@ FROM ubuntu:${UBUNTU_VERSION} AS cacher
 WORKDIR /tmp/src
 COPY src/ .
 
-RUN mkdir -p /extracted_xmls && \
-    find . -name "package.xml" -exec cp --parents {} /extracted_xmls/ \;
+RUN mkdir -p /extracted_xmls \
+    && find . -name "package.xml" -exec cp --parents {} /extracted_xmls/ \;
 
 
 ####################
@@ -95,12 +95,12 @@ RUN mkdir -p /tmp/fake_gpu \
     && cp /usr/local/cuda/lib64/stubs/libcuda.so /tmp/fake_gpu/libnvcuvid.so.1 \
     && cp /usr/local/cuda/lib64/stubs/libcuda.so /tmp/fake_gpu/libnvidia-encode.so.1
 
-RUN /bin/bash -c "export LD_LIBRARY_PATH=/tmp/fake_gpu:\${LD_LIBRARY_PATH} && \
-    source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && \
-    colcon build --cmake-args \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_SHARED_LINKER_FLAGS='-Wl,--allow-shlib-undefined' \
-    -DCMAKE_EXE_LINKER_FLAGS='-Wl,--allow-shlib-undefined'" \
+RUN /bin/bash -c "export LD_LIBRARY_PATH=/tmp/fake_gpu:\${LD_LIBRARY_PATH} \
+    && source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash \
+    && colcon build --cmake-args \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_SHARED_LINKER_FLAGS='-Wl,--allow-shlib-undefined' \
+        -DCMAKE_EXE_LINKER_FLAGS='-Wl,--allow-shlib-undefined'" \
     && rm -rf build/ log/ \
     && rm -rf /tmp/fake_gpu
 
@@ -140,8 +140,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions python3-rosdep \
     iputils-ping pkg-config usbutils iproute2 g++ make cmake \
     can-utils \
-    vim tmux && \
-    rm -rf /var/lib/apt/lists/*
+    vim tmux \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
@@ -177,14 +177,14 @@ WORKDIR ${WS}
 ENV PATH=${WS}/src/indomitus/indomitus_robot/scripts:${PATH}
 
 RUN echo "if [ -f /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash ]; then \
-        source /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then \
-        source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f ${HW_WS}/install/setup.bash ]; then \
-        source ${HW_WS}/install/setup.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f ${WS}/install/setup.bash ]; then \
-        source ${WS}/install/setup.bash; fi" >> /root/.bashrc && \
-    echo "if [ -f /root/.bash_aliases ]; then source /root/.bash_aliases; fi" >> /root/.bashrc
+        source /opt/ros/\${TARGET_ROS_DISTRO}/setup.bash; fi" >> /root/.bashrc \
+    && echo "if [ -f /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then \
+        source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash; fi" >> /root/.bashrc \
+    && echo "if [ -f ${HW_WS}/install/setup.bash ]; then \
+        source ${HW_WS}/install/setup.bash; fi" >> /root/.bashrc \
+    && echo "if [ -f ${WS}/install/setup.bash ]; then \
+        source ${WS}/install/setup.bash; fi" >> /root/.bashrc \
+    && echo "if [ -f /root/.bash_aliases ]; then source /root/.bash_aliases; fi" >> /root/.bashrc
 
 COPY docker/entrypoint.bash /entrypoint.bash
 COPY docker/.bash_aliases /root/.bash_aliases
@@ -202,10 +202,11 @@ ARG DESKTOP_META
 COPY --from=cacher /extracted_xmls/ ${WS}/src/
 
 # Dependencies of indomitus_desktop and everything it pulls in.
-RUN apt-get update && \
-    rosdep install --from-paths $(colcon list --packages-up-to ${DESKTOP_META} --paths-only) \
-        --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && rosdep install \
+        --from-paths $(colcon list --packages-up-to ${DESKTOP_META} --paths-only) \
+        --ignore-src --rosdistro ${TARGET_ROS_DISTRO} -r -y \
+    && rm -rf /var/lib/apt/lists/*
 
 CMD ["bash"]
 
@@ -235,8 +236,8 @@ COPY docker/colcon_defaults.prod.yaml ${WS}/colcon_defaults.yaml
 ENV COLCON_DEFAULTS_FILE=${WS}/colcon_defaults.yaml
 
 COPY docker/colcon_defaults.prod.yaml colcon_defaults.yaml
-RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash && \
-    colcon build --packages-up-to ${ROBOT_META}"
+RUN /bin/bash -c "source /opt/ros/${TARGET_ROS_DISTRO}/setup.bash \
+    && colcon build --packages-up-to ${ROBOT_META}"
 
 RUN rm -rf ${WS}/log/
 
