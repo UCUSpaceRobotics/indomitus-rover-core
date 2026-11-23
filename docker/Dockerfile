@@ -154,6 +154,10 @@ RUN rosdep init || true && rosdep update
 COPY --from=hw-builder ${HW_WS}/install/ ${HW_WS}/install/
 COPY --from=hw-builder ${HW_WS}/src/ ${HW_WS}/src/
 
+RUN apt-get update && rosdep install --from-paths ${HW_WS}/src --ignore-src \
+    --rosdistro ${TARGET_ROS_DISTRO} -r -y -t exec \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p ${WS}/src
 WORKDIR ${WS}
 
