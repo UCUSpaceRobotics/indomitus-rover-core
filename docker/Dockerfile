@@ -141,6 +141,14 @@ ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 # which the ZED SDK likely needs; pinned exact for reproducible builds.
 RUN pip3 install --no-cache-dir --upgrade 'scipy==1.15.3'
 
+# BASE_IMAGE's pip packages in /usr/local are root-only (drwx------), so for a non-root
+# user (distrobox) `import setuptools` raises PermissionError and numpy/pyzed silently
+# fail to import. Make them world-readable; only unreadable entries are touched, so the
+# layer stays small. The extra \( \) group is needed: without it -exec skips directories.
+RUN find "$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" \
+        \( \( -type d ! -perm -o=rx \) -o \( -type f ! -perm -o=r \) \) \
+        -exec chmod a+rX {} +
+
 RUN rosdep init || true && rosdep update
 
 COPY --from=hw-builder ${HW_WS}/install/ ${HW_WS}/install/
