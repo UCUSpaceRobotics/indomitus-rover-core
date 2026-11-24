@@ -7,7 +7,7 @@
 //     sudo ip link set up vcan0
 //
 // and quietly skip in a container that has no networking privileges. Set
-// ROVER_TEST_CAN_IFACE to use something other than vcan0.
+// INDOMITUS_TEST_CAN_IFACE to use something other than vcan0.
 //
 // The shutdown test is the reason this file exists: a silent bus is the normal
 // state at deactivation (the motors have just been told to stop), and that is
@@ -24,16 +24,16 @@
 #include <string>
 #include <thread>
 
-#include "rover_hardware_interface/can_bus.hpp"
+#include "indomitus_can/can_bus.hpp"
 
-using rover_hardware_interface::CanBus;
+using indomitus_can::CanBus;
 using namespace std::chrono_literals;
 
 namespace {
 
 std::string test_interface()
 {
-    const char * env = std::getenv("ROVER_TEST_CAN_IFACE");
+    const char * env = std::getenv("INDOMITUS_TEST_CAN_IFACE");
     return env ? std::string(env) : std::string("vcan0");
 }
 

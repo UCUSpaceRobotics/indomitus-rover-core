@@ -15,10 +15,10 @@ find_package(sensor_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(indomitus_interfaces REQUIRED)
+find_package(indomitus_can REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rover_hardware_interface.cpp
-  src/can_bus.cpp
   src/fault_detector.cpp
 )
 
@@ -43,6 +43,7 @@ ament_target_dependencies(${PROJECT_NAME}
   diagnostic_msgs
   std_srvs
   indomitus_interfaces
+  indomitus_can
 )
 
 pluginlib_export_plugin_description_file(hardware_interface plugins.xml)
@@ -58,6 +59,7 @@ ament_export_dependencies(
   diagnostic_msgs
   std_srvs
   indomitus_interfaces
+  indomitus_can
 )
 
 install(TARGETS ${PROJECT_NAME}
@@ -97,17 +99,6 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_fault_detector
     rclcpp can_msgs indomitus_interfaces)
 
-  # Socket lifecycle. Skips itself when no CAN interface is available, so it is
-  # a no-op in a container without vcan rather than a failure.
-  ament_add_gtest(test_can_bus
-    test/test_can_bus.cpp
-    TIMEOUT 60
-  )
-  target_include_directories(test_can_bus PRIVATE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  )
-  target_link_libraries(test_can_bus ${PROJECT_NAME})
-  ament_target_dependencies(test_can_bus rclcpp)
 endif()
 
 ament_package()

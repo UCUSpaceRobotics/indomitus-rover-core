@@ -206,7 +206,7 @@ TEST(FaultDetectorFault, DriveMotorCommLossIsReportedWithFreezeFrame) {
 // ── Transport ────────────────────────────────────────────────────────────────
 
 TEST(FaultDetectorBus, WarningIsNotAFaultButPassiveIs) {
-    using Bus = rover_hardware_interface::CanBus::BusState;
+    using Bus = indomitus_can::CanBus::BusState;
     FaultDetector d(test_clock());
 
     d.detect_bus_fault(Bus::OK, "can0", true);
