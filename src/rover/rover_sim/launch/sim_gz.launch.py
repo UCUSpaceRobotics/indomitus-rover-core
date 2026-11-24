@@ -13,6 +13,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     TimerAction,
     RegisterEventHandler,
+    LogInfo,
 )
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -26,13 +27,8 @@ from launch.substitutions import (
 from launch_ros.actions import Node, PushRosNamespace
 from rover_bringup.launch_utils import include_launch
 
-BASE_CONTROLLERS = [
-    "joint_state_broadcaster",
-    "odometry_controller",
-    "diff_bar_effort_controller",
-]
-
-SWERVE_CONTROLLER = "swerve_controller"
+# Stands in for the rover's passive differential bar (rockers mirror each other).
+DIFF_BAR_CONTROLLER = "diff_bar_effort_controller"
 
 # List of available worlds.
 SUPPORTED_WORLDS = ["mars_yard", "nav2_test_world"]
@@ -117,15 +113,6 @@ def setup_environment() -> list:
         os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] = nvidia_egl_path
 
 
-def make_control_launch(context, controllers_yaml_path: str) -> list[GroupAction]:
-    return [include_launch("rover_controller", "control.launch.py", {
-        "use_sim": "true",
-        "controllers_yaml": controllers_yaml_path,
-        "controllers": " ".join([SWERVE_CONTROLLER, *BASE_CONTROLLERS]),
-        "inactive_controllers": "",
-    })]
-
-
 def generate_bridge_and_rsp(context, rover_sim_share: str, rover_description_share: str, controllers_yaml_path: str, launch_tmp_dir: str, world_name_sub, model_name_sub, extra_xacro_args_sub) -> list:
     """Dynamically handles configuration switching for the bridge and robot description."""
     world = world_name_sub.perform(context)
@@ -178,6 +165,17 @@ def make_gazebo_launch(rover_sim_share: str, world_name_sub) -> IncludeLaunchDes
         "gz_args": ["-r ", world_file, ".sdf"],
         "on_exit_shutdown": "True",
     }.items())
+
+
+def make_diff_bar_spawner(controllers_yaml_path: str) -> Node:
+    """The diff bar is real hardware's passive mechanism, so it belongs to the sim,
+    not to the software stack: it lives as long as Gazebo does."""
+    return Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[DIFF_BAR_CONTROLLER, "--param-file", controllers_yaml_path],
+        output="screen",
+    )
 
 
 def make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub) -> Node:
@@ -288,7 +286,10 @@ def generate_launch_description() -> LaunchDescription:
 
     check_git_lfs(rover_sim_share)
 
-    controllers_yaml_path = os.path.join(rover_sim_share, "config", "controllers.yaml")
+    # Lives in rover_bringup: the spawners in rover.launch.py use_sim:=true load the
+    # same file, and rover_sim isn't deployed to the rover.
+    controllers_yaml_path = os.path.join(
+        get_package_share_directory("rover_bringup"), "config", "controllers_sim.yaml")
     LAUNCH_TMP_DIR = tempfile.mkdtemp(prefix="rover_sim_")
 
     def cleanup_tmp_dir(context):
@@ -389,25 +390,18 @@ def generate_launch_description() -> LaunchDescription:
 
             TimerAction(
                 period=LaunchConfiguration("spawn_delay"),
-                actions=[make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub)]
+                actions=[
+                    make_spawn_node(model_name_sub, spawn_x_sub, spawn_y_sub, spawn_z_sub),
+                    make_diff_bar_spawner(controllers_yaml_path),
+                ]
             ),
 
-            include_launch("rover_localization", "ekf.launch.py", {
-                "use_sim_time": "true",
-            }),
-
-            OpaqueFunction(function=make_control_launch,
-                           kwargs={"controllers_yaml_path": controllers_yaml_path}),
-
-            include_launch("rover_drive", "twist_mux.launch.py", {
-                "use_sim_time": "true",
-            }),
-
-            include_launch("rover_drive", "drive_manager.launch.py", {
-                "use_sim_time": "true",
-                "controller_name": SWERVE_CONTROLLER,
-            }),
         ]),
+
+        # Gazebo hosts the controller_manager (gz_ros2_control) and spawns only the
+        # diff bar - the other controllers, EKF, twist_mux and drive_manager come from the software stack.
+        LogInfo(msg="[rover_sim] Gazebo only. Start the software stack alongside: "
+                    "ros2 launch rover_bringup rover.launch.py use_sim:=true"),
 
         # Trigger folder cleanup safely upon launch termination
         cleanup_handler,

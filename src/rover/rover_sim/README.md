@@ -34,7 +34,11 @@ git lfs pull
 
 ## `sim_gz.launch.py`
 
-Launches the Gazebo world, spawns the rover, and starts its base stack: `ros_gz_bridge`, `robot_state_publisher`, EKF, `twist_mux`, and the base + swerve controllers.
+Simulation only - stands in for the rover hardware:
+- Gazebo world, rover spawn, `ros_gz_bridge`, `robot_state_publisher`
+- `controller_manager` runs inside Gazebo (`gz_ros2_control`); only `diff_bar_effort_controller` (stand-in for the passive diff bar) is spawned here
+- software stack (controllers, EKF, `twist_mux`, `drive_manager`) runs separately: `rover_bringup rover.launch.py use_sim:=true`
+- restart the software stack freely - Gazebo keeps running, spawners unload controllers on Ctrl+C
 
 | Argument | Default | Description |
 |---|---|---|
@@ -49,7 +53,10 @@ Launches the Gazebo world, spawns the rover, and starts its base stack: `ros_gz_
 **Example:**
 
 ```bash
+# terminal 1
 ros2 launch rover_sim sim_gz.launch.py
+# terminal 2
+ros2 launch rover_bringup rover.launch.py use_sim:=true
 ```
 
 Legacy/fallback (2025 map):
@@ -61,6 +68,7 @@ ros2 launch rover_sim sim_gz.launch.py map_year:=2025 map_resolution:=high
 ## `sim_gz_nav2.launch.py`
 
 Includes `sim_gz.launch.py` (with LiDAR/depth simulation xacro args enabled), then after a 10s delay starts `scan_filter`, SLAM, and Nav2.
+- needs `rover_bringup rover.launch.py use_sim:=true` alongside to drive
 
 All world/map/model/spawn arguments below are forwarded as-is to `sim_gz.launch.py` — leave them empty to use its defaults.
 
@@ -84,6 +92,7 @@ ros2 launch rover_sim sim_gz_nav2.launch.py
 ## `sim_gz_full.launch.py`
 
 Launches a combined rover + arm robot in Gazebo (single `robot_description`, arm-aware bridge/controllers), and optionally spawns the switch panel task board.
+- still all-in-one: spawns its own controllers, EKF, `twist_mux`, `drive_manager` - don't run `rover.launch.py use_sim:=true` alongside
 
 | Argument | Default | Description |
 |---|---|---|
