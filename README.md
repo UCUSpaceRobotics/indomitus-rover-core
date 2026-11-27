@@ -70,6 +70,7 @@ This file provides all necessary documentation for basic work with the project. 
 - [Arm sim](docs/arm/arm_sim.md) — RViz / MoveIt visualization, arm-only launch modes
 - [Panel Simulation](docs/panel/panel_sim.md) — switch panel launch modes, combined rover+arm+panel sim
 - [Testing](docs/software/testing.md) — code testing and test creation
+- [Code review](docs/software/code_review.md) — who reviews what, PR size, mentor review
 - [Scripts](docs/scripts/) — scripts automating workflows
 - [Deployment](docs/deployment.md) — code deployment to the rover
 - [CAD](docs/CAD/README.md) — CAD files naming conventions

@@ -1,1 +1,27 @@
-* @OShevchuk-UCU
+# Code owners for indomitus-rover-core.
+# Review rules: docs/software/code_review.md
+#
+# GitHub uses the LAST matching line, so the default comes first and areas follow.
+# Owners are teams, so an approval from any member of the team counts.
+# Every team listed here needs write access to this repository, otherwise GitHub ignores the line.
+
+# Default and shared code (interfaces, CAN, docker, CI, scripts, system setup):
+# tech leads of the rover and the arm
+*                       @UCUSpaceRobotics/maintainers
+
+# Rover
+/src/rover/             @UCUSpaceRobotics/rover-software
+/scripts/navigation/    @UCUSpaceRobotics/rover-software
+
+# Arm and panel
+/src/arm/               @UCUSpaceRobotics/manipulator-software
+/src/panel/             @UCUSpaceRobotics/manipulator-software
+/scripts/arm/           @UCUSpaceRobotics/manipulator-software
+/docs/arm/              @UCUSpaceRobotics/manipulator-software
+/docs/panel/            @UCUSpaceRobotics/manipulator-software
+
+# Shared code used by both rover and arm: tech leads only
+/src/indomitus/         @UCUSpaceRobotics/maintainers
+/.github/               @UCUSpaceRobotics/maintainers
+/docker/                @UCUSpaceRobotics/maintainers
+/system/                @UCUSpaceRobotics/maintainers
